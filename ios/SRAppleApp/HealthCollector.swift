@@ -7,6 +7,7 @@ import HealthKit
     var onUpdate: (() -> Void)?
     private var observers: [HKObserverQuery] = []
     private var collecting = false
+    private var generation = 0
     static let labels = ["steps": "Steps", "heart_rate": "Heart rate", "resting_heart_rate": "Resting heart rate", "sleep": "Sleep", "workout": "Workouts"]
     init(outbox: Outbox) { self.outbox = outbox }
     func type(_ kind: String) -> HKSampleType {
@@ -27,6 +28,7 @@ import HealthKit
         startObservers()
     }
     func startObservers() {
+        generation += 1
         observers.forEach { store.stop($0) }; observers.removeAll()
         guard HKHealthStore.isHealthDataAvailable() else { return }
         for kind in Self.labels.keys {
@@ -48,13 +50,16 @@ import HealthKit
     func collect() async throws {
         guard !collecting, HKHealthStore.isHealthDataAvailable() else { return }
         collecting = true; defer { collecting = false }
+        let startedGeneration = generation
         for kind in outbox.state.healthEnabled {
-            if kind == "steps" { try await steps(); continue }
+            if kind == "steps" { try await steps(generation: startedGeneration); continue }
             var more = true
             while more {
                 let anchorData = outbox.state.anchors[kind]
                 let anchor = try anchorData.map { try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) } ?? nil
                 let result = try await changes(kind: kind, anchor: anchor)
+                guard generation == startedGeneration, outbox.state.healthEnabled.contains(kind) else { return }
+                try Task.checkCancellation()
                 let records = result.0.map { record($0, kind: kind) }
                 let deleted = result.1.map { $0.uuid.uuidString }
                 let next = try result.2.map { try NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
@@ -104,7 +109,7 @@ import HealthKit
         default: return "Workout \(type.rawValue)"
         }
     }
-    private func steps() async throws {
+    private func steps(generation startedGeneration: Int) async throws {
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: outbox.state.historyStart)
         let end = Date()
@@ -125,6 +130,8 @@ import HealthKit
             }
             store.execute(query)
         }
+        guard generation == startedGeneration, outbox.state.healthEnabled.contains("steps") else { return }
+        try Task.checkCancellation()
         if !records.isEmpty { try outbox.change { $0.batches.append(UploadBatch(health: records)) } }
     }
 }

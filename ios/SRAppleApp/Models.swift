@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 struct HealthRecord: Codable, Identifiable {
     var id: String
@@ -38,6 +39,11 @@ struct FamilyMember: Codable, Identifiable {
 }
 struct FamilyResponse: Codable { var members: [FamilyMember] }
 struct HealthResponse: Codable { var records: [HealthRecord] }
+func parseTimestamp(_ text: String) -> Date? {
+    let format = ISO8601DateFormatter()
+    format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return format.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+}
 func timestamp(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
 
 /// The complete outbox and HealthKit anchors are replaced atomically together.
@@ -46,6 +52,7 @@ struct PersistedState: Codable {
     var anchors: [String: Data] = [:]
     var healthEnabled: [String] = []
     var sharing = false
+    var pendingSharing: Bool?
     var lastUpload: Date?
     var historyStart = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
 }
@@ -64,6 +71,8 @@ struct PersistedState: Codable {
     }
     func change(_ transform: (inout PersistedState) throws -> Void) throws {
         var next = state; try transform(&next)
+        let count = next.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }
+        guard count <= 50000 else { throw CompanionError.message("Offline queue is full. Connect and sync before collecting more data.") }
         let data = try JSONEncoder().encode(next)
         try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         state = next

@@ -3,7 +3,10 @@ import Security
 
 enum CompanionError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case .message(let value) = self { return value }; return nil }
+    case response(Int, String)
+    var errorDescription: String? {
+        switch self { case .message(let value): return value; case .response(_, let value): return value }
+    }
 }
 enum Keychain {
     static let service = "com.strangeramblings.appleapp"
@@ -46,7 +49,7 @@ enum Keychain {
         let (body, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let error = try? JSONDecoder().decode(APIError.self, from: body)
-            throw CompanionError.message(error?.error ?? "Upload failed. Queued records will retry.")
+            throw CompanionError.response((response as? HTTPURLResponse)?.statusCode ?? 0, error?.error ?? "Upload failed. Queued records will retry.")
         }
         return try JSONDecoder().decode(T.self, from: body)
     }

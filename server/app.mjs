@@ -118,6 +118,13 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false }
         db.prepare('UPDATE users SET sharing=? WHERE id=?').run(Number(body.enabled), auth.user_id);
         return send(200, { sharing: body.enabled });
       }
+      if (path === '/api/apple/summary' && method === 'GET') {
+        const records = [...kinds].flatMap(kind => {
+          const row = db.prepare('SELECT payload,received FROM health WHERE user_id=? AND kind=? ORDER BY start DESC LIMIT 1').get(auth.user_id, kind);
+          return row ? [{ ...JSON.parse(row.payload), received: row.received }] : [];
+        });
+        return send(200, { records });
+      }
       if (path === '/api/apple/health' && method === 'GET') {
         if ([...url.searchParams.keys()].some(k => !['kind', 'before'].includes(k))) fail(400, 'Health can only be read for the signed-in user');
         const kind = url.searchParams.get('kind');

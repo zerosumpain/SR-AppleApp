@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import CoreLocation
 
 @MainActor final class LocationCollector: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -6,6 +7,7 @@ import CoreLocation
     private let outbox: Outbox
     private var policy = MovementPolicy()
     private var reference: CLLocation?
+    private var heartbeat: Timer?
     var onUpdate: (() -> Void)?
     @Published var status = "Location sharing is off"
     init(outbox: Outbox) {
@@ -26,6 +28,15 @@ import CoreLocation
             manager.desiredAccuracy = policy.moving ? kCLLocationAccuracyBest : kCLLocationAccuracyHundredMeters
             manager.distanceFilter = policy.moving ? 10 : 30
             manager.startUpdatingLocation()
+            if heartbeat == nil {
+                // Best effort while the process is running; timers do not wake suspended iOS apps.
+                heartbeat = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                    Task { @MainActor in
+                        guard let self, self.outbox.state.sharing else { return }
+                        self.manager.requestLocation()
+                    }
+                }
+            }
             if CLLocationManager.significantLocationChangeMonitoringAvailable() { manager.startMonitoringSignificantLocationChanges() }
             status = manager.authorizationStatus == .authorizedAlways ? "Sharing · background access enabled" : "Sharing · enable Always for background recovery"
         case .notDetermined: status = "Location permission needed"
@@ -33,6 +44,7 @@ import CoreLocation
         }
     }
     func stop() {
+        heartbeat?.invalidate(); heartbeat = nil
         manager.stopUpdatingLocation(); manager.stopMonitoringSignificantLocationChanges()
         manager.allowsBackgroundLocationUpdates = false
         policy = MovementPolicy(); reference = nil; status = "Location sharing is off"

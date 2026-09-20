@@ -94,7 +94,7 @@ struct ContentView: View {
                     Text(member.name).font(.headline)
                     if let point = member.location {
                         Text("Recorded \(point.recorded)").font(.caption)
-                        let stale = (ISO8601DateFormatter().date(from: point.recorded)?.timeIntervalSinceNow ?? -.infinity) < -1200
+                        let stale = (parseTimestamp(point.recorded)?.timeIntervalSinceNow ?? -.infinity) < -1200
                         Text(stale ? "Stale location" : "Latest available location").foregroundStyle(stale ? accent : ink)
                         Text("Accuracy ±\(Int(point.accuracy)) m · \(point.moving ? "Moving" : "Stationary")").font(.caption)
                         Button("Open in Maps") {

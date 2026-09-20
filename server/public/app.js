@@ -28,9 +28,10 @@ async function health() {
   }
   if (truncated) $('records').append(node('p', 'Showing the latest 500 records. Choose a category to narrow the view.', 'muted'));
   if (!category) {
+    const summary = await api('summary');
     $('metrics').replaceChildren();
     for (const [kind, label] of Object.entries(labels)) {
-      const r = records.find(x => x.kind === kind), tile = node('div', '', 'metric');
+      const r = summary.records.find(x => x.kind === kind), tile = node('div', '', 'metric');
       tile.append(node('small', label.toUpperCase()), node('strong', r ? value(r) : '—'), node('small', r ? `Latest record · ${when(r.start)}` : 'No uploaded data', 'when'));
       $('metrics').append(tile);
     }

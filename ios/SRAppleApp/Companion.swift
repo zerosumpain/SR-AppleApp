@@ -54,15 +54,16 @@ import BackgroundTasks
     }
     func authorizeHealth() async {
         busy = true; defer { busy = false }
-        do { try await health.authorize(); try await health.collect(); await flush(); message = "Permission request finished. Only readable, selected records can sync." }
+        do { try await health.authorize(); try await health.collect(); await flush() }
         catch { message = error.localizedDescription }
     }
     func setSharing(_ enabled: Bool) async {
         do {
             // Pause locally immediately, including while offline. Retry server pause on next flush.
-            try outbox.change { $0.sharing = enabled; if !enabled { for i in $0.batches.indices { $0.batches[i].locations = [] } } }
+            try outbox.change { $0.sharing = enabled; $0.pendingSharing = enabled; if !enabled { for i in $0.batches.indices { $0.batches[i].locations = [] } } }
             if enabled { location.requestPermission(); location.start() } else { location.stop() }
             let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": enabled]))
+            try outbox.change { $0.pendingSharing = nil }
             message = enabled ? "Family location sharing enabled." : "Location sharing paused."
             try await refresh()
         } catch { message = "Saved on this phone. Server update pending: \(error.localizedDescription)" }
@@ -87,6 +88,11 @@ import BackgroundTasks
         taskID = UIApplication.shared.beginBackgroundTask(withName: "Sync SR records") { UIApplication.shared.endBackgroundTask(taskID); taskID = .invalid }
         defer { if taskID != .invalid { UIApplication.shared.endBackgroundTask(taskID) } }
         do {
+            // Apply a local offline choice before reconciling remote changes.
+            if let pending = outbox.state.pendingSharing {
+                let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": pending]))
+                try outbox.change { $0.pendingSharing = nil }
+            }
             // Reconcile with server before uploads so a browser pause is respected.
             let me: Profile = try await api.request("me")
             if !me.sharing && outbox.state.sharing {
@@ -96,6 +102,7 @@ import BackgroundTasks
                 let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": false]))
             }
             while let batch = outbox.state.batches.first {
+                try Task.checkCancellation()
                 if batch.health.isEmpty && batch.locations.isEmpty && batch.deleted.isEmpty {
                     try outbox.change { $0.batches.removeFirst() }; continue
                 }
@@ -119,8 +126,12 @@ import BackgroundTasks
         // Require an acknowledged server pause/revocation before dropping credentials.
         do {
             try outbox.change { $0.sharing = false }; location.stop()
-            let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": false]))
-            let _: API.Acknowledgement = try await api.request("logout", method: "POST", data: Data("{}".utf8))
+            do {
+                let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": false]))
+                let _: API.Acknowledgement = try await api.request("logout", method: "POST", data: Data("{}".utf8))
+            } catch CompanionError.response(401, _) {
+                // Already revoked or expired: it is safe to remove the local credential.
+            }
             try Keychain.save(nil); api.token = nil; paired = false
             try outbox.clear(); health.startObservers(); retryTask?.cancel()
             profile = nil; records = []; family = []; updateQueue(); message = "Disconnected. Uploaded health records remain in your private dashboard."
