@@ -11,8 +11,8 @@ final class OnboardingTests: XCTestCase {
         let code = app.secureTextFields["One-time pairing code"]
         code.typeText("invalid-code\n")
         let status = app.staticTexts["sync-status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 5))
-        XCTAssertTrue(status.label.contains("HTTPS"))
+        let validation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "HTTPS"), object: status)
+        XCTAssertEqual(XCTWaiter.wait(for: [validation], timeout: 10), .completed)
         XCTAssertFalse(app.switches["Share location with my family"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Unpaired iPhone onboarding"
