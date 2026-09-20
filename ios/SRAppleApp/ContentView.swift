@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var code = ""
     @State private var tab = 0
     @State private var confirmDisconnect = false
+    private enum PairingField: Hashable { case server, code }
+    @FocusState private var pairingFocus: PairingField?
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -32,7 +34,7 @@ struct ContentView: View {
                     if let last = companion.lastUpload { Text("Last uploaded \(last.formatted())").font(.caption) }
                     Text("\(companion.queueCount) records waiting to upload").font(.caption)
                 }.padding(22)
-            }.background(paper.ignoresSafeArea()).foregroundStyle(ink).tint(accent)
+            }.background(paper.ignoresSafeArea(.container)).foregroundStyle(ink).tint(accent)
                 .navigationTitle("SR Companion").navigationBarTitleDisplayMode(.inline)
                 .confirmationDialog("Disconnect this iPhone?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
                     Button("Disconnect", role: .destructive) { Task { await companion.disconnect() } }
@@ -44,10 +46,19 @@ struct ContentView: View {
             Text("Connect your iPhone").font(.title2.bold())
             Text("Sign in to the companion website and open Connect & privacy to create a pairing code.")
             TextField("HTTPS server address", text: $server).textContentType(.URL).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                .focused($pairingFocus, equals: .server).submitLabel(.next)
+                .onSubmit { pairingFocus = .code }
             SecureField("One-time pairing code", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
-            Button("Connect") { Task { await companion.pair(server: server, code: code); if companion.paired { code = "" } } }.buttonStyle(.borderedProminent).disabled(companion.busy || code.isEmpty)
+                .focused($pairingFocus, equals: .code).submitLabel(.go)
+                .onSubmit { connect() }
+            Button("Connect") { connect() }.buttonStyle(.borderedProminent).disabled(companion.busy || code.isEmpty)
             Text("Health and location uploads start only after you choose to enable them.").font(.caption)
         }
+    }
+    private func connect() {
+        guard !companion.busy, !code.isEmpty else { return }
+        pairingFocus = nil
+        Task { await companion.pair(server: server, code: code); if companion.paired { code = "" } }
     }
     private var settings: some View {
         VStack(alignment: .leading, spacing: 18) {

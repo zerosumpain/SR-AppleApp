@@ -7,10 +7,9 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connect your iPhone"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["Connect"].isEnabled)
         let server = app.textFields["HTTPS server address"]
-        server.tap(); server.typeText("http://example.test")
+        server.tap(); server.typeText("http://example.test\n")
         let code = app.secureTextFields["One-time pairing code"]
-        code.tap(); code.typeText("invalid-code")
-        app.buttons["Connect"].tap()
+        code.typeText("invalid-code\n")
         let status = app.staticTexts["sync-status"]
         XCTAssertTrue(status.waitForExistence(timeout: 5))
         XCTAssertTrue(status.label.contains("HTTPS"))
