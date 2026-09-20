@@ -1,0 +1,23 @@
+name: sr-appleapp
+services:
+  apple-app:
+    build:
+      context: ..
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN:?Set the HTTPS origin for the companion}
+      DATABASE_PATH: /app/data/apple.sqlite
+    ports:
+      - '127.0.0.1:5295:5295'
+    volumes:
+      - apple_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5295/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+volumes:
+  apple_data:

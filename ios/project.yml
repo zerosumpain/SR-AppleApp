@@ -1,0 +1,34 @@
+name: SRAppleApp
+options:
+  bundleIdPrefix: com.strangeramblings
+  deploymentTarget:
+    iOS: '17.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    TARGETED_DEVICE_FAMILY: '1'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGN_STYLE: Automatic
+targets:
+  SRAppleApp:
+    type: application
+    platform: iOS
+    sources: [SRAppleApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.strangeramblings.appleapp
+        INFOPLIST_FILE: SRAppleApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SRAppleApp/SRAppleApp.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets: [SRAppleAppTests]
+  SRAppleAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [SRAppleAppTests]
+    dependencies:
+      - target: SRAppleApp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

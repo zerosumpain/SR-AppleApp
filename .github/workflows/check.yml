@@ -1,0 +1,38 @@
+name: Check app and API
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - run: npm test
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec ios/project.yml
+      - name: Build and test on iPhone simulator
+        run: |
+          set -o pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
+          xcodebuild test -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-results
+          path: |
+            build.log
+            artifacts/Tests.xcresult
+            DerivedData/Build/Products/Debug-iphonesimulator/SRAppleApp.app
+          retention-days: 7

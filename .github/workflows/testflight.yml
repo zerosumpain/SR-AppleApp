@@ -1,0 +1,41 @@
+name: Upload to TestFlight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  testflight:
+    runs-on: macos-15
+    environment: testflight
+    timeout-minutes: 35
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      BUNDLE_ID: ${{ vars.APPLE_BUNDLE_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+      DISTRIBUTION_P12_BASE64: ${{ secrets.DISTRIBUTION_P12_BASE64 }}
+      DISTRIBUTION_P12_PASSWORD: ${{ secrets.DISTRIBUTION_P12_PASSWORD }}
+      PROVISION_PROFILE_BASE64: ${{ secrets.PROVISION_PROFILE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signing configuration
+        run: |
+          for name in APPLE_TEAM_ID BUNDLE_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY DISTRIBUTION_P12_BASE64 DISTRIBUTION_P12_PASSWORD PROVISION_PROFILE_BASE64; do
+            if [ -z "${!name}" ]; then echo "Missing signing setting: $name"; exit 1; fi
+          done
+      - run: brew install xcodegen
+      - name: Install signing material
+        run: bash scripts/install-signing.sh
+      - name: Archive and upload
+        run: |
+          set -o pipefail
+          xcodegen generate --spec ios/project.yml
+          xcodebuild archive -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/SRAppleApp.xcarchive" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/SRAppleApp.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+      - name: Remove signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/profile.mobileprovision"
+          if [ -n "$PROFILE_UUID" ]; then rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"; fi

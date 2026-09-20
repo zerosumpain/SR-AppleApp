@@ -1,0 +1,14 @@
+.DS_Store
+.env*
+!.env.example
+data/
+node_modules/
+*.sqlite*
+*.xcodeproj/
+DerivedData/
+*.xcarchive/
+*.ipa
+*.p12
+*.mobileprovision
+*.p8
+artifacts/
