@@ -10,7 +10,7 @@ The repository contains two distinct workflows:
 Use your Apple Developer account in a browser:
 
 1. Enrol in the paid Apple Developer Program if needed.
-2. Register an explicit App ID. Suggested bundle ID: `com.strangeramblings.appleapp` (choose another if unavailable). Enable **HealthKit**, including background delivery in the provisioning entitlements.
+2. Register an explicit App ID. Suggested bundle ID: `com.strangeramblings.com.appleapp` (choose another if unavailable). Enable **HealthKit**, including background delivery in the provisioning entitlements.
 3. Create the iOS app record in App Store Connect with that same bundle ID.
 4. Create an **Apple Distribution** certificate and an App Store distribution provisioning profile for this App ID. Export the certificate and matching private key as password-protected PKCS#12 (`.p12`). If working entirely on Linux, generate a CSR/private key with OpenSSL, upload only the CSR to Apple, download the certificate and package it with the private key. Keep all private files outside Git.
 5. Create an App Store Connect API key with permission to upload builds for this app. Save its private `.p8` key securely; Apple offers the download only once.

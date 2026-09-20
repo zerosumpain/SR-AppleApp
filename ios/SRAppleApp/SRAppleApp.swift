@@ -7,7 +7,7 @@ import BackgroundTasks
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         do { companion = Companion(outbox: try Outbox()) }
         catch { startupError = "Saved sync data could not be opened: \(error.localizedDescription). Reopen the app after unlocking your phone. Existing data has not been discarded." }
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.appleapp.refresh", using: nil) { [weak self] task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.com.appleapp.refresh", using: nil) { [weak self] task in
             Task { @MainActor in
                 guard let companion = self?.companion else { task.setTaskCompleted(success: false); return }
                 companion.scheduleRefresh()

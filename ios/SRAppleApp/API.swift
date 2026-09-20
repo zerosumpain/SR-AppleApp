@@ -9,7 +9,7 @@ enum CompanionError: LocalizedError {
     }
 }
 enum Keychain {
-    static let service = "com.strangeramblings.appleapp"
+    static let service = "com.strangeramblings.com.appleapp"
     static func read() -> String? {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "device", kSecReturnData as String: true]
         var result: CFTypeRef?

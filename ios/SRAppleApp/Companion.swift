@@ -138,7 +138,7 @@ import BackgroundTasks
         } catch { message = "Disconnect pending: \(error.localizedDescription). You can revoke this device on the website." }
     }
     func scheduleRefresh() {
-        let request = BGAppRefreshTaskRequest(identifier: "com.strangeramblings.appleapp.refresh")
+        let request = BGAppRefreshTaskRequest(identifier: "com.strangeramblings.com.appleapp.refresh")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
     }

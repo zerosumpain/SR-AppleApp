@@ -16,6 +16,6 @@
 <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>Keep your family location updated when the app is closed, using more frequent records while moving. You can pause sharing at any time.</string>
 <key>NSLocalNetworkUsageDescription</key><string>Connect to your Strange Ramblings test server on your local network.</string>
 <key>UIBackgroundModes</key><array><string>location</string><string>fetch</string><string>processing</string></array>
-<key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.strangeramblings.appleapp.refresh</string></array>
+<key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.strangeramblings.com.appleapp.refresh</string></array>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
 </dict></plist>

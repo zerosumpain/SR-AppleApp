@@ -17,7 +17,7 @@ targets:
     sources: [SRAppleApp]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.strangeramblings.appleapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.strangeramblings.com.appleapp
         INFOPLIST_FILE: SRAppleApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: SRAppleApp/SRAppleApp.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
