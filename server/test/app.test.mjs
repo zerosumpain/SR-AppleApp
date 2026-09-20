@@ -94,3 +94,20 @@ test('expired credentials fail and secrets are not returned with profile', async
   db.prepare('UPDATE credentials SET expires=0').run();
   assert.equal((await request('me')).status, 401);
 });
+test('pair codes expire and new codes do not grant browser sessions', async t => {
+  const { request, db } = await fixture(t);
+  const code = issue(db, 'alex', 'pair', 'Expired', -1);
+  assert.equal((await request('pair', { user: null, method: 'POST', body: { code, label: 'Phone' } })).status, 401);
+  const fresh = issue(db, 'alex', 'pair', 'Pending', 60000);
+  assert.equal((await request('health', { user: null, headers: { Cookie: `sr_apple=${fresh}` } })).status, 401);
+});
+test('summary stays owner scoped even with a noisy heart-rate history', async t => {
+  const { request } = await fixture(t);
+  const stamp = new Date().toISOString();
+  const steps = { id: 'daily', kind: 'steps', start: stamp, end: stamp, value: 4567, unit: 'count', source: 'HealthKit statistics' };
+  await request('sync', { method: 'POST', body: batch([steps]) });
+  for (let b = 0; b < 2; b++) await request('sync', { method: 'POST', body: batch(Array.from({ length: 300 }, (_, i) => health(`hr-${b}-${i}`))) });
+  const result = await request('summary');
+  assert.equal(result.body.records.find(r => r.kind === 'steps').value, 4567);
+  assert.equal((await request('summary', { user: 'sam' })).body.records.length, 0);
+});

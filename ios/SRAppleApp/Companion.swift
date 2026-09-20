@@ -58,6 +58,8 @@ import BackgroundTasks
         catch { message = error.localizedDescription }
     }
     func setSharing(_ enabled: Bool) async {
+        guard !busy else { return }
+        busy = true; defer { busy = false }
         do {
             // Pause locally immediately, including while offline. Retry server pause on next flush.
             try outbox.change { $0.sharing = enabled; $0.pendingSharing = enabled; if !enabled { for i in $0.batches.indices { $0.batches[i].locations = [] } } }
@@ -95,11 +97,9 @@ import BackgroundTasks
             }
             // Reconcile with server before uploads so a browser pause is respected.
             let me: Profile = try await api.request("me")
-            if !me.sharing && outbox.state.sharing {
+            if !me.sharing && outbox.state.sharing && outbox.state.pendingSharing == nil {
                 try outbox.change { $0.sharing = false; for i in $0.batches.indices { $0.batches[i].locations = [] } }
                 location.stop()
-            } else if me.sharing && !outbox.state.sharing {
-                let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": false]))
             }
             while let batch = outbox.state.batches.first {
                 try Task.checkCancellation()

@@ -59,7 +59,7 @@ struct ContentView: View {
             Button("Review Apple Health permissions") { Task { await companion.authorizeHealth() } }.buttonStyle(.bordered).disabled(companion.busy || outbox.state.healthEnabled.isEmpty)
             Text("Apple does not reveal whether you denied read access. Missing records may mean no data or no permission. Turning a category off stops future uploads; delete existing uploads on the website.").font(.caption)
             Divider()
-            Toggle("Share location with my family", isOn: Binding(get: { outbox.state.sharing }, set: { value in Task { await companion.setSharing(value) } }))
+            Toggle("Share location with my family", isOn: Binding(get: { outbox.state.sharing }, set: { value in Task { await companion.setSharing(value) } })).disabled(companion.busy)
             Text(location.status).font(.callout)
             Button("Enable Always location access") { location.requestAlways() }.disabled(!outbox.state.sharing)
             Text("Targets: 10 minutes stationary, 30 seconds moving. iOS may pause or delay updates. Frequent GPS use affects battery life. Reopen after force-quitting.").font(.caption)

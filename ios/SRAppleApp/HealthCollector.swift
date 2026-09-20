@@ -111,7 +111,8 @@ import HealthKit
     }
     private func steps(generation startedGeneration: Int) async throws {
         let calendar = Calendar.current
-        let start = calendar.startOfDay(for: outbox.state.historyStart)
+        let recentStart = calendar.date(byAdding: .day, value: -29, to: Date())!
+        let start = calendar.startOfDay(for: max(outbox.state.historyStart, recentStart))
         let end = Date()
         let quantity = type("steps") as! HKQuantityType
         let records: [HealthRecord] = try await withCheckedThrowingContinuation { continuation in
