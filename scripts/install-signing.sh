@@ -15,8 +15,10 @@ security list-keychains -d user -s "$RUNNER_TEMP/signing.keychain-db"
 security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
 PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/profile.plist")
 echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
-mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+for PROFILE_DIR in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+  mkdir -p "$PROFILE_DIR"
+  cp "$RUNNER_TEMP/profile.mobileprovision" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+done
 python3 - <<'PY'
 import os, plistlib
 from pathlib import Path

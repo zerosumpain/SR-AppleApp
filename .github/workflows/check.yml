@@ -14,10 +14,15 @@ jobs:
           node-version: '22.23.2'
       - run: npm test
   ios:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Verify current Apple toolchain
+        run: |
+          xcodebuild -version
+          SDK_MAJOR=$(xcrun --sdk iphoneos --show-sdk-version | cut -d. -f1)
+          test "$SDK_MAJOR" -ge 26
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
@@ -26,7 +31,7 @@ jobs:
         run: |
           set -o pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
-          xcodebuild test -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
+          xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
       - name: Export simulator screenshots
         if: always()
         run: |

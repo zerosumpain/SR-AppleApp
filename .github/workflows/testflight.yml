@@ -5,7 +5,7 @@ permissions:
   contents: read
 jobs:
   testflight:
-    runs-on: macos-15
+    runs-on: macos-26
     environment: testflight
     timeout-minutes: 35
     env:
@@ -19,6 +19,11 @@ jobs:
       PROVISION_PROFILE_BASE64: ${{ secrets.PROVISION_PROFILE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
+      - name: Verify current Apple toolchain
+        run: |
+          xcodebuild -version
+          SDK_MAJOR=$(xcrun --sdk iphoneos --show-sdk-version | cut -d. -f1)
+          test "$SDK_MAJOR" -ge 26
       - name: Check signing configuration
         run: |
           for name in APPLE_TEAM_ID BUNDLE_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY DISTRIBUTION_P12_BASE64 DISTRIBUTION_P12_PASSWORD PROVISION_PROFILE_BASE64; do
@@ -38,4 +43,4 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/profile.mobileprovision"
-          if [ -n "$PROFILE_UUID" ]; then rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"; fi
+          if [ -n "$PROFILE_UUID" ]; then rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"; fi

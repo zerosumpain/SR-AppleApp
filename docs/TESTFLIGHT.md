@@ -2,7 +2,7 @@
 
 The repository contains two distinct workflows:
 
-1. **Check app and API:** automatic Linux API tests and hosted-Mac iPhone simulator build/XCTest. No Apple signing secrets needed.
+1. **Check app and API:** automatic Linux API tests and hosted-Mac iPhone simulator build/XCTest. No Apple signing secrets needed. Both workflows use the macOS 26 runner and check for the iOS 26 SDK or newer before building.
 2. **Upload to TestFlight:** manually run after configuring signing. Archives, signs and uploads to App Store Connect. Apple processing and beta review are separate from upload success.
 
 ## Apple account setup
@@ -51,4 +51,4 @@ The existing local preview is for browser tests with synthetic records. It canno
 
 TestFlight builds expire after 90 days. A sustainable family rollout needs refreshed beta builds or an appropriate App Store distribution route. An uploaded simulator artifact cannot be sideloaded as a signed phone app.
 
-References: [Apple Developer membership](https://developer.apple.com/programs/enroll/), [TestFlight](https://developer.apple.com/testflight/), [external testers](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers).
+References: [Apple SDK upload requirements](https://developer.apple.com/news/upcoming-requirements/?id=04282026a), [Apple Developer membership](https://developer.apple.com/programs/enroll/), [TestFlight](https://developer.apple.com/testflight/), [external testers](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers).
