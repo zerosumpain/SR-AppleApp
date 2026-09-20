@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import CoreLocation
 
-@MainActor final class LocationCollector: NSObject, ObservableObject, CLLocationManagerDelegate {
+@MainActor final class LocationCollector: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private let outbox: Outbox
     private var policy = MovementPolicy()
