@@ -32,7 +32,7 @@ struct ContentView: View {
                     if let last = companion.lastUpload { Text("Last uploaded \(last.formatted())").font(.caption) }
                     Text("\(companion.queueCount) records waiting to upload").font(.caption)
                 }.padding(22)
-            }.background(paper).foregroundStyle(ink).tint(accent)
+            }.background(paper.ignoresSafeArea()).foregroundStyle(ink).tint(accent)
                 .navigationTitle("SR Companion").navigationBarTitleDisplayMode(.inline)
                 .confirmationDialog("Disconnect this iPhone?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
                     Button("Disconnect", role: .destructive) { Task { await companion.disconnect() } }
