@@ -38,4 +38,23 @@ final class OnboardingTests: XCTestCase {
         add(screenshot)
     }
 
+    @MainActor func testJKAIChatCanOpenBeforeHealthPairingAndReturn() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["JKAI"].waitForExistence(timeout: 15))
+        app.tabBars.buttons["JKAI"].tap()
+        XCTAssertTrue(app.buttons["open-jkai-chat"].waitForExistence(timeout: 5))
+        let entry = XCTAttachment(screenshot: app.screenshot())
+        entry.name = "JKAI companion tab"
+        entry.lifetime = .keepAlways
+        add(entry)
+        app.buttons["open-jkai-chat"].tap()
+        let close = app.buttons["Close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 15))
+        close.tap()
+        XCTAssertTrue(app.buttons["open-jkai-chat"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Companion"].tap()
+        XCTAssertTrue(app.staticTexts["Connect your iPhone"].waitForExistence(timeout: 5))
+    }
+
 }

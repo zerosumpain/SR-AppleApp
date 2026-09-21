@@ -94,3 +94,7 @@ Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code 
 ## QR pairing
 
 On the companion dashboard, open **Connect & privacy → Create pairing QR code**. In the iPhone app, choose **Pair by QR code**, allow camera access, scan the dashboard on another screen, and confirm the displayed server. The QR carries the HTTPS origin and a single-use token. It expires after ten minutes; creating another QR invalidates the previous token. The app rejects unrelated QR codes and non-HTTPS origins. Manual paste remains available, with a Show pairing code switch. The app uses a consistent light paper appearance even when the system is in dark mode.
+
+## JKAI chat
+
+The JKAI tab opens `https://strangeramblings.com/jkai` in a modally presented SafariServices browser. It reuses SR-Main’s mobile chat and existing Google sign-in/access controls. It is available independently of health pairing; no health/device token is forwarded and companion family membership grants no chat access. Close returns to the companion. The app does not install a PWA or add native chat push/background streaming.

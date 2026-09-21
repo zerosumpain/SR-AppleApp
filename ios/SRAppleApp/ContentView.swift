@@ -19,6 +19,12 @@ struct ContentView: View {
     private enum PairingField: Hashable { case server, code }
     @FocusState private var pairingFocus: PairingField?
     var body: some View {
+        TabView {
+            companionView.tabItem { Label("Companion", systemImage: "heart.text.square") }
+            JKAIView().tabItem { Label("JKAI", systemImage: "bubble.left.and.bubble.right") }
+        }.tint(accent).preferredColorScheme(.light)
+    }
+    private var companionView: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
