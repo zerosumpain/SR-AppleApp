@@ -5,6 +5,7 @@ final class OnboardingTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.staticTexts["Connect your iPhone"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["Pair by QR code"].exists)
         XCTAssertFalse(app.buttons["Connect"].isEnabled)
         let server = app.textFields["HTTPS server address"]
         server.tap(); server.typeText("http://example.test\n")
@@ -19,4 +20,22 @@ final class OnboardingTests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }
+    @MainActor func testVisibleManualCodeAndScannerFallback() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["Pair by QR code"].waitForExistence(timeout: 15))
+        app.buttons["Pair by QR code"].tap()
+        XCTAssertTrue(app.staticTexts["Camera scanning is unavailable on this device. Use manual pairing instead."].waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+        app.swipeUp()
+        app.switches["Show pairing code"].tap()
+        let code = app.textFields["One-time pairing code"]
+        code.tap(); code.typeText("visible-test-code")
+        XCTAssertEqual(code.value as? String, "visible-test-code")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Readable pairing fields with system dark appearance"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
 }

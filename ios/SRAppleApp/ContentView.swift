@@ -10,6 +10,10 @@ struct ContentView: View {
     @ObservedObject var location: LocationCollector
     @State private var server = ""
     @State private var code = ""
+    @State private var scannerPresented = false
+    @State private var scannedPairing: PairingPayload?
+    @State private var confirmPairing = false
+    @State private var showCode = false
     @State private var tab = 0
     @State private var confirmDisconnect = false
     private enum PairingField: Hashable { case server, code }
@@ -40,17 +44,38 @@ struct ContentView: View {
                     Button("Disconnect", role: .destructive) { Task { await companion.disconnect() } }
                 } message: { Text("Stops syncing, pauses location sharing and revokes this device. Already uploaded health records remain on the website.") }
         }
+        .preferredColorScheme(.light)
+        .sheet(isPresented: $scannerPresented, onDismiss: { confirmPairing = scannedPairing != nil }) {
+            PairingScanner { value in
+                do { scannedPairing = try PairingPayload.parse(value) }
+                catch { scannedPairing = nil; companion.message = error.localizedDescription }
+            }
+        }
+        .alert("Connect to this server?", isPresented: $confirmPairing) {
+            Button("Cancel", role: .cancel) { scannedPairing = nil }
+            Button("Connect") {
+                if let payload = scannedPairing { server = payload.server; code = payload.code; scannedPairing = nil; connect() }
+            }
+        } message: { Text(scannedPairing?.server ?? "") }
     }
     private var pairing: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Connect your iPhone").font(.title2.bold())
-            Text("Sign in to the companion website and open Connect & privacy to create a pairing code.")
+            Text("Open Connect & privacy on your companion dashboard, then create a pairing QR code.")
+            Button { pairingFocus = nil; scannedPairing = nil; scannerPresented = true } label: {
+                Label("Pair by QR code", systemImage: "qrcode.viewfinder")
+            }.buttonStyle(.borderedProminent).disabled(companion.busy)
+            Text("Or enter the details manually").font(.headline)
             TextField("HTTPS server address", text: $server).textContentType(.URL).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
                 .focused($pairingFocus, equals: .server).submitLabel(.next)
                 .onSubmit { pairingFocus = .code }
-            SecureField("One-time pairing code", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+            Group {
+                if showCode { TextField("One-time pairing code", text: $code) }
+                else { SecureField("One-time pairing code", text: $code) }
+            }.textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
                 .focused($pairingFocus, equals: .code).submitLabel(.go)
                 .onSubmit { connect() }
+            Toggle("Show pairing code", isOn: $showCode)
             Button("Connect") { connect() }.buttonStyle(.borderedProminent).disabled(companion.busy || code.isEmpty)
             Text("Health and location uploads start only after you choose to enable them.").font(.caption)
         }

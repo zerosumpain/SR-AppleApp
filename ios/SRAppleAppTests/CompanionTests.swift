@@ -46,4 +46,20 @@ final class CompanionTests: XCTestCase {
         try Data("invalid".utf8).write(to: url)
         XCTAssertThrowsError(try Outbox(url: url))
     }
+    @MainActor func testPairingQRValidation() throws {
+        let code = String(repeating: "a", count: 43)
+        func payload(_ server: String = "https://strangeramblings.com", version: Int = 1, token: String? = nil) throws -> String {
+            let object: [String: Any] = ["type": "sr-companion-pair", "version": version, "server": server, "code": token ?? code]
+            return String(data: try JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+        }
+        XCTAssertEqual(try PairingPayload.parse(payload()).code, code)
+        for server in ["http://example.com", "https://user:pass@example.com", "https://example.com/path", "https://example.com?token=bad"] {
+            XCTAssertThrowsError(try PairingPayload.parse(payload(server)))
+        }
+        XCTAssertThrowsError(try PairingPayload.parse(payload(version: 2)))
+        XCTAssertThrowsError(try PairingPayload.parse(payload(token: "short")))
+        XCTAssertThrowsError(try PairingPayload.parse("https://example.com"))
+        XCTAssertThrowsError(try PairingPayload.parse(String(repeating: "x", count: 2049)))
+    }
+
 }

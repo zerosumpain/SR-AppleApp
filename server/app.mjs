@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -105,7 +106,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false }
       if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo });
       if (path === '/api/apple/pair-code' && method === 'POST' && auth.kind === 'session') {
         db.prepare("DELETE FROM credentials WHERE user_id=? AND kind='pair'").run(auth.user_id);
-        return send(200, { code: issue(db, auth.user_id, 'pair', 'One-time pairing', 600000), expiresIn: 600 });
+        const code = issue(db, auth.user_id, 'pair', 'One-time pairing', 600000);
+        const payload = JSON.stringify({ type: 'sr-companion-pair', version: 1, server: csrfOrigin, code });
+        const qr = await QRCode.toDataURL(payload, { errorCorrectionLevel: 'M', margin: 4, scale: 6 });
+        return send(200, { code, qr, expiresIn: 600 });
       }
       if (path === '/api/apple/devices' && method === 'GET') return send(200, { devices: db.prepare("SELECT hash AS id,label,expires FROM credentials WHERE user_id=? AND kind='device' AND expires>?").all(auth.user_id, Date.now()) });
       if (path.startsWith('/api/apple/devices/') && method === 'DELETE' && auth.kind === 'session') {

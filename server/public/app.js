@@ -74,9 +74,39 @@ $('login-form').onsubmit = e => { e.preventDefault(); action(async () => { await
 $('logout').onclick = () => action(async () => { await api('logout', 'POST', {}); location.reload(); });
 $('refresh').onclick = () => action(load);
 $('category').onchange = () => action(health);
-$('pair').onclick = () => action(async () => { const result = await api('pair-code', 'POST', {}); $('pair-code').textContent = result.code; });
+let pairingExpiryTimer;
+function clearPairing() {
+  clearTimeout(pairingExpiryTimer);
+  $('pair-result').hidden = true;
+  $('pair-code').textContent = '';
+  $('pair-qr').removeAttribute('src');
+}
+$('pair').onclick = () => action(async () => {
+  $('pair').disabled = true;
+  clearPairing();
+  try {
+    const result = await api('pair-code', 'POST', {});
+    $('pair-code').textContent = result.code;
+    $('pair-qr').src = result.qr;
+    $('pair-result').hidden = false;
+    $('pair-expiry').textContent = `Valid for one connection. Expires at ${new Date(Date.now() + result.expiresIn * 1000).toLocaleTimeString()}.`;
+    $('pair').textContent = 'Create a new pairing QR code';
+    pairingExpiryTimer = setTimeout(() => {
+      $('pair-code').textContent = '';
+      $('pair-qr').removeAttribute('src');
+      $('pair-qr').hidden = true;
+      $('pair-expiry').textContent = 'This pairing code has expired. Create a new one above.';
+    }, result.expiresIn * 1000);
+    $('pair-qr').hidden = false;
+  } finally { $('pair').disabled = false; }
+});
+$('copy-code').onclick = () => action(async () => {
+  if (!$('pair-code').textContent) throw new Error('Create a new pairing code first.');
+  await navigator.clipboard.writeText($('pair-code').textContent);
+  $('pair-expiry').textContent = 'Pairing code copied. Paste it into the iPhone app before it expires.';
+});
 $('sharing').onchange = () => action(async () => { try { await api('sharing', 'PUT', { enabled: $('sharing').checked }); } catch(e) { $('sharing').checked = !$('sharing').checked; throw e; } await family(); });
-$('delete').onclick = () => { if (confirm('Delete all your uploaded health and location data and revoke your devices?')) action(async () => { await api('data', 'DELETE'); $('pair-code').textContent = ''; await load(); }); };
+$('delete').onclick = () => { if (confirm('Delete all your uploaded health and location data and revoke your devices?')) action(async () => { await api('data', 'DELETE'); clearPairing(); await load(); }); };
 for (const button of document.querySelectorAll('[data-tab]')) button.onclick = () => action(async () => {
   for (const b of document.querySelectorAll('[data-tab]')) { const active = b === button; b.setAttribute('aria-pressed', String(active)); $(b.dataset.tab).hidden = !active; }
   if (button.dataset.tab === 'family') await family();

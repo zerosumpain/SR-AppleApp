@@ -20,7 +20,7 @@ for (const [name, viewport] of [['desktop',{width:1440,height:1100}],['phone',{w
  if (await page.getByRole('heading',{name:'Robin',exact:true}).count()) throw new Error('Other family leaked');
  await page.screenshot({path:`artifacts/${name}-family.png`,fullPage:true});
  await page.getByRole('button',{name:'Connect & privacy',exact:true}).click();
- await page.getByRole('button',{name:'Create pairing code'}).click();
+ await page.getByRole('button',{name:'Create pairing QR code'}).click();
  await page.waitForFunction(()=>document.getElementById('pair-code').textContent.length>20);
  await page.getByLabel('Share my location with my family').uncheck();
  await page.getByRole('button',{name:'Family locations',exact:true}).click();

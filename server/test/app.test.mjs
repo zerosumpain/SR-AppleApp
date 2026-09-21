@@ -111,3 +111,24 @@ test('summary stays owner scoped even with a noisy heart-rate history', async t 
   assert.equal(result.body.records.find(r => r.kind === 'steps').value, 4567);
   assert.equal((await request('summary', { user: 'sam' })).body.records.length, 0);
 });
+
+test('QR pixels contain the canonical origin and a single-use code; regeneration revokes the previous code', async t => {
+  const { PNG } = await import('pngjs');
+  const { default: jsQR } = await import('jsqr');
+  const { request } = await fixture(t);
+  const login = await request('login', { user: null, method: 'POST', headers: { Origin: 'http://localhost' }, body: { email: 'alex@example.test', password: 'long-test-password' } });
+  const headers = { Cookie: login.headers.get('set-cookie').split(';')[0], Origin: 'http://localhost', 'X-Forwarded-Host': 'attacker.invalid' };
+  const first = await request('pair-code', { user: null, method: 'POST', headers, body: {} });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.expiresIn, 600);
+  const png = PNG.sync.read(Buffer.from(first.body.qr.split(',')[1], 'base64'));
+  const decoded = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+  assert.ok(decoded, 'Generated QR image is readable');
+  const payload = JSON.parse(decoded.data);
+  assert.deepEqual(payload, { type: 'sr-companion-pair', version: 1, server: 'http://localhost', code: first.body.code });
+  const next = await request('pair-code', { user: null, method: 'POST', headers, body: {} });
+  assert.equal((await request('pair', { user: null, method: 'POST', body: { code: payload.code, label: 'Old QR' } })).status, 401);
+  assert.equal((await request('pair', { user: null, method: 'POST', body: { code: next.body.code, label: 'New QR' } })).status, 200);
+  assert.equal((await request('pair', { user: null, method: 'POST', body: { code: next.body.code, label: 'Replay' } })).status, 401);
+  assert.equal((await request('pair-code', { user: null, method: 'POST', body: {} })).status, 401);
+});
