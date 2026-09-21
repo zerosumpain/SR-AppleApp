@@ -8,9 +8,9 @@ SR-AppleApp therefore owns new paths and a separate database:
 - `/api/apple/*` — explicit browser or device authentication.
 - `/healthz` — liveness only; keep internal.
 
-The local LAN gateway routes these new paths to `apple-app:5295`. It does not inject an owner identity. Existing `/health` pages and production routes are untouched. Do not forward incoming headers as a trusted user identity.
+The local LAN gateway routes these new paths to `apple-app:5295`. It does not inject an owner identity. Existing `/health` pages are untouched. The private HTTPS pilot now routes the companion paths separately; see PILOT-OPERATIONS.md. Do not forward incoming headers as a trusted user identity.
 
-For future production/staging routing, proxy only `/apple-app`, `/apple-app/*` and `/api/apple/*` to the loopback-bound service, preserve method/body/cookies, and preserve the canonical HTTPS origin used in `APP_ORIGIN`. No gateway authentication exemption should be added to legacy health routes. This service still authenticates all data endpoints itself. Check browser Origin handling after proxying; untrusted proxy headers do not determine identity.
+For production/staging routing, proxy only `/apple-app`, `/apple-app/*` and `/api/apple/*` to the loopback-bound service, preserve method/body/cookies, and preserve the canonical HTTPS origin used in `APP_ORIGIN`. No gateway authentication exemption should be added to legacy health routes. This service still authenticates all data endpoints itself. Check browser Origin handling after proxying; untrusted proxy headers do not determine identity.
 
 Provision users into the isolated service with:
 
