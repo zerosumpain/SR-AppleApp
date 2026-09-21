@@ -25,7 +25,7 @@ struct JKAIView: View {
                         Label("Open JKAI chat", systemImage: "bubble.left.and.text.bubble.right")
                     }.buttonStyle(.borderedProminent).accessibilityIdentifier("open-jkai-chat")
                     Text("Sign in with your Strange Ramblings Google account. Your existing JKAI access permissions apply.").font(.callout)
-                    Text("Tap Close in the chat browser to return to your health and family views.").font(.callout).foregroundStyle(.secondary)
+                    Text("Tap Back to SR Companion above the chat browser to return to your health and family views.").font(.callout).foregroundStyle(.secondary)
                     if let loadError {
                         Text(loadError).font(.callout).accessibilityIdentifier("jkai-load-error")
                         Link("Try in Safari", destination: chatURL)
@@ -34,10 +34,10 @@ struct JKAIView: View {
             }
             .background(paper.ignoresSafeArea(.container)).foregroundStyle(ink).tint(accent)
             .navigationTitle("JKAI").navigationBarTitleDisplayMode(.inline)
-            .background {
-                SiteBrowserPresenter(url: chatURL, isPresented: $browserPresented) {
+            .fullScreenCover(isPresented: $browserPresented) {
+                SiteBrowserCover(url: chatURL, isPresented: $browserPresented) {
                     loadError = "JKAI could not load. Check your connection and try again."
-                }.frame(width: 0, height: 0)
+                }
             }
         }.preferredColorScheme(.light)
     }

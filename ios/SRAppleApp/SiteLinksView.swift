@@ -53,9 +53,8 @@ struct SiteLinksView: View {
                 Link("Try in Safari", destination: destination.url)
             }
         }
-        .background {
-            SiteBrowserPresenter(url: destination.url, isPresented: $browserPresented) { loadFailed = true }
-                .frame(width: 0, height: 0)
+        .fullScreenCover(isPresented: $browserPresented) {
+            SiteBrowserCover(url: destination.url, isPresented: $browserPresented) { loadFailed = true }
         }
     }
 }

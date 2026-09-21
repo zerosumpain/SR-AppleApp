@@ -77,12 +77,8 @@ final class OnboardingTests: XCTestCase {
     }
 
     @MainActor private func closeBrowser(in app: XCUIApplication) {
-        // Safari is hosted in a remote process, so wait until its own toolbar
-        // is fully available before trying to dismiss it.
-        let close = app.buttons["Close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 30))
-        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: close)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        let close = app.buttons["site-browser-close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 15))
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Website before closing"
         screenshot.lifetime = .keepAlways
