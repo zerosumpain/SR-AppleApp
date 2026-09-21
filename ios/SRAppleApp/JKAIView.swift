@@ -56,7 +56,7 @@ private struct JKAIBrowserPresenter: UIViewControllerRepresentable {
         controller.update(url: url, presented: isPresented, onClose: { isPresented = false }, onFailure: onFailure)
     }
 
-    final class Presenter: UIViewController, SFSafariViewControllerDelegate {
+    final class Presenter: UIViewController, SFSafariViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
         private var browser: SFSafariViewController?
         private var requestedURL: URL?
         private var wantsPresentation = false
@@ -83,6 +83,10 @@ private struct JKAIBrowserPresenter: UIViewControllerRepresentable {
             safari.preferredControlTintColor = UIColor(red: 0.769, green: 0.341, blue: 0.039, alpha: 1)
             browser = safari
             present(safari, animated: true)
+            safari.presentationController?.delegate = self
+        }
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            browser = nil; wantsPresentation = false; onClose?()
         }
         func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
             browser = nil; wantsPresentation = false; onClose?()

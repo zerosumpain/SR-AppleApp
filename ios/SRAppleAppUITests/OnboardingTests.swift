@@ -53,6 +53,9 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(close.waitForExistence(timeout: 15))
         close.tap()
         XCTAssertTrue(app.buttons["open-jkai-chat"].waitForExistence(timeout: 5))
+        app.buttons["open-jkai-chat"].tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
         app.tabBars.buttons["Companion"].tap()
         XCTAssertTrue(app.staticTexts["Connect your iPhone"].waitForExistence(timeout: 5))
     }
