@@ -46,7 +46,13 @@ struct SiteBrowserPresenter: UIViewControllerRepresentable {
             browser = nil; wantsPresentation = false; onClose?()
         }
         func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
-            browser = nil; wantsPresentation = false; onClose?()
+            // Dismiss the presented browser explicitly before releasing it or
+            // updating SwiftUI; UIKit may have forwarded presentation to an ancestor.
+            wantsPresentation = false
+            controller.dismiss(animated: true) { [weak self] in
+                self?.browser = nil
+                self?.onClose?()
+            }
         }
         func safariViewController(_ controller: SFSafariViewController, didCompleteInitialLoad didLoadSuccessfully: Bool) {
             guard !didLoadSuccessfully else { return }
