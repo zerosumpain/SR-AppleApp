@@ -17,6 +17,7 @@ targets:
     sources: [SRAppleApp]
     settings:
       base:
+        TARGETED_DEVICE_FAMILY: '1'
         PRODUCT_BUNDLE_IDENTIFIER: com.strangeramblings.com.appleapp
         INFOPLIST_FILE: SRAppleApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: SRAppleApp/SRAppleApp.entitlements
