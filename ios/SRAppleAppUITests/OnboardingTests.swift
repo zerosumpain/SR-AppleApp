@@ -49,12 +49,9 @@ final class OnboardingTests: XCTestCase {
         entry.lifetime = .keepAlways
         add(entry)
         app.buttons["open-jkai-chat"].tap()
-        let close = app.buttons["Close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 15))
         closeBrowser(in: app)
         XCTAssertTrue(app.buttons["open-jkai-chat"].waitForExistence(timeout: 5))
         app.buttons["open-jkai-chat"].tap()
-        XCTAssertTrue(close.waitForExistence(timeout: 10))
         closeBrowser(in: app)
         app.tabBars.buttons["Companion"].tap()
         XCTAssertTrue(app.staticTexts["Connect your iPhone"].waitForExistence(timeout: 5))
@@ -72,7 +69,6 @@ final class OnboardingTests: XCTestCase {
         add(screenshot)
         for destination in ["site-news", "site-health"] {
             app.buttons[destination].tap()
-            XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 15))
             closeBrowser(in: app)
             XCTAssertTrue(app.buttons[destination].waitForExistence(timeout: 5))
         }
@@ -81,10 +77,10 @@ final class OnboardingTests: XCTestCase {
     }
 
     @MainActor private func closeBrowser(in app: XCUIApplication) {
-        // Safari is hosted in a remote process. Its toolbar can enter the
-        // accessibility tree before the browser has finished presenting.
-        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 20))
+        // Safari is hosted in a remote process, so wait until its own toolbar
+        // is fully available before trying to dismiss it.
         let close = app.buttons["Close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 30))
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: close)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
