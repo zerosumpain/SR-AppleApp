@@ -42,4 +42,3 @@ struct JKAIView: View {
         }.preferredColorScheme(.light)
     }
 }
-
