@@ -40,13 +40,13 @@ jobs:
           xcrun simctl ui "$DEVICE_ID" appearance dark
           xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
       - name: Export simulator screenshots
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           if [ -d artifacts/Tests.xcresult ]; then
             xcrun xcresulttool export attachments --path artifacts/Tests.xcresult --output-path artifacts/screenshots
           fi
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
           name: ios-simulator-results
           path: |
