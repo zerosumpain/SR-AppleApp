@@ -39,12 +39,13 @@ deploy/              Container configuration
 Run API tests with Node **22.23.2** or later:
 
 ```sh
+npm ci --ignore-scripts
 npm test
 APP_ORIGIN=http://127.0.0.1:5295 DEMO_MODE=1 npm run seed:demo
 APP_ORIGIN=http://127.0.0.1:5295 DEMO_MODE=1 npm start
 ```
 
-No external Node runtime packages. SQLite is provided by Node; its experimental warning on Node 22 is expected. A single application process owns the database; do not scale replicas against the same SQLite file. Database files belong in the mounted volume, never Git.
+QR images are generated locally with the pinned `qrcode` package; no external QR service receives pairing credentials. SQLite is provided by Node; its experimental warning on Node 22 is expected. A single application process owns the database; do not scale replicas against the same SQLite file. Database files belong in the mounted volume, never Git.
 
 For a local container:
 
@@ -89,3 +90,7 @@ Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code 
 `npm test` verifies authentication, owner isolation, family boundaries, consent enforcement, input validation, idempotent retries, deletion isolation, pairing replay/expiry, CSRF and device revocation. XCTest checks movement cadence, bad GPS accuracy, HTTPS URL rules, queue persistence and corrupt-state handling. Browser checks cover sign-in, private records, family display, pause/resume, pairing and responsive layout.
 
 [Device acceptance checklist](docs/DEVICE-TESTING.md) covers the remaining physical-iPhone checks. Passing API/simulator tests does not establish battery life, continuous background delivery, TestFlight installation or production integration.
+
+## QR pairing
+
+On the companion dashboard, open **Connect & privacy → Create pairing QR code**. In the iPhone app, choose **Pair by QR code**, allow camera access, scan the dashboard on another screen, and confirm the displayed server. The QR carries the HTTPS origin and a single-use token. It expires after ten minutes; creating another QR invalidates the previous token. The app rejects unrelated QR codes and non-HTTPS origins. Manual paste remains available, with a Show pairing code switch. The app uses a consistent light paper appearance even when the system is in dark mode.

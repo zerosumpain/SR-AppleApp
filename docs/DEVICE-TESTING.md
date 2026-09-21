@@ -2,6 +2,8 @@
 
 Use a trusted HTTPS staging server and separate test accounts. Do not mistake simulator/unit tests for these checks.
 
+- Scan a dashboard QR on another screen, confirm the server, and verify successful pairing. Cancel confirmation and verify no pairing occurs. Deny camera access and check Settings/manual-paste fallback. Scan an unrelated QR and check its error.
+- With system dark appearance enabled, check server/code text, placeholders, keyboard, Show pairing code, and the scanner sheet.
 - Pair using a fresh code; reusing or waiting more than 10 minutes rejects the code.
 - Health/location stay off until selected. Grant a subset of HealthKit categories and deny another; no claim of confirmed read permission for the denied category.
 - Sync steps, HR, RHR, sleep stages and workouts. Compare each against Apple Health for the same day/source/timezone. Check overlapping phone/Watch steps and overlapping sleep sources.
