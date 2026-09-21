@@ -32,6 +32,8 @@ struct ContentView: View {
                     Text("A little closer.").font(.system(size: 44, weight: .black)).tracking(-2).accessibilityAddTraits(.isHeader)
                     Text("Your health stays yours. Your family can see your shared location.").foregroundStyle(.secondary)
                     Divider()
+                    SiteLinksView()
+                    Divider()
                     if companion.paired {
                         Text(companion.profile.map { "Connected as \($0.name)" } ?? "Connected device").font(.headline)
                         Picker("View", selection: $tab) { Text("Sync").tag(0); Text("My health").tag(1); Text("Family").tag(2) }.pickerStyle(.segmented)

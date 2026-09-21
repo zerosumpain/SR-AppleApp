@@ -98,3 +98,5 @@ On the companion dashboard, open **Connect & privacy → Create pairing QR code*
 ## JKAI chat
 
 The JKAI tab opens `https://strangeramblings.com/jkai` in a modally presented SafariServices browser. It reuses SR-Main’s mobile chat and existing Google sign-in/access controls. It is available independently of health pairing; no health/device token is forwarded and companion family membership grants no chat access. Close returns to the companion. The app does not install a PWA or add native chat push/background streaming.
+
+The main Companion page also provides JKAI, News, and Health shortcuts, using the same in-app browser. The Health shortcut opens the website dashboard; the native My health view continues to show the paired companion account’s uploads. Website sign-in and access rules remain separate.

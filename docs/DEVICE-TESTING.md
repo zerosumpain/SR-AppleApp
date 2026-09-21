@@ -26,3 +26,5 @@ This is not an emergency tracking service. The interface must display stale/miss
 - Check keyboard/composer, streaming replies, thread switching, attachments, links, background/resume, Close, and reopening. Google sign-in and actual chat need a physical-device check.
 - Confirm that a family companion account alone does not grant JKAI access. Chat uses the existing website session and owner gate; companion bearer tokens are never sent to it.
 - The in-app browser does not install the PWA or provide its Home Screen push/offline guarantees. Test those in the separately installed PWA if needed.
+
+- From the main Companion page, open JKAI, News, and Health; check the expected website and sign-in, then Close and reopen another link. Verify the native health pairing remains intact.

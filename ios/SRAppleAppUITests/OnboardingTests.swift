@@ -60,4 +60,24 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connect your iPhone"].waitForExistence(timeout: 5))
     }
 
+    @MainActor func testMainPageWebsiteLinksOpenAndReturn() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["site-jkai"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["site-news"].exists)
+        XCTAssertTrue(app.buttons["site-health"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Main page JKAI News and Health links"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        for destination in ["site-news", "site-health"] {
+            app.buttons[destination].tap()
+            XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 15))
+            app.buttons["Close"].tap()
+            XCTAssertTrue(app.buttons[destination].waitForExistence(timeout: 5))
+        }
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["Pair by QR code"].exists)
+    }
+
 }
