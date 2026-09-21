@@ -39,7 +39,12 @@ struct SiteBrowserPresenter: UIViewControllerRepresentable {
             safari.preferredBarTintColor = UIColor(red: 0.929, green: 0.894, blue: 0.831, alpha: 1)
             safari.preferredControlTintColor = UIColor(red: 0.769, green: 0.341, blue: 0.039, alpha: 1)
             browser = safari
-            present(safari, animated: true)
+            // This representable is a zero-sized anchor inside a SwiftUI
+            // background. Present from its full-sized ancestor so Safari's
+            // remote view receives the window's geometry and touch coordinates.
+            var host: UIViewController = self
+            while let parent = host.parent { host = parent }
+            host.present(safari, animated: true)
             safari.presentationController?.delegate = self
         }
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
