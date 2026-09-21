@@ -69,7 +69,6 @@ struct SiteBrowserPresenter: UIViewControllerRepresentable {
             let configuration = SFSafariViewController.Configuration()
             configuration.entersReaderIfAvailable = false
             let safari = SFSafariViewController(url: url, configuration: configuration)
-            safari.delegate = self
             safari.dismissButtonStyle = .close
             safari.preferredBarTintColor = UIColor(red: 0.929, green: 0.894, blue: 0.831, alpha: 1)
             safari.preferredControlTintColor = UIColor(red: 0.769, green: 0.341, blue: 0.039, alpha: 1)
