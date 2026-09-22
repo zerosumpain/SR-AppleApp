@@ -16,14 +16,14 @@
 .legend-ramp i{flex:1}
 .map-frame{position:relative;height:clamp(320px,52vh,520px);margin:1rem 0;background:var(--bg);border:1px solid var(--ink);overflow:hidden;touch-action:none;cursor:grab;user-select:none}
 .map-frame:active{cursor:grabbing}
-.map-tiles{position:absolute;inset:0}
+.map-tiles{position:absolute;inset:0;z-index:0}
 .map-tile{position:absolute;pointer-events:none;max-width:none}
 .map-tile-failed{visibility:hidden}
-.map-overlay{position:absolute;inset:0;pointer-events:none}
-.map-scale{position:absolute;left:10px;bottom:10px;padding:0 0 2px;border-bottom:3px solid var(--ink);border-left:3px solid var(--ink);border-right:3px solid var(--ink);background:#ede4d4cc;font:600 .7rem/1.5 ui-monospace,monospace;text-align:center;pointer-events:none}
-.map-attrib{position:absolute;right:0;bottom:0;display:flex;gap:.6rem;padding:.2rem .5rem;background:#ede4d4cc;font:.68rem ui-monospace,monospace;color:var(--muted)}
+.map-overlay{position:absolute;inset:0;pointer-events:none;z-index:1}
+.map-scale{position:absolute;z-index:2;left:10px;bottom:10px;padding:0 0 2px;border-bottom:3px solid var(--ink);border-left:3px solid var(--ink);border-right:3px solid var(--ink);background:#ede4d4cc;font:600 .7rem/1.5 ui-monospace,monospace;text-align:center;pointer-events:none}
+.map-attrib{position:absolute;z-index:2;right:0;bottom:0;display:flex;gap:.6rem;padding:.2rem .5rem;background:#ede4d4cc;font:.68rem ui-monospace,monospace;color:var(--muted)}
 .map-attrib a{color:var(--petrol)}
-.map-hint{position:absolute;top:8px;right:8px;padding:.3rem .55rem;background:#1a1008d9;color:var(--bg);font:.7rem ui-monospace,monospace;pointer-events:none}
+.map-hint{position:absolute;z-index:2;top:8px;right:8px;padding:.3rem .55rem;background:#1a1008d9;color:var(--bg);font:.7rem ui-monospace,monospace;pointer-events:none}
 .trace{fill:none;stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round}
 .trace-casing{fill:none;stroke:#fffaf0;stroke-opacity:.9;stroke-width:7;stroke-linecap:round;stroke-linejoin:round}
 .trace-gap{stroke:var(--ink);stroke-opacity:.4;stroke-width:1.5;stroke-dasharray:3 6}
