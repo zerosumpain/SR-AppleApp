@@ -1,12 +1,76 @@
 import SwiftUI
-import MapKit
+import CoreSpotlight
+
+/// Where the app goes, held outside the views that navigate.
+///
+/// A `NavigationPath` owned by a screen is reset every time that screen is torn
+/// down — which a `TabView` does freely — and there is no way for a Shortcut, a
+/// notification or a Home Screen quick action to push anything onto it. Holding
+/// the paths here makes "open this thread" a value somebody outside SwiftUI can
+/// write, which is what every one of those entry points needs.
+@MainActor
+final class Router: ObservableObject {
+    enum Tab: String, Hashable { case today, chat, health, news }
+
+    @Published var tab: Tab = .today
+    @Published var chat = NavigationPath()
+    @Published var health = NavigationPath()
+    @Published var news = NavigationPath()
+    /// The one modal, whichever it currently is.
+    ///
+    /// NOT two `.sheet(isPresented:)` modifiers on the same view. SwiftUI
+    /// honours one sheet per view: attach a second and whichever is asked for
+    /// first silently does nothing. Settings and the alert inbox are both
+    /// opened from several places, so that failure would have been
+    /// intermittent and impossible to reproduce on demand.
+    @Published var sheet: Sheet?
+    /// Which settings group to open on, when something sent the reader there
+    /// for a reason.
+    @Published var settingsTarget: SettingsTarget?
+    /// A question handed in from outside — a Shortcut, Siri, a quick action.
+    @Published var pendingQuestion: String?
+
+    enum Sheet: String, Identifiable { case settings, alerts; var id: String { rawValue } }
+    enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
+
+    func openSettings(_ target: SettingsTarget? = nil) {
+        settingsTarget = target
+        sheet = .settings
+    }
+
+    func openAlerts() { sheet = .alerts }
+
+    /// Go to a tab and clear whatever was stacked on it.
+    ///
+    /// Clearing matters: an intent that opens Chat while a thread is already
+    /// pushed would otherwise land on that thread, which is not what "open
+    /// chat" means to the person who said it.
+    func show(_ tab: Tab) {
+        switch tab {
+        case .chat: chat = NavigationPath()
+        case .health: health = NavigationPath()
+        case .news: news = NavigationPath()
+        case .today: break
+        }
+        self.tab = tab
+    }
+
+    func ask(_ question: String) {
+        pendingQuestion = question
+        show(.chat)
+    }
+}
 
 /// The app.
 ///
-/// Four tabs. Chat and News are NATIVE now — they were a Safari sheet over
-/// strangeramblings.com, which worked and never looked like the site, because a
-/// web view in a native chrome looks like a web view. Companion keeps the health
-/// and family views it always had, restyled onto the same system.
+/// Four tabs, and the fourth used to be `Connect` — a QR scanner, permanently
+/// on the tab bar, for a job you do once. That is the clearest example of what
+/// this overhaul is about: the tab bar is the app's table of contents and every
+/// slot in it should be somewhere you go back to. Pairing is setup, so it lives
+/// under the gear with the other setup.
+///
+/// What replaced it is `Today`: the figures, the alerts and the headline on one
+/// screen, which is the thing a phone is actually opened for.
 ///
 /// The whole app is light-locked. That is not laziness about dark mode: the site
 /// has no dark mode. Its palette is one warm cream ground with ink type, and the
@@ -20,403 +84,120 @@ struct ContentView: View {
     @ObservedObject var location: LocationCollector
     @ObservedObject var battery: BatteryMonitor
     @StateObject private var site = SitePairingModel()
-    @State private var tab = Tab.chat
-    @State private var settingsOpen = false
-
-    enum Tab: Hashable { case chat, news, companion, connect }
+    @StateObject private var router = Router()
+    @StateObject private var alerts = AlertStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TabView(selection: $tab) {
-            chatTab
-                .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
-                .tag(Tab.chat)
+        TabView(selection: tabBinding) {
+            NavigationStack {
+                TodayScreen(companion: companion, alerts: alerts, site: site)
+            }
+            .tabItem { Label("Today", systemImage: "square.grid.2x2") }
+            .tag(Router.Tab.today)
 
-            newsTab
-                .tabItem { Label("News", systemImage: "newspaper") }
-                .tag(Tab.news)
+            NavigationStack(path: $router.chat) {
+                paired(what: "your threads") { ThreadListScreen() }
+            }
+            .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+            .tag(Router.Tab.chat)
 
-            CompanionScreen(companion: companion, outbox: outbox, location: location,
-                            onSettings: { settingsOpen = true })
-                .tabItem { Label("Companion", systemImage: "heart.text.square") }
-                .tag(Tab.companion)
+            NavigationStack(path: $router.health) {
+                HealthScreen(companion: companion)
+            }
+            .tabItem { Label("Health", systemImage: "heart.text.square") }
+            .tag(Router.Tab.health)
 
-            SitePairingScreen(model: site)
-                .tabItem { Label("Connect", systemImage: "qrcode") }
-                .tag(Tab.connect)
+            NavigationStack(path: $router.news) {
+                paired(what: "the news desk") { NewsScreen() }
+            }
+            .tabItem { Label("News", systemImage: "newspaper") }
+            .tag(Router.Tab.news)
         }
         .tint(SR.accent)
         .preferredColorScheme(.light)
-        .task { await site.check() }
-        .sheet(isPresented: $settingsOpen) {
-            SettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
+        .environmentObject(router)
+        .environmentObject(alerts)
+        .task {
+            // Anything a quick action, a notification tap or a Shortcut left
+            // waiting before there was a router to receive it.
+            drainPending()
+            await site.check()
+            await alerts.refresh()
         }
-    }
-
-    @ViewBuilder
-    private var chatTab: some View {
-        if site.paired {
-            ThreadListScreen()
-        } else {
-            SRShell(path: "/jkai",
-                    action: (icon: "gearshape", label: "Settings", run: { settingsOpen = true })) {
-                SiteUnpairedNotice(what: "your threads") { tab = .connect }
-            }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            // A quick action taken while the app was merely backgrounded never
+            // goes through `task`, which runs once per view lifetime.
+            drainPending()
+            Task { await alerts.refresh() }
         }
-    }
-
-    @ViewBuilder
-    private var newsTab: some View {
-        if site.paired {
-            NewsScreen()
-        } else {
-            SRShell(path: "/news",
-                    action: (icon: "gearshape", label: "Settings", run: { settingsOpen = true })) {
-                SiteUnpairedNotice(what: "the news desk") { tab = .connect }
-            }
+        // A thread opened from Spotlight. The index carries the conversation id
+        // as the item identifier, so this is a push rather than a search.
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            guard let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
+            router.show(.chat)
+            router.chat.append(ThreadReference(id: id))
         }
-    }
-}
-
-/// Health, family and sync — the app's original job, on the system.
-struct CompanionScreen: View {
-    @ObservedObject var companion: Companion
-    @ObservedObject var outbox: Outbox
-    @ObservedObject var location: LocationCollector
-    let onSettings: () -> Void
-
-    @State private var server = ""
-    @State private var code = ""
-    @State private var scannerPresented = false
-    @State private var scannedPairing: PairingPayload?
-    @State private var confirmPairing = false
-    @State private var showCode = false
-    @State private var pane = 0
-    @State private var confirmDisconnect = false
-
-    private enum PairingField: Hashable { case server, code }
-    @FocusState private var pairingFocus: PairingField?
-
-    var body: some View {
-        SRShell(
-            path: "/health",
-            kicker: companion.paired ? "Connected" : "Not paired",
-            footer: footerLines,
-            action: (icon: "gearshape", label: "Settings", run: onSettings)
-        ) {
-            SRSection {
-                SectionHead(
-                    kicker: "A / Companion",
-                    title: ["A little", "closer"],
-                    strap: "Your health stays yours. Your family sees the location you choose to share, and nothing else."
+        .sheet(item: $router.sheet) { sheet in
+            switch sheet {
+            case .settings:
+                SettingsScreen(
+                    outbox: outbox,
+                    companion: companion,
+                    location: location,
+                    battery: battery,
+                    site: site,
+                    alerts: alerts,
+                    target: router.settingsTarget
                 )
-                if companion.paired {
-                    if let profile = companion.profile {
-                        Figure(value: profile.name, label: "Connected as")
-                    }
-                    panePicker
-                } else {
-                    pairing
-                }
-            }
-
-            if companion.paired {
-                SRSection(tinted: true) {
-                    switch pane {
-                    case 1: healthPane
-                    case 2: familyPane
-                    default: syncPane
-                    }
-                }
-            }
-
-            SRSection(isLast: true) {
-                SRLabel(text: "Sync")
-                    .padding(.bottom, 10)
-                Text(companion.message)
-                    .font(SR.body(15))
-                    .foregroundStyle(SR.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("sync-status")
-                HStack(spacing: 18) {
-                    Figure(value: "\(companion.queueCount)", label: "Waiting")
-                    if let last = companion.lastUpload {
-                        Figure(value: last.formatted(date: .omitted, time: .shortened), label: "Last upload")
-                    }
-                }
-                .padding(.top, 12)
-            }
-        }
-        .confirmationDialog("Disconnect this iPhone?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
-            Button("Disconnect", role: .destructive) { Task { await companion.disconnect() } }
-        } message: {
-            Text("Stops syncing, pauses location sharing and revokes this device. Health records already uploaded stay on the website.")
-        }
-        .sheet(isPresented: $scannerPresented, onDismiss: { confirmPairing = scannedPairing != nil }) {
-            PairingScanner { value in
-                do { scannedPairing = try PairingPayload.parse(value) }
-                catch {
-                    scannedPairing = nil
-                    companion.message = error.localizedDescription
-                }
-            }
-        }
-        .alert("Connect to this server?", isPresented: $confirmPairing) {
-            Button("Cancel", role: .cancel) { scannedPairing = nil }
-            Button("Connect") {
-                if let payload = scannedPairing {
-                    server = payload.server
-                    code = payload.code
-                    scannedPairing = nil
-                    connect()
-                }
-            }
-        } message: { Text(scannedPairing?.server ?? "") }
-    }
-
-    private var footerLines: [String] {
-        ["Strange Ramblings · companion",
-         "Health is scoped to you · family sees location only",
-         "Targets 10 minutes still, 30 seconds moving"]
-    }
-
-    private var panePicker: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(["Sync", "My health", "Family"].enumerated()), id: \.offset) { index, label in
-                let current = pane == index
-                Button { pane = index } label: {
-                    Text(label.uppercased())
-                        .font(SR.monoMedium(12))
-                        .tracking(1.1)
-                        .foregroundStyle(current ? SR.paper : SR.inkSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(current ? SR.ink : Color.clear)
-                        .overlay(Rectangle().strokeBorder(SR.line, lineWidth: current ? 0 : 1))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.top, 18)
-    }
-
-    private var pairing: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Open Connect & privacy on your companion dashboard, then create a pairing QR code.")
-                .font(SR.body(15))
-                .foregroundStyle(SR.inkSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            SRButton(title: "Pair by QR code", filled: true, disabled: companion.busy) {
-                pairingFocus = nil
-                scannedPairing = nil
-                scannerPresented = true
-            }
-
-            SRLabel(text: "Or enter it by hand").padding(.top, 6)
-
-            TextField("HTTPS server address", text: $server)
-                .textContentType(.URL)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(SR.body(15))
-                .padding(.horizontal, 12).padding(.vertical, 11)
-                .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-                .focused($pairingFocus, equals: .server)
-                .submitLabel(.next)
-                .onSubmit { pairingFocus = .code }
-
-            Group {
-                if showCode { TextField("One-time pairing code", text: $code) }
-                else { SecureField("One-time pairing code", text: $code) }
-            }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .font(SR.body(15))
-            .padding(.horizontal, 12).padding(.vertical, 11)
-            .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-            .focused($pairingFocus, equals: .code)
-            .submitLabel(.go)
-            .onSubmit { connect() }
-
-            Toggle(isOn: $showCode) {
-                Text("Show pairing code").font(SR.body(14)).foregroundStyle(SR.inkSecondary)
-            }
-            .tint(SR.accent)
-
-            SRButton(title: "Connect", filled: true, disabled: companion.busy || code.isEmpty) { connect() }
-
-            Text("Health and location uploads start only after you choose to enable them.")
-                .font(SR.body(13))
-                .foregroundStyle(SR.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func connect() {
-        guard !companion.busy, !code.isEmpty else { return }
-        pairingFocus = nil
-        Task {
-            await companion.pair(server: server, code: code)
-            if companion.paired { code = "" }
-        }
-    }
-
-    private var syncPane: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SRLabel(text: "My health permissions")
-            Text("Selected categories are sent to your private dashboard. Family members cannot read them. The first sync includes up to 30 days.")
-                .font(SR.body(14))
-                .foregroundStyle(SR.inkSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ForEach(["steps", "heart_rate", "resting_heart_rate", "sleep", "workout"], id: \.self) { kind in
-                Toggle(isOn: Binding(
-                    get: { outbox.state.healthEnabled.contains(kind) },
-                    set: { companion.setHealth(kind, enabled: $0) }
-                )) {
-                    Text(HealthCollector.labels[kind] ?? kind)
-                        .font(SR.body(15))
-                        .foregroundStyle(SR.ink)
-                }
-                .tint(SR.accent)
-                .disabled(companion.busy)
-            }
-
-            SRButton(title: "Review Apple Health permissions", disabled: companion.busy || outbox.state.healthEnabled.isEmpty) {
-                Task { await companion.authorizeHealth() }
-            }
-
-            Text("Apple does not reveal whether you denied read access, so missing records may mean no data or no permission. Turning a category off stops future uploads; delete what is already there on the website.")
-                .font(SR.body(13))
-                .foregroundStyle(SR.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Rectangle().fill(SR.divider).frame(height: 1).padding(.vertical, 4)
-
-            Toggle(isOn: Binding(
-                get: { outbox.state.sharing },
-                set: { value in Task { await companion.setSharing(value) } }
-            )) {
-                Text("Share location with my family").font(SR.body(15)).foregroundStyle(SR.ink)
-            }
-            .tint(SR.accent)
-            .disabled(companion.busy)
-
-            Text(location.status)
-                .font(SR.body(14))
-                .foregroundStyle(SR.inkSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            SRButton(title: "Enable Always location access", disabled: !outbox.state.sharing) {
-                location.requestAlways()
-            }
-            SRButton(title: companion.busy ? "Syncing…" : "Sync now", filled: true, disabled: companion.busy) {
-                Task { await companion.sync() }
-            }
-            SRButton(title: "Disconnect this iPhone", disabled: companion.busy) {
-                confirmDisconnect = true
+            case .alerts:
+                NavigationStack { AlertsScreen(alerts: alerts) }
             }
         }
     }
 
-    private var healthPane: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SRLabel(text: "Only you can see this")
-            if companion.records.isEmpty {
-                Text("No uploaded health records yet. Enable categories under Sync and review Apple Health permissions.")
-                    .font(SR.body(15))
-                    .foregroundStyle(SR.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                SRLedger {
-                    ForEach(companion.records.prefix(50)) { record in
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(HealthCollector.labels[record.kind] ?? record.kind)
-                                    .font(SR.bodyMedium(15))
-                                    .foregroundStyle(SR.ink)
-                                if let stage = record.stage {
-                                    Text(stage.replacingOccurrences(of: "_", with: " "))
-                                        .font(SR.body(14))
-                                        .foregroundStyle(SR.inkSecondary)
-                                }
-                                if let activity = record.activity {
-                                    Text(activity).font(SR.body(14)).foregroundStyle(SR.inkSecondary)
-                                }
-                                Text("\(record.source) · \(record.start)")
-                                    .font(SR.mono(12))
-                                    .foregroundStyle(SR.inkGhost)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 8)
-                            if let value = record.value {
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text(value.formatted())
-                                        .font(SR.display(20))
-                                        .foregroundStyle(SR.ink)
-                                    if let unit = record.unit {
-                                        Text(unit.uppercased())
-                                            .font(SR.mono(12))
-                                            .foregroundStyle(SR.inkMuted)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(SR.paper)
-                    }
-                }
-            }
-            Text("The latest uploaded records. Heart rate is not a live feed, and sleep records can overlap between sources.")
-                .font(SR.body(13))
-                .foregroundStyle(SR.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
+    private func drainPending() {
+        AppDelegate.pending.drain(into: router, companion: companion)
+        if AppDelegate.pending.openAlerts {
+            AppDelegate.pending.openAlerts = false
+            router.openAlerts()
         }
     }
 
-    private var familyPane: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SRLabel(text: "Family locations")
-            if companion.family.isEmpty {
-                Text("No family locations available.")
-                    .font(SR.body(15))
-                    .foregroundStyle(SR.inkSecondary)
+    /// `TabView`'s selection, with a haptic on the change.
+    ///
+    /// Not `.onChange(of: router.tab)` — that fires for a programmatic change
+    /// too, so a Shortcut that opens Health would buzz the phone from a locked
+    /// pocket. Only a tap goes through the binding's setter.
+    private var tabBinding: Binding<Router.Tab> {
+        Binding(
+            get: { router.tab },
+            set: { next in
+                if next != router.tab { SRHaptic.select() }
+                router.tab = next
             }
-            SRLedger {
-                ForEach(companion.family) { member in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(member.name).font(SR.bodyMedium(16)).foregroundStyle(SR.ink)
-                        if let point = member.location {
-                            let stale = (parseTimestamp(point.recorded)?.timeIntervalSinceNow ?? -.infinity) < -1200
-                            SRPill(text: stale ? "Stale" : "Latest", tone: stale ? SR.warn : SR.good)
-                            Text("±\(Int(point.accuracy)) m · \(point.moving ? "Moving" : "Stationary")")
-                                .font(SR.mono(12))
-                                .foregroundStyle(SR.inkMuted)
-                            Text(point.recorded).font(SR.mono(12)).foregroundStyle(SR.inkGhost).lineLimit(1)
-                            SRButton(title: "Open in Maps") {
-                                MKMapItem(placemark: MKPlacemark(
-                                    coordinate: CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
-                                )).openInMaps()
-                            }
-                        } else {
-                            Text(member.sharing ? "Waiting for a location" : "Location sharing paused")
-                                .font(SR.body(14))
-                                .foregroundStyle(SR.inkSecondary)
-                        }
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(SR.paper)
-                }
-            }
-            SRButton(title: "Refresh family locations") {
-                Task {
-                    do { try await companion.refresh() }
-                    catch { companion.message = error.localizedDescription }
-                }
-            }
+        )
+    }
+
+    /// A tab that needs the site credential, or the one screen that explains
+    /// why it does not have it.
+    @ViewBuilder
+    private func paired<Content: View>(what: String, @ViewBuilder content: () -> Content) -> some View {
+        if site.paired {
+            content()
+        } else {
+            SREmpty(
+                title: "Not connected yet",
+                icon: "qrcode.viewfinder",
+                message: "Connect this iPhone to Strange Ramblings to read \(what).",
+                actionLabel: "Connect",
+                action: { router.openSettings(.connections) }
+            )
+            .frame(maxHeight: .infinity)
+            .srPaper()
+            .navigationTitle(what.capitalized)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }

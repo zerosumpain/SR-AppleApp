@@ -1,18 +1,24 @@
 import SwiftUI
 
-/// Everything the app can be told to do, and what it is costing to do it.
+/// What location costs, and what it buys.
 ///
 /// Built the way /health builds a page rather than as a list of toggles: the
 /// measurement comes FIRST, because the question is not "what are the settings"
 /// but "what is the right balance", and a row of sliders cannot answer that.
 /// Section A is the instrument, B is the control, and the presets are there so
 /// a combination of nine numbers has a name.
-struct SettingsScreen: View {
+///
+/// This is the one screen in the app where the editorial register is still
+/// right. Everywhere else it was page furniture in front of the content; here
+/// the argument IS the content, and a reader who has navigated three levels
+/// into settings to weigh battery against accuracy has asked for the argument.
+/// Apple Health and sync moved out to screens of their own — they were on this
+/// page only because there was nowhere else to put them.
+struct LocationSettingsScreen: View {
     @ObservedObject var outbox: Outbox
     @ObservedObject var companion: Companion
     @ObservedObject var location: LocationCollector
     @ObservedObject var battery: BatteryMonitor
-    @Environment(\.dismiss) private var dismiss
 
     @State private var draft = LocationSettings()
     @State private var loaded = false
@@ -24,16 +30,8 @@ struct SettingsScreen: View {
     private var dirty: Bool { draft != outbox.state.location }
 
     var body: some View {
-        SRShell(
-            path: "/settings",
-            kicker: draft.matchingPreset?.label ?? "Custom",
-            back: (label: "Done", action: { dismiss() }),
-            footer: [
-                "Strange Ramblings · companion settings",
-                "Battery figures are DEVICE-WIDE — iOS does not report per-app use",
-                "Changes apply at the next fix, not the next launch",
-            ]
-        ) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
             SRSection {
                 SectionHead(
                     kicker: "A / What it is costing",
@@ -65,18 +63,26 @@ struct SettingsScreen: View {
                 motionGate
             }
 
-            SRSection {
-                SectionHead(kicker: "D / Apple Health", title: ["What it", "uploads"], strap: nil)
-                healthToggles
+                SRSection(isLast: true) {
+                    Text("Battery figures are device-wide — iOS does not report per-app use. Changes apply at the next fix, not the next launch.")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-
-            SRSection(tinted: true, isLast: true) {
-                SectionHead(kicker: "E / Sync", title: ["Where it", "sends it"], strap: nil)
-                syncInfo
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .srPaper()
+        .navigationTitle("Location & battery")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { logOpen = true } label: { Image(systemName: "list.bullet.rectangle") }
+                    .accessibilityLabel("Gate history")
             }
         }
         .sheet(isPresented: $logOpen) {
-            ActivityLogScreen(outbox: outbox)
+            NavigationStack { ActivityLogScreen(outbox: outbox) }
         }
         .task {
             guard !loaded else { return }
@@ -131,7 +137,7 @@ struct SettingsScreen: View {
             if let since = outbox.state.countingSince {
                 Text("Counting since \(since.formatted(date: .abbreviated, time: .shortened))")
                     .font(SR.mono(12))
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
             }
 
             SRButton(title: "Reset the measurement") {
@@ -463,57 +469,6 @@ struct SettingsScreen: View {
                     .font(SR.body(13))
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    // MARK: - D and E
-
-    private var healthToggles: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(["steps", "heart_rate", "resting_heart_rate", "sleep", "workout"], id: \.self) { kind in
-                Toggle(isOn: Binding(
-                    get: { outbox.state.healthEnabled.contains(kind) },
-                    set: { companion.setHealth(kind, enabled: $0) }
-                )) {
-                    Text(HealthCollector.labels[kind] ?? kind)
-                        .font(SR.body(15)).foregroundStyle(SR.ink)
-                }
-                .tint(SR.accent)
-                .disabled(companion.busy)
-            }
-            Text("Health is read on a schedule iOS controls, not on a timer of ours, so these cost far less than location. Turning one off stops future uploads; delete what is already there on the website.")
-                .font(SR.body(13))
-                .foregroundStyle(SR.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            SRButton(title: "Review Apple Health permissions",
-                     disabled: companion.busy || outbox.state.healthEnabled.isEmpty) {
-                Task { await companion.authorizeHealth() }
-            }
-        }
-    }
-
-    private var syncInfo: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Toggle(isOn: Binding(
-                get: { outbox.state.sharing },
-                set: { value in Task { await companion.setSharing(value) } }
-            )) {
-                Text("Share location with my family").font(SR.body(15)).foregroundStyle(SR.ink)
-            }
-            .tint(SR.accent)
-            .disabled(companion.busy)
-
-            Text(location.status)
-                .font(SR.body(14))
-                .foregroundStyle(SR.inkSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 20) {
-                Figure(value: "\(companion.queueCount)", label: "Waiting to upload")
-                if let last = companion.lastUpload {
-                    Figure(value: last.formatted(date: .omitted, time: .shortened), label: "Last upload")
-                }
             }
         }
     }

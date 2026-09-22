@@ -85,6 +85,10 @@ jobs:
           node-version: '22.23.2'
       - run: npm ci --ignore-scripts
       - run: npm test
+      # A grep, on the 1x runner, for the one rule the 10x runner cannot check:
+      # a bundled face asked for at a fixed size compiles perfectly and renders
+      # perfectly, and simply never answers the reader's text setting.
+      - run: node scripts/check-dynamic-type.mjs
   ios:
     needs: scope
     if: needs.scope.outputs.ios == 'true'

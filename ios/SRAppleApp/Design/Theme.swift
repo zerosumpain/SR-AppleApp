@@ -103,14 +103,32 @@ enum SR {
     /// argument for small type is weaker, not stronger.
     static let labelFloor: CGFloat = 12
 
-    static func display(_ size: CGFloat) -> Font { .custom(Face.display, size: size) }
-    static func body(_ size: CGFloat = 16) -> Font { .custom(Face.body, size: size) }
-    static func bodyMedium(_ size: CGFloat = 16) -> Font { .custom(Face.bodyMedium, size: size) }
-    static func bodyBold(_ size: CGFloat = 16) -> Font { .custom(Face.bodyBold, size: size) }
-    static func brand(_ size: CGFloat = 14) -> Font { .custom(Face.brand, size: size) }
-    static func mono(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor)) }
-    static func monoMedium(_ size: CGFloat = 12) -> Font { .custom(Face.monoMedium, size: max(size, labelFloor)) }
-    static func monoBold(_ size: CGFloat = 12) -> Font { .custom(Face.monoBold, size: max(size, labelFloor)) }
+    // EVERY ONE OF THESE SCALES.
+    //
+    // They did not. `Font.custom(name:size:)` returns a fixed size and ignores
+    // the reader's text setting completely, so a phone set to Larger Text — or
+    // to any accessibility size — rendered this app at exactly the same points
+    // as a phone set to the smallest. On the web the same values are `rem` and
+    // scale for free, which is how the property got lost in the port: nobody
+    // removed it, it simply did not survive being retyped.
+    //
+    // The fix is here rather than at the call sites. There were 104 of them,
+    // and a new `SR.Text` ramp beside an old fixed one would have meant
+    // converting them by hand and leaving the fixed API in the file for the
+    // next person to reach for. Teaching the old names to scale fixes every
+    // screen at once, including the ones nobody is editing this week.
+    //
+    // The TextStyle each is measured against is not decorative. A headline
+    // pinned to `.caption` barely moves; a 12pt label pinned to `.largeTitle`
+    // doubles and breaks the row it sits in.
+    static func display(_ size: CGFloat) -> Font { .custom(Face.display, size: size, relativeTo: .title) }
+    static func body(_ size: CGFloat = 16) -> Font { .custom(Face.body, size: size, relativeTo: .body) }
+    static func bodyMedium(_ size: CGFloat = 16) -> Font { .custom(Face.bodyMedium, size: size, relativeTo: .body) }
+    static func bodyBold(_ size: CGFloat = 16) -> Font { .custom(Face.bodyBold, size: size, relativeTo: .body) }
+    static func brand(_ size: CGFloat = 14) -> Font { .custom(Face.brand, size: size, relativeTo: .headline) }
+    static func mono(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor), relativeTo: .caption) }
+    static func monoMedium(_ size: CGFloat = 12) -> Font { .custom(Face.monoMedium, size: max(size, labelFloor), relativeTo: .caption) }
+    static func monoBold(_ size: CGFloat = 12) -> Font { .custom(Face.monoBold, size: max(size, labelFloor), relativeTo: .caption) }
 
     // MARK: - Metrics
     //
@@ -166,4 +184,57 @@ extension Color {
             opacity: alpha
         )
     }
+}
+
+// MARK: - Dynamic Type
+//
+// `Font.custom(name:size:)` returns a FIXED size. It ignores the reader's text
+// setting entirely, so an app built on it is the same nine points whether the
+// slider is at extra-small or at accessibility-extra-extra-extra-large. On the
+// web the same values are `rem`, which do scale, so the port quietly dropped a
+// property the page had.
+//
+// `Font.custom(_:size:relativeTo:)` is the fix, and it needs a TextStyle to
+// scale against — the metric is "this size, growing the way `.body` grows". The
+// pairing matters: a headline pinned to `.caption` barely moves, and a 12pt
+// label pinned to `.largeTitle` doubles and breaks the row it sits in.
+extension SR {
+    /// Type scaled to the reader's setting. Every new surface uses these.
+    enum Text {
+        /// The one big figure on a screen. Archivo Black.
+        static func hero(_ size: CGFloat = 34) -> Font { .custom(Face.display, size: size, relativeTo: .largeTitle) }
+        /// A section's headline.
+        static func display(_ size: CGFloat = 22) -> Font { .custom(Face.display, size: size, relativeTo: .title2) }
+        /// A row's or card's title.
+        static func title(_ size: CGFloat = 17) -> Font { .custom(Face.bodyMedium, size: size, relativeTo: .headline) }
+        /// Reading copy.
+        static func body(_ size: CGFloat = 16) -> Font { .custom(Face.body, size: size, relativeTo: .body) }
+        static func bodyMedium(_ size: CGFloat = 16) -> Font { .custom(Face.bodyMedium, size: size, relativeTo: .body) }
+        /// Supporting copy under a title.
+        static func secondary(_ size: CGFloat = 14) -> Font { .custom(Face.body, size: size, relativeTo: .subheadline) }
+        /// A figure. JetBrains Mono, because a number wants tabular stems.
+        static func figure(_ size: CGFloat = 28) -> Font { .custom(Face.display, size: size, relativeTo: .title) }
+        /// The mono eyebrow. Never below the 12pt floor before scaling.
+        static func label(_ size: CGFloat = 12) -> Font { .custom(Face.monoMedium, size: max(size, labelFloor), relativeTo: .caption) }
+        static func mono(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor), relativeTo: .caption) }
+        /// The brand mark.
+        static func brand(_ size: CGFloat = 15) -> Font { .custom(Face.brand, size: size, relativeTo: .headline) }
+    }
+
+    // MARK: - Phone metrics
+    //
+    // The web gutter is `clamp(20px, 3vw, 44px)` and a phone is always at the
+    // floor, so 20 stays. The rest are new: a page has no rows, and a list of
+    // rows needs a rhythm the page never had to name.
+
+    /// The smallest thing a thumb can reliably hit. Apple's floor, and the one
+    /// number in here that is not a taste decision.
+    static let tapTarget: CGFloat = 44
+    /// A list row's vertical padding. 12 top and bottom around a 17pt title
+    /// clears 44 without measuring.
+    static let rowPadding: CGFloat = 12
+    /// Between cards in a stack.
+    static let cardGap: CGFloat = 12
+    /// Inside a card.
+    static let cardPadding: CGFloat = 16
 }

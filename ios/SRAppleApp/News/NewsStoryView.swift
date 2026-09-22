@@ -13,12 +13,8 @@ struct NewsStoryScreen: View {
     @State private var acting = false
 
     var body: some View {
-        SRShell(
-            path: "/news",
-            kicker: story.sourceLabel,
-            back: (label: "Desk", action: { dismiss() }),
-            footer: footerLines
-        ) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
             SRSection {
                 SectionHead(
                     kicker: "A / \(story.sourceLabel) · \(shortAgo(story.publishedAt)) ago",
@@ -53,12 +49,25 @@ struct NewsStoryScreen: View {
                                 Spacer()
                                 Text("\(also.score)▲ \(also.commentCount)◇")
                                     .font(SR.mono(12))
-                                    .foregroundStyle(SR.inkGhost)
+                                    .foregroundStyle(SR.inkMuted)
                             }
                             .padding(.vertical, 9)
                         }
                     }
                 }
+            }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .srPaper()
+        .navigationTitle(story.sourceLabel)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(item: URL(string: story.url.isEmpty ? story.discussionUrl : story.url) ?? SiteClient.defaultOrigin) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Share this story")
             }
         }
         .task { await store.load(source: story.source, id: story.storyId) }
@@ -163,7 +172,7 @@ struct NewsStoryScreen: View {
                 if article.truncated {
                     Text("This is the opening of the article. Open it in full to keep reading.")
                         .font(SR.mono(12))
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                 }
             }
         } else if let message = store.message {

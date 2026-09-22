@@ -22,7 +22,7 @@ struct ChatBubble: View {
                 if let stamp = message.createdAt {
                     Text(shortAgo(stamp))
                         .font(SR.mono(12))
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                 }
             }
 
@@ -32,7 +32,7 @@ struct ChatBubble: View {
                 // like a dropped message.
                 Text("…")
                     .font(SR.body(16))
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
             } else {
                 MarkdownText(raw: message.content)
             }
@@ -115,7 +115,7 @@ struct TurnActivityPanel: View {
                             .font(.system(size: 9, weight: .bold))
                         Text("Reasoning").font(SR.mono(12)).tracking(1)
                     }
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                 }
                 .buttonStyle(.plain)
 
@@ -154,7 +154,7 @@ struct BlockedTurnCard: View {
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Plans, confirmations and credential prompts are answered at the desk. The turn is waiting there.")
+            Text("Plans, confirmations and credential prompts are answered at the desk. The turn is waiting there, and a WhatsApp message with the link is on its way.")
                 .font(SR.body(14))
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)

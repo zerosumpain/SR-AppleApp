@@ -10,6 +10,14 @@
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 <key>LSRequiresIPhoneOS</key><true/>
 <key>UILaunchScreen</key><dict/>
+<!-- The app is light-locked in SwiftUI with `.preferredColorScheme(.light)`,
+     which covers the view hierarchy and NOT the surfaces UIKit presents for it:
+     an action sheet, an alert, the share sheet, the camera picker. On a phone
+     set to dark those still came up dark, in the middle of a cream app. This is
+     the declaration that covers them. The site has no dark mode; inverting a
+     palette whose counter-accent has no on-ink value would drop a third of its
+     semantic vocabulary, not restyle it. -->
+<key>UIUserInterfaceStyle</key><string>Light</string>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
 <key>NSHealthUpdateUsageDescription</key><string>SR Companion reads your selected Apple Health data for your private dashboard. It does not write or change data in Apple Health.</string>
 <key>NSCameraUsageDescription</key><string>Scan the pairing QR code on your Strange Ramblings dashboard to connect this iPhone.</string>
