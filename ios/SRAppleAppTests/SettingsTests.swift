@@ -58,7 +58,11 @@ final class SettingsTests: XCTestCase {
         XCTAssertGreaterThan(balanced.stationaryInterval, accurate.stationaryInterval)
         // …and asks the radio for less.
         XCTAssertEqual(saver.heartbeatInterval, 0, "saver must not force fixes on a timer")
-        XCTAssertLessThan(balanced.heartbeatInterval, accurate.heartbeatInterval)
+        // The heartbeat is a PERIOD, so LONGER is cheaper — balanced waits five
+        // minutes between forced fixes where accurate waits one. Asserting this
+        // the other way round was my own confusion about the direction, and the
+        // test caught it.
+        XCTAssertGreaterThan(balanced.heartbeatInterval, accurate.heartbeatInterval)
         // The cheap presets must not bin their own fixes.
         XCTAssertGreaterThan(saver.accuracyCeiling, accurate.accuracyCeiling)
     }
@@ -152,6 +156,28 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(state.location, LocationSettings(), "settings must default in")
         XCTAssertTrue(state.battery.isEmpty)
         XCTAssertEqual(state.pointsRecorded, 0)
+    }
+
+    func testAnEmptyObjectStillDecodes() throws {
+        // The strongest form of the upgrade guarantee: every single key missing.
+        // Swift's synthesised Codable throws keyNotFound here — a property's
+        // default value is NOT used for a missing key — which is what made an
+        // upgrade discard the upload queue.
+        let state = try JSONDecoder().decode(PersistedState.self, from: Data("{}".utf8))
+        XCTAssertTrue(state.batches.isEmpty)
+        XCTAssertFalse(state.sharing)
+        XCTAssertEqual(state.location, LocationSettings())
+    }
+
+    func testAPartialSettingsBlobKeepsTheRestOfTheDefaults() throws {
+        // A settings object written by an older build, missing fields a newer
+        // one knows about.
+        let json = #"{"heartbeatInterval":0,"movingAccuracy":"tenMetres"}"#
+        let s = try JSONDecoder().decode(LocationSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(s.heartbeatInterval, 0)
+        XCTAssertEqual(s.movingAccuracy, .tenMetres)
+        XCTAssertEqual(s.stationaryInterval, 600, "unlisted fields must keep their defaults")
+        XCTAssertEqual(s.activity, .other)
     }
 
     @MainActor func testSettingsSurviveARestart() throws {

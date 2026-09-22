@@ -69,6 +69,38 @@ struct PersistedState: Codable {
     var pointsRecorded = 0
     var accuracySum: Double = 0
     var countingSince: Date?
+
+    /// Decode every field as OPTIONAL-with-a-default.
+    ///
+    /// Swift's synthesised `Codable` does NOT fall back to a property's default
+    /// value when a key is missing — it throws `keyNotFound` unless the property
+    /// is `Optional`. So adding `location`, `battery` and the counters made every
+    /// EXISTING state file undecodable, and this file is the upload queue: an
+    /// upgrade would have silently discarded unsent health records, HealthKit
+    /// anchors and the sharing flag, then started again from empty.
+    ///
+    /// Caught by `testExistingStateDecodesWithoutTheNewFields`, which is why it
+    /// was written. Anything added below must be decoded the same way.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        batches = try c.decodeIfPresent([UploadBatch].self, forKey: .batches) ?? []
+        anchors = try c.decodeIfPresent([String: Data].self, forKey: .anchors) ?? [:]
+        healthEnabled = try c.decodeIfPresent([String].self, forKey: .healthEnabled) ?? []
+        sharing = try c.decodeIfPresent(Bool.self, forKey: .sharing) ?? false
+        pendingSharing = try c.decodeIfPresent(Bool.self, forKey: .pendingSharing)
+        lastUpload = try c.decodeIfPresent(Date.self, forKey: .lastUpload)
+        historyStart = try c.decodeIfPresent(Date.self, forKey: .historyStart)
+            ?? Calendar.current.date(byAdding: .day, value: -30, to: Date())!
+        location = try c.decodeIfPresent(LocationSettings.self, forKey: .location) ?? LocationSettings()
+        battery = try c.decodeIfPresent([BatterySample].self, forKey: .battery) ?? []
+        pointsRecorded = try c.decodeIfPresent(Int.self, forKey: .pointsRecorded) ?? 0
+        accuracySum = try c.decodeIfPresent(Double.self, forKey: .accuracySum) ?? 0
+        countingSince = try c.decodeIfPresent(Date.self, forKey: .countingSince)
+    }
+
+    /// The memberwise init the rest of the app uses, which writing `init(from:)`
+    /// suppresses.
+    init() {}
 }
 @MainActor final class Outbox: ObservableObject {
     @Published private(set) var state: PersistedState
@@ -285,5 +317,54 @@ struct LocationSettings: Codable, Equatable {
     /// Which preset this matches, or nil once a value has been changed by hand.
     var matchingPreset: Preset? {
         Preset.allCases.first { $0.settings == self }
+    }
+
+    /// Same reasoning as `PersistedState.init(from:)`: a field added here later
+    /// must not make a stored settings blob undecodable, which would take the
+    /// whole state file — queue included — down with it.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = LocationSettings()
+        movingAccuracy = try c.decodeIfPresent(LocationAccuracy.self, forKey: .movingAccuracy) ?? d.movingAccuracy
+        stationaryAccuracy = try c.decodeIfPresent(LocationAccuracy.self, forKey: .stationaryAccuracy) ?? d.stationaryAccuracy
+        movingDistanceFilter = try c.decodeIfPresent(Double.self, forKey: .movingDistanceFilter) ?? d.movingDistanceFilter
+        stationaryDistanceFilter = try c.decodeIfPresent(Double.self, forKey: .stationaryDistanceFilter) ?? d.stationaryDistanceFilter
+        movingInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .movingInterval) ?? d.movingInterval
+        stationaryInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .stationaryInterval) ?? d.stationaryInterval
+        stopThreshold = try c.decodeIfPresent(TimeInterval.self, forKey: .stopThreshold) ?? d.stopThreshold
+        movingSpeed = try c.decodeIfPresent(Double.self, forKey: .movingSpeed) ?? d.movingSpeed
+        accuracyCeiling = try c.decodeIfPresent(Double.self, forKey: .accuracyCeiling) ?? d.accuracyCeiling
+        heartbeatInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .heartbeatInterval) ?? d.heartbeatInterval
+        activity = try c.decodeIfPresent(LocationActivity.self, forKey: .activity) ?? d.activity
+        pausesAutomatically = try c.decodeIfPresent(Bool.self, forKey: .pausesAutomatically) ?? d.pausesAutomatically
+        significantChangeMonitoring = try c.decodeIfPresent(Bool.self, forKey: .significantChangeMonitoring) ?? d.significantChangeMonitoring
+    }
+
+    init(movingAccuracy: LocationAccuracy = .best,
+         stationaryAccuracy: LocationAccuracy = .hundredMetres,
+         movingDistanceFilter: Double = 10,
+         stationaryDistanceFilter: Double = 30,
+         movingInterval: TimeInterval = 30,
+         stationaryInterval: TimeInterval = 600,
+         stopThreshold: TimeInterval = 180,
+         movingSpeed: Double = 0.8,
+         accuracyCeiling: Double = 100,
+         heartbeatInterval: TimeInterval = 60,
+         activity: LocationActivity = .other,
+         pausesAutomatically: Bool = true,
+         significantChangeMonitoring: Bool = true) {
+        self.movingAccuracy = movingAccuracy
+        self.stationaryAccuracy = stationaryAccuracy
+        self.movingDistanceFilter = movingDistanceFilter
+        self.stationaryDistanceFilter = stationaryDistanceFilter
+        self.movingInterval = movingInterval
+        self.stationaryInterval = stationaryInterval
+        self.stopThreshold = stopThreshold
+        self.movingSpeed = movingSpeed
+        self.accuracyCeiling = accuracyCeiling
+        self.heartbeatInterval = heartbeatInterval
+        self.activity = activity
+        self.pausesAutomatically = pausesAutomatically
+        self.significantChangeMonitoring = significantChangeMonitoring
     }
 }
