@@ -46,14 +46,21 @@ enum SRChrome {
             .foregroundColor: ink,
             .font: scaled(SR.Face.bodyBold, 17, .headline),
         ]
-        bar.largeTitleTextAttributes = [
-            .foregroundColor: ink,
-            // Archivo Black at 30 with the tracking the site gives a headline.
-            // -0.6 is the same value `SectionHead` uses; a display face set
-            // loose reads as a different typeface.
-            .font: scaled(SR.Face.display, 30, .largeTitle),
-            .kern: -0.6,
-        ]
+        // COLOUR ONLY, no face.
+        //
+        // The first build of this overhaul came back with every large title
+        // BLANK — the bar laid out at its full 96pt height, the trailing button
+        // in the right place, and nothing drawn where the title goes. Inline
+        // titles in the same build rendered in Archivo Black perfectly, and
+        // `testEveryNamedFontIsRegistered` passed, so the face is present and
+        // the appearance proxy is being honoured: it is the large-title slot
+        // specifically that does not survive a custom font here.
+        //
+        // Rather than ship a title nobody can read, the four tab roots use
+        // `.inline` — which is proven to render in this exact build — and this
+        // keeps only the colour, so that any large title that does appear is at
+        // least ink on cream in the system face rather than invisible.
+        bar.largeTitleTextAttributes = [.foregroundColor: ink]
         let back = UIBarButtonItemAppearance(style: .plain)
         back.normal.titleTextAttributes = [
             .foregroundColor: accent,

@@ -53,7 +53,12 @@ struct ThreadListScreen: View {
         .listStyle(.plain)
         .srPaper()
         .navigationTitle("Threads")
-        .navigationBarTitleDisplayMode(.large)
+        // Inline, not large. A large title renders BLANK on this OS with this
+        // appearance proxy — the bar lays out at full height and paints no text.
+        // Verified in CI screenshots; inline titles in the same build draw in
+        // Archivo Black correctly. A compact bar also gives a list more of the
+        // screen, which on a phone is the thing actually being asked for.
+        .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $store.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search the archive")
         .onChange(of: store.query) { _, _ in store.search() }
         .refreshable { await store.load() }
