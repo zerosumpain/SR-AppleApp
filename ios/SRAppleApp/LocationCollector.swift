@@ -143,6 +143,16 @@ import UIKit
     func requestPermission() { manager.requestWhenInUseAuthorization() }
     func requestAlways() { manager.requestAlwaysAuthorization() }
 
+    /// Ask for Motion & Fitness now, while somebody is looking at the screen.
+    /// See `MotionGate.primePermission()` for why this cannot be left until the
+    /// gate actually needs it.
+    @discardableResult
+    func primeMotionPermission() async -> Bool { await motion.primePermission() }
+
+    /// Why the gate cannot use motion, or nil if it can. Not `@Published` — it
+    /// is read when a settings row draws, which is the only place it is wanted.
+    var motionRefusal: String? { motion.refusalReason }
+
     func start() {
         guard outbox.state.sharing else { stop(); return }
         switch manager.authorizationStatus {

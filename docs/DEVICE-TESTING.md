@@ -24,8 +24,11 @@ The state machine is device-only — Core Motion answers nothing in a simulator,
 none of this is covered by CI. The failure to look for is not a crash, it is
 silence: an app that looks fine and records nothing.
 
-- Turn the gate on (Settings → C / Movement, or pick Balanced). Grant Motion &
-  Fitness when asked. If Always location access has not been granted, the history
+- Turn the gate on (Settings → C / Movement, or pick Balanced) and press Apply.
+  The Motion & Fitness sheet must appear THERE, in the foreground. Core Motion
+  has no request API — the sheet appears on the first query — and iOS will not
+  put one in front of a suspended app, so if it does not appear here it will
+  never appear at all and the gate will never work. Grant it. If Always location access has not been granted, the history
   must show a STAYED ON line naming that, and GPS must keep running.
 - Sit still for longer than the sleep threshold. The blue background-location
   indicator should disappear and the history should show GPS OFF with the anchor

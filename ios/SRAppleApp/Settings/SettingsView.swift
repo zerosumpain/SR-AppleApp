@@ -274,6 +274,13 @@ struct SettingsScreen: View {
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if let refusal = location.motionRefusal {
+                Text(refusal)
+                    .font(SR.body(14))
+                    .foregroundStyle(SR.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             SRButton(title: "When GPS went on and off") { logOpen = true }
                 .accessibilityIdentifier("open-activity-log")
 
@@ -536,6 +543,9 @@ struct SettingsScreen: View {
     }
 
     private func apply() {
+        // Whether the gate is being switched ON by this apply, which is the one
+        // moment the motion permission can be asked for.
+        let gateJustEnabled = draft.motion.enabled && !outbox.state.location.motion.enabled
         do {
             try outbox.change { $0.location = draft }
             // Push it at Core Location now. Waiting for the next launch is how a
@@ -545,6 +555,19 @@ struct SettingsScreen: View {
             saved = "Applied. Leave it a few hours, then read section A again."
         } catch {
             saved = error.localizedDescription
+            return
+        }
+        guard gateJustEnabled else { return }
+        // Core Motion's permission sheet appears on the first query and iOS will
+        // not show one to a suspended app — so if the first query were the one
+        // made on a background wake, this would never be asked for and the gate
+        // would never work. Ask here, in the foreground, instead.
+        saved = "Applied. Allow Motion & Fitness when asked — without it GPS cannot sleep."
+        Task { @MainActor in
+            let ready = await location.primeMotionPermission()
+            saved = ready
+                ? "Applied. Leave it a day, then read section A and the history together."
+                : (location.motionRefusal ?? "Motion is unavailable, so GPS will keep running and the history will say so.")
         }
     }
 }

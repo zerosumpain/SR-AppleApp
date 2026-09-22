@@ -250,6 +250,25 @@ enum MotionAssessment {
         }
     }
 
+    /// Ask for Motion & Fitness while the app is in the FOREGROUND.
+    ///
+    /// Core Motion has no request API — the permission sheet appears on the
+    /// first query. That is a trap for this design, because the first query
+    /// would otherwise be the one made on a background wake, and iOS will not
+    /// put a permission sheet in front of a suspended app. The query would fail
+    /// quietly, the verdict would be a blip, the app would go back to sleep, and
+    /// the permission would never be asked for at all.
+    ///
+    /// So this is that first query, made deliberately, at the moment somebody
+    /// turns the gate on and is looking at the screen.
+    @discardableResult
+    func primePermission() async -> Bool {
+        guard available else { return false }
+        let now = Date()
+        _ = await intervals(from: now.addingTimeInterval(-60), to: now)
+        return usable
+    }
+
     /// Read back the stretch we slept through.
     func evidence(from: Date, to: Date, burstWindow: TimeInterval) async -> MotionEvidence {
         var evidence = MotionEvidence(from: from, to: to)
