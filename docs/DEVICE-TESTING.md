@@ -18,6 +18,39 @@ Use a trusted HTTPS staging server and separate test accounts. Do not mistake si
 - Delete uploaded data: records disappear, devices and pending pair codes are revoked, sharing turns off, other people's records remain. Apple Health remains unchanged.
 - Measure battery use for a full typical day against a baseline, including cellular upload. Review before inviting the family.
 
+## The motion gate
+
+The state machine is device-only — Core Motion answers nothing in a simulator, so
+none of this is covered by CI. The failure to look for is not a crash, it is
+silence: an app that looks fine and records nothing.
+
+- Turn the gate on (Settings → C / Movement, or pick Balanced) and press Apply.
+  The Motion & Fitness sheet must appear THERE, in the foreground. Core Motion
+  has no request API — the sheet appears on the first query — and iOS will not
+  put one in front of a suspended app, so if it does not appear here it will
+  never appear at all and the gate will never work. Grant it. If Always location access has not been granted, the history
+  must show a STAYED ON line naming that, and GPS must keep running.
+- Sit still for longer than the sleep threshold. The blue background-location
+  indicator should disappear and the history should show GPS OFF with the anchor
+  radius. Nothing else should change on the screen.
+- Walk out of the anchor. Check the history shows WOKEN, then either GPS ON with
+  what the motion log said, or BACK TO SLEEP with a re-anchor. Note how long the
+  wake took — that latency is the thing being bought.
+- Drive away from a sleeping phone. This must wake within about a minute even
+  though the step count is zero; a step threshold alone would never catch it.
+- Stand up, cross a room, sit down again. This should read as a blip and go back
+  to sleep, not start GPS.
+- Force-quit while asleep, then move. The app is relaunched by the geofence and
+  must come back ASLEEP, not into continuous GPS — check the history for
+  RELAUNCHED ASLEEP rather than SHARING ON. If the phone has already left the
+  stored anchor, the wake reason should be "Anchor is already behind us".
+- Leave it a full day. Read the hit rate on the history screen: if most wakes
+  found nothing, widen the anchor and leave it another day. Compare the drain and
+  points figures in section A against the same day with the gate off — that
+  comparison is the entire point of the screen.
+- Turn Motion & Fitness off in iOS Settings while the gate is on. The app must
+  start GPS and say why, never go quiet.
+
 This is not an emergency tracking service. The interface must display stale/missing data rather than suggesting guaranteed coverage.
 
 ## JKAI chat

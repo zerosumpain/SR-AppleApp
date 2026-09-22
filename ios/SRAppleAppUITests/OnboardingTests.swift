@@ -140,6 +140,62 @@ final class SettingsUITests: XCTestCase {
         attach(app, "Settings — every value")
     }
 
+    @MainActor func testTheMotionGateAndItsHistoryAreReachable() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
+        app.tabBars.buttons["Companion"].tap()
+        app.buttons["sr-bar-action"].tap()
+        XCTAssertTrue(app.buttons["preset-balanced"].waitForExistence(timeout: 15))
+
+        // Section C is below the presets, so this scrolls rather than assuming.
+        let toggle = app.switches["motion-enabled"]
+        XCTAssertTrue(scroll(app, to: toggle), "no motion gate switch on the settings screen")
+        attach(app, "Settings — the motion gate")
+
+        let levers = app.buttons["toggle-motion-advanced"]
+        XCTAssertTrue(scroll(app, to: levers))
+        levers.tap()
+        attach(app, "Settings — every movement value")
+    }
+
+    @MainActor func testTheHistoryScreenOpensAndSaysWhatItIsStandingOn() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
+        app.tabBars.buttons["Companion"].tap()
+        app.buttons["sr-bar-action"].tap()
+        XCTAssertTrue(app.buttons["preset-balanced"].waitForExistence(timeout: 15))
+
+        let open = app.buttons["WHEN GPS WENT ON AND OFF"]
+        XCTAssertTrue(scroll(app, to: open), "no route from settings to the history")
+        open.tap()
+
+        // Assert on the identifier, not on a headline. `SectionHead` combines
+        // its title lines into one accessibility element, so querying a single
+        // line is a coin toss — the window picker is the element that actually
+        // carries an identifier.
+        XCTAssertTrue(app.segmentedControls["log-window"].waitForExistence(timeout: 15),
+                      "the history screen did not open")
+        // And a fresh install has nothing logged, so the screen has to SAY that
+        // rather than print a confident zero duty cycle.
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Nothing logged")).firstMatch.exists
+                      || app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Nothing in this window")).firstMatch.exists,
+                      "an empty log must say so rather than print a confident zero")
+        attach(app, "History — the gate opening and closing")
+    }
+
+    /// Swipe until it is on screen, or give up. Every one of these sits below
+    /// the fold on a phone, which is the point of the sections being ordered by
+    /// what you read first rather than by what you change most.
+    @MainActor private func scroll(_ app: XCUIApplication, to element: XCUIElement, swipes: Int = 8) -> Bool {
+        for _ in 0..<swipes {
+            if element.exists && element.isHittable { return true }
+            app.swipeUp()
+        }
+        return element.exists
+    }
+
     @MainActor private func attach(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name
