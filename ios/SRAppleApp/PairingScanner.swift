@@ -14,7 +14,7 @@ struct PairingPayload: Decodable, Equatable {
               let value = try? JSONDecoder().decode(Self.self, from: data),
               value.type == "sr-companion-pair", value.version == 1,
               value.code.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else {
-            throw CompanionError.message("This is not an SR Companion pairing QR code. Create one in Connect & privacy on your dashboard.")
+            throw CompanionError.message("This is not the health & location code. If you scanned the Chat & news code, that one belongs on the Connect tab. Create the right one under Connect & privacy on your dashboard.")
         }
         _ = try API.validateURL(value.server)
         return value
