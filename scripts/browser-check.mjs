@@ -24,6 +24,15 @@ for (const [name, viewport] of [['desktop',{width:1440,height:1100}],['phone',{w
  await page.locator('.day-strip .day').nth(1).click();
  await page.waitForFunction(()=>document.querySelectorAll('#movement-map path.trace').length>0);
  if(await page.locator('#movement-map line.trace-gap').count()===0) throw new Error(`${name} drew no gap between recording runs`);
+ // The trace has to sit ON the basemap. Each tile carries the zoom level as its
+ // z-index, so if the tile layer is `z-index:auto` it never becomes a stacking
+ // context, those values escape into the frame, and 12 beats the overlay's 1 —
+ // tiles paint over the track, the scale bar and the attribution.
+ const layers = await page.evaluate(()=>Object.fromEntries(
+   ['map-tiles','map-overlay','map-attrib'].map(c=>[c, getComputedStyle(document.querySelector('.'+c)).zIndex])));
+ if(layers['map-tiles']==='auto') throw new Error(`${name} tile layer is not a stacking context`);
+ if(!(Number(layers['map-tiles']) < Number(layers['map-overlay']))) throw new Error(`${name} basemap is not behind the track`);
+ if(!(Number(layers['map-overlay']) < Number(layers['map-attrib']))) throw new Error(`${name} attribution is not on top`);
  if(await page.locator('.metric').count()<6) throw new Error(`${name} movement stats missing`);
  const timeline = page.locator('.timeline');
  await timeline.waitFor();
