@@ -101,3 +101,49 @@ final class OnboardingTests: XCTestCase {
         add(shot)
     }
 }
+
+/// The settings screen renders, and the instrument says what it is standing on.
+final class SettingsUITests: XCTestCase {
+
+    @MainActor func testTheCogOpensSettingsFromTheBar() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
+        app.tabBars.buttons["Companion"].tap()
+
+        let cog = app.buttons["sr-bar-action"]
+        XCTAssertTrue(cog.waitForExistence(timeout: 10), "no settings cog on the bar")
+        cog.tap()
+
+        XCTAssertTrue(app.staticTexts["THE BALANCE,"].waitForExistence(timeout: 10)
+                      || app.staticTexts["MEASURED"].waitForExistence(timeout: 2))
+        attach(app, "Settings — the battery instrument")
+    }
+
+    @MainActor func testPresetsAreOfferedAndEveryValueIsReachable() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
+        app.tabBars.buttons["Companion"].tap()
+        app.buttons["sr-bar-action"].tap()
+
+        for preset in ["saver", "balanced", "accurate"] {
+            XCTAssertTrue(app.buttons["preset-\(preset)"].waitForExistence(timeout: 10), "missing preset \(preset)")
+        }
+        attach(app, "Settings — location presets")
+
+        // The advanced block is collapsed by default; every value lives under it.
+        app.buttons["preset-balanced"].tap()
+        let advanced = app.buttons["toggle-advanced"]
+        XCTAssertTrue(advanced.waitForExistence(timeout: 5))
+        advanced.tap()
+        attach(app, "Settings — every value")
+    }
+
+    @MainActor private func attach(_ app: XCUIApplication, _ name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+}

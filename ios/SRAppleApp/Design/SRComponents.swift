@@ -146,11 +146,27 @@ struct SRShell<Content: View>: View {
     var kicker: String? = nil
     var back: (label: String, action: () -> Void)? = nil
     var footer: [String] = []
+    /// The settings cog, or anything else that belongs on the bar's right edge.
+    /// A closure rather than a snippet so a caller can pass nothing at all.
+    var action: (icon: String, label: String, run: () -> Void)? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(spacing: 0) {
-            SRTopBar(path: path, kicker: kicker, back: back)
+            SRTopBar(path: path, kicker: kicker, back: back) {
+                if let action {
+                    Button(action: action.run) {
+                        Image(systemName: action.icon)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(SR.accentOnDark)
+                            .frame(width: 34, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(action.label)
+                    .accessibilityIdentifier("sr-bar-action")
+                }
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     content

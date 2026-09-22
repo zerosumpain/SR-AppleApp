@@ -18,8 +18,10 @@ struct ContentView: View {
     @ObservedObject var companion: Companion
     @ObservedObject var outbox: Outbox
     @ObservedObject var location: LocationCollector
+    @ObservedObject var battery: BatteryMonitor
     @StateObject private var site = SitePairingModel()
     @State private var tab = Tab.chat
+    @State private var settingsOpen = false
 
     enum Tab: Hashable { case chat, news, companion, connect }
 
@@ -33,7 +35,8 @@ struct ContentView: View {
                 .tabItem { Label("News", systemImage: "newspaper") }
                 .tag(Tab.news)
 
-            CompanionScreen(companion: companion, outbox: outbox, location: location)
+            CompanionScreen(companion: companion, outbox: outbox, location: location,
+                            onSettings: { settingsOpen = true })
                 .tabItem { Label("Companion", systemImage: "heart.text.square") }
                 .tag(Tab.companion)
 
@@ -44,6 +47,9 @@ struct ContentView: View {
         .tint(SR.accent)
         .preferredColorScheme(.light)
         .task { await site.check() }
+        .sheet(isPresented: $settingsOpen) {
+            SettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
+        }
     }
 
     @ViewBuilder
@@ -51,7 +57,8 @@ struct ContentView: View {
         if site.paired {
             ThreadListScreen()
         } else {
-            SRShell(path: "/jkai") {
+            SRShell(path: "/jkai",
+                    action: (icon: "gearshape", label: "Settings", run: { settingsOpen = true })) {
                 SiteUnpairedNotice(what: "your threads") { tab = .connect }
             }
         }
@@ -62,7 +69,8 @@ struct ContentView: View {
         if site.paired {
             NewsScreen()
         } else {
-            SRShell(path: "/news") {
+            SRShell(path: "/news",
+                    action: (icon: "gearshape", label: "Settings", run: { settingsOpen = true })) {
                 SiteUnpairedNotice(what: "the news desk") { tab = .connect }
             }
         }
@@ -74,6 +82,7 @@ struct CompanionScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var outbox: Outbox
     @ObservedObject var location: LocationCollector
+    let onSettings: () -> Void
 
     @State private var server = ""
     @State private var code = ""
@@ -91,7 +100,8 @@ struct CompanionScreen: View {
         SRShell(
             path: "/health",
             kicker: companion.paired ? "Connected" : "Not paired",
-            footer: footerLines
+            footer: footerLines,
+            action: (icon: "gearshape", label: "Settings", run: onSettings)
         ) {
             SRSection {
                 SectionHead(
