@@ -80,10 +80,12 @@ async function load() {
 // The local preview's sign-in. The endpoint behind it 404s on production, so
 // revealing the form there would be an invitation to a door that is not real —
 // `demoAvailable` is reported by the server, never guessed from the hostname.
-$('demo-form').onsubmit = e => { e.preventDefault(); action(async () => { await api('demo-signin', 'POST', { email: $('email').value }); await load(); }); };
+// The preview lane changes identity WITHOUT a page load, so anything already
+// drawn from the last account has to go before the next one's data arrives.
+$('demo-form').onsubmit = e => { e.preventDefault(); action(async () => { await api('demo-signin', 'POST', { email: $('email').value }); window.SRMovement.reset(); await load(); }); };
 // Signing out belongs to the main site: this server never issued the session, so
 // clearing anything here would leave the real one standing.
-$('logout').onclick = () => action(async () => { const r = await api('logout', 'POST', {}); location.href = r.signOutAt ?? location.pathname; });
+$('logout').onclick = () => action(async () => { const r = await api('logout', 'POST', {}); window.SRMovement.reset(); location.href = r.signOutAt ?? location.pathname; });
 /**
  * The OTHER credential a phone can hold: the one that reads chat and the news
  * desk on the main site.
@@ -168,6 +170,9 @@ $('sharing').onchange = () => action(async () => { try { await api('sharing', 'P
 $('delete').onclick = () => { if (confirm('Delete all your uploaded health and location data and revoke your devices?')) action(async () => { await api('data', 'DELETE'); clearPairing(); await load(); }); };
 for (const button of document.querySelectorAll('[data-tab]')) button.onclick = () => action(async () => {
   for (const b of document.querySelectorAll('[data-tab]')) { const active = b === button; b.setAttribute('aria-pressed', String(active)); $(b.dataset.tab).hidden = !active; }
+  // Movement loads itself, and only when asked: it is the one tab that pulls a
+  // month of geometry and a day of health, and most visits never open it.
+  if (button.dataset.tab === 'movement') await window.SRMovement.open();
   if (button.dataset.tab === 'family') await family();
   if (button.dataset.tab === 'settings') await devices();
 });

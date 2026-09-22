@@ -53,3 +53,38 @@ it), and `users.password` is dropped on open. There is no password to reset. A p
 QR update: that release preserved the existing volume and routes. Ten API tests pass, including decoding the generated QR pixels and checking replacement/replay rejection. Desktop/mobile rendered QR and expiry checks pass. The live HTTPS QR decoded to the canonical origin and successfully paired a temporary verification device, which was then revoked. Physical camera scanning still requires the updated TestFlight build on an iPhone.
 
 TestFlight 0.1.0 (3), from the same release, uploaded successfully on 21 September 2026. Native unit/UI checks passed with the simulator set to dark appearance, including QR payload validation, manual-code visibility, and camera-unavailable fallback. The physical-camera acceptance check remains for the device tester.
+
+## Movement map (22 September 2026)
+
+The dashboard gained a **Movement** tab: the signed-in person's own recorded
+track on a Mapbox basemap, with that day's heart rate, workouts, sleep and step
+total on a timeline beneath it. Two new read endpoints, `/api/apple/track` and
+`/api/apple/timeline`, both owner-scoped on either lane — there is no family
+history and no parameter that could ask for one.
+
+Nothing new to provision. The basemap uses the main site's existing public
+Mapbox token, fetched by the browser from `/api/maps/config` on the same origin;
+this container holds no Mapbox credential and the tunnel already routes
+`/api/maps` to the main site. The only header change is
+`img-src https://api.mapbox.com` in the CSP.
+
+**If the map is blank but the track draws, check the referrer before anything
+else.** The token is URL-restricted and this server sends
+`Referrer-Policy: no-referrer`; a tile that inherits that is refused with a 403
+and logs nothing visible. Each tile carries its own
+`referrerpolicy="strict-origin-when-cross-origin"` to override it. If the token
+endpoint is unreachable the track still draws, on a plain ground, and the frame
+says "No map imagery".
+
+Thirty-one API tests pass, including that a family member cannot read another
+member's track, that pausing sharing does not hide your own history from you,
+and that a recording gap becomes a second segment rather than a line drawn
+through it. The Playwright check covers the tab on desktop and phone: trace,
+dashed gap, timeline scrub placing and refusing to place the map's dot, pan and
+zoom. Deployment is unchanged — the same per-release Compose file and env file,
+the volume preserved, never `down -v`.
+
+A pre-existing preview bug was fixed in the same change: signing out of the
+local preview handed the browser the main site's `/auth/signout`, which the
+preview does not serve, so a successful sign-out landed on a 404. The preview's
+session is this server's own cookie and is already ended by clearing it.

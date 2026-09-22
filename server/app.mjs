@@ -4,11 +4,42 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { hash, issue } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
+import { SEGMENT_GAP_SECONDS, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
 const kinds = new Set(['steps', 'heart_rate', 'resting_heart_rate', 'sleep', 'workout']);
+/**
+ * How long a location history is kept, in days. Enforced by the prune in
+ * `sync`, reported by `track` so the day strip can draw the right number of
+ * columns — one constant rather than a 30 written in two places that drift.
+ */
+const RETENTION_DAYS = 30;
+/**
+ * A ceiling on one track response, so a future change of recording policy
+ * cannot turn this endpoint into a megabyte. At the motion gate's present
+ * density (~120 fixes a day) the whole retention window is well inside it;
+ * the newest points are the ones kept if it is ever hit.
+ */
+const TRACK_LIMIT = 20000;
+const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
 const iso = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value));
 const bounded = (x, lo, hi) => typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi;
 const string = (x, max = 200) => typeof x === 'string' && x.length > 0 && x.length <= max;
 function fail(status, message) { throw Object.assign(new Error(message), { status }); }
+/**
+ * One origin is allowed beyond `'self'`, and only for IMAGES.
+ *
+ * The movement map draws Mapbox raster tiles as plain `<img>` elements rather
+ * than running a WebGL map library, and that choice is what keeps this header
+ * as tight as it is: a GL map would need `connect-src` for the tile fetches,
+ * `worker-src blob:` for its workers and, in practice, a loosened `style-src`.
+ * None of that is here. `script-src 'self'` still means the only code that can
+ * run on a page showing a month of somebody's whereabouts is code this
+ * repository serves.
+ *
+ * The token itself is the site's public `pk.` one, fetched from Main's
+ * `/api/maps/config` on the same origin — so `connect-src 'self'` covers it and
+ * this server never holds a Mapbox credential of its own.
+ */
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://api.mapbox.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function exactKeys(obj, allowed) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || Object.keys(obj).some(k => !allowed.includes(k))) fail(400, 'Unexpected fields');
 }
@@ -45,14 +76,14 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', CSP);
     if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     try {
       const url = new URL(req.url, origin);
       const path = url.pathname;
       const method = req.method;
       if (method === 'GET' && path === '/healthz') return send(200, { ok: true });
-      const assets = { '/apple-app': 'index.html', '/apple-app/': 'index.html', '/apple-app/app.js': 'app.js', '/apple-app/style.css': 'style.css' };
+      const assets = { '/apple-app': 'index.html', '/apple-app/': 'index.html', '/apple-app/app.js': 'app.js', '/apple-app/map.js': 'map.js', '/apple-app/movement.js': 'movement.js', '/apple-app/style.css': 'style.css' };
       if (method === 'GET' && assets[path]) {
         const contents = await readFile(fileURLToPath(new URL(`./public/${assets[path]}`, import.meta.url)));
         res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html');
@@ -141,7 +172,14 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           db.prepare('DELETE FROM credentials WHERE hash=?').run(auth.hash);
           return send(200, { ok: true });
         }
-        if (demo && !secure) res.setHeader('Set-Cookie', 'sr_apple_demo=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+        if (demo && !secure) {
+          // The preview's session is a cookie THIS server set, and clearing it
+          // above has already ended it. Handing back the main site's sign-out
+          // URL as well sends the preview to a path this server does not serve,
+          // so the browser lands on a 404 having successfully signed out.
+          res.setHeader('Set-Cookie', 'sr_apple_demo=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+          return send(200, { ok: true });
+        }
         return send(200, { ok: true, signOutAt: `${csrfOrigin}/auth/signout` });
       }
       if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo });
@@ -178,6 +216,78 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const rows = db.prepare('SELECT payload, received FROM health WHERE user_id=? AND (? IS NULL OR kind=?) AND start<? ORDER BY start DESC LIMIT 501').all(auth.user_id, kind, kind, before);
         return send(200, { records: rows.slice(0, 500).map(r => ({ ...JSON.parse(r.payload), received: r.received })), truncated: rows.length > 500 });
       }
+      // Your own movement, for the map on the dashboard.
+      //
+      // OWNER-SCOPED, like /health, and for a sharper reason than /health has.
+      // `family` shares a LATEST position; this shares a HISTORY, and the two
+      // are not the same disclosure. A pin says where somebody is now. A month
+      // of pins says where they sleep, where they work, which school gate they
+      // stand at and who they visit on a Tuesday. So there is no user
+      // parameter here to reject — only the signed-in person's own track
+      // exists as far as this endpoint is concerned, on either lane.
+      //
+      // Reading your own history does NOT depend on the sharing switch: that
+      // switch governs uploading and what the family can see, and turning it
+      // off should not lock you out of what you already recorded.
+      if (path === '/api/apple/track' && method === 'GET') {
+        if ([...url.searchParams.keys()].some(k => !['offset', 'date'].includes(k))) fail(400, 'Movement can only be read for the signed-in user');
+        // `Number(null)` and `Number('')` are both 0 rather than NaN, so an
+        // absent or empty parameter has to be recognised BEFORE the conversion.
+        // The native lane shipped that bug into review once already.
+        const raw = url.searchParams.get('offset');
+        const offset = raw === null || raw === '' ? 0 : Number(raw);
+        if (!Number.isInteger(offset) || Math.abs(offset) > 840) fail(400, 'Invalid timezone offset');
+        const date = url.searchParams.get('date');
+        if (date !== null && !/^\d{4}-\d\d-\d\d$/.test(date)) fail(400, 'Invalid date');
+        const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? ORDER BY recorded DESC LIMIT ${TRACK_LIMIT + 1}`).all(auth.user_id);
+        const points = rows.slice(0, TRACK_LIMIT).reverse().map(r => {
+          const p = JSON.parse(r.payload);
+          return [round(p.longitude, 6), round(p.latitude, 6), Math.round(Date.parse(p.recorded) / 1000), round(p.accuracy, 1), p.moving ? 1 : 0, round(p.speed, 2)];
+        });
+        const body = { days: dayIndex(points, offset), truncated: rows.length > TRACK_LIMIT, gapSeconds: SEGMENT_GAP_SECONDS, retentionDays: RETENTION_DAYS };
+        if (date === null) return send(200, body);
+        const [from, to] = dayBounds(date, offset);
+        const day = points.filter(p => p[2] >= from && p[2] < to);
+        const segments = segmentsOf(day);
+        return send(200, { ...body, date, from, to, points: day, segments, totals: { fixes: day.length, metres: Math.round(recordedMetres(day, segments)), movingSeconds: movingSeconds(day, segments) } });
+      }
+      // The health that goes UNDER the map: one window, every signal that can
+      // be laid against a track.
+      //
+      // Separate from /health because it answers a different question. /health
+      // pages backwards through raw records 500 at a time; this bins a window
+      // into something a chart can draw — a day holds roughly 800 heart-rate
+      // samples and no axis 700 pixels wide can honestly show them all.
+      if (path === '/api/apple/timeline' && method === 'GET') {
+        if ([...url.searchParams.keys()].some(k => !['from', 'to', 'bins'].includes(k))) fail(400, 'Health can only be read for the signed-in user');
+        const from = Number(url.searchParams.get('from'));
+        const to = Number(url.searchParams.get('to'));
+        if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from || to - from > 8 * 86400) fail(400, 'Invalid window');
+        const rawBins = url.searchParams.get('bins');
+        const bins = rawBins === null || rawBins === '' ? 288 : Number(rawBins);
+        if (!Number.isInteger(bins) || bins < 1 || bins > 1440) fail(400, 'Invalid bin count');
+        const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
+        const started = kind => db.prepare('SELECT payload FROM health WHERE user_id=? AND kind=? AND start>=? AND start<? ORDER BY start').all(auth.user_id, kind, fromISO, toISO).map(r => JSON.parse(r.payload));
+        // Sleep, workouts and a daily step total are SPANS, not instants. A
+        // night that began before midnight belongs to the morning it ends in
+        // as much as to the evening it started in, so they are selected by
+        // OVERLAP. Selecting them by start alone loses every night's sleep.
+        const spanning = kind => db.prepare('SELECT payload FROM health WHERE user_id=? AND kind=? AND start<? AND end>? ORDER BY start').all(auth.user_id, kind, toISO, fromISO).map(r => JSON.parse(r.payload));
+        const resting = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='resting_heart_rate' AND start<? ORDER BY start DESC LIMIT 1").get(auth.user_id, toISO);
+        return send(200, {
+          from, to,
+          heartRate: binSeries(started('heart_rate'), from, to, bins),
+          restingHeartRate: resting ? { value: JSON.parse(resting.payload).value, at: JSON.parse(resting.payload).start } : null,
+          // Returned as RECORDS rather than a total on purpose. The phone
+          // uploads one cumulative-sum row per calendar day, so a window can
+          // legitimately overlap two of them, and adding those together would
+          // report a number neither day ever had. The caller picks the record
+          // that matches the day it is drawing and says whose total it is.
+          steps: spanning('steps').map(s => ({ value: s.value, start: s.start, end: s.end, source: s.source })),
+          workouts: spanning('workout').map(w => ({ activity: w.activity, start: w.start, end: w.end, seconds: w.value, distance: w.distance ?? null, energy: w.energy ?? null, source: w.source })),
+          sleep: spanning('sleep').map(s => ({ stage: s.stage, start: s.start, end: s.end, source: s.source }))
+        });
+      }
       if (path === '/api/apple/family' && method === 'GET') {
         const members = db.prepare('SELECT id,name,sharing FROM users WHERE family=? ORDER BY name').all(auth.family);
         return send(200, { members: members.map(u => {
@@ -198,8 +308,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           for (const r of health) put.run(auth.user_id, r.id, r.kind, r.start, r.end, JSON.stringify(r), received);
           for (const id of body.deleted) db.prepare('DELETE FROM health WHERE user_id=? AND id=?').run(auth.user_id, id);
           for (const r of locations) db.prepare('INSERT OR IGNORE INTO locations VALUES (?,?,?,?,?)').run(auth.user_id, r.id, r.recorded, JSON.stringify(r), received);
-          // Location history is deliberately bounded; family API exposes latest only.
-          db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(Date.now() - 30 * 86400000).toISOString());
+          // Location history is deliberately bounded; family API exposes latest
+          // only, and `track` exposes this window to its owner and nobody else.
+          db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(Date.now() - RETENTION_DAYS * 86400000).toISOString());
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
         return send(200, { accepted: health.length + locations.length + body.deleted.length, received });
