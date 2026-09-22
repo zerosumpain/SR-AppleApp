@@ -159,3 +159,63 @@ private extension UIColor {
         return String(format: "%02X%02X%02X", Int(round(r * 255)), Int(round(g * 255)), Int(round(b * 255)))
     }
 }
+
+// ---------------------------------------------------------------------------
+// URL building
+//
+// `appendingPathComponent` percent-encodes a `?`, so every request carrying a
+// query string asked for a path that does not exist. The server answered 404
+// with an HTML page, the app failed to decode `APIError` out of it, and the
+// reader saw a generic error. Pairing worked throughout, because
+// `api/native/me` has no query — which is exactly what made it look like a
+// server problem rather than a client one.
+// ---------------------------------------------------------------------------
+final class SiteURLTests: XCTestCase {
+
+    @MainActor private func built(_ path: String) throws -> URL {
+        try SiteClient.shared.url(for: path)
+    }
+
+    @MainActor func testAQueryStringStaysAQueryString() throws {
+        let url = try built("api/native/news?view=top&sort=time")
+        XCTAssertEqual(url.path, "/api/native/news")
+        XCTAssertEqual(url.query, "view=top&sort=time")
+        XCTAssertFalse(url.absoluteString.contains("%3F"), "the ? was encoded into the path: \(url)")
+    }
+
+    @MainActor func testPathsWithoutAQueryAreUnchanged() throws {
+        let url = try built("api/native/me")
+        XCTAssertEqual(url.path, "/api/native/me")
+        XCTAssertNil(url.query)
+    }
+
+    @MainActor func testEveryQueryBearingCallTheAppActuallyMakes() throws {
+        // The real call sites, not invented ones.
+        let paths = [
+            "api/native/news?view=for-you&sort=heat&fresh=1",
+            "api/native/chat/conversations?limit=40",
+            "api/native/chat/conversations/abc-123/messages?limit=60&before=2026-09-22T05:00:00.000Z&beforeId=x1",
+            "api/workflows/orchestrator/chat?jobId=job-7",
+            "api/workflows/orchestrator/chat/stream?jobId=job-7",
+        ]
+        for path in paths {
+            let url = try built(path)
+            XCTAssertFalse(url.absoluteString.contains("%3F"), "encoded ? in \(path)")
+            XCTAssertNotNil(url.query, "lost the query in \(path)")
+            XCTAssertEqual(url.path, "/" + path.split(separator: "?")[0], "path wrong for \(path)")
+        }
+    }
+
+    @MainActor func testAnAlreadyEncodedSearchTermIsNotEncodedTwice() throws {
+        // The thread search encodes its own term. Assigning to `query` rather
+        // than `percentEncodedQuery` would turn %20 into %2520.
+        let url = try built("api/native/chat/conversations?limit=40&q=policy%20paper")
+        XCTAssertEqual(url.query, "limit=40&q=policy%20paper")
+        XCTAssertFalse(url.absoluteString.contains("%2520"))
+    }
+
+    @MainActor func testAPathSegmentIsStillEscapedProperly() throws {
+        let url = try built("api/native/news/story/hn/44212")
+        XCTAssertEqual(url.path, "/api/native/news/story/hn/44212")
+    }
+}

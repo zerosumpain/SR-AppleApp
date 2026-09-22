@@ -133,9 +133,35 @@ final class SiteClient {
         return URLSession(configuration: config)
     }()
 
+    /// Build an absolute URL from a path that may carry a query string.
+    ///
+    /// NOT `appendingPathComponent`. That treats the WHOLE string as a single
+    /// path component and percent-encodes the reserved characters in it — so
+    /// `api/native/news?view=top` becomes `/api/native/news%3Fview=top`, which
+    /// is a path no route matches. The server answered 404 with an HTML error
+    /// page, the app tried to decode `APIError` out of HTML, and the reader got
+    /// a generic failure with no hint of the cause. Every call WITHOUT a query
+    /// worked, which is why pairing succeeded and nothing else did.
+    ///
+    /// `percentEncodedQuery` rather than `query`: the thread search already
+    /// encodes its term with `addingPercentEncoding`, and assigning to `query`
+    /// would encode the `%` signs again.
+    func url(for path: String) throws -> URL {
+        guard var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) else {
+            throw SiteError.message("The saved server address is not usable.")
+        }
+        let parts = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        components.path = "/" + parts[0].trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.percentEncodedQuery = parts.count > 1 && !parts[1].isEmpty ? String(parts[1]) : nil
+        guard let built = components.url else {
+            throw SiteError.message("Could not build a request for \(path).")
+        }
+        return built
+    }
+
     func request(_ path: String, method: String = "GET", body: Data? = nil) throws -> URLRequest {
         guard let token else { throw SiteError.unpaired }
-        var req = URLRequest(url: origin.appendingPathComponent(path))
+        var req = URLRequest(url: try url(for: path))
         req.httpMethod = method
         req.httpBody = body
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -171,8 +197,15 @@ final class SiteClient {
         // gets its own case rather than folding into a generic failure.
         if http.statusCode == 401 { throw SiteError.expired }
         guard (200..<300).contains(http.statusCode) else {
-            let detail = try? JSONDecoder().decode(APIError.self, from: data)
-            throw SiteError.message(detail?.error ?? "The server could not answer that (\(http.statusCode)).")
+            // A 404 comes back as the site's HTML error page, not JSON. Decoding
+            // it fails and the reader is told nothing useful, so name the status
+            // and say where it was pointed — that is what would have identified
+            // this as a malformed URL rather than a server fault.
+            if let detail = try? JSONDecoder().decode(APIError.self, from: data) {
+                throw SiteError.message(detail.error)
+            }
+            let where_ = response.url?.path ?? "the server"
+            throw SiteError.message("\(http.statusCode) from \(where_). The app asked for something that is not there.")
         }
     }
 
@@ -184,7 +217,7 @@ final class SiteClient {
         guard let url = URL(string: payload.server), url.scheme == "https" else {
             throw SiteError.message("A pairing code must name an HTTPS address.")
         }
-        var req = URLRequest(url: url.appendingPathComponent("api/native/pair"))
+        var req = URLRequest(url: url.appending(path: "api/native/pair"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(["code": payload.code, "label": deviceLabel()])
