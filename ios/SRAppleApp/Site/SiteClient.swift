@@ -82,8 +82,20 @@ struct SitePairing: Decodable {
               let payload = try? JSONDecoder().decode(SitePairing.self, from: data) else {
             throw SiteError.message("That is not a Strange Ramblings pairing code.")
         }
-        guard payload.type == "sr-native-pair", payload.version == 1 else {
-            throw SiteError.message("That pairing code is from a different version of the app.")
+        // Name the ACTUAL mistake. Both codes are minted from the same page, so
+        // scanning the wrong one is the likely error by a wide margin — and
+        // "a different version of the app" sent the reader looking for a
+        // TestFlight update that would not have helped.
+        guard payload.type != "sr-companion-pair" else {
+            throw SiteError.message(
+                "That is the health & location code, for the Companion tab. On the dashboard, scroll to Chat & news and create that code instead."
+            )
+        }
+        guard payload.type == "sr-native-pair" else {
+            throw SiteError.message("That is not a Strange Ramblings pairing code.")
+        }
+        guard payload.version == 1 else {
+            throw SiteError.message("That pairing code is from a newer version of the site than this app understands. Update the app.")
         }
         guard let url = URL(string: payload.server), url.scheme == "https" else {
             throw SiteError.message("A pairing code must name an HTTPS address.")
