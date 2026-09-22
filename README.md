@@ -95,8 +95,58 @@ Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code 
 
 On the companion dashboard, open **Connect & privacy → Create pairing QR code**. In the iPhone app, choose **Pair by QR code**, allow camera access, scan the dashboard on another screen, and confirm the displayed server. The QR carries the HTTPS origin and a single-use token. It expires after ten minutes; creating another QR invalidates the previous token. The app rejects unrelated QR codes and non-HTTPS origins. Manual paste remains available, with a Show pairing code switch. The app uses a consistent light paper appearance even when the system is in dark mode.
 
-## JKAI chat
+## Chat and news, natively
 
-The JKAI tab opens `https://strangeramblings.com/jkai` in a modally presented SafariServices browser. It reuses SR-Main’s mobile chat and existing Google sign-in/access controls. It is available independently of health pairing; no health/device token is forwarded and companion family membership grants no chat access. Close returns to the companion. The app does not install a PWA or add native chat push/background streaming.
+The **Chat** and **News** tabs are native SwiftUI, not a web view. They read
+`/api/native/*` on strangeramblings.com over a paired device token.
 
-The main Companion page also provides JKAI, News, and Health shortcuts, using the same in-app browser. The Health shortcut opens the website dashboard; the native My health view continues to show the paired companion account’s uploads. Website sign-in and access rules remain separate.
+- **Chat** — the thread ledger with search across the whole archive, paged
+  history, send, and a live SSE stream carrying tokens, reasoning and tool-step
+  summaries. Markdown and fenced code render natively; a stop button cancels the
+  turn. Attachments are listed, not composed — the phone does not upload.
+- **News** — the five desk views (top, new, best, for you, saved), source and
+  heat detail, cross-wire "also on" evidence, correlation against the knowledge
+  base, and all four row actions (save, keep in graph, link in note, commission
+  research). A saved story is the same row the desk shows.
+
+Four turns a chat can take are **not** answerable here — a plan approval, a
+dangerous-command confirmation, a clarification, and a credential request. All
+four are desk-shaped. The app names the gate and offers the website rather than
+spinning on a turn that will never resolve.
+
+### Two pairings, deliberately
+
+The app holds two independent credentials:
+
+| Pairing | Server | Grants |
+| --- | --- | --- |
+| **Companion** | your health/family server, `/api/apple/*` | health upload, family location |
+| **Connect** | strangeramblings.com, `/api/native/*` | chat threads, the news desk |
+
+They are separate so revoking one never silently takes the other with it. The
+site credential is minted at **Admin → Access → Devices**, is single-use, expires
+in ten minutes, and the device token it yields lasts ninety days and is revocable
+from that page at any time. Only the SHA-256 is stored server-side.
+
+## Design
+
+The app wears the site's design system — Archivo Black display, DM Sans body,
+DM Mono brand mark, JetBrains Mono labels, the warm-brutalist palette from
+`src/app.css`, radius 0 (pills and dots at 100), no shadows.
+
+It follows the **/health methodology** rather than a reading of the tokens:
+`SectionHead`'s mono kicker → uppercase headline as an array of lines →
+standfirst; the ranked-moves ledger for the news stream; the tripwire ledger for
+the thread list; and the rule that **ink is chrome and thin bands** — a tall
+solid ink area reads as intensity, not editorial. Two colour registers exist
+(`SRRegister.paper` / `.ink`) because a paper token is invisible on an ink band,
+which is what every relighting bug on the website turned out to be.
+
+The app is light-locked. That is not an omission: the site has no dark mode, and
+the simulator in CI is booted in **dark** appearance on purpose so a regression
+shows up as a screenshot.
+
+Fonts are the four OFL families, instanced to static cuts and bundled under
+`ios/SRAppleApp/Fonts/` with their licences. `Font.custom` fails silently on a
+missing face, so `SiteTests.testEveryNamedFontIsRegistered` asserts all nine
+arrived.
