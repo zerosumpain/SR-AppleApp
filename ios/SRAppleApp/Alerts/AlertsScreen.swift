@@ -131,15 +131,30 @@ struct AlertRoutingScreen: View {
             }
 
             Section {
-                ForEach(alerts.routes) { route in
-                    NavigationLink {
-                        RouteDetail(alerts: alerts, routeId: route.id)
-                    } label: {
-                        SRRow(title: route.label, subtitle: route.destination) {
-                            EmptyView()
+                if alerts.routes.isEmpty {
+                    // A header with nothing under it is a screen that looks
+                    // broken. The categories come from the site, so when the
+                    // phone is not connected there is genuinely nothing to
+                    // show — and saying which of the two it is costs one line.
+                    Text(SiteClient.shared.isPaired
+                         ? "Loading the categories…"
+                         : "Connect this iPhone to Strange Ramblings to choose where each kind of alert goes.")
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .srPlainRow()
+                        .padding(.vertical, 10)
+                } else {
+                    ForEach(alerts.routes) { route in
+                        NavigationLink {
+                            RouteDetail(alerts: alerts, routeId: route.id)
+                        } label: {
+                            SRRow(title: route.label, subtitle: route.destination) {
+                                EmptyView()
+                            }
                         }
+                        .srPlainRow()
                     }
-                    .srPlainRow()
                 }
             } header: {
                 SRSectionLabel(text: "Categories").srPlainRow().padding(.vertical, 6)
