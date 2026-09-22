@@ -1,24 +1,16 @@
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export const secret = () => randomBytes(32).toString('base64url');
-export function passwordHash(password) {
-  const salt = randomBytes(16).toString('hex');
-  return `${salt}:${scryptSync(password, salt, 64).toString('hex')}`;
-}
-export function passwordMatches(password, stored) {
-  const [salt, expected] = stored.split(':');
-  return timingSafeEqual(scryptSync(password, salt, 64), Buffer.from(expected, 'hex'));
-}
 export function openStore(path) {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path);
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
-      family TEXT NOT NULL, password TEXT NOT NULL, sharing INTEGER NOT NULL DEFAULT 0);
+      family TEXT NOT NULL, sharing INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS credentials (
       hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
       kind TEXT NOT NULL, label TEXT NOT NULL, expires INTEGER NOT NULL);
@@ -34,11 +26,30 @@ export function openStore(path) {
     CREATE INDEX IF NOT EXISTS locations_user_time ON locations(user_id, recorded);
     CREATE INDEX IF NOT EXISTS health_user_kind_time ON health(user_id, kind, start);
   `);
+  // Sign-in moved to the main site's Google session, so the stored scrypt hashes
+  // authenticate nothing. They are DROPPED rather than left in place: a password
+  // hash is credential material whether or not anything still reads it, and a
+  // password chosen for this pilot may well be one used somewhere else.
+  //
+  // Guarded because CREATE TABLE above already omits the column on a fresh
+  // database, and DROP COLUMN on a missing column is an error, not a no-op.
+  const columns = db.prepare('PRAGMA table_info(users)').all();
+  if (columns.some((c) => c.name === 'password')) {
+    db.exec('ALTER TABLE users DROP COLUMN password');
+  }
   return db;
 }
-export function createUser(db, { id, email, name, family, password }) {
-  db.prepare('INSERT INTO users(id,email,name,family,password) VALUES (?,?,?,?,?)')
-    .run(id, email.toLowerCase(), name, family, passwordHash(password));
+/**
+ * Add somebody to a family.
+ *
+ * No password: the email IS the credential now, matched against whoever the main
+ * site says is signed in. Provisioning stays deliberate rather than happening on
+ * first sign-in, because `family` decides who can see a location and there is
+ * nothing in a Google login to infer it from.
+ */
+export function createUser(db, { id, email, name, family }) {
+  db.prepare('INSERT INTO users(id,email,name,family) VALUES (?,?,?,?)')
+    .run(id, email.toLowerCase(), name, family);
 }
 export function issue(db, user, kind, label, ttl) {
   const token = secret();

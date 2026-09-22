@@ -12,6 +12,7 @@
     "seed:demo": "node server/admin.mjs demo"
   },
   "dependencies": {
+    "@auth/core": "0.41.3",
     "qrcode": "1.5.4"
   },
   "devDependencies": {

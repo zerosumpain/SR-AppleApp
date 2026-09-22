@@ -14,6 +14,13 @@ targets:
   SRAppleApp:
     type: application
     platform: iOS
+    # Recursive, so `Design/`, `News/`, `Chat/`, `Site/` and the `Fonts/` .ttf
+    # files are all picked up — xcodegen puts the fonts in the resources phase
+    # at the bundle root, which is where the bare filenames in `UIAppFonts`
+    # expect them. A folder reference would nest them and break registration.
+    # `Font.custom` fails SILENTLY on a missing face (it falls back to the
+    # system font and the screen still renders, just wrong), so
+    # `SiteTests.testEveryNamedFontIsRegistered` asserts each one arrived.
     sources: [SRAppleApp]
     settings:
       base:

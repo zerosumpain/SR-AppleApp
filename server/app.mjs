@@ -2,8 +2,8 @@ import QRCode from 'qrcode';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { hash, issue, passwordHash, passwordMatches } from './store.mjs';
-const dummyPassword = passwordHash('unused-account-enumeration-protection');
+import { hash, issue } from './store.mjs';
+import { demoIdentity, sessionIdentity } from './session.mjs';
 const kinds = new Set(['steps', 'heart_rate', 'resting_heart_rate', 'sleep', 'workout']);
 const iso = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value));
 const bounded = (x, lo, hi) => typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi;
@@ -28,7 +28,7 @@ function locationRecord(r) {
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET } = {}) {
   const rate = new Map();
   const csrfOrigin = new URL(origin).origin;
   const secure = csrfOrigin.startsWith('https:');
@@ -67,15 +67,23 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false }
         try { return JSON.parse(Buffer.concat(parts).toString()); } catch { fail(400, 'Invalid JSON'); }
       };
       if (method !== 'GET' && req.headers.origin && req.headers.origin !== csrfOrigin) fail(403, 'Origin not allowed');
-      if (path === '/api/apple/login' && method === 'POST') {
+      // What the sign-in screen needs before anyone is signed in: which lane
+      // exists, and where to send them. Public by necessity — a page that has to
+      // authenticate to find out how to authenticate cannot draw itself — and it
+      // discloses nothing but a boolean and a URL.
+      if (path === '/api/apple/context' && method === 'GET') {
+        return send(200, { demo: demo && !secure, signInUrl: `${csrfOrigin}/login?callbackUrl=%2Fapple-app%2F` });
+      }
+      // The local preview's stand-in for signing in to the main site. Refused
+      // outright unless BOTH demo mode is on and the origin is not https, so it
+      // cannot exist on production — see session.mjs for why that is two
+      // conditions rather than one.
+      if (path === '/api/apple/demo-signin' && method === 'POST') {
+        if (!demo || secure) fail(404, 'Not found');
         limit(req.socket.remoteAddress);
-        const body = await readJSON(); exactKeys(body, ['email', 'password']);
-        if (!string(body.email) || !string(body.password, 1024)) fail(400, 'Email and password required');
-        const user = db.prepare('SELECT * FROM users WHERE email = ?').get(body.email.toLowerCase());
-        const valid = passwordMatches(body.password, user?.password ?? dummyPassword);
-        if (!user || !valid) fail(401, 'Email or password incorrect');
-        const token = issue(db, user.id, 'session', 'Browser', 12 * 3600000);
-        res.setHeader('Set-Cookie', `sr_apple=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure ? '; Secure' : ''}`);
+        const body = await readJSON(); exactKeys(body, ['email']);
+        if (!string(body.email, 320)) fail(400, 'Email required');
+        res.setHeader('Set-Cookie', `sr_apple_demo=${encodeURIComponent(body.email.toLowerCase())}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`);
         return send(200, { ok: true });
       }
       if (path === '/api/apple/pair' && method === 'POST') {
@@ -92,16 +100,49 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false }
           return send(200, { token, userId: code.user_id });
         } catch (error) { db.exec('ROLLBACK'); throw error; }
       }
+      // Two ways in, and only two.
+      //
+      //  * A PAIRED IPHONE presents a device token it got from a pairing code.
+      //    Unchanged, and deliberately so: the phone has no browser session and
+      //    background sync runs while the phone is locked.
+      //  * A BROWSER presents the main site's Google session. Same cookie,
+      //    same account, same sign-out as the rest of strangeramblings.com.
+      //
+      // Authentication says WHO; the users table says WHETHER. A signed-in
+      // visitor with no row here is a real person who is not in a family on this
+      // server, and they get told that rather than being auto-enrolled into one —
+      // family membership decides who can see a location, so it is not something
+      // to infer from a successful Google login.
       const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
-      const cookie = req.headers.cookie?.match(/(?:^|; )sr_apple=([^;]+)/)?.[1];
-      const auth = db.prepare('SELECT c.*, u.email,u.name,u.family,u.sharing FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.hash=? AND c.expires>? AND c.kind=?')
-        .get(hash(bearer ?? cookie ?? ''), Date.now(), bearer ? 'device' : 'session');
-      if (!auth) fail(401, 'Sign in or pair this device');
+      let auth = null;
+      if (bearer) {
+        auth = db.prepare('SELECT c.*, u.email,u.name,u.family,u.sharing FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.hash=? AND c.expires>? AND c.kind=?')
+          .get(hash(bearer), Date.now(), 'device') ?? null;
+        if (!auth) fail(401, 'Pair this iPhone again');
+      } else {
+        const email = demoIdentity(req.headers.cookie, { demo, secure })
+          ?? (authSecret ? await sessionIdentity(req.headers.cookie, authSecret) : null);
+        if (!email) fail(401, 'Sign in at strangeramblings.com');
+        const user = db.prepare('SELECT id,email,name,family,sharing FROM users WHERE email=?').get(email);
+        if (!user) fail(403, 'This account is not set up on the companion. Ask the owner to add it.');
+        // Shaped like a credential row so every handler below reads the same
+        // fields whichever lane it arrived on. There is no credential row for a
+        // browser any more, so `hash` is null and only the device lane can
+        // delete one.
+        auth = { hash: null, user_id: user.id, kind: 'session', label: 'Browser', ...user };
+      }
       if (method !== 'GET' && !bearer && req.headers.origin !== csrfOrigin) fail(403, 'Origin required');
       if (path === '/api/apple/logout' && method === 'POST') {
-        db.prepare('DELETE FROM credentials WHERE hash=?').run(auth.hash);
-        res.setHeader('Set-Cookie', `sr_apple=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`);
-        return send(200, { ok: true });
+        // A device revokes itself. A browser's session belongs to the main site,
+        // so signing out happens there — clearing it from here would log the
+        // visitor out of a companion that never issued them anything, and leave
+        // the real session standing.
+        if (auth.kind === 'device') {
+          db.prepare('DELETE FROM credentials WHERE hash=?').run(auth.hash);
+          return send(200, { ok: true });
+        }
+        if (demo && !secure) res.setHeader('Set-Cookie', 'sr_apple_demo=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+        return send(200, { ok: true, signOutAt: `${csrfOrigin}/auth/signout` });
       }
       if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo });
       if (path === '/api/apple/pair-code' && method === 'POST' && auth.kind === 'session') {

@@ -70,8 +70,13 @@ async function load() {
   $('notice').textContent = 'LOCAL TEST ENVIRONMENT · Synthetic family and health data. This preview is separate from the live Strange Ramblings site.';
   await Promise.all([health(), family(), devices()]);
 }
-$('login-form').onsubmit = e => { e.preventDefault(); action(async () => { await api('login', 'POST', { email: $('email').value, password: $('password').value }); $('password').value = ''; await load(); }); };
-$('logout').onclick = () => action(async () => { await api('logout', 'POST', {}); location.reload(); });
+// The local preview's sign-in. The endpoint behind it 404s on production, so
+// revealing the form there would be an invitation to a door that is not real —
+// `demoAvailable` is reported by the server, never guessed from the hostname.
+$('demo-form').onsubmit = e => { e.preventDefault(); action(async () => { await api('demo-signin', 'POST', { email: $('email').value }); await load(); }); };
+// Signing out belongs to the main site: this server never issued the session, so
+// clearing anything here would leave the real one standing.
+$('logout').onclick = () => action(async () => { const r = await api('logout', 'POST', {}); location.href = r.signOutAt ?? location.pathname; });
 $('refresh').onclick = () => action(load);
 $('category').onchange = () => action(health);
 let pairingExpiryTimer;
@@ -112,4 +117,22 @@ for (const button of document.querySelectorAll('[data-tab]')) button.onclick = (
   if (button.dataset.tab === 'family') await family();
   if (button.dataset.tab === 'settings') await devices();
 });
-load().catch(e => { if (e.message !== 'Sign in or pair this device') error(e.message); });
+// Try to load. If nobody is signed in, draw the sign-in the SERVER says exists
+// rather than the one the hostname suggests — the demo lane 404s on production,
+// and offering a door that is not there is worse than offering none.
+load().catch(async (e) => {
+  const signInNeeded = /^Sign in at |^This account is not set up/.test(e.message);
+  if (!signInNeeded) { error(e.message); return; }
+  try {
+    const context = await api('context');
+    $('demo-form').hidden = !context.demo;
+    $('login-link').hidden = context.demo;
+    $('login-link').href = context.signInUrl;
+    if (context.demo) $('login-copy').textContent = 'Local preview. There is no password — name one of the synthetic accounts.';
+  } catch {
+    // Context is best effort; the Google link in the markup is the safe default.
+  }
+  // "Not set up on the companion" is a different problem from "not signed in",
+  // and telling somebody to sign in when they already have is a loop.
+  if (/^This account is not set up/.test(e.message)) error(e.message);
+});

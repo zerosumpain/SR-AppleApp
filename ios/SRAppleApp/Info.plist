@@ -19,5 +19,6 @@
 <key>NSLocalNetworkUsageDescription</key><string>Connect to your Strange Ramblings test server on your local network.</string>
 <key>UIBackgroundModes</key><array><string>location</string><string>fetch</string><string>processing</string></array>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.strangeramblings.com.appleapp.refresh</string></array>
+<key>UIAppFonts</key><array><string>ArchivoBlack-Regular.ttf</string><string>DMSans-Regular.ttf</string><string>DMSans-Medium.ttf</string><string>DMSans-Bold.ttf</string><string>DMMono-Regular.ttf</string><string>DMMono-Medium.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string><string>JetBrainsMono-Bold.ttf</string></array>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
 </dict></plist>

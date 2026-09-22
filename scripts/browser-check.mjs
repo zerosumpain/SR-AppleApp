@@ -10,8 +10,7 @@ for (const [name, viewport] of [['desktop',{width:1440,height:1100}],['phone',{w
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto(`${origin}/apple-app/`);
  await page.getByLabel('Email',{exact:true}).fill('alex@example.test');
- await page.getByLabel('Password',{exact:true}).fill('SR-local-demo-only!');
- await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByRole('button',{name:'Continue',exact:true}).click();
  await page.getByText('Alex · only you').waitFor();
  await page.locator('.metric').first().waitFor();
  await page.screenshot({path:`artifacts/${name}-health.png`,fullPage:true});
