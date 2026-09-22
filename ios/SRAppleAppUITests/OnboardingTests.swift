@@ -171,11 +171,17 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(scroll(app, to: open), "no route from settings to the history")
         open.tap()
 
-        // A fresh install has nothing logged, and the screen has to SAY that
+        // Assert on the identifier, not on a headline. `SectionHead` combines
+        // its title lines into one accessibility element, so querying a single
+        // line is a coin toss — the window picker is the element that actually
+        // carries an identifier.
+        XCTAssertTrue(app.segmentedControls["log-window"].waitForExistence(timeout: 15),
+                      "the history screen did not open")
+        // And a fresh install has nothing logged, so the screen has to SAY that
         // rather than print a confident zero duty cycle.
-        XCTAssertTrue(app.staticTexts["WHAT THE GATE"].waitForExistence(timeout: 10)
-                      || app.staticTexts["ACTUALLY SAVED"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.segmentedControls["log-window"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Nothing logged")).firstMatch.exists
+                      || app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Nothing in this window")).firstMatch.exists,
+                      "an empty log must say so rather than print a confident zero")
         attach(app, "History — the gate opening and closing")
     }
 
