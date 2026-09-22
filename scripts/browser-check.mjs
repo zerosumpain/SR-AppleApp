@@ -40,6 +40,14 @@ for (const [name, viewport] of [['desktop',{width:1440,height:1100}],['phone',{w
  // sampled continuously, so a rule that split on missing data would show one
  // long journey here instead of two with a stop between them.
  await page.waitForFunction(()=>document.querySelectorAll('.activity').length>0);
+ // The horizontal strip and the vertical list are different things — days, and
+ // what happened on one. They both said "activities" once and read as the same
+ // control twice over, so each keeps its own noun.
+ const dayChip = await page.locator('.day-strip .day').first().innerText();
+ if(!/journey/i.test(dayChip)) throw new Error(`${name} day chip should count journeys, got ${JSON.stringify(dayChip)}`);
+ if(/activit/i.test(dayChip)) throw new Error(`${name} day chip reuses the list's word`);
+ if(await page.getByRole('heading',{name:'Day',exact:true}).count()===0) throw new Error(`${name} the day picker has no heading`);
+ if(await page.getByRole('heading',{name:'Journeys and stops',exact:true}).count()===0) throw new Error(`${name} the activity list has no heading`);
  const kinds = await page.locator('.activity .activity-what strong').allInnerTexts();
  if(kinds.filter(k=>k!=='Stopped').length<2) throw new Error(`${name} expected at least two journeys, got ${JSON.stringify(kinds)}`);
  if(!kinds.includes('Stopped')) throw new Error(`${name} no stop listed between journeys`);

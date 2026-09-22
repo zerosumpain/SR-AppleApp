@@ -114,7 +114,7 @@
       const button = node('button', null, 'day');
       button.type = 'button';
       button.setAttribute('aria-pressed', String(day.date === state.date));
-      button.append(node('small', dayName(day.date)), node('strong', kilometres(day.metres)), node('small', `${day.journeys ?? 0} ${day.journeys === 1 ? 'activity' : 'activities'}`, 'muted'));
+      button.append(node('small', dayName(day.date)), node('strong', kilometres(day.metres)), node('small', `${day.journeys ?? 0} ${day.journeys === 1 ? 'journey' : 'journeys'}`, 'muted'));
       button.onclick = () => selectDay(day.date);
       strip.append(button);
     }
@@ -454,7 +454,7 @@
       ['STEPS', steps ? steps.value.toLocaleString() : '—', steps ? 'HealthKit daily total' : 'No daily total uploaded'],
       ['ASLEEP', sleep ? duration(sleep) : '—', sleep ? 'Inside this day, across sources' : 'No sleep recorded'],
       ['RESTING HEART RATE', state.timeline?.restingHeartRate ? `${state.timeline.restingHeartRate.value} bpm` : '—', state.timeline?.restingHeartRate ? `Latest to ${clock(Date.parse(state.timeline.restingHeartRate.at) / 1000)}` : 'No reading'],
-      ['ACTIVITIES', String(totals.journeys ?? 0), `${(state.day?.activities ?? []).filter((a) => a.kind === 'stop').length} stops between them`],
+      ['JOURNEYS', String(totals.journeys ?? 0), `${(state.day?.activities ?? []).filter((a) => a.kind === 'stop').length} stops between them`],
     ];
     for (const [label, value, note] of tiles) {
       const tile = node('div', null, 'metric');
