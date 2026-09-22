@@ -83,7 +83,7 @@ struct ActivityLogScreen: View {
             SRSection(isLast: true) {
                 Text("Kept for the last \(GateEvent.maxStored) changes. Hours before the first line are not counted, not assumed.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             }
@@ -217,7 +217,7 @@ struct ActivityLogScreen: View {
             }
             Text("Clearing resets the duty cycle above with it — the figures are derived from these lines, not stored separately.")
                 .font(SR.mono(12))
-                .foregroundStyle(SR.inkGhost)
+                .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -230,7 +230,7 @@ struct ActivityLogScreen: View {
                     .foregroundStyle(SR.ink)
                 Text(event.at.formatted(.dateTime.day().month(.abbreviated)))
                     .font(SR.mono(12))
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
             }
             .frame(width: 62, alignment: .leading)
 
@@ -244,7 +244,7 @@ struct ActivityLogScreen: View {
                     if let battery = event.battery, battery >= 0 {
                         Text("\(Int(battery * 100))%")
                             .font(SR.mono(12))
-                            .foregroundStyle(SR.inkGhost)
+                            .foregroundStyle(SR.inkMuted)
                     }
                 }
                 Text(event.reason)

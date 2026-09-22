@@ -88,7 +88,7 @@ struct HealthScreen: View {
                                 .foregroundStyle(SR.accent)
                             Text("Readiness")
                                 .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkGhost)
+                                .foregroundStyle(SR.inkMuted)
                         }
                     }
                     Text(readiness.recommendation)
@@ -189,7 +189,7 @@ struct HealthScreen: View {
                                     .font(SR.Text.mono(15))
                                     .foregroundStyle(SR.ink)
                                 if let unit = record.unit {
-                                    Text(unit).font(SR.Text.mono()).foregroundStyle(SR.inkGhost)
+                                    Text(unit).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
                                 }
                             }
                         }
@@ -204,7 +204,7 @@ struct HealthScreen: View {
         } footer: {
             Text("Only you can see these. Heart rate is not a live feed, and sleep records can overlap between sources.")
                 .font(SR.Text.mono())
-                .foregroundStyle(SR.inkGhost)
+                .foregroundStyle(SR.inkMuted)
                 .srPlainRow()
                 .padding(.vertical, 8)
         }
@@ -222,7 +222,7 @@ struct HealthScreen: View {
             } footer: {
                 Text("Family members see a location you chose to share, and nothing else.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .srPlainRow()
                     .padding(.vertical, 8)
             }
@@ -262,7 +262,7 @@ struct FigureTile: View {
                         .font(.system(size: 9, weight: .bold))
                     Text(delta).font(SR.Text.mono())
                 } else {
-                    Text(figure.caption).font(SR.Text.mono()).foregroundStyle(SR.inkGhost)
+                    Text(figure.caption).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
                 }
             }
             .foregroundStyle(tone)
@@ -327,7 +327,7 @@ struct FigureDetail: View {
 
                 Text("Measured and derived on the website. The phone shows what /health computed; it does not recompute anything.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, SR.gutter)
@@ -411,10 +411,19 @@ struct FamilyRow: View {
                 Spacer(minLength: 6)
                 if let point = member.location {
                     let stale = (parseTimestamp(point.recorded)?.timeIntervalSinceNow ?? -.infinity) < -1200
-                    Text(stale ? "STALE" : "LATEST")
-                        .font(SR.Text.mono())
-                        .tracking(1)
-                        .foregroundStyle(stale ? SR.warn : SR.good)
+                    // The glyph carries the hue; the word carries the meaning.
+                    // `--warn` measures 2.58:1 on cream and cannot hold 12pt
+                    // copy on its own — a second encoding is what makes the
+                    // colour legal here rather than decorative.
+                    HStack(spacing: 4) {
+                        Image(systemName: stale ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(stale ? SR.warn : SR.good)
+                        Text(stale ? "STALE" : "LATEST")
+                            .font(SR.Text.mono())
+                            .tracking(1)
+                            .foregroundStyle(SR.inkSecondary)
+                    }
                 }
             }
             if let point = member.location {

@@ -103,14 +103,32 @@ enum SR {
     /// argument for small type is weaker, not stronger.
     static let labelFloor: CGFloat = 12
 
-    static func display(_ size: CGFloat) -> Font { .custom(Face.display, size: size) }
-    static func body(_ size: CGFloat = 16) -> Font { .custom(Face.body, size: size) }
-    static func bodyMedium(_ size: CGFloat = 16) -> Font { .custom(Face.bodyMedium, size: size) }
-    static func bodyBold(_ size: CGFloat = 16) -> Font { .custom(Face.bodyBold, size: size) }
-    static func brand(_ size: CGFloat = 14) -> Font { .custom(Face.brand, size: size) }
-    static func mono(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor)) }
-    static func monoMedium(_ size: CGFloat = 12) -> Font { .custom(Face.monoMedium, size: max(size, labelFloor)) }
-    static func monoBold(_ size: CGFloat = 12) -> Font { .custom(Face.monoBold, size: max(size, labelFloor)) }
+    // EVERY ONE OF THESE SCALES.
+    //
+    // They did not. `Font.custom(name:size:)` returns a fixed size and ignores
+    // the reader's text setting completely, so a phone set to Larger Text — or
+    // to any accessibility size — rendered this app at exactly the same points
+    // as a phone set to the smallest. On the web the same values are `rem` and
+    // scale for free, which is how the property got lost in the port: nobody
+    // removed it, it simply did not survive being retyped.
+    //
+    // The fix is here rather than at the call sites. There were 104 of them,
+    // and a new `SR.Text` ramp beside an old fixed one would have meant
+    // converting them by hand and leaving the fixed API in the file for the
+    // next person to reach for. Teaching the old names to scale fixes every
+    // screen at once, including the ones nobody is editing this week.
+    //
+    // The TextStyle each is measured against is not decorative. A headline
+    // pinned to `.caption` barely moves; a 12pt label pinned to `.largeTitle`
+    // doubles and breaks the row it sits in.
+    static func display(_ size: CGFloat) -> Font { .custom(Face.display, size: size, relativeTo: .title) }
+    static func body(_ size: CGFloat = 16) -> Font { .custom(Face.body, size: size, relativeTo: .body) }
+    static func bodyMedium(_ size: CGFloat = 16) -> Font { .custom(Face.bodyMedium, size: size, relativeTo: .body) }
+    static func bodyBold(_ size: CGFloat = 16) -> Font { .custom(Face.bodyBold, size: size, relativeTo: .body) }
+    static func brand(_ size: CGFloat = 14) -> Font { .custom(Face.brand, size: size, relativeTo: .headline) }
+    static func mono(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor), relativeTo: .caption) }
+    static func monoMedium(_ size: CGFloat = 12) -> Font { .custom(Face.monoMedium, size: max(size, labelFloor), relativeTo: .caption) }
+    static func monoBold(_ size: CGFloat = 12) -> Font { .custom(Face.monoBold, size: max(size, labelFloor), relativeTo: .caption) }
 
     // MARK: - Metrics
     //

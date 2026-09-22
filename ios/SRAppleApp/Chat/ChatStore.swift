@@ -337,10 +337,27 @@ final class ChatStore: ObservableObject {
                 activity.steps.append(ToolStep(tool: tool, status: status, summary: summary))
             }
 
-        // The four gates this app cannot answer. Naming them stops a turn
-        // hanging silently with a spinner that never resolves.
+        // The gates this app cannot answer. Naming them stops a turn hanging
+        // silently with a spinner that never resolves.
+        //
+        // AND THEN LET GO OF THE STREAM. This is the fix for a silent hang that
+        // was worse than the one the card was written for: the site escalates a
+        // stalled turn to WhatsApp after a fifteen-second grace period, and it
+        // skips the ping if anything still holds the job's SSE stream open. A
+        // phone sitting on this card IS that subscriber. So the one case where
+        // you most need to be told — a turn stopped, waiting on an answer only
+        // the desk can give — was the one case where nothing told you.
+        //
+        // Dropping the socket takes the subscriber count to zero inside the
+        // grace window, the escalation fires, and the message that arrives
+        // carries the link. The turn is unaffected; it was already waiting.
         case "plan", "confirm", "clarify", "secret_request", "approval":
             blocked = BlockedTurn(kind: type, detail: (frame.json["prompt"] as? String) ?? "")
+            park()
+            // Scheduled rather than called: `stop()` cancels the task this
+            // handler is running inside, and cancelling yourself mid-frame
+            // throws through the middle of the loop.
+            Task { [weak self] in self?.stop() }
 
         case "done":
             if let result = frame.json["result"] as? [String: Any],
@@ -368,6 +385,21 @@ final class ChatStore: ObservableObject {
     private func setLiveBubble(_ content: String) {
         guard let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].content = content
+        streamTick &+= 1
+    }
+
+    /// Put a turn down without calling it finished.
+    ///
+    /// NOT `finish(with:)`. That one writes "*(no reply)*" into an empty bubble,
+    /// which is the right thing to say about a turn that ended with nothing and
+    /// exactly the wrong thing to say about one that is still waiting on you.
+    /// It also plays the success haptic. Here the placeholder is removed and
+    /// the card takes its place.
+    private func park() {
+        sending = false
+        if let id = liveBubbleId { messages.removeAll { $0.id == id && $0.content.isEmpty } }
+        liveBubbleId = nil
+        activity = TurnActivity()
         streamTick &+= 1
     }
 
@@ -410,6 +442,20 @@ final class ChatStore: ObservableObject {
     func stop() {
         streamTask?.cancel()
         streamTask = nil
+    }
+
+    /// Pick a dropped stream back up.
+    ///
+    /// `stop()` cancels the socket and deliberately keeps `jobId` and
+    /// `lastEventId`, so this is a reconnect rather than a restart — the server
+    /// honours `Last-Event-ID` and replays only what was missed. Replaying the
+    /// whole buffer into a handler that APPENDS is what silently doubled every
+    /// bubble on the web client, which is why that header exists at all.
+    ///
+    /// A no-op unless a turn is actually in flight.
+    func resume() {
+        guard sending, streamTask == nil, let job = jobId else { return }
+        listen(to: job)
     }
 
     func cancel() async {

@@ -49,7 +49,7 @@ struct NewsStoryScreen: View {
                                 Spacer()
                                 Text("\(also.score)▲ \(also.commentCount)◇")
                                     .font(SR.mono(12))
-                                    .foregroundStyle(SR.inkGhost)
+                                    .foregroundStyle(SR.inkMuted)
                             }
                             .padding(.vertical, 9)
                         }
@@ -172,7 +172,7 @@ struct NewsStoryScreen: View {
                 if article.truncated {
                     Text("This is the opening of the article. Open it in full to keep reading.")
                         .font(SR.mono(12))
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                 }
             }
         } else if let message = store.message {

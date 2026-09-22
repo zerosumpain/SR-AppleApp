@@ -66,7 +66,7 @@ struct LocationSettingsScreen: View {
                 SRSection(isLast: true) {
                     Text("Battery figures are device-wide — iOS does not report per-app use. Changes apply at the next fix, not the next launch.")
                         .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -137,7 +137,7 @@ struct LocationSettingsScreen: View {
             if let since = outbox.state.countingSince {
                 Text("Counting since \(since.formatted(date: .abbreviated, time: .shortened))")
                     .font(SR.mono(12))
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
             }
 
             SRButton(title: "Reset the measurement") {

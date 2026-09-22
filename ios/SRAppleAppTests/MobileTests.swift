@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import UIKit
 @testable import SRAppleApp
 
 /// The overhaul's own logic: everything a screenshot would not catch.
@@ -179,5 +180,90 @@ final class DynamicTypeTests: XCTestCase {
         // but only while both numbers are what they are.
         XCTAssertGreaterThanOrEqual(SR.tapTarget, 44)
         XCTAssertGreaterThanOrEqual(SR.rowPadding * 2 + 17, SR.tapTarget - 3)
+    }
+}
+
+/// What the palette may and may not be asked to carry.
+///
+/// Three tokens measure under the 4.5:1 floor against cream, and until this
+/// test existed nothing said so — the values are copied from the site, they are
+/// asserted by hex, and a contrast failure is invisible to every other check in
+/// the suite including the screenshots.
+///
+/// This does not repaint anything. The palette is the site's and changing it is
+/// a decision about the site. What it does is PIN the measurement, so that a
+/// value which moves moves deliberately, and so that "this colour cannot carry
+/// a sentence" is a fact in the repository rather than a thing somebody once
+/// noticed.
+final class ContrastTests: XCTestCase {
+
+    private func components(_ color: Color) -> (r: Double, g: Double, b: Double, a: Double) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (Double(r), Double(g), Double(b), Double(a))
+    }
+
+    /// WCAG 2.1 relative luminance, of a token composited over its ground.
+    ///
+    /// The compositing is not optional. `--text-muted` and `--text-ghost` are
+    /// PERCENTAGES OF INK, not colours, so measuring them raw reports the
+    /// contrast of solid ink and passes everything. And the ground must be a
+    /// parameter rather than a constant: `creamOnDark` is cream at 70% and is
+    /// only ever painted on the ink band — blending it over paper would measure
+    /// a colour that never appears on screen.
+    private func luminance(_ color: Color, over ground: Color) -> Double {
+        let top = components(color)
+        let base = components(ground)
+        let blend = { (channel: Double, under: Double) in channel * top.a + under * (1 - top.a) }
+        let linear = { (value: Double) -> Double in
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(blend(top.r, base.r))
+             + 0.7152 * linear(blend(top.g, base.g))
+             + 0.0722 * linear(blend(top.b, base.b))
+    }
+
+    private func contrast(_ tone: Color, on ground: Color) -> Double {
+        let (x, y) = (luminance(tone, over: ground), luminance(ground, over: ground))
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+
+    func testEveryTokenTheAppSetsBodyCopyInClearsTheFloor() {
+        // 4.5:1 is the AA floor for text under 18pt, which is everything here.
+        for (name, token) in [("ink", SR.ink), ("inkSecondary", SR.inkSecondary), ("inkMuted", SR.inkMuted)] {
+            let ratio = contrast(token, on: SR.paper)
+            XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(name) measures \(String(format: "%.2f", ratio)):1 on paper")
+        }
+    }
+
+    func testTheThreeTonesThatCannotCarryASentenceAreKnownAndMeasured() {
+        // If one of these rises above the floor, the constraint has been lifted
+        // and this test should be deleted rather than updated. If one FALLS
+        // further, something re-picked a token by eye.
+        let measured: [(String, Color, ClosedRange<Double>)] = [
+            ("accent", SR.accent, 3.2...3.9),
+            ("warn", SR.warn, 2.3...2.9),
+            ("inkGhost", SR.inkGhost, 2.6...3.2),
+        ]
+        for (name, token, expected) in measured {
+            let ratio = contrast(token, on: SR.paper)
+            XCTAssertTrue(
+                expected.contains(ratio),
+                "\(name) measures \(String(format: "%.2f", ratio)):1 on paper, outside the recorded \(expected)"
+            )
+            XCTAssertLessThan(ratio, 4.5, "\(name) now clears the floor — lift the rule rather than keeping it")
+        }
+    }
+
+    func testTheInkRegisterHasItsOwnPartnerForEachOne() {
+        // The whole reason `SRRegister` exists: a paper token is ink on ink.
+        // Each on-dark partner must actually be readable on the band it is for.
+        for (name, token) in [("accentOnDark", SR.accentOnDark),
+                              ("goodOnDark", SR.goodOnDark),
+                              ("errorOnDark", SR.errorOnDark),
+                              ("creamOnDark", SR.creamOnDark)] {
+            let ratio = contrast(token, on: SR.ink)
+            XCTAssertGreaterThanOrEqual(ratio, 3.0, "\(name) measures \(String(format: "%.2f", ratio)):1 on ink")
+        }
     }
 }

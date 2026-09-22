@@ -25,9 +25,21 @@ struct HealthFigure: Decodable, Identifiable, Hashable {
 
     var id: String { key }
 
+    /// Whether there is a measurement here at all.
+    ///
+    /// Zero is MISSING in this data, not a reading — a day with no HRV sample
+    /// arrives as 0, and "0 ms" is a confident statement about a heart that did
+    /// not report. The server renders those as an em dash.
+    var measured: Bool { display != "—" && !display.isEmpty }
+
     /// What the value reads as with its unit attached. Percent and hours are
     /// already in the rendered string; everything else needs its unit.
+    ///
+    /// A missing figure takes NO unit. "— bpm" and "—%" both read as a unit
+    /// with a value that failed to render, which is the opposite of what an
+    /// em dash is there to say.
     var displayWithUnit: String {
+        guard measured else { return "—" }
         switch unit {
         case "%": return "\(display)%"
         case "h": return display

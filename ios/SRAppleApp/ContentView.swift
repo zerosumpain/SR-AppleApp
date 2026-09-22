@@ -16,19 +16,29 @@ final class Router: ObservableObject {
     @Published var chat = NavigationPath()
     @Published var health = NavigationPath()
     @Published var news = NavigationPath()
-    @Published var settingsOpen = false
+    /// The one modal, whichever it currently is.
+    ///
+    /// NOT two `.sheet(isPresented:)` modifiers on the same view. SwiftUI
+    /// honours one sheet per view: attach a second and whichever is asked for
+    /// first silently does nothing. Settings and the alert inbox are both
+    /// opened from several places, so that failure would have been
+    /// intermittent and impossible to reproduce on demand.
+    @Published var sheet: Sheet?
     /// Which settings group to open on, when something sent the reader there
     /// for a reason.
     @Published var settingsTarget: SettingsTarget?
     /// A question handed in from outside — a Shortcut, Siri, a quick action.
     @Published var pendingQuestion: String?
 
+    enum Sheet: String, Identifiable { case settings, alerts; var id: String { rawValue } }
     enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
 
     func openSettings(_ target: SettingsTarget? = nil) {
         settingsTarget = target
-        settingsOpen = true
+        sheet = .settings
     }
+
+    func openAlerts() { sheet = .alerts }
 
     /// Go to a tab and clear whatever was stacked on it.
     ///
@@ -77,7 +87,6 @@ struct ContentView: View {
     @StateObject private var router = Router()
     @StateObject private var alerts = AlertStore()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var alertsOpen = false
 
     var body: some View {
         TabView(selection: tabBinding) {
@@ -112,11 +121,7 @@ struct ContentView: View {
         .task {
             // Anything a quick action, a notification tap or a Shortcut left
             // waiting before there was a router to receive it.
-            AppDelegate.pending.drain(into: router, companion: companion)
-            if AppDelegate.pending.openAlerts {
-                AppDelegate.pending.openAlerts = false
-                alertsOpen = true
-            }
+            drainPending()
             await site.check()
             await alerts.refresh()
         }
@@ -124,15 +129,8 @@ struct ContentView: View {
             guard phase == .active else { return }
             // A quick action taken while the app was merely backgrounded never
             // goes through `task`, which runs once per view lifetime.
-            AppDelegate.pending.drain(into: router, companion: companion)
-            if AppDelegate.pending.openAlerts {
-                AppDelegate.pending.openAlerts = false
-                alertsOpen = true
-            }
+            drainPending()
             Task { await alerts.refresh() }
-        }
-        .sheet(isPresented: $alertsOpen) {
-            NavigationStack { AlertsScreen(alerts: alerts) }
         }
         // A thread opened from Spotlight. The index carries the conversation id
         // as the item identifier, so this is a push rather than a search.
@@ -141,16 +139,29 @@ struct ContentView: View {
             router.show(.chat)
             router.chat.append(ThreadReference(id: id))
         }
-        .sheet(isPresented: $router.settingsOpen) {
-            SettingsScreen(
-                outbox: outbox,
-                companion: companion,
-                location: location,
-                battery: battery,
-                site: site,
-                alerts: alerts,
-                target: router.settingsTarget
-            )
+        .sheet(item: $router.sheet) { sheet in
+            switch sheet {
+            case .settings:
+                SettingsScreen(
+                    outbox: outbox,
+                    companion: companion,
+                    location: location,
+                    battery: battery,
+                    site: site,
+                    alerts: alerts,
+                    target: router.settingsTarget
+                )
+            case .alerts:
+                NavigationStack { AlertsScreen(alerts: alerts) }
+            }
+        }
+    }
+
+    private func drainPending() {
+        AppDelegate.pending.drain(into: router, companion: companion)
+        if AppDelegate.pending.openAlerts {
+            AppDelegate.pending.openAlerts = false
+            router.openAlerts()
         }
     }
 

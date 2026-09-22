@@ -21,7 +21,7 @@ struct NewsScreen: View {
                 viewPicker.srPlainRow().padding(.vertical, 4).listRowSeparator(.hidden)
                 Text(strap)
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .srPlainRow()
                     .padding(.bottom, 8)
@@ -68,7 +68,7 @@ struct NewsScreen: View {
                 if let feed = store.feed, let updated = isoDate(feed.updatedAt) {
                     Text((feed.cached ? "Cached " : "") + updated.formatted(date: .omitted, time: .shortened))
                         .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                 }
             }
         }
@@ -163,16 +163,16 @@ struct NewsLedgerRow: View {
                             .foregroundStyle(SR.inkSecondary)
                         Text(shortAgo(story.publishedAt))
                             .font(SR.mono(12))
-                            .foregroundStyle(SR.inkGhost)
+                            .foregroundStyle(SR.inkMuted)
                         if story.score > 0 {
                             Text("\(story.score)▲")
                                 .font(SR.mono(12))
-                                .foregroundStyle(SR.inkGhost)
+                                .foregroundStyle(SR.inkMuted)
                         }
                         if story.commentCount > 0 {
                             Text("\(story.commentCount)◇")
                                 .font(SR.mono(12))
-                                .foregroundStyle(SR.inkGhost)
+                                .foregroundStyle(SR.inkMuted)
                         }
                     }
 
@@ -184,7 +184,7 @@ struct NewsLedgerRow: View {
 
                     Text(story.domain)
                         .font(SR.mono(12))
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                         .lineLimit(1)
 
                     if let correlation = story.correlation {
@@ -246,7 +246,7 @@ struct CorrelationNote: View {
             if let evidence = correlation.evidence, evidence.notes > 0 {
                 Text("\(evidence.notes) note\(evidence.notes == 1 ? "" : "s") already")
                     .font(SR.mono(12))
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
             }
         }
         .padding(.leading, 10)

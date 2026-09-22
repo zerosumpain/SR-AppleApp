@@ -101,7 +101,7 @@ enum SRChrome {
     /// fails that way silently, and `SiteTests.testEveryNamedFontIsRegistered`
     /// is what actually catches a face that did not ship.
     static func scaled(_ name: String, _ size: CGFloat, _ style: UIFont.TextStyle) -> UIFont {
-        let base = UIFont(name: name, size: size) ?? .systemFont(ofSize: size, weight: .semibold)
+        let base = UIFont(name: name, size: size) ?? .systemFont(ofSize: size, weight: .semibold) // dynamic-type-exempt: the base the metric scales, below
         return UIFontMetrics(forTextStyle: style).scaledFont(for: base)
     }
 }
@@ -160,7 +160,7 @@ struct SRSectionLabel: View {
                 Text(trailing.uppercased())
                     .font(SR.Text.mono())
                     .tracking(1)
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
             }
         }
         .accessibilityAddTraits(.isHeader)
@@ -213,7 +213,7 @@ struct SRStatTile: View {
             if let caption {
                 Text(caption)
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .lineLimit(1)
             }
         }
@@ -313,7 +313,7 @@ struct SREmpty: View {
         VStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 34, weight: .light))
-                .foregroundStyle(SR.inkGhost)
+                .foregroundStyle(SR.inkMuted)
             Text(title)
                 .font(SR.Text.display(19))
                 .foregroundStyle(SR.ink)

@@ -105,7 +105,6 @@ struct TodayScreen: View {
     @ObservedObject var site: SitePairingModel
     @StateObject private var store = TodayStore()
     @EnvironmentObject private var router: Router
-    @State private var alertsOpen = false
 
     var body: some View {
         ScrollView {
@@ -140,9 +139,6 @@ struct TodayScreen: View {
                     .accessibilityLabel("Settings")
                     .accessibilityIdentifier("open-settings")
             }
-        }
-        .sheet(isPresented: $alertsOpen) {
-            NavigationStack { AlertsScreen(alerts: alerts) }
         }
         .task { await store.load() }
         .overlay(alignment: .bottom) {
@@ -197,12 +193,12 @@ struct TodayScreen: View {
                                     .font(SR.Text.label())
                                     .tracking(1.3)
                                     .foregroundStyle(SR.accent)
-                                Text("Readiness").font(SR.Text.mono()).foregroundStyle(SR.inkGhost)
+                                Text("Readiness").font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
                             }
                             Spacer(minLength: 0)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(SR.inkGhost)
+                                .foregroundStyle(SR.inkMuted)
                         }
                     }
 
@@ -213,9 +209,14 @@ struct TodayScreen: View {
                     }
 
                     if health.isMock {
-                        Text("Demonstration data — no real measurement in this window.")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.warn)
+                        HStack(spacing: 5) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(SR.warn)
+                            Text("Demonstration data — no real measurement in this window.")
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkSecondary)
+                        }
                     }
                 }
             }
@@ -232,7 +233,7 @@ struct TodayScreen: View {
 
             Button {
                 SRHaptic.tap()
-                alertsOpen = true
+                router.openAlerts()
             } label: {
                 SRCard {
                     if let latest = store.payload?.alerts?.latest, !latest.isEmpty {
@@ -251,14 +252,14 @@ struct TodayScreen: View {
                                     Spacer(minLength: 6)
                                     Text(shortAgo(row.createdAt))
                                         .font(SR.Text.mono())
-                                        .foregroundStyle(SR.inkGhost)
+                                        .foregroundStyle(SR.inkMuted)
                                 }
                             }
                         }
                     } else {
                         HStack(spacing: 10) {
                             Image(systemName: "bell.slash")
-                                .foregroundStyle(SR.inkGhost)
+                                .foregroundStyle(SR.inkMuted)
                             Text("Nothing to report.")
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)
@@ -289,7 +290,7 @@ struct TodayScreen: View {
                         Spacer(minLength: 6)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(SR.inkGhost)
+                            .foregroundStyle(SR.inkMuted)
                     }
                 }
             }
@@ -317,7 +318,7 @@ struct TodayScreen: View {
                                 Text(story.sourceLabel.uppercased())
                                     .font(SR.Text.mono())
                                     .tracking(1)
-                                    .foregroundStyle(SR.inkGhost)
+                                    .foregroundStyle(SR.inkMuted)
                             }
                         }
                     }
@@ -342,13 +343,13 @@ struct TodayScreen: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(companion.message)
                 .font(SR.Text.mono())
-                .foregroundStyle(SR.inkGhost)
+                .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("sync-status")
             if let last = companion.lastUpload {
                 Text("Last upload \(last.formatted(date: .omitted, time: .shortened))")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
             }
         }
         .padding(.top, 4)

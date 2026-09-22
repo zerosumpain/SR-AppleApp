@@ -86,8 +86,13 @@ struct ThreadListScreen: View {
             }
         }
         .task { if store.conversations.isEmpty { await store.load() } }
-        .navigationDestination(for: Conversation.self) { ChatScreen(conversation: $0) }
-        .navigationDestination(for: ThreadReference.self) { ChatScreen(conversation: .placeholder(id: $0.id)) }
+        // `.id(...)` is load-bearing: `ChatScreen` builds its `StateObject` in
+        // `init`, and a `StateObject` is created once per VIEW IDENTITY. Pushing
+        // a second thread onto the same destination without this keeps the
+        // first thread's store — the screen would show the wrong transcript.
+        // The old code was a sheet, where identity changed for free.
+        .navigationDestination(for: Conversation.self) { ChatScreen(conversation: $0).id($0.id) }
+        .navigationDestination(for: ThreadReference.self) { ChatScreen(conversation: .placeholder(id: $0.id)).id($0.id) }
         // A question handed in by Siri, a Shortcut or the Home Screen's "Ask
         // jkai". It opens a NEW thread rather than the last one: a dictated
         // question has no context, and dropping it into whatever was last on
@@ -181,7 +186,7 @@ struct ThreadRow: View {
                 if let updated = conversation.updatedAt {
                     Text(shortAgo(updated))
                         .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                 }
             }
 
@@ -343,7 +348,15 @@ struct ChatScreen: View {
             activity.isEligibleForHandoff = true
             activity.isEligibleForSearch = true
         }
+        // Dropping the stream on disappear is SHEET-shaped thinking. In a
+        // navigation stack this also fires when the reader switches tabs, so a
+        // turn in flight lost its connection the moment you glanced at Today.
+        // The turn itself keeps running server-side — that part was always
+        // true — but the transcript stopped filling in and only a reload
+        // recovered it. So: drop the socket to save the battery, and pick the
+        // same job up from its last sequence number on the way back.
         .onDisappear { store.stop() }
+        .onAppear { store.resume() }
         .overlay(alignment: .bottom) {
             if let message = store.message {
                 SRBanner(text: message, tone: SR.error).padding(.bottom, 70)

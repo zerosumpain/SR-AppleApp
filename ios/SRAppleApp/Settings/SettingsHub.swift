@@ -167,7 +167,7 @@ struct ConnectionsScreen: View {
             } footer: {
                 Text("Chat threads, the news desk, your health figures and alerts. A device token, not a password — the website can revoke it at any moment, and it expires after ninety days.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .srPlainRow().padding(.vertical, 8)
             }
 
@@ -223,7 +223,7 @@ struct ConnectionsScreen: View {
             } footer: {
                 Text("Apple Health uploads and family location. A different server and a different credential: disconnecting either leaves the other running.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .srPlainRow().padding(.vertical, 8)
             }
         }
@@ -388,7 +388,7 @@ struct AppleHealthScreen: View {
             } footer: {
                 Text("Health is read on a schedule iOS controls, not on a timer of ours, so these cost far less than location. Apple does not reveal whether you denied read access, so missing records may mean no data or no permission. Turning one off stops future uploads; delete what is already there on the website.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .srPlainRow().padding(.vertical, 8)
             }
 
@@ -426,7 +426,7 @@ struct AppleHealthScreen: View {
             } footer: {
                 Text("Family members see the position you share and nothing else. Your health data is never shared with them.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .srPlainRow().padding(.vertical, 8)
             }
 
@@ -477,7 +477,7 @@ struct AboutScreen: View {
                 .srPlainRow()
                 Link(destination: SiteClient.shared.webURL("apple-app")) {
                     SRRow(title: "Connect & privacy on the web", icon: "safari") {
-                        Image(systemName: "arrow.up.forward").foregroundStyle(SR.inkGhost)
+                        Image(systemName: "arrow.up.forward").foregroundStyle(SR.inkMuted)
                     }
                 }
                 .srPlainRow()
@@ -509,7 +509,7 @@ struct AboutScreen: View {
             Section {
                 Text("Archivo Black, DM Sans, DM Mono and JetBrains Mono, all under the SIL Open Font Licence. Their licences ship in the app bundle.")
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .srPlainRow().padding(.vertical, 10)
             } header: {

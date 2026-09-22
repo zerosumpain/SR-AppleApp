@@ -79,7 +79,7 @@ struct AlertsScreen: View {
                     Text("\(alert.category.uppercased()) · \(shortAgo(alert.createdAt))")
                         .font(SR.Text.mono())
                         .tracking(1)
-                        .foregroundStyle(SR.inkGhost)
+                        .foregroundStyle(SR.inkMuted)
                 }
 
                 Spacer(minLength: 4)
@@ -125,7 +125,7 @@ struct AlertRoutingScreen: View {
                      on WhatsApp.
                      """)
                     .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
                     .srPlainRow()
                     .padding(.vertical, 8)
             }
@@ -170,7 +170,7 @@ struct AlertRoutingScreen: View {
                 if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
             } label: {
                 SRRow(title: "Notifications are off", subtitle: "Turn them on in iOS Settings", icon: "bell.slash", tone: SR.error) {
-                    Image(systemName: "arrow.up.forward.app").foregroundStyle(SR.inkGhost)
+                    Image(systemName: "arrow.up.forward.app").foregroundStyle(SR.inkMuted)
                 }
             }
             .buttonStyle(.plain)
@@ -232,7 +232,7 @@ struct RouteDetail: View {
                     } footer: {
                         Text(route.description)
                             .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkGhost)
+                            .foregroundStyle(SR.inkMuted)
                             .srPlainRow()
                             .padding(.vertical, 8)
                     }
@@ -256,7 +256,7 @@ struct RouteDetail: View {
                     } footer: {
                         Text("A floor applies to the whole category, in both channels. Health ships at three hours: the figures move all day and a phone that says so all day is a phone you switch off.")
                             .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkGhost)
+                            .foregroundStyle(SR.inkMuted)
                             .srPlainRow()
                             .padding(.vertical, 8)
                     }
