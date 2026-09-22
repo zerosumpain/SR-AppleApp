@@ -4,6 +4,7 @@ Native iPhone companion and private web/API pilot for Strange Ramblings.
 
 - **Private health:** steps, heart rate, resting heart rate, sleep stages and workouts.
 - **Family locations:** latest shared position, accuracy, recorded time and received time.
+- **Your own movement, on a map:** a day's recorded track with the gaps left as gaps, and that day's heart rate, workouts, sleep and steps on one timeline under it. Scrubbing the timeline moves a dot along the track. Owner-only — the family tab shares a latest position, this shares a history.
 - **Adaptive location recording:** targets 10 minutes stationary and 30 seconds moving, with a 3-minute stop threshold. These are best-effort recording intervals, not guaranteed GPS or upload schedules.
 - **Motion-gated GPS (optional, off by default):** when the phone has been still long enough the app drops a geofence, switches GPS off and lets iOS suspend it. A geofence exit, significant change or visit departure wakes it; it then reads the movement the motion coprocessor recorded while it slept and decides whether to start GPS at all. Motion cannot wake a suspended app — the hardware log is what makes this work. Everything ambiguous fails towards running GPS rather than going quiet.
 - **A history of that:** every time the gate opened or closed, with the cause, the duty cycle it adds up to, and what share of wakes found real movement. An app that switches its own sensor off has to be watchable.
@@ -28,7 +29,7 @@ laptop on loopback has no main site to get one from, so the preview names an
 account instead. That lane needs `DEMO_MODE=1` **and** a non-https origin, so it
 cannot exist on production — see `server/session.mjs`.
 
-Sign in as Alex, inspect My health, switch to Family locations, and pause sharing under Connect & privacy. Sign in as Sam in a second browser/private window: Sam sees only Sam's health, and Alex's location disappears while paused. Robin cannot see either member of the demo family. Refresh the family tab after changing sharing in another window.
+Sign in as Alex, inspect My health, open Movement and pick a day from the strip — the seed writes six days of walks with real gaps between them, so the dashed hops and the "the phone was asleep" readout are the point, not a defect. The preview has no main site to fetch a Mapbox token from, so the track draws on a plain ground and the frame says so. Then switch to Family locations, and pause sharing under Connect & privacy. Sign in as Sam in a second browser/private window: Sam sees only Sam's health, and Alex's location disappears while paused. Robin cannot see either member of the demo family. Refresh the family tab after changing sharing in another window.
 
 This HTTP preview contains synthetic data only. It is **not connected to production**, does not read Apple Health in the browser, and is not the iPhone app. Real-device pairing requires trusted HTTPS and an installed signed build.
 
@@ -173,13 +174,66 @@ Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code 
 - Continuous/low-accuracy location monitoring and significant-change recovery detect movement. GPS drift is filtered; inaccurate or old fixes are discarded. Recording frequency does not equal sensor frequency. The best-effort timer works only while iOS runs the process. Suspension, force-quit, disabled Background App Refresh, low power and poor reception cause gaps. Stationary points are not fabricated from stale coordinates.
 - Pausing sharing on the website hides the last position immediately. The phone stops collection when it next reaches the server. Pausing on an offline phone stops collection immediately; server visibility changes only once the pause reaches the server.
 - Queue and anchors are persisted atomically with iOS file protection and excluded from backup. Tokens use device-only Keychain storage. The queue caps at 50,000 records and stops advancing collection when full. Uploads retry on subsequent events, foreground launch, a best-effort retry timer, and OS-scheduled background refresh.
-- Browser and native history views are bounded recent-record views, not full historical analytics. Maps open explicitly in Apple Maps rather than automatically sharing coordinates with an embedded third-party map.
+- Browser and native history views are bounded recent-record views, not full historical analytics. A family location still opens explicitly in Apple Maps rather than being embedded. The **Movement** tab does embed a basemap, and what that costs is written out under [The movement map](#the-movement-map) rather than left to be discovered.
 - Locations are retained for up to 30 days (pruned on ingestion); family reads expose the latest point only. Health records remain until deletion. Delete uploaded data revokes paired devices to prevent immediate automatic re-upload.
 - Family account provisioning is administrator CLI-only, and deliberately so: `family` decides who can see a location, and there is nothing in a Google login to infer it from. See [site integration](docs/INTEGRATION.md).
 
+## The movement map
+
+A day's track on a basemap, with that day's health on a timeline under it.
+Reading it is `GET /api/apple/track` for the geometry and
+`GET /api/apple/timeline` for the health, both scoped to the signed-in person
+on either lane. There is no user parameter to reject: `family` discloses a
+LATEST position, this discloses a HISTORY, and a month of positions says where
+somebody sleeps, works and takes their children. Reading your own track does
+not depend on the sharing switch — that governs uploading and what the family
+sees, and pausing it should not lock you out of what you already recorded.
+
+**Gaps are drawn as gaps.** The motion gate lets iOS suspend the app when you
+are still, so a day is runs of fixes thirty seconds apart separated by hours of
+nothing — in production the median gap is 37 seconds and the largest so far is
+eight and a half hours, which is a night's sleep. Anything over ten minutes
+starts a new segment, drawn as a dashed hop rather than joined, and distance is
+summed within segments only. That makes the distance an undercount whenever the
+phone slept through a journey, which is the honest direction to be wrong in.
+Nothing here is called "distance travelled".
+
+**What the basemap costs.** Tiles are raster images from Mapbox, using the main
+site's own public token fetched from `/api/maps/config` on the same origin —
+this server never holds a Mapbox credential. Mapbox therefore sees the tile
+coordinates being viewed (an area, not the trace), the viewer's IP, and the
+origin. It does not see the track, the times, or who is looking. If that trade
+is not wanted, the map degrades on purpose: with no token, or a failed fetch,
+the track draws on a plain ground with a scale bar and says so.
+
+Two details that are not obvious and both fail silently if missed:
+
+- The tiles are `<img>` elements rather than a WebGL map library, which is why
+  the CSP only gains `img-src https://api.mapbox.com`. A GL map would have
+  wanted `connect-src`, `worker-src blob:` and a looser `style-src` on a page
+  showing a month of somebody's whereabouts, plus a megabyte of vendored code
+  into a server with no bundler.
+- The token is URL-restricted, and this server sends `Referrer-Policy:
+  no-referrer`. A tile inheriting that arrives anonymous and is refused with a
+  403 and nothing in the console. Each tile carries its own
+  `referrerpolicy="strict-origin-when-cross-origin"`, which overrides the
+  document policy for that element alone and sends the origin and nothing more.
+
+**Days are the reader's days.** Everything is stored in UTC and bucketed using
+the offset the browser reports, because a walk that starts at half past midnight
+in summer otherwise lands on the day before. One offset covers the whole window,
+so on the two days a year the clocks move an hour of fixes sits on the
+neighbouring day. Named in `server/movement.mjs` rather than engineered around.
+
+**Steps are not added up.** The phone uploads one HealthKit cumulative-sum row
+per calendar day, so `timeline` returns step records rather than a total: a
+window that overlaps two of them would otherwise report a day that never
+happened. Sleep is unioned rather than summed for the same reason the health tab
+already gives — stages overlap across sources.
+
 ## Validation
 
-`npm test` verifies authentication, owner isolation, family boundaries, consent enforcement, input validation, idempotent retries, deletion isolation, pairing replay/expiry, CSRF and device revocation. XCTest checks movement cadence, bad GPS accuracy, HTTPS URL rules, queue persistence, corrupt-state handling, the motion-gate decision (including that unreadable motion turns GPS on rather than going quiet) and the duty-cycle arithmetic behind the history screen. Core Motion answers nothing in a simulator, so the gate's judgement is deliberately pure and the state machine itself is device-only. Browser checks cover sign-in, private records, family display, pause/resume, pairing and responsive layout.
+`npm test` verifies authentication, owner isolation, family boundaries, consent enforcement, input validation, idempotent retries, deletion isolation, pairing replay/expiry, CSRF and device revocation. It also covers the movement lane: that a track is readable by nobody but the person who recorded it, that pausing sharing does not lock you out of your own history, that a gap becomes a second segment rather than a straight line, that distance is never summed across one, that days bucket in the reader's timezone, and that sleep and workouts are selected by overlap so a night that began yesterday evening is not lost. XCTest checks movement cadence, bad GPS accuracy, HTTPS URL rules, queue persistence, corrupt-state handling, the motion-gate decision (including that unreadable motion turns GPS on rather than going quiet) and the duty-cycle arithmetic behind the history screen. Core Motion answers nothing in a simulator, so the gate's judgement is deliberately pure and the state machine itself is device-only. Browser checks cover sign-in, private records, family display, pause/resume, pairing, responsive layout, and the movement map end to end — that the trace draws, that a gap draws dashed, that scrubbing the timeline places a dot on the track and refuses to place one in a gap, and that the map pans and zooms.
 
 [Device acceptance checklist](docs/DEVICE-TESTING.md) covers the remaining physical-iPhone checks. Passing API/simulator tests does not establish battery life, continuous background delivery, TestFlight installation or production integration.
 

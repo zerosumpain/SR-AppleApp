@@ -267,3 +267,135 @@ test('a real Auth.js session cookie from the main site authenticates', async (t)
   const forged = await fetch(`${base}/me`, { headers: { Cookie: `${salt}=${wrong}` } });
   assert.equal(forged.status, 401);
 });
+
+// --- Movement ---------------------------------------------------------------
+
+/** Noon UTC yesterday: always in the past, always inside the retention window. */
+function baseInstant() {
+  const day = new Date();
+  day.setUTCDate(day.getUTCDate() - 1);
+  day.setUTCHours(12, 0, 0, 0);
+  return day.getTime();
+}
+const fix = (id, at, moving = true) => ({ id, recorded: new Date(at).toISOString(), latitude: 54.52 + id.length / 10000, longitude: -1.57, accuracy: 6, speed: moving ? 1.4 : 0, moving });
+
+async function withTrack(request) {
+  const base = baseInstant();
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  const locations = [
+    fix('a', base), fix('b', base + 30000), fix('c', base + 60000),
+    // Three hours of silence: the motion gate let the phone sleep.
+    fix('d', base + 60000 + 3 * 3600000), fix('e', base + 90000 + 3 * 3600000),
+  ];
+  assert.equal((await request('sync', { method: 'POST', body: batch([], locations) })).status, 200);
+  return { base, date: new Date(base).toISOString().slice(0, 10) };
+}
+
+test('a track is readable only by the person who recorded it', async t => {
+  const { request } = await fixture(t);
+  const { date } = await withTrack(request);
+
+  const mine = (await request(`track?offset=0&date=${date}`)).body;
+  assert.equal(mine.points.length, 5);
+  // The gap becomes a second segment rather than a straight line through it.
+  assert.deepEqual(mine.segments, [[0, 2], [3, 4]]);
+  assert.equal(mine.totals.fixes, 5);
+  assert.deepEqual(mine.days.map(d => d.date), [date]);
+
+  // Same family, sharing switched ON, and still nothing: `family` discloses a
+  // latest position, never a history, and there is no parameter to ask with.
+  assert.deepEqual((await request('track?offset=0', { user: 'sam' })).body.days, []);
+  assert.equal((await request(`track?offset=0&date=${date}`, { user: 'sam' })).body.points.length, 0);
+  assert.equal((await request('track?offset=0&user=alex', { user: 'sam' })).status, 400);
+  assert.equal((await request('track?offset=0', { user: null })).status, 401);
+  assert.equal(JSON.stringify((await request('family', { user: 'sam' })).body).includes('"points"'), false);
+});
+
+test('reading your own history does not depend on the sharing switch', async t => {
+  const { request } = await fixture(t);
+  const { date } = await withTrack(request);
+  await request('sharing', { method: 'PUT', body: { enabled: false } });
+  // Pausing hides you from the family and stops new uploads. It must not lock
+  // you out of what you already recorded.
+  assert.equal((await request('family', { user: 'sam' })).body.members[0].location, null);
+  assert.equal((await request(`track?offset=0&date=${date}`)).body.points.length, 5);
+});
+
+test('track parameters are validated rather than coerced', async t => {
+  const { request } = await fixture(t);
+  await withTrack(request);
+  assert.equal((await request('track?limit=5')).status, 400);
+  assert.equal((await request('track?offset=abc')).status, 400);
+  assert.equal((await request('track?offset=1.5')).status, 400);
+  assert.equal((await request('track?offset=900')).status, 400);
+  assert.equal((await request('track?offset=0&date=yesterday')).status, 400);
+  // `Number('')` and `Number(null)` are both 0, so an absent or empty offset
+  // has to mean UTC deliberately rather than by accident.
+  assert.equal((await request('track')).status, 200);
+  assert.equal((await request('track?offset=')).status, 200);
+});
+
+test('a day index buckets in the reader timezone', async t => {
+  const { request } = await fixture(t);
+  const { base } = await withTrack(request);
+  const utcDate = new Date(base).toISOString().slice(0, 10);
+  // Noon is nowhere near a boundary, so every offset agrees on the day; the
+  // shift shows up in the window the date resolves to.
+  assert.deepEqual((await request('track?offset=-60')).body.days.map(d => d.date), [utcDate]);
+  const shifted = (await request(`track?offset=-60&date=${utcDate}`)).body;
+  assert.equal(new Date(shifted.from * 1000).toISOString().endsWith('T23:00:00.000Z'), true);
+  assert.equal(shifted.to - shifted.from, 86400);
+});
+
+test('the timeline bins heart rate, selects spans by overlap, and stays owner scoped', async t => {
+  const { request } = await fixture(t);
+  const base = baseInstant();
+  const date = new Date(base).toISOString().slice(0, 10);
+  const from = Date.parse(`${date}T00:00:00Z`) / 1000;
+  const iso = at => new Date(at).toISOString();
+  await request('sync', { method: 'POST', body: batch([
+    { id: 'hr1', kind: 'heart_rate', start: iso(base), end: iso(base), value: 60, unit: 'bpm', source: 'Watch' },
+    { id: 'hr2', kind: 'heart_rate', start: iso(base + 60000), end: iso(base + 60000), value: 80, unit: 'bpm', source: 'Watch' },
+    { id: 'hr3', kind: 'heart_rate', start: iso(base + 2 * 3600000), end: iso(base + 2 * 3600000), value: 100, unit: 'bpm', source: 'Watch' },
+    // Begins the evening BEFORE this day and ends inside it.
+    { id: 'sleep1', kind: 'sleep', start: iso(base - 14 * 3600000), end: iso(base - 6 * 3600000), stage: 'deep', source: 'Watch' },
+    { id: 'walk', kind: 'workout', start: iso(base), end: iso(base + 1800000), value: 1800, unit: 'seconds', activity: 'Walking', distance: 2100, source: 'Watch' },
+    { id: 'steps1', kind: 'steps', start: iso(from * 1000), end: iso(from * 1000 + 86399000), value: 8241, unit: 'count', source: 'HealthKit daily statistics' }
+  ]) });
+
+  const body = (await request(`timeline?from=${from}&to=${from + 86400}`)).body;
+  assert.equal(body.heartRate.seconds, 300);
+  // The two readings a minute apart average into one bucket; the third is its own.
+  assert.equal(body.heartRate.bins.length, 2);
+  assert.equal(body.heartRate.bins[0][1], 70);
+  assert.equal(body.heartRate.bins[1][1], 100);
+  // Selected by overlap: a night that started yesterday evening is this
+  // morning's sleep, and selecting on `start` alone would lose every one.
+  assert.deepEqual(body.sleep.map(s => s.stage), ['deep']);
+  assert.deepEqual(body.workouts.map(w => w.activity), ['Walking']);
+  // Steps come back as records, never pre-summed: one cumulative row per day
+  // means adding two of them together reports a day that never happened.
+  assert.deepEqual(body.steps.map(s => s.value), [8241]);
+
+  assert.deepEqual((await request(`timeline?from=${from}&to=${from + 86400}`, { user: 'sam' })).body.sleep, []);
+  assert.equal((await request(`timeline?from=${from}&to=${from + 86400}`, { user: null })).status, 401);
+  assert.equal((await request(`timeline?from=${from}&to=${from + 86400}&user=alex`, { user: 'sam' })).status, 400);
+  assert.equal((await request(`timeline?from=${from}&to=${from - 1}`)).status, 400);
+  assert.equal((await request(`timeline?from=${from}&to=${from + 40 * 86400}`)).status, 400);
+  assert.equal((await request(`timeline?from=${from}&to=${from + 86400}&bins=0`)).status, 400);
+  assert.equal((await request('timeline')).status, 400);
+});
+
+test('the preview signs out where it signed in, not at the main site', async t => {
+  const { request } = await fixture(t);
+  const login = await request('demo-signin', { user: null, method: 'POST', body: { email: 'alex@example.test' }, headers: { Origin: 'http://localhost' } });
+  const headers = { Cookie: login.headers.get('set-cookie').split(';')[0], Origin: 'http://localhost' };
+  const out = await request('logout', { user: null, method: 'POST', body: {}, headers });
+  // The preview's session is this server's own cookie. Naming the main site's
+  // sign-out URL would send a laptop on loopback to a path nothing serves.
+  assert.equal(out.body.signOutAt, undefined);
+  assert.match(out.headers.get('set-cookie'), /sr_apple_demo=;.*Max-Age=0/);
+  // A real session still belongs to the main site, and still says so.
+  const real = await request('logout', { user: null, method: 'POST', body: {}, headers: { ...headers, Cookie: 'x=1' } });
+  assert.equal(real.status, 401);
+});
