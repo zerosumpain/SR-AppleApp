@@ -10,7 +10,16 @@ Activated 21 September 2026 after the TestFlight 0.1.0 (2) upload.
 
 ## Deployment
 
-The HTTPS host runs a separate Compose project, `sr-appleapp`, from `/opt/sr-appleapp/releases/8ba2a75145ad/deploy/compose.yaml`. Environment configuration is `/opt/sr-appleapp/pilot.env`. The database uses the dedicated `sr-appleapp_apple_data` volume. The service binds only `127.0.0.1:5295`; the existing Cloudflare tunnel routes only `/apple-app`, `/apple-app/*`, and `/api/apple/*` on the canonical hostname to it. No shared database, demo accounts, main-site identity injection, or Docker socket is mounted.
+The HTTPS host runs this as a **separate Compose project** deployed from a
+per-release directory, with its own env file and its own named volume. The
+service binds to **loopback only**; the existing Cloudflare tunnel routes just
+the companion's own paths to it. No shared database, demo account, main-site
+identity injection or Docker socket is mounted.
+
+Exact paths, the env-file name, the volume name and the tunnel rule are **not
+published here** — this repository is public. They are discoverable on the host
+itself (`docker inspect` on the running container names its mounts and its
+compose working directory) and recorded in the private ops notes.
 
 The deployment uses the pinned Node image in Dockerfile. The matching local synthetic service and its existing volume remain separate and available at the local preview endpoint.
 
@@ -20,14 +29,27 @@ Nine API tests passed before activation. Public HTTPS checks verified dashboard 
 
 ## Operations and rollback
 
-Use the deployment Compose file with `--env-file /opt/sr-appleapp/pilot.env` for status, logs, or restart. Preserve the named data volume. Never run `down -v` to update the service.
+Use the deployment Compose file together with its env file for status, logs or
+restart. **Preserve the named data volume, and never `down -v`** to update the
+service — that deletes it.
 
-The pre-change tunnel configuration is backed up at `/opt/sr-appleapp/backups/cloudflared-20260921T191736Z.yml`. For rollback, remove only the companion ingress entry from the current configuration, validate with `cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate`, then restart cloudflared. Do not restore an old whole-file backup over later routing changes. Stop the companion service separately; retain its volume.
+A timestamped copy of the pre-change tunnel configuration is kept in the
+deployment's backups directory on the host. To roll back, remove **only** the
+companion's ingress entry from the current configuration, validate it with
+`cloudflared … tunnel ingress validate`, then **restart** cloudflared — a SIGHUP
+stops it and takes every hostname down with it.
+
+Do not restore an old whole-file backup over later routing changes: the tunnel
+config is shared with every other service on the host and it has moved on. Stop
+the companion service separately, and retain its volume.
 
 For account provisioning, see INTEGRATION.md. Keep credentials outside Git and logs.
 
-Main-site sign-in replaced the pilot's own login on 2026-09-22: the browser lane now verifies the site's Auth.js session with `AUTH_SECRET` (set in `/opt/sr-appleapp/pilot.env`), and `users.password` is dropped on open. There is no password to reset. A person needs both a strangeramblings.com login and a row in `users`. The pilot still has no automated database backup job.
+Main-site sign-in replaced the pilot's own login on 2026-09-22: the browser lane
+now verifies the site's Auth.js session with `AUTH_SECRET` (copied into the
+deployment's env file from the main site's environment, never written back to
+it), and `users.password` is dropped on open. There is no password to reset. A person needs both a strangeramblings.com login and a row in `users`. The pilot still has no automated database backup job.
 
-QR update: release `8ba2a75145ad` preserves the existing volume and routes. Ten API tests pass, including decoding the generated QR pixels and checking replacement/replay rejection. Desktop/mobile rendered QR and expiry checks pass. The live HTTPS QR decoded to the canonical origin and successfully paired a temporary verification device, which was then revoked. Physical camera scanning still requires the updated TestFlight build on an iPhone.
+QR update: that release preserved the existing volume and routes. Ten API tests pass, including decoding the generated QR pixels and checking replacement/replay rejection. Desktop/mobile rendered QR and expiry checks pass. The live HTTPS QR decoded to the canonical origin and successfully paired a temporary verification device, which was then revoked. Physical camera scanning still requires the updated TestFlight build on an iPhone.
 
 TestFlight 0.1.0 (3), from the same release, uploaded successfully on 21 September 2026. Native unit/UI checks passed with the simulator set to dark appearance, including QR payload validation, manual-code visibility, and camera-unavailable fallback. The physical-camera acceptance check remains for the device tester.

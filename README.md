@@ -11,7 +11,9 @@ Health is always scoped to the authenticated person. Family membership grants ac
 
 ## Test the running local preview
 
-Open **http://192.168.0.77:5275/apple-app/** on the local network.
+Run it locally (below) and open `/apple-app/` on the host you started it on.
+There is also a long-running preview on the LAN; its address is in the private
+ops notes rather than here, because this repository is public.
 
 | Synthetic account | Family |
 | --- | --- |
@@ -54,6 +56,24 @@ strangeramblings.com (owner, or a guest on the allow-list), and a row here.
 The container refuses to start on an https origin without `AUTH_SECRET`. Without
 that check a missing secret would 401 every browser while the phone kept syncing
 on its device token, hiding the fault for days.
+
+### One page, both credentials
+
+A phone can hold two, and both are minted from **Connect & privacy** on this
+dashboard:
+
+| Credential | Minted by | Grants |
+| --- | --- | --- |
+| Companion device token | this server | health upload, family location |
+| Site device token | **the main site**, `/api/admin/native-devices` | jkai threads, the news desk |
+
+Only the UI is shared. The site token is minted, listed and revoked by SR-Main
+behind its own owner gate, and its QR arrives already rendered as a data URL —
+this server never mints, stores or sees it. Drawing the QR here would have meant
+vendoring a QR library to handle a credential that is none of its business.
+
+`/admin/access/devices` on the main site 308s here; it existed for about an hour
+on 2026-09-22.
 
 ### Why not the SR-Infra gateway
 
@@ -100,7 +120,30 @@ APP_ORIGIN=http://127.0.0.1:5295 docker compose -f deploy/compose.yaml config
 APP_ORIGIN=http://127.0.0.1:5295 docker compose -f deploy/compose.yaml up -d --build --wait
 ```
 
-The persistent host preview is configured by `/home/john/docker/local/compose.apple-app.yaml` and uses its own `porkserv-local_apple_app_data` volume. The service binds only to loopback. The existing LAN preview gateway forwards `/apple-app/` and `/api/apple/` without injecting the site's synthetic owner session. It never uses production data, credentials, or the Docker socket.
+The long-running LAN preview is a separate Compose project with its **own
+volume**, bound to loopback and reached through the existing preview gateway,
+which forwards `/apple-app/` and `/api/apple/` without injecting the site's
+owner session. It never touches production data, credentials or the Docker
+socket. Its host, paths and volume name are deliberately not published here.
+
+## CI cost
+
+The `ios` job runs on macOS, which GitHub bills at a **10x minute multiplier**
+and which takes ~20 minutes cold. `check.yml` therefore runs on **pull requests
+and `main`**, not on every branch push, and skips the Mac job entirely unless the
+change touches `ios/`.
+
+If jobs start failing in under ten seconds with no steps, that is not the code —
+it is the Actions spending limit, and the message is only visible in the check
+run's *annotations*, not in the logs or `gh run view`:
+
+```sh
+gh api repos/zerosumpain/SR-AppleApp/commits/<sha>/check-runs --jq '.check_runs[].id' \
+  | xargs -I{} gh api repos/zerosumpain/SR-AppleApp/check-runs/{}/annotations \
+      --jq '.[] | "\(.annotation_level): \(.message)"'
+```
+
+Re-running does not help; the job never starts.
 
 ## iPhone build and installation
 

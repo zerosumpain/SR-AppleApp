@@ -9,7 +9,9 @@ import Security
 /// chat. The Keychain accounts differ for the same reason.
 ///
 /// Auth is a device token obtained by redeeming a one-time code from
-/// `/admin/access/devices`, sent as `Authorization: Bearer`. It is exactly as
+/// the companion dashboard at `/apple-app`, sent as `Authorization: Bearer`.
+/// (That page shows it, but the main site mints it — the pilot server never
+/// handles a site credential.) It is exactly as
 /// privileged as the browser session that minted it and is revocable from there.
 enum SiteError: LocalizedError {
     case unpaired

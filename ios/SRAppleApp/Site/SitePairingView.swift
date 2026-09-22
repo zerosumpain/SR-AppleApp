@@ -70,7 +70,7 @@ struct SitePairingScreen: View {
             footer: [
                 "Strange Ramblings",
                 "A paired iPhone reads as you, and only what you can read",
-                "Revoke it at /admin/access/devices",
+                "Pair and revoke at strangeramblings.com/apple-app",
             ]
         ) {
             SRSection {
@@ -79,7 +79,7 @@ struct SitePairingScreen: View {
                     title: model.paired ? ["Connected", "to the site"] : ["Bring the site", "to your pocket"],
                     strap: model.paired
                         ? "This iPhone can read your chat threads and the news desk. It holds a device token, not a password, and the website can revoke it at any moment."
-                        : "Open Admin → Access → Devices on the website, create a pairing QR code, and scan it here. The code works once and expires in ten minutes."
+                        : "Open strangeramblings.com/apple-app on another screen, go to Connect & privacy, and create a chat & news QR code. Scan it here. The code works once and expires in ten minutes."
                 )
 
                 if model.paired {
@@ -172,7 +172,7 @@ struct SiteUnpairedNotice: View {
             SectionHead(
                 kicker: "A / Not connected",
                 title: ["Connect to", "read \(what)"],
-                strap: "This iPhone is not paired with strangeramblings.com yet. Create a pairing code under Admin → Access → Devices and scan it."
+                strap: "This iPhone is not paired with strangeramblings.com yet. Create a chat & news code under Connect & privacy at strangeramblings.com/apple-app, and scan it."
             )
             SRButton(title: "Connect", filled: true, action: onConnect)
         }
