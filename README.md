@@ -120,6 +120,25 @@ APP_ORIGIN=http://127.0.0.1:5295 docker compose -f deploy/compose.yaml up -d --b
 
 The persistent host preview is configured by `/home/john/docker/local/compose.apple-app.yaml` and uses its own `porkserv-local_apple_app_data` volume. The service binds only to loopback. The existing LAN preview gateway forwards `/apple-app/` and `/api/apple/` without injecting the site's synthetic owner session. It never uses production data, credentials, or the Docker socket.
 
+## CI cost
+
+The `ios` job runs on macOS, which GitHub bills at a **10x minute multiplier**
+and which takes ~20 minutes cold. `check.yml` therefore runs on **pull requests
+and `main`**, not on every branch push, and skips the Mac job entirely unless the
+change touches `ios/`.
+
+If jobs start failing in under ten seconds with no steps, that is not the code —
+it is the Actions spending limit, and the message is only visible in the check
+run's *annotations*, not in the logs or `gh run view`:
+
+```sh
+gh api repos/zerosumpain/SR-AppleApp/commits/<sha>/check-runs --jq '.check_runs[].id' \
+  | xargs -I{} gh api repos/zerosumpain/SR-AppleApp/check-runs/{}/annotations \
+      --jq '.[] | "\(.annotation_level): \(.message)"'
+```
+
+Re-running does not help; the job never starts.
+
 ## iPhone build and installation
 
 The **Check app and API** GitHub workflow builds and tests on a hosted Mac. Its simulator `.app` artifact is **not installable on an iPhone**.

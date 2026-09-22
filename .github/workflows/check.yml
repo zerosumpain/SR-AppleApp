@@ -1,6 +1,32 @@
 name: Check app and API
+#
+# The `ios` job runs on macOS, which GitHub bills at a 10x minute multiplier and
+# which takes ~20 minutes cold. On 2026-09-22 this workflow ran on every push to
+# every branch, so four Mac builds went in an hour and the account hit its Actions
+# spending limit — after which jobs fail in under ten seconds, before a single
+# step, and no amount of re-running helps.
+#
+# Two changes:
+#
+#  1. Branch pushes no longer trigger anything. A branch is checked when it opens
+#     a pull request and when `main` moves, not on every commit while working.
+#  2. The Mac job is skipped entirely unless the change TOUCHES `ios/`. This one
+#     is the smaller saving and it is worth being honest about that: every
+#     commit on 2026-09-22 happened to carry Swift alongside its server changes,
+#     so the filter would have saved nothing that day. It pays off on the
+#     server-and-docs commits this repo also gets, and it costs one cheap ubuntu
+#     job to decide.
+#
+# The first change is the one that mattered: three of the four Mac builds that
+# day were branch pushes on work that was not ready to be checked yet, and two of
+# those were superseded minutes later by the next push.
+#
+# The cheap `api` job is unchanged and still runs every time: it is an
+# ubuntu runner at the 1x rate and it is the faster signal.
 on:
   push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 concurrency:
   group: check-${{ github.ref }}
@@ -8,6 +34,48 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  # Decide whether the expensive job has anything to do. Plain git rather than a
+  # third-party paths-filter action — this repo pulls in only `actions/*`, and a
+  # diff is two lines.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.check.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        name: Does this change touch the iPhone app?
+        run: |
+          set -euo pipefail
+          EVENT='${{ github.event_name }}'
+          if [ "$EVENT" = 'pull_request' ]; then
+            BASE='${{ github.event.pull_request.base.sha }}'
+            HEAD='${{ github.event.pull_request.head.sha }}'
+          elif [ "$EVENT" = 'push' ] && [ '${{ github.event.before }}' != '0000000000000000000000000000000000000000' ]; then
+            BASE='${{ github.event.before }}'
+            HEAD='${{ github.sha }}'
+          else
+            # A manual run, or a first push with no `before` to diff against.
+            # FAIL OPEN: building something that did not need it costs minutes,
+            # skipping something that did costs a broken app nobody checked.
+            echo 'Cannot diff this event — building anyway.'
+            echo 'ios=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Comparing $BASE..$HEAD"
+          CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
+          echo "$CHANGED"
+          # The workflow itself counts: a change to how the app is built must be
+          # proved by building the app.
+          if printf '%s\n' "$CHANGED" | grep -qE '^(ios/|\.github/workflows/check\.yml$)'; then
+            echo 'ios=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'No iOS sources touched — skipping the simulator build.'
+            echo 'ios=false' >> "$GITHUB_OUTPUT"
+          fi
+
   api:
     runs-on: ubuntu-latest
     steps:
@@ -18,6 +86,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
   ios:
+    needs: scope
+    if: needs.scope.outputs.ios == 'true'
     runs-on: macos-26
     timeout-minutes: 35
     steps:
