@@ -191,7 +191,8 @@ struct ContentView: View {
                 title: "Not connected yet",
                 icon: "qrcode.viewfinder",
                 message: "Connect this iPhone to Strange Ramblings to read \(what).",
-                action: (label: "Connect", run: { router.openSettings(.connections) })
+                actionLabel: "Connect",
+                action: { router.openSettings(.connections) }
             )
             .frame(maxHeight: .infinity)
             .srPaper()

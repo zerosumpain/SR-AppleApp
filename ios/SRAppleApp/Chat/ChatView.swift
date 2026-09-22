@@ -61,9 +61,7 @@ struct ThreadListScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     SRHaptic.tap()
-                    Task {
-                        if let fresh = await store.create() { router.chat.append(fresh) }
-                    }
+                    startThread()
                 } label: {
                     Image(systemName: "square.and.pencil")
                 }
@@ -77,9 +75,8 @@ struct ThreadListScreen: View {
                     title: store.query.isEmpty ? "No threads yet" : "Nothing matches that",
                     icon: store.query.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass",
                     message: store.query.isEmpty ? "Start one and it appears here, alongside everything that came in over WhatsApp." : nil,
-                    action: store.query.isEmpty ? (label: "New thread", run: {
-                        Task { if let fresh = await store.create() { router.chat.append(fresh) } }
-                    }) : nil
+                    actionLabel: store.query.isEmpty ? "New thread" : nil,
+                    action: store.query.isEmpty ? startThread : nil
                 )
             } else if store.loading && store.conversations.isEmpty {
                 ProgressView().tint(SR.accent)
@@ -124,6 +121,23 @@ struct ThreadListScreen: View {
         }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message).padding(.bottom, 4) }
+        }
+    }
+
+    /// Declared `-> Void` on purpose, and not written inline.
+    ///
+    /// A closure whose whole body is `Task { … }` INFERS its return type as
+    /// `Task<(), Never>`, and coercing that into the `() -> Void` of an action
+    /// tuple crashed swift-frontend outright — a stack dump, not a diagnostic,
+    /// so the build failed with no file or line in the message. A function
+    /// with a written return type never enters that inference.
+    ///
+    /// `swiftc -parse` cannot see this. It is a type-checker crash, and
+    /// parsing resolves no types at all — which is the honest limit of the
+    /// pre-flight check and the reason the macOS job is the real gate.
+    private func startThread() {
+        Task {
+            if let fresh = await store.create() { router.chat.append(fresh) }
         }
     }
 

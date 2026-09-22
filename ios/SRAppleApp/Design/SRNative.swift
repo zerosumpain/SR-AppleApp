@@ -318,7 +318,16 @@ struct SREmpty: View {
     let title: String
     let icon: String
     var message: String? = nil
-    var action: (label: String, run: () -> Void)? = nil
+    /// Two parameters, not one `(label:run:)` tuple.
+    ///
+    /// The tuple is what crashed the compiler. Coercing an inferred
+    /// `(label: String, run: () -> Task<(), Never>)` into
+    /// `(label: String, run: () -> Void)` took swift-frontend down with a stack
+    /// dump rather than a diagnostic — no file, no line, just "Command
+    /// SwiftCompile failed". Two plain parameters never form that tuple, so a
+    /// future call site written inline gets an ordinary error at worst.
+    var actionLabel: String? = nil
+    var action: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 14) {
@@ -336,9 +345,9 @@ struct SREmpty: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let action {
-                Button { SRHaptic.tap(); action.run() } label: {
-                    Text(action.label.uppercased())
+            if let action, let actionLabel {
+                Button { SRHaptic.tap(); action() } label: {
+                    Text(actionLabel.uppercased())
                         .font(SR.Text.label())
                         .tracking(1.2)
                         .foregroundStyle(SR.paper)

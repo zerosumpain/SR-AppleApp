@@ -26,7 +26,8 @@ struct HealthScreen: View {
                     title: "Health is not answering",
                     icon: "heart.slash",
                     message: "The health service did not reply. Your uploaded records are still here.",
-                    action: (label: "Try again", run: { Task { await store.load(fresh: true) } })
+                    actionLabel: "Try again",
+                    action: reload
                 )
                 .srPlainRow()
             } else if store.loading {
@@ -53,6 +54,13 @@ struct HealthScreen: View {
         }
         .navigationDestination(for: HealthFigure.self) { FigureDetail(figure: $0) }
         .task { await store.load() }
+    }
+
+    /// See `ThreadListScreen.startThread` — a closure that is only a `Task`
+    /// infers `Task<(), Never>` as its return type, and coercing that into an
+    /// action tuple crashes the type checker.
+    private func reload() {
+        Task { await store.load(fresh: true) }
     }
 
     // MARK: - Sections
