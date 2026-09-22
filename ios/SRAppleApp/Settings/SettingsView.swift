@@ -291,65 +291,84 @@ struct SettingsScreen: View {
             .accessibilityIdentifier("toggle-motion-advanced")
 
             if showMotion {
-                SRLabel(text: "Going to sleep")
-                stepperRow("Sleep after still for", value: $draft.motion.sleepAfter,
-                           range: 60...1800, step: 60, unit: "s",
-                           note: "How long the phone has to be still before GPS is switched off entirely. Longer than the stopped threshold above on purpose — dropping to cheap settings and dropping the sensor are different sizes of decision.")
-                stepperRow("Anchor radius", value: $draft.motion.anchorRadius,
-                           range: 50...1000, step: 50, unit: "m",
-                           note: "The geofence that wakes it. THE lever to move if the history shows a poor hit rate: an anchor smaller than the error in the fix that placed it exits itself, and the phone gets woken by noise. The real radius is this or twice the fix accuracy, whichever is larger.")
-                stepperRow("Never wider than", value: $draft.motion.maxAnchorRadius,
-                           range: 200...3000, step: 100, unit: "m",
-                           note: "The ceiling on that, including the automatic widening below.")
-                intStepperRow("Widen after, per hour", value: $draft.motion.maxWakesPerHour,
-                              range: 2...20, unit: " wakes",
-                              note: "More wakes than this in an hour and the anchor doubles itself. The history screen shows the count that triggers it.")
-
-                SRLabel(text: "Waking up")
-                stepperRow("Look back over", value: $draft.motion.historyWindow,
-                           range: 300...3600, step: 60, unit: "s",
-                           note: "How far back to read the motion log on waking. Short on purpose: the question is whether somebody is moving NOW, and hours of history would accumulate enough walking to answer yes every time.")
-                confidencePicker
-                Toggle(isOn: $draft.motion.vehicleAlwaysWakes) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Any driving wakes GPS at once").font(SR.body(15)).foregroundStyle(SR.ink)
-                        Text("No minimum duration. Leaving a geofence by car happens seconds after setting off, which is exactly when a family wants to see where somebody is.")
-                            .font(SR.body(13)).foregroundStyle(SR.inkMuted)
-                    }
-                }.tint(SR.accent)
-                stepperRow("Travel in the window that counts", value: $draft.motion.travelMinimum,
-                           range: 15...600, step: 15, unit: "s",
-                           note: "Driving, cycling or running totalled across the window, counted even once it has stopped. Catches \"you drove here\", where the old anchor is now in the wrong place.")
-                stepperRow("Consistent walking for", value: $draft.motion.sustainedWalk,
-                           range: 60...900, step: 30, unit: "s",
-                           note: "Walking that means going somewhere rather than crossing a room. Asked of the activity log, not of a step counter, because the log already knows the difference.")
-                intStepperRow("Or steps in the burst", value: $draft.motion.stepBurst,
-                              range: 0...600, unit: " steps",
-                              note: "A step count over a short recent window, which catches somebody who has only just set off. Zero turns this test off and leaves the walking one.")
-                stepperRow("Burst window", value: $draft.motion.stepBurstWindow,
-                           range: 60...600, step: 30, unit: "s", note: nil)
-
-                SRLabel(text: "What to keep running")
-                Toggle(isOn: $draft.motion.visitMonitoring) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Visit monitoring").font(SR.body(15)).foregroundStyle(SR.ink)
-                        Text("The cheapest wake iOS has, and it fires on leaving somewhere you had settled. It also produces wakes, which is the only reason it is a switch.")
-                            .font(SR.body(13)).foregroundStyle(SR.inkMuted)
-                    }
-                }.tint(SR.accent)
-                Toggle(isOn: $draft.motion.coarseOnBlip) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Record the re-anchor fix").font(SR.body(15)).foregroundStyle(SR.ink)
-                        Text("After a false wake the app takes one cheap fix to move the geofence. Recording it costs nothing extra and stops a long sleep being a hole in the record.")
-                            .font(SR.body(13)).foregroundStyle(SR.inkMuted)
-                    }
-                }.tint(SR.accent)
-
+                sleepLevers
+                wakeLevers
+                keepLevers
                 Text("The honest trade: this buys battery with latency. A phone that starts moving is noticed when it leaves the anchor, not the second it stands up — a minute or so, not ten seconds. For family location that is almost certainly the right way round, but it is a trade.")
                     .font(SR.body(14))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    // Three blocks rather than one: seventeen views in a single ViewBuilder is
+    // a type-check the compiler can take minutes over, and they group by
+    // question anyway — when to sleep, what counts as waking, what to leave on.
+
+    private var sleepLevers: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SRLabel(text: "Going to sleep")
+            stepperRow("Sleep after still for", value: $draft.motion.sleepAfter,
+                       range: 60...1800, step: 60, unit: "s",
+                       note: "How long the phone has to be still before GPS is switched off entirely. Longer than the stopped threshold above on purpose — dropping to cheap settings and dropping the sensor are different sizes of decision.")
+            stepperRow("Anchor radius", value: $draft.motion.anchorRadius,
+                       range: 50...1000, step: 50, unit: "m",
+                       note: "The geofence that wakes it. THE lever to move if the history shows a poor hit rate: an anchor smaller than the error in the fix that placed it exits itself, and the phone gets woken by noise. The real radius is this or twice the fix accuracy, whichever is larger.")
+            stepperRow("Never wider than", value: $draft.motion.maxAnchorRadius,
+                       range: 200...3000, step: 100, unit: "m",
+                       note: "The ceiling on that, including the automatic widening below.")
+            intStepperRow("Widen after, per hour", value: $draft.motion.maxWakesPerHour,
+                          range: 2...20, unit: " wakes",
+                          note: "More wakes than this in an hour and the anchor doubles itself. The history screen shows the count that triggers it.")
+        }
+    }
+
+    private var wakeLevers: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SRLabel(text: "Waking up")
+            stepperRow("Look back over", value: $draft.motion.historyWindow,
+                       range: 300...3600, step: 60, unit: "s",
+                       note: "How far back to read the motion log on waking. Short on purpose: the question is whether somebody is moving NOW, and hours of history would accumulate enough walking to answer yes every time.")
+            confidencePicker
+            Toggle(isOn: $draft.motion.vehicleAlwaysWakes) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Any driving wakes GPS at once").font(SR.body(15)).foregroundStyle(SR.ink)
+                    Text("No minimum duration. Leaving a geofence by car happens seconds after setting off, which is exactly when a family wants to see where somebody is — and steps are zero in a car, so the step tests below can never catch it.")
+                        .font(SR.body(13)).foregroundStyle(SR.inkMuted)
+                }
+            }.tint(SR.accent)
+            stepperRow("Travel in the window that counts", value: $draft.motion.travelMinimum,
+                       range: 15...600, step: 15, unit: "s",
+                       note: "Driving, cycling or running totalled across the window, counted even once it has stopped. Catches \"you drove here\", where the old anchor is now in the wrong place.")
+            stepperRow("Consistent walking for", value: $draft.motion.sustainedWalk,
+                       range: 60...900, step: 30, unit: "s",
+                       note: "Walking that means going somewhere rather than crossing a room. Asked of the activity log, not of a step counter, because the log already knows the difference.")
+            intStepperRow("Or steps in the burst", value: $draft.motion.stepBurst,
+                          range: 0...600, unit: " steps",
+                          note: "A step count over a short recent window, which catches somebody who has only just set off. Zero turns this test off and leaves the walking one.")
+            stepperRow("Burst window", value: $draft.motion.stepBurstWindow,
+                       range: 60...600, step: 30, unit: "s", note: nil)
+        }
+    }
+
+    private var keepLevers: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SRLabel(text: "What to keep running")
+            Toggle(isOn: $draft.motion.visitMonitoring) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Visit monitoring").font(SR.body(15)).foregroundStyle(SR.ink)
+                    Text("The cheapest wake iOS has, and it fires on leaving somewhere you had settled. It also produces wakes, which is the only reason it is a switch.")
+                        .font(SR.body(13)).foregroundStyle(SR.inkMuted)
+                }
+            }.tint(SR.accent)
+            Toggle(isOn: $draft.motion.coarseOnBlip) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Record the re-anchor fix").font(SR.body(15)).foregroundStyle(SR.ink)
+                    Text("After a false wake the app takes one cheap fix to move the geofence. Recording it costs nothing extra and stops a long sleep being a hole in the record.")
+                        .font(SR.body(13)).foregroundStyle(SR.inkMuted)
+                }
+            }.tint(SR.accent)
         }
     }
 
