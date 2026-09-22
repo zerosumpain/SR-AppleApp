@@ -156,9 +156,16 @@ final class AlertStore: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = alert.title
             content.body = alert.body
-            content.sound = alert.isAlert ? .defaultCritical : .default
+            content.sound = .default
             content.threadIdentifier = alert.category
             content.categoryIdentifier = alert.category
+            // Graded, and deliberately not upward. `.timeSensitive` and
+            // `.critical` both need entitlements this profile does not carry, so
+            // the only honest lever is DOWN: a health reading or a headline is
+            // something to find later, not something to break a Focus for. An
+            // alert-severity row keeps the default level, which is as loud as
+            // this app is allowed to be.
+            content.interruptionLevel = alert.isAlert ? .active : .passive
             if let url = alert.url { content.userInfo = ["url": url, "id": alert.id] }
             // nil trigger means "as soon as this returns". The alert is already
             // late by however long iOS sat on the refresh; scheduling it further

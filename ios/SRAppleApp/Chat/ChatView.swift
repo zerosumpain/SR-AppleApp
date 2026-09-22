@@ -223,6 +223,7 @@ struct ChatScreen: View {
     @State private var draft = ""
     @State private var atBottom = true
     @FocusState private var composerFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(conversation: Conversation) {
         self.conversation = conversation
@@ -357,16 +358,14 @@ struct ChatScreen: View {
         // same job up from its last sequence number on the way back.
         .onDisappear { store.stop() }
         .onAppear { store.resume() }
-        .overlay(alignment: .bottom) {
-            if let message = store.message {
-                SRBanner(text: message, tone: SR.error).padding(.bottom, 70)
-            }
-        }
     }
 
     private func follow(_ proxy: ScrollViewProxy, animated: Bool = false) {
         guard atBottom else { return }
-        if animated {
+        // A transcript that animates itself downward thirty times a second is
+        // motion, and a reader who has asked for less of it has asked about
+        // exactly this. The view still follows; it just arrives.
+        if animated && !reduceMotion {
             withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
         } else {
             proxy.scrollTo(bottomAnchor, anchor: .bottom)
@@ -383,6 +382,13 @@ struct ChatScreen: View {
     /// stays visible with the keyboard up.
     private var composer: some View {
         VStack(spacing: 0) {
+            // The banner sits INSIDE the composer's stack rather than as an
+            // overlay pushed up by a guessed 70 points. The composer grows with
+            // the draft — one to six lines — and with the reader's text size, so
+            // any fixed offset is wrong for most of its range.
+            if let message = store.message {
+                SRBanner(text: message, tone: SR.error)
+            }
             Rectangle().fill(SR.line).frame(height: 1)
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("Message jkai", text: $draft, axis: .vertical)

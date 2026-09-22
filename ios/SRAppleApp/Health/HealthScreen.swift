@@ -253,8 +253,9 @@ struct FigureTile: View {
             Text(figure.displayWithUnit)
                 .font(SR.Text.figure(30))
                 .foregroundStyle(SR.ink)
+                // See SRTileGrid: the grid folds at accessibility sizes rather
+                // than the figure shrinking back to where it started.
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
 
             HStack(spacing: 5) {
                 if let delta = figure.deltaDisplay {

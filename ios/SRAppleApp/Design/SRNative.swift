@@ -196,8 +196,11 @@ struct SRStatTile: View {
                 Text(value)
                     .font(SR.Text.figure())
                     .foregroundStyle(SR.ink)
+                    // No `minimumScaleFactor`. It was the escape hatch that made
+                    // the grid look fine at every text size by quietly undoing
+                    // the reader's setting — the tile folds to one column now
+                    // instead, and the number stays the size it was asked to be.
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
                 if let unit {
                     Text(unit)
                         .font(SR.Text.mono(13))
@@ -236,17 +239,25 @@ struct SRStatTile: View {
     }
 }
 
-/// Two tiles across. The phone's whole grid: three is 118pt a tile and a
-/// four-digit step count stops fitting.
+/// Two tiles across — one, once the reader has asked for larger text.
+///
+/// Three columns is 118pt a tile and a four-digit step count stops fitting, so
+/// the phone's grid is two. At an accessibility text size two stops fitting for
+/// the same reason, and the wrong answer is to shrink the number back down:
+/// somebody who asked for bigger text getting smaller text is the whole failure
+/// in one gesture. So the grid folds instead.
 struct SRTileGrid<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ViewBuilder var content: Content
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: SR.cardGap),
-                            GridItem(.flexible(), spacing: SR.cardGap)],
-                  spacing: SR.cardGap) {
-            content
-        }
+        LazyVGrid(columns: columns, spacing: SR.cardGap) { content }
+    }
+
+    private var columns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), spacing: SR.cardGap)]
+            : [GridItem(.flexible(), spacing: SR.cardGap), GridItem(.flexible(), spacing: SR.cardGap)]
     }
 }
 

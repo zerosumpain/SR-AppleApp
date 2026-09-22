@@ -41,6 +41,21 @@ import HealthKit
                     defer { completion() }
                     guard let self, error == nil else { return }
                     do { try await self.collect(); self.onUpdate?() } catch { /* Retry after unlock or next foreground sync. */ }
+                    // And while we are awake anyway: take whatever the site has
+                    // been trying to say.
+                    //
+                    // This app has no push certificate, so a notification only
+                    // ever arrives on a wake the app already gets. There are two
+                    // of those, and they are not equal: `BGAppRefreshTask` runs
+                    // when iOS feels like it, which for an app opened twice a day
+                    // is not often. HealthKit background delivery is scheduled —
+                    // hourly, on an entitlement this app has held and used since
+                    // the first version — and it fires precisely when the health
+                    // figures the reader asked to be told about have changed.
+                    //
+                    // The site's three-hour floor still governs what is actually
+                    // raised, so the extra wakes cost a request and nothing else.
+                    await AlertStore.backgroundPass()
                 }
             }
             observers.append(query); store.execute(query)

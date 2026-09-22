@@ -375,8 +375,10 @@ struct QuickAction: View {
                     .font(SR.Text.label())
                     .tracking(1.2)
                     .foregroundStyle(SR.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    // Two lines rather than smaller type. "SYNCING…" at a large
+                    // accessibility size does not fit on one, and the reader
+                    // asked for it to be that size.
+                    .lineLimit(2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(SR.cardPadding)
