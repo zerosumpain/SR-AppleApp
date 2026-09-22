@@ -134,6 +134,7 @@ export function dayIndex(points, offsetMinutes) {
       return {
         date,
         fixes: day.length,
+        journeys: activitiesOf(day).filter((a) => a.kind === 'journey').length,
         metres: Math.round(recordedMetres(day, segments)),
         movingSeconds: movingSeconds(day, segments),
         firstAt: day[0][2],
@@ -141,6 +142,86 @@ export function dayIndex(points, offsetMinutes) {
       };
     })
     .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * Below these, a run of fixes is GPS twitching rather than somebody going
+ * somewhere. A walk to the postbox clears both comfortably.
+ */
+export const MIN_JOURNEY_METRES = 60;
+export const MIN_JOURNEY_SECONDS = 60;
+
+/**
+ * The day as a list of JOURNEYS and the STOPS between them.
+ *
+ * ## Why this is not `segmentsOf`
+ *
+ * A segment is a run of continuous RECORDING, and that is the right thing to
+ * decide where a line may be drawn. It is the wrong thing to call an activity,
+ * for two reasons that both showed up in one real day:
+ *
+ *  - A stop the phone kept sampling through is invisible to it. Standing at a
+ *    desk from nine to five with a fix every two minutes has no gap over ten
+ *    minutes anywhere in it, so the walk in and the walk home come out as ONE
+ *    segment — a single journey that never happened.
+ *  - A stop the phone slept through produces lone stationary fixes, and each
+ *    becomes a "segment" of one point and nought metres. A real day came out
+ *    as seven segments, five of which were somebody standing still.
+ *
+ * So a break is judged on MOVEMENT, not on the presence of data. Two fixes are
+ * joined into a journey when they are close enough in time AND at least one of
+ * them reported moving — the flag the phone's own movement policy sets, which
+ * is the only thing that can tell a parked car from a slow one.
+ *
+ * Returns journeys and stops interleaved in time, covering first fix to last.
+ * A stop SHARES its end fixes with the journeys either side: the point you
+ * arrive at is the point you later set off from.
+ */
+export function activitiesOf(points, { breakSeconds = SEGMENT_GAP_SECONDS, minMetres = MIN_JOURNEY_METRES, minSeconds = MIN_JOURNEY_SECONDS } = {}) {
+  if (points.length < 2) return [];
+  const travelling = (a, b) => b[2] - a[2] <= breakSeconds && Boolean(a[4] || b[4]);
+  const runs = [];
+  let open = null;
+  for (let i = 1; i < points.length; i++) {
+    if (travelling(points[i - 1], points[i])) open ??= i - 1;
+    else if (open !== null) { runs.push([open, i - 1]); open = null; }
+  }
+  if (open !== null) runs.push([open, points.length - 1]);
+
+  const journeys = runs.filter(([first, last]) =>
+    points[last][2] - points[first][2] >= minSeconds &&
+    recordedMetres(points.slice(first, last + 1)) >= minMetres);
+
+  const stop = (first, last) => {
+    // The median of each coordinate rather than the mean: one wild fix in a
+    // stationary cluster should not drag the pin down the road.
+    const mid = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const held = points.slice(first, last + 1);
+    return {
+      kind: 'stop', first, last,
+      from: points[first][2], to: points[last][2],
+      seconds: points[last][2] - points[first][2],
+      fixes: held.length,
+      lng: mid(held.map((p) => p[0])),
+      lat: mid(held.map((p) => p[1])),
+    };
+  };
+
+  const activities = [];
+  let cursor = 0;
+  for (const [first, last] of journeys) {
+    if (first > cursor) activities.push(stop(cursor, first));
+    activities.push({
+      kind: 'journey', first, last,
+      from: points[first][2], to: points[last][2],
+      seconds: points[last][2] - points[first][2],
+      metres: Math.round(recordedMetres(points.slice(first, last + 1))),
+      fixes: last - first + 1,
+    });
+    cursor = last;
+  }
+  if (cursor < points.length - 1) activities.push(stop(cursor, points.length - 1));
+  return activities;
 }
 
 /**

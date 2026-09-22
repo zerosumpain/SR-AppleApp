@@ -4,7 +4,7 @@ Native iPhone companion and private web/API pilot for Strange Ramblings.
 
 - **Private health:** steps, heart rate, resting heart rate, sleep stages and workouts.
 - **Family locations:** latest shared position, accuracy, recorded time and received time.
-- **Your own movement, on a map:** a day's recorded track with the gaps left as gaps, and that day's heart rate, workouts, sleep and steps on one timeline under it. Scrubbing the timeline moves a dot along the track. Owner-only — the family tab shares a latest position, this shares a history.
+- **Your own movement, on a map:** a day listed as journeys and the stops between them, each drawn with the gaps left as gaps, and that day's heart rate, workouts, sleep and steps on one timeline under it. Scrubbing the timeline moves a dot along the track; picking an activity lights it and dims the rest of the day. Owner-only — the family tab shares a latest position, this shares a history.
 - **Adaptive location recording:** targets 10 minutes stationary and 30 seconds moving, with a 3-minute stop threshold. These are best-effort recording intervals, not guaranteed GPS or upload schedules.
 - **Motion-gated GPS (optional, off by default):** when the phone has been still long enough the app drops a geofence, switches GPS off and lets iOS suspend it. A geofence exit, significant change or visit departure wakes it; it then reads the movement the motion coprocessor recorded while it slept and decides whether to start GPS at all. Motion cannot wake a suspended app — the hardware log is what makes this work. Everything ambiguous fails towards running GPS rather than going quiet.
 - **A history of that:** every time the gate opened or closed, with the cause, the duty cycle it adds up to, and what share of wakes found real movement. An app that switches its own sensor off has to be watchable.
@@ -188,6 +188,24 @@ LATEST position, this discloses a HISTORY, and a month of positions says where
 somebody sleeps, works and takes their children. Reading your own track does
 not depend on the sharing switch — that governs uploading and what the family
 sees, and pausing it should not lock you out of what you already recorded.
+
+**A break is judged on MOVEMENT, not on missing data.** `segmentsOf` decides
+where a line may be drawn — runs of continuous recording. That is the wrong
+question to ask of a day, and one real day showed both ways it goes wrong:
+
+- A stop the phone sampled through is invisible to it. An hour at a desk with a
+  fix every two minutes has no gap over ten minutes anywhere in it, so the walk
+  in and the walk home come out as ONE journey that never happened.
+- A stop the phone slept through leaves lone stationary fixes, and each becomes
+  a "segment" of one point and nought metres. A real day read as seven
+  segments, five of which were somebody standing still.
+
+So `activitiesOf` joins two fixes into a journey when they are close in time
+**and at least one of them reported moving** — the flag the phone's own movement
+policy sets, which is the only thing that can tell a parked car from a slow one.
+The day comes back as journeys and the stops between them, and a journey is
+named by whichever HealthKit workout overlaps it, with the Watch's own distance
+alongside the track's.
 
 **Gaps are drawn as gaps.** The motion gate lets iOS suspend the app when you
 are still, so a day is runs of fixes thirty seconds apart separated by hours of

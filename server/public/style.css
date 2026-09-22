@@ -54,3 +54,21 @@
 .key-workout{background:var(--petrol)}
 .key-moving{background:var(--accent)}
 .key-still{background:#c4570a59}
+.trace-dimmed{opacity:.22}
+.activities{margin:.5rem 0 1.5rem}
+.activity{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;text-align:left;padding:.75rem .9rem;border:1px solid var(--line);border-bottom:none;background:#f5eee2}
+.activity:last-child{border-bottom:1px solid var(--line)}
+.activity[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.activity[aria-pressed=true] .muted{color:#d2c5b1}
+.activity strong{display:block;font-size:1rem}
+.activity small{display:block;font:.72rem ui-monospace,monospace}
+.activity-when{flex:0 0 auto;min-width:9.5rem}
+.activity-when strong{font:600 .9rem ui-monospace,monospace}
+.activity-what{flex:1 1 auto;min-width:0}
+.activity-facts{flex:0 0 auto;text-align:right}
+.timeline .record-journey{fill:var(--accent)}
+.timeline .record-stop{fill:#c4570a3d}
+.timeline .record-focused{stroke:var(--ink);stroke-width:1.5}
+.key-journey{background:var(--accent)}
+.key-stop{background:#c4570a3d}
+@media(max-width:600px){.activity{flex-wrap:wrap;gap:.25rem 1rem}.activity-when{min-width:8rem}.activity-facts{text-align:left}}

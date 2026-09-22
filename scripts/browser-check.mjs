@@ -23,7 +23,9 @@ for (const [name, viewport] of [['desktop',{width:1440,height:1100}],['phone',{w
  // have already happened, which makes the run depend on the clock.
  await page.locator('.day-strip .day').nth(1).click();
  await page.waitForFunction(()=>document.querySelectorAll('#movement-map path.trace').length>0);
- if(await page.locator('#movement-map line.trace-gap').count()===0) throw new Error(`${name} drew no gap between recording runs`);
+ // A wait, not a count: the trace and the gaps are drawn on the same frame,
+ // but the trace wait can return before that frame has been painted at all.
+ await page.waitForFunction(()=>document.querySelectorAll('#movement-map line.trace-gap').length>0);
  // The trace has to sit ON the basemap. Each tile carries the zoom level as its
  // z-index, so if the tile layer is `z-index:auto` it never becomes a stacking
  // context, those values escape into the frame, and 12 beats the overlay's 1 —
@@ -34,6 +36,22 @@ for (const [name, viewport] of [['desktop',{width:1440,height:1100}],['phone',{w
  if(!(Number(layers['map-tiles']) < Number(layers['map-overlay']))) throw new Error(`${name} basemap is not behind the track`);
  if(!(Number(layers['map-overlay']) < Number(layers['map-attrib']))) throw new Error(`${name} attribution is not on top`);
  if(await page.locator('.metric').count()<6) throw new Error(`${name} movement stats missing`);
+ // The day has to come back as separate activities. The seeded middle break is
+ // sampled continuously, so a rule that split on missing data would show one
+ // long journey here instead of two with a stop between them.
+ await page.waitForFunction(()=>document.querySelectorAll('.activity').length>0);
+ const kinds = await page.locator('.activity .activity-what strong').allInnerTexts();
+ if(kinds.filter(k=>k!=='Stopped').length<2) throw new Error(`${name} expected at least two journeys, got ${JSON.stringify(kinds)}`);
+ if(!kinds.includes('Stopped')) throw new Error(`${name} no stop listed between journeys`);
+ // The seed writes a workout for the long walks only, so both cases are here:
+ // a journey the Watch named, and one it did not.
+ if(!kinds.includes('Walking')) throw new Error(`${name} a journey covered by a workout should take its name, got ${JSON.stringify(kinds)}`);
+ if(!kinds.includes('Journey')) throw new Error(`${name} a journey with no workout should still be listed`);
+ // Selecting one lights it and dims the rest of the day.
+ await page.locator('.activity').first().click();
+ await page.waitForFunction(()=>document.querySelectorAll('#movement-map .trace-dimmed path.trace').length>0);
+ await page.locator('.activity').first().click();
+ await page.waitForFunction(()=>document.querySelectorAll('#movement-map .trace-dimmed path.trace').length===0);
  const timeline = page.locator('.timeline');
  await timeline.waitFor();
  // The mouse takes VIEWPORT coordinates and the timeline is below the fold, so
@@ -47,8 +65,13 @@ for (const [name, viewport] of [['desktop',{width:1440,height:1100}],['phone',{w
  await page.mouse.move(atHour(8.33), midway);
  await page.waitForFunction(()=>document.querySelectorAll('#movement-map circle.trace-cursor').length>0);
  await page.waitForFunction(()=>/bpm/.test(document.getElementById('movement-readout').textContent));
- // 10:30 is between two recording runs, and a gap must refuse to place the dot.
+ // 10:30 is mid-break, but the phone kept sampling through it: there IS a fix,
+ // and it must read as standing still rather than as a gap.
  await page.mouse.move(atHour(10.5), midway);
+ await page.waitForFunction(()=>/still/.test(document.getElementById('movement-readout').textContent));
+ // 03:00 has no fix within reach at all, and there the dot must be withdrawn
+ // rather than guessed at.
+ await page.mouse.move(atHour(3), midway);
  await page.waitForFunction(()=>document.querySelectorAll('#movement-map circle.trace-cursor').length===0);
  await page.waitForFunction(()=>/asleep|no location/.test(document.getElementById('movement-readout').textContent));
  await page.selectOption('#movement-colour','heart');
