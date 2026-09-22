@@ -129,7 +129,7 @@ struct LocationSettingsScreen: View {
             }
             Text(hours >= 1
                  ? String(format: "Measured over %.1f hours of sharing, charging time excluded.", hours)
-                 : "Not enough evidence yet. A reading is taken every five minutes and at least an hour of discharge is needed before this says anything — below that the 1%% battery step is most of the signal.")
+                 : "Not enough evidence yet. A reading is taken every five minutes and at least an hour of discharge is needed before this says anything — below that the 1% battery step is most of the signal.")
                 .font(SR.mono(12))
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
