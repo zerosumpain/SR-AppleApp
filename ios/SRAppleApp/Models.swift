@@ -69,6 +69,17 @@ struct PersistedState: Codable {
     var pointsRecorded = 0
     var accuracySum: Double = 0
     var countingSince: Date?
+    /// Whether GPS is running or the motion gate has it asleep, and where the
+    /// geofence that will wake it was dropped. Persisted because a relaunch —
+    /// including the background relaunch a geofence exit itself causes — would
+    /// otherwise start continuous GPS again, which is the cost the gate exists
+    /// to avoid.
+    var gateState: GateState = .tracking
+    var anchor: GateAnchor?
+    /// Every time the gate opened or closed, and why. A gate that manages GPS
+    /// by itself has to be watchable: "slept all night and saved a fortune" and
+    /// "stopped recording at nine and nobody noticed" look identical without it.
+    var gateEvents: [GateEvent] = []
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -96,6 +107,9 @@ struct PersistedState: Codable {
         pointsRecorded = try c.decodeIfPresent(Int.self, forKey: .pointsRecorded) ?? 0
         accuracySum = try c.decodeIfPresent(Double.self, forKey: .accuracySum) ?? 0
         countingSince = try c.decodeIfPresent(Date.self, forKey: .countingSince)
+        gateState = try c.decodeIfPresent(GateState.self, forKey: .gateState) ?? .tracking
+        anchor = try c.decodeIfPresent(GateAnchor.self, forKey: .anchor)
+        gateEvents = try c.decodeIfPresent([GateEvent].self, forKey: .gateEvents) ?? []
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`
@@ -233,6 +247,120 @@ enum LocationActivity: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// The levers on the motion gate.
+///
+/// Everything here is off by default, and that is deliberate: the shipped
+/// `LocationSettings()` has to keep reproducing exactly what the app did before
+/// this existed, or an upgrade silently changes how a family location app
+/// behaves. The two cheaper presets turn it on; "Accurate" does not.
+struct MotionSettings: Codable, Equatable {
+    /// The master switch. Off means the app behaves exactly as it did before —
+    /// continuous GPS, no sleeping, no geofence.
+    var enabled = false
+
+    // MARK: Going to sleep
+
+    /// How long the phone has to be still before GPS is switched off. Longer
+    /// than `stopThreshold` on purpose: dropping to cheap settings and dropping
+    /// the sensor entirely are different sizes of decision.
+    var sleepAfter: TimeInterval = 300
+    /// The geofence's minimum radius. The actual radius is derived from the
+    /// accuracy of the fix that placed it — an anchor smaller than the error in
+    /// its own fix exits itself, and that is where a wake storm comes from.
+    var anchorRadius: Double = 150
+    /// The ceiling on that derivation, including the widening below.
+    var maxAnchorRadius: Double = 1000
+    /// More wakes than this in an hour and the anchor is widened automatically.
+    /// The history screen shows the wake count that triggers it, so the lever
+    /// and the evidence for moving it are two taps apart.
+    var maxWakesPerHour = 6
+
+    // MARK: Waking up
+
+    /// How far back to read the motion log on waking. Short on purpose: the
+    /// question is "is somebody moving NOW", and a window of hours would
+    /// accumulate enough walking to answer yes every single time.
+    var historyWindow: TimeInterval = 900
+    /// Ignore classifications below this confidence. Low confidence is common
+    /// and frequently wrong, and acting on it is most of a wake storm.
+    var confidenceFloor: MotionConfidence = .medium
+    /// Any driving or cycling in the most recent classification turns GPS on
+    /// immediately, with no minimum duration — a geofence exit by car happens
+    /// seconds after setting off, and that is exactly when location matters.
+    var vehicleAlwaysWakes = true
+    /// Travel totalled across the whole window that counts even once it has
+    /// stopped. Catches "you drove here", where the anchor is now wrong.
+    var travelMinimum: TimeInterval = 60
+    /// Sustained walking that counts as going somewhere rather than crossing a
+    /// room. This is the five-minutes-of-consistent-steps test, asked of the
+    /// activity log rather than a step counter.
+    var sustainedWalk: TimeInterval = 300
+    /// Steps inside the recent burst window that count on their own. Catches
+    /// somebody who has just set off and has not accumulated enough classified
+    /// walking yet. Zero turns the test off.
+    var stepBurst = 150
+    var stepBurstWindow: TimeInterval = 120
+
+    // MARK: What to keep
+
+    /// Cheap and it wakes a suspended app on arriving and leaving. Costs
+    /// essentially nothing; the reason it is a toggle at all is that it also
+    /// produces wakes, and a wake budget is the thing being tuned.
+    var visitMonitoring = true
+    /// Record the one coarse fix taken to re-anchor after a blip, so a long
+    /// sleep is not a hole in the record. It is already being paid for.
+    var coarseOnBlip = true
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = MotionSettings()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        sleepAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .sleepAfter) ?? d.sleepAfter
+        anchorRadius = try c.decodeIfPresent(Double.self, forKey: .anchorRadius) ?? d.anchorRadius
+        maxAnchorRadius = try c.decodeIfPresent(Double.self, forKey: .maxAnchorRadius) ?? d.maxAnchorRadius
+        maxWakesPerHour = try c.decodeIfPresent(Int.self, forKey: .maxWakesPerHour) ?? d.maxWakesPerHour
+        historyWindow = try c.decodeIfPresent(TimeInterval.self, forKey: .historyWindow) ?? d.historyWindow
+        confidenceFloor = try c.decodeIfPresent(MotionConfidence.self, forKey: .confidenceFloor) ?? d.confidenceFloor
+        vehicleAlwaysWakes = try c.decodeIfPresent(Bool.self, forKey: .vehicleAlwaysWakes) ?? d.vehicleAlwaysWakes
+        travelMinimum = try c.decodeIfPresent(TimeInterval.self, forKey: .travelMinimum) ?? d.travelMinimum
+        sustainedWalk = try c.decodeIfPresent(TimeInterval.self, forKey: .sustainedWalk) ?? d.sustainedWalk
+        stepBurst = try c.decodeIfPresent(Int.self, forKey: .stepBurst) ?? d.stepBurst
+        stepBurstWindow = try c.decodeIfPresent(TimeInterval.self, forKey: .stepBurstWindow) ?? d.stepBurstWindow
+        visitMonitoring = try c.decodeIfPresent(Bool.self, forKey: .visitMonitoring) ?? d.visitMonitoring
+        coarseOnBlip = try c.decodeIfPresent(Bool.self, forKey: .coarseOnBlip) ?? d.coarseOnBlip
+    }
+
+    init(enabled: Bool = false,
+         sleepAfter: TimeInterval = 300,
+         anchorRadius: Double = 150,
+         maxAnchorRadius: Double = 1000,
+         maxWakesPerHour: Int = 6,
+         historyWindow: TimeInterval = 900,
+         confidenceFloor: MotionConfidence = .medium,
+         vehicleAlwaysWakes: Bool = true,
+         travelMinimum: TimeInterval = 60,
+         sustainedWalk: TimeInterval = 300,
+         stepBurst: Int = 150,
+         stepBurstWindow: TimeInterval = 120,
+         visitMonitoring: Bool = true,
+         coarseOnBlip: Bool = true) {
+        self.enabled = enabled
+        self.sleepAfter = sleepAfter
+        self.anchorRadius = anchorRadius
+        self.maxAnchorRadius = maxAnchorRadius
+        self.maxWakesPerHour = maxWakesPerHour
+        self.historyWindow = historyWindow
+        self.confidenceFloor = confidenceFloor
+        self.vehicleAlwaysWakes = vehicleAlwaysWakes
+        self.travelMinimum = travelMinimum
+        self.sustainedWalk = sustainedWalk
+        self.stepBurst = stepBurst
+        self.stepBurstWindow = stepBurstWindow
+        self.visitMonitoring = visitMonitoring
+        self.coarseOnBlip = coarseOnBlip
+    }
+}
+
 struct LocationSettings: Codable, Equatable {
     /// Accuracy asked for while moving, and while stopped. Two values because
     /// the whole point is that standing still does not need a GPS fix.
@@ -261,6 +389,9 @@ struct LocationSettings: Codable, Equatable {
     var pausesAutomatically = true
     /// The cheap fallback that wakes a suspended app when you change city.
     var significantChangeMonitoring = true
+    /// Let movement decide when GPS is needed, instead of running GPS to find
+    /// out. Off in the shipped default; on in the two cheaper presets.
+    var motion = MotionSettings()
 
     /// Named starting points. A row of sliders with no frame is the failure
     /// /health names for a header figure — these say what a combination IS.
@@ -279,11 +410,11 @@ struct LocationSettings: Codable, Equatable {
         var detail: String {
             switch self {
             case .saver:
-                return "Cell and wifi only, no heartbeat, iOS free to pause. Expect a position within a few hundred metres, minutes old."
+                return "Cell and wifi only, no heartbeat, iOS free to pause. GPS sleeps after three minutes still and needs real, sustained movement to come back. Expect a position within a few hundred metres, minutes old."
             case .balanced:
-                return "GPS to ten metres while moving, cheap fixes when stopped, heartbeat every five minutes."
+                return "GPS to ten metres while moving, cheap fixes when stopped, heartbeat every five minutes. GPS sleeps after five minutes still and wakes on movement the motion chip already recorded."
             case .accurate:
-                return "Full GPS while moving and a fix every minute. What the app shipped with, and what is draining the battery now."
+                return "Full GPS while moving and a fix every minute, running all day whether you move or not. What the app shipped with, and the most expensive thing it can do."
             }
         }
 
@@ -296,7 +427,15 @@ struct LocationSettings: Codable, Equatable {
                     movingInterval: 300, stationaryInterval: 1800,
                     stopThreshold: 300, movingSpeed: 1.2, accuracyCeiling: 500,
                     heartbeatInterval: 0, activity: .fitness,
-                    pausesAutomatically: true, significantChangeMonitoring: true)
+                    pausesAutomatically: true, significantChangeMonitoring: true,
+                    // Sleeps quickly and is hard to wake: a wider anchor, a
+                    // higher step bar and only movement Core Motion is sure
+                    // about. The trade is latency — you will be a minute or two
+                    // late noticing somebody has set off.
+                    motion: MotionSettings(
+                        enabled: true, sleepAfter: 180, anchorRadius: 250,
+                        maxWakesPerHour: 4, confidenceFloor: .high,
+                        sustainedWalk: 300, stepBurst: 250))
             case .balanced:
                 return LocationSettings(
                     movingAccuracy: .tenMetres, stationaryAccuracy: .hundredMetres,
@@ -304,7 +443,8 @@ struct LocationSettings: Codable, Equatable {
                     movingInterval: 60, stationaryInterval: 900,
                     stopThreshold: 240, movingSpeed: 0.8, accuracyCeiling: 150,
                     heartbeatInterval: 300, activity: .fitness,
-                    pausesAutomatically: true, significantChangeMonitoring: true)
+                    pausesAutomatically: true, significantChangeMonitoring: true,
+                    motion: MotionSettings(enabled: true))
             case .accurate:
                 // Exactly what the app did before this screen existed. The
                 // default stays here so upgrading changes nothing on its own —
@@ -338,6 +478,7 @@ struct LocationSettings: Codable, Equatable {
         activity = try c.decodeIfPresent(LocationActivity.self, forKey: .activity) ?? d.activity
         pausesAutomatically = try c.decodeIfPresent(Bool.self, forKey: .pausesAutomatically) ?? d.pausesAutomatically
         significantChangeMonitoring = try c.decodeIfPresent(Bool.self, forKey: .significantChangeMonitoring) ?? d.significantChangeMonitoring
+        motion = try c.decodeIfPresent(MotionSettings.self, forKey: .motion) ?? d.motion
     }
 
     init(movingAccuracy: LocationAccuracy = .best,
@@ -352,7 +493,8 @@ struct LocationSettings: Codable, Equatable {
          heartbeatInterval: TimeInterval = 60,
          activity: LocationActivity = .other,
          pausesAutomatically: Bool = true,
-         significantChangeMonitoring: Bool = true) {
+         significantChangeMonitoring: Bool = true,
+         motion: MotionSettings = MotionSettings()) {
         self.movingAccuracy = movingAccuracy
         self.stationaryAccuracy = stationaryAccuracy
         self.movingDistanceFilter = movingDistanceFilter
@@ -366,5 +508,6 @@ struct LocationSettings: Codable, Equatable {
         self.activity = activity
         self.pausesAutomatically = pausesAutomatically
         self.significantChangeMonitoring = significantChangeMonitoring
+        self.motion = motion
     }
 }
