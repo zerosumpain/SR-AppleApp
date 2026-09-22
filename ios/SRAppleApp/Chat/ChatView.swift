@@ -221,6 +221,12 @@ struct ChatScreen: View {
         }
         .background(SR.paper)
         .task { await store.load() }
+        // The store is `@MainActor`, so it cannot tear the stream down from a
+        // nonisolated `deinit`. The screen owns that instead: closing the sheet
+        // drops the connection without cancelling the TURN, which keeps running
+        // server-side and is picked up again on the next load — the same thing
+        // the web client does when a tab closes mid-answer.
+        .onDisappear { store.stop() }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRToast(text: message) }
         }

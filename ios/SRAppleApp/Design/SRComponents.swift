@@ -240,7 +240,7 @@ struct SRMeter: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 3) {
-                ForEach(0..<total, id: \.self) { index in
+                ForEach(Array(0..<total), id: \.self) { index in
                     Rectangle()
                         .fill(index < filled ? register.accent : register.hairline)
                         .frame(height: 6)

@@ -4,7 +4,7 @@ Activated 21 September 2026 after the TestFlight 0.1.0 (2) upload.
 
 - Browser dashboard: https://strangeramblings.com/apple-app/
 - Native server origin: https://strangeramblings.com (no path suffix).
-- Browser account credentials are separate from the main website login.
+- The browser dashboard uses the **main website login** (Google). There is no separate companion password.
 - Generate a one-time, ten-minute pairing QR code in Connect & privacy; manual copy remains available.
 - Location sharing starts off; each person opts in. Health endpoints stay owner-scoped.
 
@@ -24,7 +24,9 @@ Use the deployment Compose file with `--env-file /opt/sr-appleapp/pilot.env` for
 
 The pre-change tunnel configuration is backed up at `/opt/sr-appleapp/backups/cloudflared-20260921T191736Z.yml`. For rollback, remove only the companion ingress entry from the current configuration, validate with `cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate`, then restart cloudflared. Do not restore an old whole-file backup over later routing changes. Stop the companion service separately; retain its volume.
 
-For account provisioning, see INTEGRATION.md. Keep credentials outside Git and logs. This pilot has no main-site SSO, self-service password reset, or automated database backup job yet.
+For account provisioning, see INTEGRATION.md. Keep credentials outside Git and logs.
+
+Main-site sign-in replaced the pilot's own login on 2026-09-22: the browser lane now verifies the site's Auth.js session with `AUTH_SECRET` (set in `/opt/sr-appleapp/pilot.env`), and `users.password` is dropped on open. There is no password to reset. A person needs both a strangeramblings.com login and a row in `users`. The pilot still has no automated database backup job.
 
 QR update: release `8ba2a75145ad` preserves the existing volume and routes. Ten API tests pass, including decoding the generated QR pixels and checking replacement/replay rejection. Desktop/mobile rendered QR and expiry checks pass. The live HTTPS QR decoded to the canonical origin and successfully paired a temporary verification device, which was then revoked. Physical camera scanning still requires the updated TestFlight build on an iPhone.
 

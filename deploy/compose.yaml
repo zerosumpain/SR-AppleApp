@@ -6,6 +6,11 @@ services:
     environment:
       APP_ORIGIN: ${APP_ORIGIN:?Set the HTTPS origin for the companion}
       DATABASE_PATH: /app/data/apple.sqlite
+      # The main site's Auth.js secret. Browsers sign in with the site's own
+      # Google session and this is how that cookie is verified; the container
+      # refuses to start on an https origin without it. DEMO_MODE is
+      # deliberately not set here — it only works on a non-https origin anyway.
+      AUTH_SECRET: ${AUTH_SECRET:?Copy AUTH_SECRET from the main site's environment}
     ports:
       - '127.0.0.1:5295:5295'
     volumes:

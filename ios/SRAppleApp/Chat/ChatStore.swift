@@ -86,8 +86,6 @@ final class ChatStore: ObservableObject {
         self.conversationId = conversationId
     }
 
-    deinit { streamTask?.cancel() }
-
     func load() async {
         guard !loading else { return }
         loading = true
@@ -165,7 +163,7 @@ final class ChatStore: ObservableObject {
         streamTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let stream = try await self.client.stream(jobId: job, after: self.lastEventId)
+                let stream = try self.client.stream(jobId: job, after: self.lastEventId)
                 for try await frame in stream {
                     if Task.isCancelled { return }
                     await self.handle(frame)
@@ -282,10 +280,21 @@ final class ChatStore: ObservableObject {
         await load()
     }
 
+    /// Drop the stream without telling the server. Used when the screen closes —
+    /// the turn keeps running and is picked up again by reloading the thread,
+    /// which is what the web client does when a tab is closed mid-turn.
+    func stop() {
+        streamTask?.cancel()
+        streamTask = nil
+    }
+
     func cancel() async {
         guard let job = jobId else { return }
         streamTask?.cancel()
-        _ = try? await client.send("api/workflows/orchestrator/chat?jobId=\(job)", method: "DELETE") as EmptyReply
+        let _: EmptyReply? = try? await client.send(
+            "api/workflows/orchestrator/chat?jobId=\(job)",
+            method: "DELETE"
+        )
         finish(with: "Stopped.")
     }
 }

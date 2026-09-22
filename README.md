@@ -19,11 +19,57 @@ Open **http://192.168.0.77:5275/apple-app/** on the local network.
 | `sam@example.test` | Demo family |
 | `robin@example.test` | Separate family |
 
-All three use the **local-only** password `SR-local-demo-only!`.
+**There is no password.** Signing in uses the main site's Google session, and a
+laptop on loopback has no main site to get one from, so the preview names an
+account instead. That lane needs `DEMO_MODE=1` **and** a non-https origin, so it
+cannot exist on production — see `server/session.mjs`.
 
 Sign in as Alex, inspect My health, switch to Family locations, and pause sharing under Connect & privacy. Sign in as Sam in a second browser/private window: Sam sees only Sam's health, and Alex's location disappears while paused. Robin cannot see either member of the demo family. Refresh the family tab after changing sharing in another window.
 
 This HTTP preview contains synthetic data only. It is **not connected to production**, does not read Apple Health in the browser, and is not the iPhone app. Real-device pairing requires trusted HTTPS and an installed signed build.
+
+## Signing in
+
+The companion uses **the main site's account** — the same Google sign-in as the
+rest of strangeramblings.com. It has no password of its own, no `sr_apple`
+session cookie, and no scrypt hashes; opening an existing database drops the
+`users.password` column outright, because a password hash is credential material
+whether or not anything still reads it.
+
+Two lanes reach the API, and only two:
+
+| Caller | Credential | Notes |
+| --- | --- | --- |
+| Browser | the site's Auth.js session cookie | verified with `AUTH_SECRET`, the same way every extracted SR app's gateway does it |
+| Paired iPhone | a device token from a pairing code | unchanged; background sync runs while the phone is locked and has no browser session |
+
+**Authentication says who; the `users` table says whether.** Somebody the site
+knows but this server does not gets a 403 telling them to ask the owner, not an
+account. Family membership decides who can see a location, so it is never
+inferred from a successful Google login.
+
+A family member therefore needs two things: the ability to sign in to
+strangeramblings.com (owner, or a guest on the allow-list), and a row here.
+
+The container refuses to start on an https origin without `AUTH_SECRET`. Without
+that check a missing secret would 401 every browser while the phone kept syncing
+on its device token, hiding the fault for days.
+
+### Why not the SR-Infra gateway
+
+Every *extracted* application (Policy, Drive, Health, JKAI) sits behind the
+~60-line gateway in `~/sr-infra/gateway/`, which validates this same cookie at the
+edge and re-issues a 30-second HMAC assertion. That exists so the app can trust
+an identity **header** — the gateway's real job is stripping every client-supplied
+one first.
+
+There is no header to strip here: identity comes from an encrypted JWE that
+cannot be forged without `AUTH_SECRET`. Both designs need that secret in this
+container, so a gateway would have bought process separation and nothing else, at
+the cost of a second port, image, release lane and ingress change. The companion
+is also not in `registry/apps.json` — one container, no release slots, nothing for
+the kit's blue/green machinery to act on. `sessionIdentity` is copied from the kit
+unchanged so the part that matters cannot drift.
 
 ## Repository
 
@@ -83,7 +129,7 @@ Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code 
 - Queue and anchors are persisted atomically with iOS file protection and excluded from backup. Tokens use device-only Keychain storage. The queue caps at 50,000 records and stops advancing collection when full. Uploads retry on subsequent events, foreground launch, a best-effort retry timer, and OS-scheduled background refresh.
 - Browser and native history views are bounded recent-record views, not full historical analytics. Maps open explicitly in Apple Maps rather than automatically sharing coordinates with an embedded third-party map.
 - Locations are retained for up to 30 days (pruned on ingestion); family reads expose the latest point only. Health records remain until deletion. Delete uploaded data revokes paired devices to prevent immediate automatic re-upload.
-- Real family account provisioning is administrator CLI-only for this pilot. Existing Strange Ramblings SSO, invitation management and legacy health analytics integration are not implemented. See [site integration](docs/INTEGRATION.md).
+- Family account provisioning is administrator CLI-only, and deliberately so: `family` decides who can see a location, and there is nothing in a Google login to infer it from. See [site integration](docs/INTEGRATION.md).
 
 ## Validation
 
@@ -150,3 +196,10 @@ Fonts are the four OFL families, instanced to static cuts and bundled under
 `ios/SRAppleApp/Fonts/` with their licences. `Font.custom` fails silently on a
 missing face, so `SiteTests.testEveryNamedFontIsRegistered` asserts all nine
 arrived.
+
+> `@auth/core` is pinned **exactly**, not with a caret. The session token is a
+> cross-service contract with the main site — both must derive the same key from
+> `AUTH_SECRET` — so a minor bump that changed the JWE format would silently stop
+> every browser signing in while the phone kept working on its device token. Pin
+> it to whatever SR-Main resolves (`0.41.3` as of 2026-09-22) and move both
+> together.
