@@ -38,10 +38,31 @@ function seedMovement(db, userId, origin) {
     const dayStart = new Date(midnight.getTime() - back * 86400000);
     const date = `${dayStart.getFullYear()}-${String(dayStart.getMonth() + 1).padStart(2, '0')}-${String(dayStart.getDate()).padStart(2, '0')}`;
     let steps = 0;
-    for (const [hour, minute, minutes] of WALKS) {
+    let rest = null;
+    WALKS.forEach(([hour, minute, minutes], walk) => {
       const from = dayStart.getTime() + hour * 3600000 + minute * 60000;
       const fixes = Math.round((minutes * 60) / 30);
-      if (from > Date.now()) continue;
+      if (from > Date.now()) return;
+      // Between walks, stand still somewhere. The FIRST break is sampled the
+      // whole way through — every four minutes, never a gap over ten — so it
+      // is invisible to a rule that splits on missing data and only a movement
+      // rule separates the two walks. The SECOND break is left as a genuine
+      // recording gap, which is the other way a break shows up. The preview
+      // has to contain both or it only proves half of this.
+      if (rest) {
+        const every = walk === 1 ? 240000 : 3300000;
+        for (let at = rest.at + every; at < from; at += every) {
+          if (at > Date.now()) break;
+          const record = {
+            id: `demo-${userId}-${date}-rest-${walk}-${at}`,
+            recorded: new Date(at).toISOString(),
+            latitude: rest.lat, longitude: rest.lng,
+            accuracy: Number((6 + Math.abs(Math.sin(at / 1e7)) * 9).toFixed(1)),
+            speed: 0, moving: false,
+          };
+          location.run(userId, record.id, record.recorded, JSON.stringify(record), received);
+        }
+      }
       steps += minutes * 105;
       for (let i = 0; i <= fixes; i++) {
         const at = from + i * 30000;
@@ -57,13 +78,14 @@ function seedMovement(db, userId, origin) {
           moving: i > 0 && i < fixes,
         };
         location.run(userId, record.id, record.recorded, JSON.stringify(record), received);
+        rest = { at, lat: record.latitude, lng: record.longitude };
       }
       const end = Math.min(Date.now(), from + minutes * 60000);
       if (minutes >= 40) {
         const workout = { id: `demo-${userId}-workout-${date}-${hour}`, kind: 'workout', start: new Date(from).toISOString(), end: new Date(end).toISOString(), value: Math.round((end - from) / 1000), unit: 'seconds', activity: 'Walking', distance: minutes * 78, source: 'Synthetic workout example' };
         health.run(userId, workout.id, workout.kind, workout.start, workout.end, JSON.stringify(workout), received);
       }
-    }
+    });
     // Every five minutes while awake, the way a watch reports it: lifted by the
     // walks, lowest in the small hours.
     for (let minute = 0; minute < 1440; minute += 5) {

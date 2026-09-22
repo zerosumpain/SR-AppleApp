@@ -211,6 +211,13 @@
       overlay.setAttribute('height', height);
       if (!track.points.length) return;
       const screen = screenPoints(width, height, originX, originY);
+      // Two groups rather than per-element opacity: selecting one activity dims
+      // the rest of the day to context without hiding it, and the drawing code
+      // below only has to choose a parent.
+      const dimmed = svg('g', { class: 'trace-dimmed' });
+      const lit = svg('g', {});
+      overlay.append(dimmed, lit);
+      const inFocus = (i) => !track.focus || (i >= track.focus[0] && i <= track.focus[1]);
 
       // Gaps first, underneath everything: a dashed hop from where recording
       // stopped to where it started again. Never a solid line — the phone was
@@ -218,7 +225,8 @@
       for (let i = 1; i < track.segments.length; i++) {
         const from = screen[track.segments[i - 1][1]];
         const to = screen[track.segments[i][0]];
-        overlay.append(svg('line', { class: 'trace-gap', x1: from[0], y1: from[1], x2: to[0], y2: to[1] }));
+        const parent = inFocus(track.segments[i - 1][1]) && inFocus(track.segments[i][0]) ? lit : dimmed;
+        parent.append(svg('line', { class: 'trace-gap', x1: from[0], y1: from[1], x2: to[0], y2: to[1] }));
       }
 
       for (const [start, end] of track.segments) {
@@ -232,26 +240,40 @@
         }
         if (kept.length < 2) {
           const [x, y] = screen[start];
-          overlay.append(svg('circle', { class: 'trace-lone', cx: x, cy: y, r: 4 }));
+          (inFocus(start) ? lit : dimmed).append(svg('circle', { class: 'trace-lone', cx: x, cy: y, r: 4 }));
           continue;
         }
-        const d = kept.map((i, n) => `${n ? 'L' : 'M'}${screen[i][0].toFixed(1)} ${screen[i][1].toFixed(1)}`).join('');
-        // A casing under the trace, because an orange line on an orange-brown
-        // outdoors basemap is legible in a screenshot and not on a hillside.
-        overlay.append(svg('path', { class: 'trace-casing', d }));
-        if (!track.colours) {
-          overlay.append(svg('path', { class: 'trace', d }));
-          continue;
-        }
+        const draw = (indices, parent) => {
+          const d = indices.map((i, n) => `${n ? 'L' : 'M'}${screen[i][0].toFixed(1)} ${screen[i][1].toFixed(1)}`).join('');
+          // A casing under the trace, because an orange line on an orange-brown
+          // outdoors basemap is legible in a screenshot and not on a hillside.
+          parent.append(svg('path', { class: 'trace-casing', d }));
+          if (!track.colours) {
+            parent.append(svg('path', { class: 'trace', d }));
+            return;
+          }
+          for (let n = 1; n < indices.length; n++) {
+            const a = screen[indices[n - 1]];
+            const b = screen[indices[n]];
+            parent.append(svg('path', {
+              class: 'trace',
+              stroke: track.colours[indices[n]] ?? track.colours[indices[n - 1]] ?? 'currentColor',
+              d: `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`,
+            }));
+          }
+        };
+        // Split wherever the trace crosses the focus boundary: a selected
+        // activity is usually part of a longer run of continuous recording.
+        let run = null;
         for (let n = 1; n < kept.length; n++) {
-          const a = screen[kept[n - 1]];
-          const b = screen[kept[n]];
-          overlay.append(svg('path', {
-            class: 'trace',
-            stroke: track.colours[kept[n]] ?? track.colours[kept[n - 1]] ?? 'currentColor',
-            d: `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`,
-          }));
+          const on = inFocus(kept[n - 1]) && inFocus(kept[n]);
+          if (!run || run.on !== on) {
+            if (run) draw(run.indices, run.on ? lit : dimmed);
+            run = { on, indices: [kept[n - 1]] };
+          }
+          run.indices.push(kept[n]);
         }
+        if (run) draw(run.indices, run.on ? lit : dimmed);
       }
 
       // Where the track stops for a while, say so. The radius grows with the
@@ -435,9 +457,11 @@
        * @param points  tuples of [lng, lat, epochSeconds, accuracyMetres, moving, speed]
        * @param segments inclusive [first, last] index pairs of continuous recording
        * @param colours  optional per-point stroke colours, indexed alongside `points`
+       * @param focus    optional inclusive [first, last] range to light up, the
+       *                 rest of the day drawn dimmed behind it
        */
-      setTrack({ points = [], segments = [], colours = null }) {
-        track = { points, segments, colours };
+      setTrack({ points = [], segments = [], colours = null, focus = null }) {
+        track = { points, segments, colours, focus };
         schedule();
       },
       setCursor(point) {

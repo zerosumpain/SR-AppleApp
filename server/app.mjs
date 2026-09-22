@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { hash, issue } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
-import { SEGMENT_GAP_SECONDS, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
+import { SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
 const kinds = new Set(['steps', 'heart_rate', 'resting_heart_rate', 'sleep', 'workout']);
 /**
  * How long a location history is kept, in days. Enforced by the prune in
@@ -249,7 +249,12 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const [from, to] = dayBounds(date, offset);
         const day = points.filter(p => p[2] >= from && p[2] < to);
         const segments = segmentsOf(day);
-        return send(200, { ...body, date, from, to, points: day, segments, totals: { fixes: day.length, metres: Math.round(recordedMetres(day, segments)), movingSeconds: movingSeconds(day, segments) } });
+        // `segments` says where a LINE may be drawn — continuous recording.
+        // `activities` says what the day was — journeys and the stops between
+        // them, judged on movement rather than on the presence of data. They
+        // are different questions and the map needs both.
+        const activities = activitiesOf(day);
+        return send(200, { ...body, date, from, to, points: day, segments, activities, totals: { fixes: day.length, metres: Math.round(recordedMetres(day, segments)), movingSeconds: movingSeconds(day, segments), journeys: activities.filter(a => a.kind === 'journey').length } });
       }
       // The health that goes UNDER the map: one window, every signal that can
       // be laid against a track.

@@ -94,6 +94,7 @@
     day: null,
     timeline: null,
     colourBy: 'time',
+    focus: null,
     loaded: false,
   };
   let map = null;
@@ -113,7 +114,7 @@
       const button = node('button', null, 'day');
       button.type = 'button';
       button.setAttribute('aria-pressed', String(day.date === state.date));
-      button.append(node('small', dayName(day.date)), node('strong', kilometres(day.metres)), node('small', `${day.fixes} fixes`, 'muted'));
+      button.append(node('small', dayName(day.date)), node('strong', kilometres(day.metres)), node('small', `${day.journeys ?? 0} ${day.journeys === 1 ? 'activity' : 'activities'}`, 'muted'));
       button.onclick = () => selectDay(day.date);
       strip.append(button);
     }
@@ -185,6 +186,85 @@
     }
     target.append(swatches, node('span', legend.high, 'legend-end'));
     if (legend.muted) target.append(node('span', legend.muted, 'muted'));
+  }
+
+  // ---- activities -------------------------------------------------------
+
+  /**
+   * The Watch's own name for a journey, if it recorded one over the same time.
+   *
+   * Worth joining because the two know different things: the track knows where
+   * the phone was, the Watch knows it was a walk and measured the distance on
+   * the wrist. They disagree on distance by a few hundred metres — GPS noise
+   * between fixes inflates the track — so both are shown and each is labelled.
+   */
+  function workoutFor(activity) {
+    let best = null;
+    let bestOverlap = 0;
+    for (const workout of state.timeline?.workouts ?? []) {
+      const overlap = Math.min(Date.parse(workout.end) / 1000, activity.to) - Math.max(Date.parse(workout.start) / 1000, activity.from);
+      if (overlap > bestOverlap) { bestOverlap = overlap; best = workout; }
+    }
+    // Enough overlap to be the same outing rather than one that brushed past it.
+    return bestOverlap >= Math.min(120, activity.seconds / 2) ? best : null;
+  }
+
+  /** Mean heart rate over a window, from the binned series, or null. */
+  function heartRateOver(from, to) {
+    const bins = (state.timeline?.heartRate?.bins ?? []).filter(([at]) => at >= from && at < to);
+    return bins.length ? Math.round(bins.reduce((sum, [, value]) => sum + value, 0) / bins.length) : null;
+  }
+
+  function drawActivities() {
+    const target = $('movement-activities');
+    target.replaceChildren();
+    const activities = state.day?.activities ?? [];
+    if (!activities.length) {
+      target.append(node('p', 'No movement recorded on this day.', 'muted'));
+      return;
+    }
+    activities.forEach((activity, index) => {
+      const row = node('button', null, 'activity');
+      row.type = 'button';
+      row.setAttribute('aria-pressed', String(state.focus === index));
+      const when = node('div', null, 'activity-when');
+      when.append(node('strong', `${clock(activity.from)} – ${clock(activity.to)}`), node('small', duration(activity.seconds), 'muted'));
+      const what = node('div', null, 'activity-what');
+      const facts = node('div', null, 'activity-facts');
+      if (activity.kind === 'journey') {
+        const workout = workoutFor(activity);
+        what.append(node('strong', workout ? workout.activity : 'Journey'));
+        const bpm = heartRateOver(activity.from, activity.to);
+        facts.append(node('strong', kilometres(activity.metres)));
+        const detail = [`${((activity.metres / activity.seconds) * 3.6).toFixed(1)} km/h`];
+        if (bpm) detail.push(`${bpm} bpm`);
+        facts.append(node('small', detail.join(' · '), 'muted'));
+        if (workout?.distance) what.append(node('small', `Watch measured ${kilometres(workout.distance)}`, 'muted'));
+        else what.append(node('small', `${activity.fixes} fixes`, 'muted'));
+      } else {
+        what.append(node('strong', 'Stopped'), node('small', `${activity.fixes} ${activity.fixes === 1 ? 'fix' : 'fixes'} while here`, 'muted'));
+        facts.append(node('strong', '—'), node('small', 'not moving', 'muted'));
+      }
+      row.append(when, what, facts);
+      row.onclick = () => focusActivity(state.focus === index ? null : index);
+      target.append(row);
+    });
+  }
+
+  /** Light one activity on the map and dim the rest of the day behind it. */
+  function focusActivity(index, { refit = true } = {}) {
+    state.focus = index;
+    const activity = index == null ? null : state.day.activities[index];
+    const { colours } = colourTrack();
+    map.setTrack({
+      points: state.day.points,
+      segments: state.day.segments,
+      colours,
+      focus: activity ? [activity.first, activity.last] : null,
+    });
+    if (refit) map.fitPoints(activity ? state.day.points.slice(activity.first, activity.last + 1) : state.day.points);
+    drawActivities();
+    drawTimeline();
   }
 
   // ---- the timeline -----------------------------------------------------
@@ -269,17 +349,15 @@
       chart.append(el('title', {}, `${workout.activity} · ${duration(workout.seconds)} from ${clock(start)}`));
     }
 
-    // What the phone was actually doing: a recorded run, or nothing at all.
+    // The day as journeys and stops, on the same axis as everything above.
+    // Bare ground at either end is time with no fix at all.
     chart.append(el('rect', { x: padLeft, y: recordTop, width: plot, height: 8, class: 'record-off' }));
-    for (const [first, last] of state.day.segments) {
-      const start = state.day.points[first][2];
-      const end = state.day.points[last][2];
-      const moving = state.day.points.slice(first, last + 1).some((p) => p[4]);
+    (state.day.activities ?? []).forEach((activity, index) => {
       chart.append(el('rect', {
-        x: x(start), y: recordTop, width: Math.max(2, x(end) - x(start)), height: 8,
-        class: moving ? 'record-moving' : 'record-still',
+        x: x(activity.from), y: recordTop, width: Math.max(2, x(activity.to) - x(activity.from)), height: 8,
+        class: `${activity.kind === 'journey' ? 'record-journey' : 'record-stop'}${state.focus === index ? ' record-focused' : ''}`,
       }));
-    }
+    });
 
     const marker = el('line', { x1: 0, y1: hrTop, x2: 0, y2: recordTop + 8, class: 'timeline-cursor' });
     marker.style.display = 'none';
@@ -306,7 +384,7 @@
     // Without this the sleep band, the workout blocks and the recording strip
     // are three colours the reader has to guess at.
     const key = node('p', null, 'timeline-key');
-    for (const [label, className] of [['Asleep', 'key-sleep'], ['Heart rate', 'key-hr'], ['Workout', 'key-workout'], ['Recording, moving', 'key-moving'], ['Recording, still', 'key-still']]) {
+    for (const [label, className] of [['Asleep', 'key-sleep'], ['Heart rate', 'key-hr'], ['Workout', 'key-workout'], ['Journey', 'key-journey'], ['Stopped', 'key-stop']]) {
       const item = node('span', null, 'key-item');
       item.append(node('i', null, className), node('span', label));
       key.append(item);
@@ -376,7 +454,7 @@
       ['STEPS', steps ? steps.value.toLocaleString() : '—', steps ? 'HealthKit daily total' : 'No daily total uploaded'],
       ['ASLEEP', sleep ? duration(sleep) : '—', sleep ? 'Inside this day, across sources' : 'No sleep recorded'],
       ['RESTING HEART RATE', state.timeline?.restingHeartRate ? `${state.timeline.restingHeartRate.value} bpm` : '—', state.timeline?.restingHeartRate ? `Latest to ${clock(Date.parse(state.timeline.restingHeartRate.at) / 1000)}` : 'No reading'],
-      ['SEGMENTS', String(state.day?.segments.length ?? 0), 'Runs of continuous recording'],
+      ['ACTIVITIES', String(totals.journeys ?? 0), `${(state.day?.activities ?? []).filter((a) => a.kind === 'stop').length} stops between them`],
     ];
     for (const [label, value, note] of tiles) {
       const tile = node('div', null, 'metric');
@@ -390,9 +468,10 @@
   function paintDay() {
     const { colours, legend } = colourTrack();
     drawLegend(legend);
-    map.setTrack({ points: state.day.points, segments: state.day.segments, colours });
+    map.setTrack({ points: state.day.points, segments: state.day.segments, colours, focus: null });
     map.fitPoints(state.day.points);
     drawStats();
+    drawActivities();
     drawTimeline();
     $('movement-readout').textContent = defaultReadout();
     const notes = [];
@@ -404,6 +483,7 @@
   async function selectDay(date) {
     try {
       state.date = date;
+      state.focus = null;
       drawDays();
       const day = await api(`track?offset=${state.offset}&date=${date}`);
       state.days = day.days;
@@ -446,7 +526,7 @@
       timelineObserver.observe($('movement-timeline'));
       $('movement-colour').onchange = () => {
         state.colourBy = $('movement-colour').value;
-        if (state.day) { const { colours, legend } = colourTrack(); drawLegend(legend); map.setTrack({ points: state.day.points, segments: state.day.segments, colours }); }
+        if (state.day) { drawLegend(colourTrack().legend); focusActivity(state.focus, { refit: false }); }
       };
       $('movement-refresh').onclick = () => { state.loaded = false; open().catch((error) => fail(error.message)); };
     }
@@ -460,6 +540,7 @@
     state.date = null;
     state.day = null;
     state.timeline = null;
+    state.focus = null;
     map?.destroy();
     map = null;
     timelineObserver?.disconnect();
@@ -469,6 +550,7 @@
     $('movement-timeline').replaceChildren();
     $('movement-stats').replaceChildren();
     $('movement-days').replaceChildren();
+    $('movement-activities').replaceChildren();
     $('movement-legend').replaceChildren();
     $('movement-readout').textContent = '';
   }

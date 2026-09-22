@@ -399,3 +399,36 @@ test('the preview signs out where it signed in, not at the main site', async t =
   const real = await request('logout', { user: null, method: 'POST', body: {}, headers: { ...headers, Cookie: 'x=1' } });
   assert.equal(real.status, 401);
 });
+
+test('a day is listed as journeys and the stops between them', async t => {
+  const { request } = await fixture(t);
+  const base = baseInstant();
+  const date = new Date(base).toISOString().slice(0, 10);
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  const walk = (tag, from, count) => Array.from({ length: count }, (_, i) => ({
+    id: `${tag}-${i}`, recorded: new Date(from + i * 30000).toISOString(),
+    latitude: 54.52 + i / 4000, longitude: -1.57, accuracy: 5, speed: 1.4, moving: true,
+  }));
+  // An hour at a desk the phone SAMPLED THE WHOLE WAY THROUGH — a fix every two
+  // minutes, so there is no recording gap anywhere in this day.
+  const desk = Array.from({ length: 30 }, (_, i) => ({
+    id: `desk-${i}`, recorded: new Date(base + 900000 + i * 120000).toISOString(),
+    latitude: 54.5275, longitude: -1.57, accuracy: 6, speed: 0, moving: false,
+  }));
+  await request('sync', { method: 'POST', body: batch([], [...walk('out', base, 30), ...desk, ...walk('back', base + 4600000, 30)]) });
+
+  const body = (await request(`track?offset=0&date=${date}`)).body;
+  // One unbroken run of recording...
+  assert.equal(body.segments.length, 1);
+  // ...and still two journeys, because the break is in the MOVEMENT.
+  assert.deepEqual(body.activities.map(a => a.kind), ['journey', 'stop', 'journey']);
+  assert.equal(body.totals.journeys, 2);
+  assert.ok(body.activities[1].seconds > 3000, 'the desk should read as about an hour');
+  assert.equal(body.activities[1].fixes > 25, true);
+  // Indices address the points array, so the map can light one activity up.
+  const [first, last] = [body.activities[0].first, body.activities[0].last];
+  assert.equal(body.points[first][2], Math.round(base / 1000));
+  assert.ok(last > first);
+  // The day index counts journeys too, so the strip can say what a day was.
+  assert.equal(body.days.find(d => d.date === date).journeys, 2);
+});
