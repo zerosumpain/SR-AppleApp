@@ -11,7 +11,9 @@ Health is always scoped to the authenticated person. Family membership grants ac
 
 ## Test the running local preview
 
-Open **http://192.168.0.77:5275/apple-app/** on the local network.
+Run it locally (below) and open `/apple-app/` on the host you started it on.
+There is also a long-running preview on the LAN; its address is in the private
+ops notes rather than here, because this repository is public.
 
 | Synthetic account | Family |
 | --- | --- |
@@ -118,7 +120,11 @@ APP_ORIGIN=http://127.0.0.1:5295 docker compose -f deploy/compose.yaml config
 APP_ORIGIN=http://127.0.0.1:5295 docker compose -f deploy/compose.yaml up -d --build --wait
 ```
 
-The persistent host preview is configured by `/home/john/docker/local/compose.apple-app.yaml` and uses its own `porkserv-local_apple_app_data` volume. The service binds only to loopback. The existing LAN preview gateway forwards `/apple-app/` and `/api/apple/` without injecting the site's synthetic owner session. It never uses production data, credentials, or the Docker socket.
+The long-running LAN preview is a separate Compose project with its **own
+volume**, bound to loopback and reached through the existing preview gateway,
+which forwards `/apple-app/` and `/api/apple/` without injecting the site's
+owner session. It never touches production data, credentials or the Docker
+socket. Its host, paths and volume name are deliberately not published here.
 
 ## CI cost
 
