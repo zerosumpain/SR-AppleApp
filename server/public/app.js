@@ -68,7 +68,14 @@ async function load() {
   $('sharing').checked = me.sharing; $('server-address').value = location.origin;
   $('notice').hidden = !me.demo;
   $('notice').textContent = 'LOCAL TEST ENVIRONMENT · Synthetic family and health data. This preview is separate from the live Strange Ramblings site.';
-  await Promise.all([health(), family(), devices()]);
+  await Promise.all([
+    health(),
+    family(),
+    devices(),
+    // Best effort: this one talks to a different process, and the companion's
+    // own dashboard must still render if the main site is down.
+    siteDevices().catch(() => { $('site-devices').replaceChildren(node('p', 'Could not reach the main site for the chat and news devices.', 'muted')); })
+  ]);
 }
 // The local preview's sign-in. The endpoint behind it 404s on production, so
 // revealing the form there would be an invitation to a door that is not real —
@@ -77,6 +84,53 @@ $('demo-form').onsubmit = e => { e.preventDefault(); action(async () => { await 
 // Signing out belongs to the main site: this server never issued the session, so
 // clearing anything here would leave the real one standing.
 $('logout').onclick = () => action(async () => { const r = await api('logout', 'POST', {}); location.href = r.signOutAt ?? location.pathname; });
+/**
+ * The OTHER credential a phone can hold: the one that reads chat and the news
+ * desk on the main site.
+ *
+ * Both pairings live on this page now, but only the UI moved. These calls go to
+ * `/api/admin/native-devices`, which is served by the MAIN SITE on the same
+ * hostname and sits behind its ordinary owner gate — so this server never mints,
+ * stores or even sees a site credential. The QR arrives already rendered as a
+ * data URL for the same reason: drawing it here would mean vendoring a QR
+ * library into this server's bundle to handle a token that is none of its
+ * business.
+ */
+async function siteApi(path = '', method = 'GET') {
+  const response = await fetch(`/api/admin/native-devices${path}`, { method });
+  const result = await response.json().catch(() => ({}));
+  if (response.status === 401) throw new Error('Sign in to Strange Ramblings first.');
+  if (!response.ok) throw new Error(result.error || 'The main site could not answer that.');
+  return result;
+}
+
+async function siteDevices() {
+  const target = $('site-devices');
+  target.replaceChildren();
+  const { devices } = await siteApi();
+  if (!devices.length) { target.append(node('p', 'No iPhone is connected to chat and news yet.', 'muted')); return; }
+  for (const d of devices) {
+    const revoked = d.revokedAt || new Date(d.expiresAt) < new Date();
+    const row = node('div', '', 'row');
+    const label = `${d.label ?? 'iPhone'} · ${revoked ? 'revoked' : `last seen ${d.lastUsedAt ? when(d.lastUsedAt) : 'never'}`}`;
+    row.append(node('p', label));
+    if (!revoked) {
+      const revoke = node('button', 'Revoke');
+      revoke.onclick = () => action(async () => { await siteApi(`?id=${encodeURIComponent(d.id)}`, 'DELETE'); await siteDevices(); });
+      row.append(revoke);
+    }
+    target.append(row);
+  }
+}
+
+$('site-pair').onclick = () => action(async () => {
+  const result = await siteApi('', 'POST');
+  $('site-pair-qr').src = result.qr;
+  $('site-pair-result').hidden = false;
+  $('site-pair-expiry').textContent = `Single use. Expires ${when(result.expiresAt)}. Creating another cancels this one.`;
+  await siteDevices();
+});
+
 $('refresh').onclick = () => action(load);
 $('category').onchange = () => action(health);
 let pairingExpiryTimer;

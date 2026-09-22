@@ -55,6 +55,24 @@ The container refuses to start on an https origin without `AUTH_SECRET`. Without
 that check a missing secret would 401 every browser while the phone kept syncing
 on its device token, hiding the fault for days.
 
+### One page, both credentials
+
+A phone can hold two, and both are minted from **Connect & privacy** on this
+dashboard:
+
+| Credential | Minted by | Grants |
+| --- | --- | --- |
+| Companion device token | this server | health upload, family location |
+| Site device token | **the main site**, `/api/admin/native-devices` | jkai threads, the news desk |
+
+Only the UI is shared. The site token is minted, listed and revoked by SR-Main
+behind its own owner gate, and its QR arrives already rendered as a data URL —
+this server never mints, stores or sees it. Drawing the QR here would have meant
+vendoring a QR library to handle a credential that is none of its business.
+
+`/admin/access/devices` on the main site 308s here; it existed for about an hour
+on 2026-09-22.
+
 ### Why not the SR-Infra gateway
 
 Every *extracted* application (Policy, Drive, Health, JKAI) sits behind the
