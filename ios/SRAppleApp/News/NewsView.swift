@@ -2,68 +2,79 @@ import SwiftUI
 
 /// The news desk.
 ///
-/// The stream is built as a RANKED-MOVES LEDGER, which is the /health pattern
-/// that fits it: a numeral, a column saying what the thing IS, then the content,
-/// with the hairline between rows drawn as the container's own ground showing
-/// through a 1px gap. A news row and a ranked move are the same shape — a
-/// position, a provenance, a claim, and a reason it is where it is.
+/// The row is still the RANKED-MOVES LEDGER — a numeral, a provenance, a claim
+/// and a reason it is where it is — because a news row and a ranked move really
+/// are the same shape. What went is the page around it: a masthead with "THE
+/// WIRE, / RANKED" set across two lines, a standfirst explaining the current
+/// view, and a three-line mono footer naming every wire and its count. On a
+/// phone that is most of a screenful before the first headline.
+///
+/// The standfirst survives as one caption line under the view chips, because it
+/// is the only place that says what `for you` is ranking against; the rest is
+/// now the navigation bar's job.
 struct NewsScreen: View {
     @StateObject private var store = NewsStore()
-    @State private var opened: NewsStory?
 
     var body: some View {
-        SRShell(
-            path: "/news",
-            kicker: store.feed.map { "\($0.stories.count) stories" },
-            footer: footerLines
-        ) {
-            SRSection {
-                SectionHead(
-                    kicker: sectionKicker,
-                    title: ["The wire,", "ranked"],
-                    strap: strap
-                )
-                viewPicker
+        List {
+            Section {
+                viewPicker.srPlainRow().padding(.vertical, 4).listRowSeparator(.hidden)
+                Text(strap)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkGhost)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .srPlainRow()
+                    .padding(.bottom, 8)
+                    .listRowSeparator(.hidden)
             }
 
-            SRSection(tinted: true, isLast: true) {
-                if store.loading && store.stories.isEmpty {
-                    loadingRow
-                } else if store.stories.isEmpty {
-                    emptyRow
-                } else {
-                    SRLedger {
-                        ForEach(store.stories) { story in
-                            NewsLedgerRow(
-                                story: story,
-                                saved: store.isSaved(story),
-                                kept: store.isKept(story),
-                                busy: store.busyKey == story.key,
-                                onOpen: { opened = story },
-                                onAction: { action in Task { await store.act(action, on: story) } }
-                            )
-                        }
+            Section {
+                ForEach(store.stories) { story in
+                    NavigationLink(value: story) {
+                        NewsLedgerRow(
+                            story: story,
+                            saved: store.isSaved(story),
+                            kept: store.isKept(story),
+                            busy: store.busyKey == story.key,
+                            onAction: { action in Task { await store.act(action, on: story) } }
+                        )
                     }
+                    .srPlainRow()
                 }
             }
         }
+        .listStyle(.plain)
+        .srPaper()
+        .navigationTitle("News")
+        .navigationBarTitleDisplayMode(.large)
+        .navigationDestination(for: NewsStory.self) { NewsStoryScreen(story: $0) }
         .task { if store.feed == nil { await store.load() } }
         .refreshable { await store.load(force: true) }
-        .overlay(alignment: .bottom) {
-            if let message = store.message {
-                SRToast(text: message)
+        .overlay {
+            if store.loading && store.stories.isEmpty {
+                ProgressView().tint(SR.accent)
+            } else if store.stories.isEmpty && !store.loading {
+                SREmpty(
+                    title: store.view == .favourites ? "Nothing saved yet" : "No stories",
+                    icon: store.view == .favourites ? "bookmark" : "newspaper",
+                    message: store.view == .favourites
+                        ? "Save a story from any view and it lands here, and on the desk."
+                        : "Pull down to fetch the wires again."
+                )
             }
         }
-        .sheet(item: $opened) { story in
-            NewsStoryScreen(story: story)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let feed = store.feed, let updated = isoDate(feed.updatedAt) {
+                    Text((feed.cached ? "Cached " : "") + updated.formatted(date: .omitted, time: .shortened))
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkGhost)
+                }
+            }
         }
-    }
-
-    private var sectionKicker: String {
-        let anchors = store.feed?.anchorCount ?? 0
-        return anchors > 0
-            ? "A / \(store.view.label) · \(anchors) anchors"
-            : "A / \(store.view.label)"
+        .overlay(alignment: .bottom) {
+            if let message = store.message { SRBanner(text: message) }
+        }
     }
 
     private var strap: String {
@@ -80,36 +91,32 @@ struct NewsScreen: View {
         case .new:
             return "Newest first, straight off the wires."
         case .top:
-            return "The front pages, deduplicated. A story on two wires keeps the second sighting as evidence rather than dropping it."
+            return "The front pages, deduplicated. A story on two wires keeps the second sighting as evidence."
         }
     }
 
-    private var footerLines: [String] {
-        guard let feed = store.feed else { return [] }
-        var lines = ["Strange Ramblings · the desk"]
-        let wires = feed.sources.map { "\($0.label) \($0.count)" }.joined(separator: " · ")
-        lines.append(wires)
-        if let updated = isoDate(feed.updatedAt) {
-            let stamp = updated.formatted(date: .omitted, time: .shortened)
-            lines.append(feed.cached ? "Cached · \(stamp)" : "Fetched · \(stamp)")
-        }
-        return lines
-    }
-
+    /// The five views, as chips that scroll.
+    ///
+    /// Not a `Picker(.segmented)`: five segments on a 390pt screen gives each
+    /// one 66 points, into which "Favourites" does not go, and the system
+    /// truncates rather than wrapping. Chips keep every label legible and let
+    /// the row scroll.
     private var viewPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
+            HStack(spacing: 8) {
                 ForEach(NewsView.allCases) { item in
                     let current = item == store.view
                     Button {
+                        SRHaptic.select()
                         Task { await store.select(item) }
                     } label: {
                         Text(item.label.uppercased())
-                            .font(SR.monoMedium(12))
+                            .font(SR.Text.label())
                             .tracking(1.2)
                             .foregroundStyle(current ? SR.paper : SR.inkSecondary)
                             .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                            .padding(.vertical, 10)
+                            .frame(minHeight: 38)
                             .background(current ? SR.ink : Color.clear)
                             .overlay(Rectangle().strokeBorder(SR.line, lineWidth: current ? 0 : 1))
                     }
@@ -118,31 +125,9 @@ struct NewsScreen: View {
                     .accessibilityAddTraits(current ? [.isSelected] : [])
                 }
             }
+            .padding(.vertical, 2)
         }
-    }
-
-    private var loadingRow: some View {
-        HStack(spacing: 10) {
-            ProgressView().tint(SR.accent)
-            Text("Reading the wires…").font(SR.body(14)).foregroundStyle(SR.inkMuted)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 20)
-    }
-
-    private var emptyRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(store.view == .favourites ? "Nothing saved yet." : "No stories.")
-                .font(SR.bodyMedium(16))
-                .foregroundStyle(SR.ink)
-            Text(store.view == .favourites
-                 ? "Save a story from any view and it lands here, and on the desk."
-                 : "Pull down to fetch the wires again.")
-                .font(SR.body(14))
-                .foregroundStyle(SR.inkMuted)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 20)
+        .scrollClipDisabled()
     }
 }
 
@@ -156,12 +141,10 @@ struct NewsLedgerRow: View {
     let saved: Bool
     let kept: Bool
     let busy: Bool
-    let onOpen: () -> Void
     let onAction: (NewsAction) -> Void
 
     var body: some View {
-        Button(action: onOpen) {
-            HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
                 Text("\(story.rank)")
                     .font(SR.display(24))
                     .foregroundStyle(story.read ? SR.ink.opacity(0.3) : SR.accent)
@@ -226,8 +209,6 @@ struct NewsLedgerRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(SR.paper)
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
         .accessibilityIdentifier("news-row-\(story.key)")
         .accessibilityLabel("\(story.title), \(story.sourceLabel)")
         // The four row actions. A swipe would be invisible; a context menu is

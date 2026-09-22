@@ -14,7 +14,6 @@ import SwiftUI
 /// evidence for the single most useful lever on the settings screen.
 struct ActivityLogScreen: View {
     @ObservedObject var outbox: Outbox
-    @Environment(\.dismiss) private var dismiss
 
     @State private var window = LogWindow.day
     @State private var cleared = false
@@ -51,16 +50,8 @@ struct ActivityLogScreen: View {
     }
 
     var body: some View {
-        SRShell(
-            path: "/settings/history",
-            kicker: outbox.state.gateState.label,
-            back: (label: "Settings", action: { dismiss() }),
-            footer: [
-                "Every time GPS went off and came back, and why",
-                "Kept for the last \(GateEvent.maxStored) changes",
-                "Hours before the first line are not counted, not assumed",
-            ]
-        ) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
             SRSection {
                 SectionHead(
                     kicker: "A / Duty cycle",
@@ -88,7 +79,19 @@ struct ActivityLogScreen: View {
                 )
                 ledger
             }
+
+            SRSection(isLast: true) {
+                Text("Kept for the last \(GateEvent.maxStored) changes. Hours before the first line are not counted, not assumed.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkGhost)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .srPaper()
+        .navigationTitle("Gate history")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     // MARK: - A

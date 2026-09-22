@@ -237,7 +237,43 @@ final class SiteClient {
     func signOut() {
         try? SiteKeychain.save(nil)
         token = nil
+        // A revoked credential must not leave thread titles behind in iPhone
+        // search. The index is a file other system processes read.
+        ThreadIndex.clear()
     }
+
+    /// The website's own address for something, for a share sheet or a Link.
+    ///
+    /// Built off `origin` rather than the production constant, so a phone
+    /// paired to a staging host shares staging links instead of silently
+    /// pointing a reader at production.
+    func webURL(_ path: String) -> URL {
+        (try? url(for: path)) ?? Self.defaultOrigin
+    }
+
+    /// `/jkai` with a question already in the box.
+    ///
+    /// `?q=` and `?send=1` are read by the page's own loader, so a Shortcut can
+    /// hand a typed or dictated sentence straight to the desk. Percent-encoded
+    /// here because `url(for:)` assigns `percentEncodedQuery` verbatim — it
+    /// must not encode a term the caller already encoded.
+    ///
+    /// **Not `.urlQueryAllowed`.** That set is the characters legal anywhere in
+    /// a query STRING, which includes `&`, `=`, `+` and `?` — exactly the four
+    /// that must be escaped inside a query VALUE. A dictated "what is my RHR &
+    /// why?" would have arrived as `q=what is my RHR ` plus a parameter called
+    /// ` why?`, and the desk would have been asked half the question.
+    func askURL(_ question: String, send: Bool = false) -> URL {
+        let encoded = question.addingPercentEncoding(withAllowedCharacters: Self.queryValue) ?? ""
+        return webURL("jkai?q=\(encoded)" + (send ? "&send=1" : ""))
+    }
+
+    /// RFC 3986 unreserved. Everything else in a query value is escaped.
+    private static let queryValue: CharacterSet = {
+        var set = CharacterSet.alphanumerics
+        set.insert(charactersIn: "-._~")
+        return set
+    }()
 
     private func deviceLabel() -> String {
         // `UIDevice.name` is personal data on iOS 16+ and returns the model name

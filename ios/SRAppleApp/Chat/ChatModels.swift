@@ -3,9 +3,13 @@ import Foundation
 /// A thread in the ledger.
 struct Conversation: Decodable, Identifiable, Hashable {
     let id: String
-    let title: String?
+    /// `var`, because a rename and a pin are done from the list itself and the
+    /// row has to redraw before the reload comes back. A `let` here forced a
+    /// full refetch to show a pin landing, which on a slow connection looked
+    /// like the swipe had not registered.
+    var title: String?
     let source: String?
-    let pinned: Bool
+    var pinned: Bool
     let messageCount: Int
     let modelProvider: String?
     let modelId: String?
@@ -30,6 +34,25 @@ struct Conversation: Decodable, Identifiable, Hashable {
     }
 
     var isWhatsApp: Bool { source == "whatsapp" }
+
+    /// A thread known only by its id — from Spotlight, or from a notification.
+    ///
+    /// The screen fetches the real row on appear and replaces the title; this
+    /// exists so navigating does not have to wait for a round trip first.
+    static func placeholder(id: String) -> Conversation {
+        Conversation(
+            id: id,
+            title: nil,
+            source: nil,
+            pinned: false,
+            messageCount: 0,
+            modelProvider: nil,
+            modelId: nil,
+            preview: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+    }
 }
 
 struct ConversationPage: Decodable {

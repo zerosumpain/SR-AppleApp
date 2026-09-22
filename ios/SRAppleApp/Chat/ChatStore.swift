@@ -35,6 +35,10 @@ final class ThreadListStore: ObservableObject {
             cursor = page.cursor
             hasMore = page.hasMore && term.isEmpty
             message = nil
+            // Titles into iPhone search. Only on a reset — a page of older
+            // threads is not what somebody is searching their Home Screen for,
+            // and re-indexing on every scroll would write the index all day.
+            if reset && term.isEmpty { ThreadIndex.update(conversations) }
         } catch SiteError.expired {
             message = "This iPhone needs pairing again."
         } catch {
@@ -53,8 +57,107 @@ final class ThreadListStore: ObservableObject {
     }
 
     func loadMore() async {
-        guard hasMore, cursor != nil else { return }
+        guard hasMore, cursor != nil, query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         await load(reset: false)
+    }
+
+    // MARK: - The two groups
+    //
+    // The endpoint already orders pinned first, so this is a split of one
+    // ordered page rather than a second sort. It exists because a phone list
+    // with a `Pinned` header above three rows and `Recent` above the rest is
+    // read at a glance, and one undifferentiated run with a pin glyph in it is
+    // not — the glyph is 10pt and it is the first thing lost to a sunny bus.
+    var pinned: [Conversation] { conversations.filter(\.pinned) }
+    var unpinned: [Conversation] { conversations.filter { !$0.pinned } }
+
+    // MARK: - Mutations
+    //
+    // Every one of these writes the local row FIRST and reconciles after. A
+    // pin that waits for a round trip on a train reads as a swipe that did not
+    // take, and the user swipes again — which un-pins it.
+
+    func create() async -> Conversation? {
+        do {
+            let fresh: Conversation = try await client.send(
+                "api/native/chat/conversations",
+                method: "POST",
+                body: try JSONEncoder().encode(["title": "New thread"])
+            )
+            conversations.insert(fresh, at: pinned.count)
+            SRHaptic.ok()
+            return fresh
+        } catch {
+            message = error.localizedDescription
+            SRHaptic.bad()
+            return nil
+        }
+    }
+
+    func togglePin(_ conversation: Conversation) async {
+        guard let index = conversations.firstIndex(where: { $0.id == conversation.id }) else { return }
+        let wanted = !conversations[index].pinned
+        conversations[index].pinned = wanted
+        // Re-sort locally so the row moves to the group its new state belongs
+        // in. Without this the pinned row keeps its old position until the next
+        // load and appears under `Recent` with a pin on it.
+        conversations.sort { a, b in
+            if a.pinned != b.pinned { return a.pinned }
+            return (a.updatedAt ?? "") > (b.updatedAt ?? "")
+        }
+        await patch(conversation.id, ["pinned": wanted], revertingTo: !wanted, at: conversation.id)
+    }
+
+    func rename(_ conversation: Conversation, to title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let previous = conversation.title
+        if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
+            conversations[index].title = trimmed
+        }
+        do {
+            let _: EmptyReply = try await client.send(
+                "api/native/chat/conversations/\(conversation.id)",
+                method: "PATCH",
+                body: try JSONEncoder().encode(["title": trimmed])
+            )
+        } catch {
+            if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
+                conversations[index].title = previous
+            }
+            message = error.localizedDescription
+        }
+    }
+
+    func delete(_ conversation: Conversation) async {
+        let snapshot = conversations
+        conversations.removeAll { $0.id == conversation.id }
+        do {
+            let _: EmptyReply = try await client.send(
+                "api/native/chat/conversations/\(conversation.id)",
+                method: "DELETE"
+            )
+            SRHaptic.ok()
+        } catch {
+            conversations = snapshot
+            message = error.localizedDescription
+            SRHaptic.bad()
+        }
+    }
+
+    private func patch(_ id: String, _ body: [String: Bool], revertingTo previous: Bool, at rowId: String) async {
+        do {
+            let _: EmptyReply = try await client.send(
+                "api/native/chat/conversations/\(id)",
+                method: "PATCH",
+                body: try JSONEncoder().encode(body)
+            )
+        } catch {
+            if let index = conversations.firstIndex(where: { $0.id == rowId }) {
+                conversations[index].pinned = previous
+            }
+            message = error.localizedDescription
+        }
     }
 }
 
@@ -69,6 +172,16 @@ final class ChatStore: ObservableObject {
     @Published private(set) var activity = TurnActivity()
     @Published private(set) var blocked: BlockedTurn?
     @Published var message: String?
+    /// Bumped on every frame that changes what is on screen.
+    ///
+    /// The transcript follows the stream by scrolling to its foot, and the only
+    /// signal it had was `messages.count` — which stops moving the instant the
+    /// assistant bubble exists. Every token after that appended to a bubble the
+    /// view never scrolled to, so a long answer wrote itself off the bottom of
+    /// the screen while the reader looked at the top of it. A counter is the
+    /// cheapest thing that moves once per frame and cannot loop: nothing that
+    /// reads it writes it.
+    @Published private(set) var streamTick = 0
 
     let conversationId: String
     private let client = SiteClient.shared
@@ -249,11 +362,13 @@ final class ChatStore: ObservableObject {
     private func appendToLiveBubble(_ delta: String) {
         guard let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].content += delta
+        streamTick &+= 1
     }
 
     private func setLiveBubble(_ content: String) {
         guard let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].content = content
+        streamTick &+= 1
     }
 
     private func finish(with error: String?) {
@@ -269,7 +384,16 @@ final class ChatStore: ObservableObject {
         }
         activity = TurnActivity()
         liveBubbleId = nil
-        if let error { message = error }
+        streamTick &+= 1
+        if let error {
+            message = error
+            SRHaptic.bad()
+        } else {
+            // The one haptic that is worth it: an answer that finished while
+            // the phone was in a pocket. Nothing fires per token — a buzzing
+            // pocket for ninety seconds is a bug, not a flourish.
+            SRHaptic.ok()
+        }
     }
 
     /// Re-read the thread so the local bubbles are replaced by the server's rows

@@ -13,12 +13,8 @@ struct NewsStoryScreen: View {
     @State private var acting = false
 
     var body: some View {
-        SRShell(
-            path: "/news",
-            kicker: story.sourceLabel,
-            back: (label: "Desk", action: { dismiss() }),
-            footer: footerLines
-        ) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
             SRSection {
                 SectionHead(
                     kicker: "A / \(story.sourceLabel) · \(shortAgo(story.publishedAt)) ago",
@@ -59,6 +55,19 @@ struct NewsStoryScreen: View {
                         }
                     }
                 }
+            }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .srPaper()
+        .navigationTitle(story.sourceLabel)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(item: URL(string: story.url.isEmpty ? story.discussionUrl : story.url) ?? SiteClient.defaultOrigin) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Share this story")
             }
         }
         .task { await store.load(source: story.source, id: story.storyId) }

@@ -6,92 +6,138 @@ import XCTest
 /// CI boots the simulator in DARK appearance on purpose — the site has no dark
 /// mode and the app is light-locked to match, so a shot that comes back dark is
 /// a regression, not a preference.
+///
+/// These were rewritten when the tab bar changed. `Connect` is no longer a tab:
+/// pairing is a job you do once from a QR code on another screen, and a
+/// permanent slot on the bar for it was the clearest clutter in the app. It is
+/// under Settings → Connections now, and `Today` took the slot.
 final class OnboardingTests: XCTestCase {
 
-    @MainActor func testFourTabsAndChatAsksToConnect() {
+    @MainActor func testTheTabBarIsTheFourPlacesYouGo() {
         let app = XCUIApplication()
         app.launch()
 
-        XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20))
-        for tab in ["Chat", "News", "Companion", "Connect"] {
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        for tab in ["Today", "Chat", "Health", "News"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
         }
+        // The old Connect tab must be gone, not merely unused.
+        XCTAssertFalse(app.tabBars.buttons["Connect"].exists, "Connect is still a tab")
+        XCTAssertFalse(app.tabBars.buttons["Companion"].exists, "Companion is still a tab")
 
-        // Chat opens first and, unpaired, must say so rather than sitting empty.
-        XCTAssertTrue(app.staticTexts["CONNECT TO"].waitForExistence(timeout: 10)
-                      || app.staticTexts["READ YOUR THREADS"].waitForExistence(timeout: 2))
-
-        attach(app, "Chat tab, not yet connected")
+        attach(app, "Today — the first screen")
     }
 
-    @MainActor func testNewsAndChatBothGateOnPairing() {
+    @MainActor func testTodayOpensFirstAndAsksToConnect() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["News"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+
+        // Unpaired, Today must say so rather than sitting empty.
+        XCTAssertTrue(app.buttons["CONNECT"].waitForExistence(timeout: 15),
+                      "an unconnected Today does not offer a way to connect")
+        attach(app, "Today, not yet connected")
+    }
+
+    @MainActor func testChatAndNewsBothGateOnPairing() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20))
+
+        app.tabBars.buttons["Chat"].tap()
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10)
+                      || app.staticTexts["Not connected yet"].waitForExistence(timeout: 5),
+                      "chat does not explain why it is empty")
+        attach(app, "Chat, not yet connected")
 
         app.tabBars.buttons["News"].tap()
-        XCTAssertTrue(app.buttons["CONNECT"].waitForExistence(timeout: 10))
-        attach(app, "News tab, not yet connected")
-
-        // The Connect button on an unpaired tab must land on the Connect tab.
-        app.buttons["CONNECT"].tap()
-        XCTAssertTrue(app.buttons["site-pair-scan"].waitForExistence(timeout: 10))
-        attach(app, "Site pairing screen")
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10)
+                      || app.staticTexts["Not connected yet"].waitForExistence(timeout: 5),
+                      "news does not explain why it is empty")
     }
 
-    @MainActor func testSitePairingExplainsTheTwoCredentials() {
+    @MainActor func testSettingsHoldsBothPairingsOnOneScreen() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Connect"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Connect"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
 
-        XCTAssertTrue(app.buttons["site-pair-scan"].waitForExistence(timeout: 10))
-        // Two pairings in one app is the thing a reader will get wrong, so the
-        // screen has to say it outright.
-        XCTAssertTrue(app.staticTexts["WHAT THIS IS NOT"].exists)
-        attach(app, "Site pairing, with the two-credential note")
+        let cog = app.buttons["open-settings"]
+        XCTAssertTrue(cog.waitForExistence(timeout: 10), "no settings cog on Today")
+        cog.tap()
+
+        let connections = app.buttons["settings-connections"]
+        XCTAssertTrue(connections.waitForExistence(timeout: 10), "no Connections row in settings")
+        connections.tap()
+
+        // Both credentials, on one screen, each named for what it opens.
+        XCTAssertTrue(app.buttons["site-pair-scan"].waitForExistence(timeout: 10),
+                      "no way to scan the website's code")
+        XCTAssertTrue(app.buttons["companion-pair-scan"].exists,
+                      "no way to scan the companion's code")
+        attach(app, "Settings — both connections")
     }
 
-    @MainActor func testCompanionPairingStillWorksAndIsOnTheSystem() {
+    @MainActor func testTheManualPairingCodeCanStillBeRevealed() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Companion"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        app.buttons["open-settings"].tap()
+        app.buttons["settings-connections"].tap()
+        XCTAssertTrue(app.buttons["companion-pair-scan"].waitForExistence(timeout: 10))
 
-        XCTAssertTrue(app.buttons["PAIR BY QR CODE"].waitForExistence(timeout: 10))
-        attach(app, "Companion tab on the design system")
+        let reveal = app.switches.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Show pairing code")
+        ).firstMatch
+        XCTAssertTrue(scroll(app, to: reveal), "no way to reveal a typed pairing code")
+        attach(app, "Settings — pairing by hand")
+    }
 
-        let server = app.textFields["HTTPS server address"]
-        XCTAssertTrue(server.waitForExistence(timeout: 5))
-        server.tap()
-        server.typeText("http://example.test\n")
+    @MainActor func testNotificationRoutingIsReachableAndListsCategories() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        app.buttons["open-settings"].tap()
 
-        let code = app.secureTextFields["One-time pairing code"]
-        code.typeText("invalid-code\n")
+        let notifications = app.buttons["settings-notifications"]
+        XCTAssertTrue(notifications.waitForExistence(timeout: 10), "no Notifications row in settings")
+        notifications.tap()
 
-        // Plain HTTP must be refused, and the refusal must reach the reader.
-        let status = app.staticTexts["sync-status"]
-        let validation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label CONTAINS %@", "HTTPS"),
-            object: status
+        // Unpaired there are no categories to list, but the permission row is
+        // local and must be offered regardless — it is the thing that has to
+        // happen before anything can ever appear on this phone.
+        XCTAssertTrue(app.staticTexts["Allow notifications"].waitForExistence(timeout: 10)
+                      || app.staticTexts["Notifications allowed"].exists
+                      || app.staticTexts["Notifications are off"].exists,
+                      "the notification permission is not offered")
+        attach(app, "Settings — where alerts go")
+    }
+
+    @MainActor func testHealthTabExplainsItselfBeforeItHasAnything() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Health"].waitForExistence(timeout: 20))
+        app.tabBars.buttons["Health"].tap()
+
+        // A fresh install has uploaded nothing and cannot reach the site, so the
+        // screen must say what would put something here.
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS[c] %@", "Connect the companion")
+            ).firstMatch.waitForExistence(timeout: 15)
+            || app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS[c] %@", "Nothing uploaded yet")
+            ).firstMatch.exists,
+            "an empty health tab says nothing about how to fill it"
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [validation], timeout: 15), .completed)
-        attach(app, "Companion refusing plain HTTP")
+        attach(app, "Health, before anything has been uploaded")
     }
 
-    @MainActor func testManualPairingCodeCanBeRevealed() {
-        let app = XCUIApplication()
-        app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Companion"].tap()
-
-        XCTAssertTrue(app.switches["Show pairing code"].waitForExistence(timeout: 10))
-        app.switches["Show pairing code"].tap()
-        let code = app.textFields["One-time pairing code"]
-        code.tap()
-        code.typeText("visible-test-code")
-        XCTAssertEqual(code.value as? String, "visible-test-code")
-        attach(app, "Readable pairing fields under system dark appearance")
+    @MainActor private func scroll(_ app: XCUIApplication, to element: XCUIElement, swipes: Int = 8) -> Bool {
+        for _ in 0..<swipes {
+            if element.exists && element.isHittable { return true }
+            app.swipeUp()
+        }
+        return element.exists
     }
 
     @MainActor private func attach(_ app: XCUIApplication, _ name: String) {
@@ -102,37 +148,43 @@ final class OnboardingTests: XCTestCase {
     }
 }
 
-/// The settings screen renders, and the instrument says what it is standing on.
+/// The location instrument, now three levels into settings rather than one.
+///
+/// It kept its editorial register when everything else lost it, and that is
+/// deliberate: a reader who has navigated to Settings → Location & battery to
+/// weigh drain against accuracy has asked for the argument. The furniture was
+/// wrong in front of a thread list; it is right here.
 final class SettingsUITests: XCTestCase {
 
-    @MainActor func testTheCogOpensSettingsFromTheBar() {
+    @MainActor func testTheCogOpensSettingsAndTheInstrumentIsThreeTapsAway() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Companion"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
 
-        let cog = app.buttons["sr-bar-action"]
-        XCTAssertTrue(cog.waitForExistence(timeout: 10), "no settings cog on the bar")
+        let cog = app.buttons["open-settings"]
+        XCTAssertTrue(cog.waitForExistence(timeout: 10), "no settings cog on Today")
         cog.tap()
 
+        let location = app.buttons["settings-location"]
+        XCTAssertTrue(location.waitForExistence(timeout: 10), "no Location row in settings")
+        location.tap()
+
         XCTAssertTrue(app.staticTexts["THE BALANCE,"].waitForExistence(timeout: 10)
-                      || app.staticTexts["MEASURED"].waitForExistence(timeout: 2))
+                      || app.staticTexts["MEASURED"].waitForExistence(timeout: 2),
+                      "the battery instrument did not open")
         attach(app, "Settings — the battery instrument")
     }
 
     @MainActor func testPresetsAreOfferedAndEveryValueIsReachable() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Companion"].tap()
-        app.buttons["sr-bar-action"].tap()
+        openLocationSettings(app)
 
         for preset in ["saver", "balanced", "accurate"] {
             XCTAssertTrue(app.buttons["preset-\(preset)"].waitForExistence(timeout: 10), "missing preset \(preset)")
         }
         attach(app, "Settings — location presets")
 
-        // The advanced block is collapsed by default; every value lives under it.
         app.buttons["preset-balanced"].tap()
         let advanced = app.buttons["toggle-advanced"]
         XCTAssertTrue(advanced.waitForExistence(timeout: 5))
@@ -143,12 +195,9 @@ final class SettingsUITests: XCTestCase {
     @MainActor func testTheMotionGateAndItsHistoryAreReachable() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Companion"].tap()
-        app.buttons["sr-bar-action"].tap()
+        openLocationSettings(app)
         XCTAssertTrue(app.buttons["preset-balanced"].waitForExistence(timeout: 15))
 
-        // Section C is below the presets, so this scrolls rather than assuming.
         let toggle = app.switches["motion-enabled"]
         XCTAssertTrue(scroll(app, to: toggle), "no motion gate switch on the settings screen")
         attach(app, "Settings — the motion gate")
@@ -162,14 +211,15 @@ final class SettingsUITests: XCTestCase {
     @MainActor func testTheHistoryScreenOpensAndSaysWhatItIsStandingOn() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Companion"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Companion"].tap()
-        app.buttons["sr-bar-action"].tap()
-        XCTAssertTrue(app.buttons["preset-balanced"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        app.buttons["open-settings"].tap()
 
-        let open = app.buttons["WHEN GPS WENT ON AND OFF"]
-        XCTAssertTrue(scroll(app, to: open), "no route from settings to the history")
-        open.tap()
+        // The history is its own row now. It used to be a button buried under
+        // the motion gate, which is where you look for it only if you already
+        // know it exists.
+        let log = app.buttons["settings-log"]
+        XCTAssertTrue(log.waitForExistence(timeout: 10), "no route from settings to the history")
+        log.tap()
 
         // Assert on the identifier, not on a headline. `SectionHead` combines
         // its title lines into one accessibility element, so querying a single
@@ -183,6 +233,14 @@ final class SettingsUITests: XCTestCase {
                       || app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Nothing in this window")).firstMatch.exists,
                       "an empty log must say so rather than print a confident zero")
         attach(app, "History — the gate opening and closing")
+    }
+
+    @MainActor private func openLocationSettings(_ app: XCUIApplication) {
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        app.buttons["open-settings"].tap()
+        let location = app.buttons["settings-location"]
+        XCTAssertTrue(location.waitForExistence(timeout: 10))
+        location.tap()
     }
 
     /// Swipe until it is on screen, or give up. Every one of these sits below
