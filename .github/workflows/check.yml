@@ -89,6 +89,9 @@ jobs:
       # a bundled face asked for at a fixed size compiles perfectly and renders
       # perfectly, and simply never answers the reader's text setting.
       - run: node scripts/check-dynamic-type.mjs
+      # App Store Connect bounces a build whose Siri metadata names an Apple
+      # product (ITMS-90626) — and only says so by email, hours later.
+      - run: node scripts/check-intent-metadata.mjs
   ios:
     needs: scope
     if: needs.scope.outputs.ios == 'true'
