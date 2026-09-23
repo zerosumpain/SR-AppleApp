@@ -17,13 +17,24 @@ enum SiteError: LocalizedError {
     case unpaired
     case expired
     case message(String)
+    /// A non-2xx answer, with the status kept. A screen needs to tell "that
+    /// activity does not exist" (404) from "Health is down" (503), and a flat
+    /// message string threw the difference away.
+    case status(Int, String)
 
     var errorDescription: String? {
         switch self {
         case .unpaired: return "Connect this iPhone to Strange Ramblings first."
         case .expired: return "This iPhone needs pairing again."
         case .message(let value): return value
+        case .status(_, let value): return value
         }
+    }
+
+    /// The HTTP status, when the server answered with one.
+    var status: Int? {
+        if case .status(let code, _) = self { return code }
+        return nil
     }
 }
 
@@ -151,7 +162,17 @@ final class SiteClient {
             throw SiteError.message("The saved server address is not usable.")
         }
         let parts = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
-        components.path = "/" + parts[0].trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let path = "/" + parts[0].trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        // A path that arrives already escaped — an activity id is `apple:UUID`
+        // and goes out as `apple%3AUUID` — is kept verbatim. Assigning it to
+        // `path` would escape the `%` again and ask for `apple%253AUUID`, which
+        // no route decodes back to the id. Every other caller passes a plain
+        // path and keeps the old behaviour.
+        if path.contains("%") {
+            components.percentEncodedPath = path
+        } else {
+            components.path = path
+        }
         components.percentEncodedQuery = parts.count > 1 && !parts[1].isEmpty ? String(parts[1]) : nil
         guard let built = components.url else {
             throw SiteError.message("Could not build a request for \(path).")
@@ -202,10 +223,10 @@ final class SiteClient {
             // and say where it was pointed — that is what would have identified
             // this as a malformed URL rather than a server fault.
             if let detail = try? JSONDecoder().decode(APIError.self, from: data) {
-                throw SiteError.message(detail.error)
+                throw SiteError.status(http.statusCode, detail.error)
             }
             let where_ = response.url?.path ?? "the server"
-            throw SiteError.message("\(http.statusCode) from \(where_). The app asked for something that is not there.")
+            throw SiteError.status(http.statusCode, "\(http.statusCode) from \(where_). The app asked for something that is not there.")
         }
     }
 
