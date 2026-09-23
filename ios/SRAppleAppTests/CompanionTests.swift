@@ -41,8 +41,9 @@ final class CompanionTests: XCTestCase {
     // MARK: Sync progress and pause (stale-error / outbox-rewrite fix)
 
     func testRetryDelayChoosesFiveSecondsOnlyAfterProgress() {
-        XCTAssertEqual(retryDelay(madeProgress: true), 5)
-        XCTAssertEqual(retryDelay(madeProgress: false), 60)
+        XCTAssertEqual(retryDelay(madeProgress: true, transient: true), 5)
+        XCTAssertEqual(retryDelay(madeProgress: false, transient: true), 60)
+        XCTAssertEqual(retryDelay(madeProgress: true, transient: false), 60, "a refusal or breaker trip must not be retried fast")
     }
     func testTransientNetworkFailuresReadAsPausedNotStale() {
         let transient: [URLError.Code] = [

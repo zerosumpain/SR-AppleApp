@@ -19,10 +19,11 @@ func isTransientUploadFailure(_ error: Error) -> Bool {
     ]
     return transient.contains(code)
 }
-/// A flush that got at least one batch through is worth retrying soon — the
-/// backfill it interrupted is still moving. One that accepted nothing waits
-/// the old 60 s, so a systemic failure does not hammer the server.
-func retryDelay(madeProgress: Bool) -> TimeInterval { madeProgress ? 5 : 60 }
+/// A flush that got at least one batch through and then lost the NETWORK is
+/// worth retrying soon — the backfill it interrupted is still moving. Anything
+/// else waits the old 60 s: a flush that accepted nothing, and a server
+/// refusal or breaker trip, which a fast retry would only repeat.
+func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgress && transient ? 5 : 60 }
 
 @MainActor final class Companion: ObservableObject {
     let api = API()
@@ -222,7 +223,7 @@ func retryDelay(madeProgress: Bool) -> TimeInterval { madeProgress ? 5 : 60 }
                 ? withHealthNotes("Upload paused — \(queueCount) record\(queueCount == 1 ? "" : "s") left; it will resume automatically.", dropped: dropped)
                 : withHealthNotes("Upload pending: \(error.localizedDescription)", dropped: dropped)
             retryTask?.cancel()
-            let delay = retryDelay(madeProgress: madeProgress)
+            let delay = retryDelay(madeProgress: madeProgress, transient: isTransientUploadFailure(error))
             retryTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
