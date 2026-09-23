@@ -24,6 +24,7 @@ import BackgroundTasks
         location.onUpdate = { [weak self] in Task { await self?.flush() } }
         updateQueue()
         if paired { health.startObservers(); location.start() }
+        if paired && health.needsPermissionReview { message = "Apple Health has new categories. Tap Review Apple Health permissions to allow them." }
     }
     func updateQueue() { queueCount = outbox.state.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }; lastUpload = outbox.state.lastUpload }
     func pair(server: String, code: String) async {
@@ -78,7 +79,7 @@ import BackgroundTasks
         updateQueue()
     }
     /// `collectingFor`: 120 s in the foreground; a background refresh passes
-    /// 25 s so the upload and the notification pass still fit its budget.
+    /// 15 s so the upload and the notification pass still fit its budget.
     func sync(collectingFor seconds: TimeInterval = 120) async {
         guard paired, !busy else { return }
         busy = true; defer { busy = false }
@@ -117,7 +118,9 @@ import BackgroundTasks
                 let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(batch))
                 try outbox.change { $0.batches.removeAll { $0.id == batch.id }; $0.lastUpload = Date() }
             }
-            message = "Up to date with the server."
+            message = health.needsPermissionReview
+                ? "Apple Health has new categories. Tap Review Apple Health permissions to allow them."
+                : "Up to date with the server."
             retryTask?.cancel(); retryTask = nil
         } catch {
             message = "Upload pending: \(error.localizedDescription)"

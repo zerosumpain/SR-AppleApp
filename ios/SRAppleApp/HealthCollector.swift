@@ -25,19 +25,25 @@ private final class RouteGathering: @unchecked Sendable {
 
     init(outbox: Outbox) {
         self.outbox = outbox
-        // Pre-catalogue installs: per-kind toggles become groups, and the
-        // workout anchor is dropped so every workout since historyStart is
-        // re-read WITH its route, series and events (the switch needs them).
+        // Pre-catalogue installs: per-kind toggles become groups. The workout
+        // re-read waits for `authorize()` (version 1 → 2): the widened groups
+        // include types the reader has never been asked for, and a re-read
+        // before they are granted would move the anchor past every workout
+        // without its series or route.
         if outbox.state.catalogueVersion == 0 {
             try? outbox.change {
                 $0.healthEnabled = HealthCatalogue.migrate($0.healthEnabled)
-                $0.anchors.removeValue(forKey: "workout")
                 $0.catalogueVersion = 1
             }
         }
     }
 
     var enabledKinds: [String] { HealthCatalogue.kinds(inGroups: outbox.state.healthEnabled) }
+
+    /// An upgraded install whose new categories have not been put to the reader yet.
+    var needsPermissionReview: Bool {
+        outbox.state.catalogueVersion < PersistedState.currentCatalogueVersion && !outbox.state.healthEnabled.isEmpty
+    }
 
     private static func quantityType(_ id: HKQuantityTypeIdentifier) -> HKQuantityType {
         HKQuantityType.quantityType(forIdentifier: id)!
@@ -66,6 +72,16 @@ private final class RouteGathering: @unchecked Sendable {
         guard !types.isEmpty else { return }
         try await store.requestAuthorization(toShare: [], read: types)
         // Completion means the permission sheet finished, not that read access was granted.
+        // First time on the catalogue: now that the reader has been asked,
+        // re-read every workout since historyStart WITH its route, series and
+        // events. No await between this and `startObservers()`, whose
+        // generation bump stops an in-flight pass committing the old anchor.
+        if outbox.state.catalogueVersion < PersistedState.currentCatalogueVersion {
+            try outbox.change {
+                $0.anchors.removeValue(forKey: "workout")
+                $0.catalogueVersion = PersistedState.currentCatalogueVersion
+            }
+        }
         startObservers()
     }
 
@@ -125,19 +141,37 @@ private final class RouteGathering: @unchecked Sendable {
         let live: () -> Bool = { self.generation == startedGeneration }
         for kind in enabledKinds {
             guard Date() < deadline, live() else { return }   // the rest resumes from anchors next wake
-            switch HealthReadings.reading(for: kind) {
-            case .dailySteps:
-                try await steps(generation: startedGeneration)
-            case .hourly(let id, let unit, let options, let scale):
-                try await hourly(kind: kind, id: id, unit: unit, options: options, scale: scale, live: live)
-            case .sample, .standHour, .mindful, .stateOfMind, .sleep:
-                try await anchored(kind: kind, deadline: deadline, live: live)
-            case .workout:
-                try await anchored(kind: kind, deadline: deadline, live: live)
-                try await retryRoutes(deadline: deadline, live: live)
-            case .workoutPart, nil:
+            // One kind's failure (typically a type the reader has not been
+            // asked for yet: errorAuthorizationNotDetermined) skips that kind
+            // only. Its anchor has not moved, so it resumes once granted.
+            do {
+                try await pass(kind: kind, deadline: deadline, generation: startedGeneration, live: live)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                failures[kind] = error.localizedDescription
                 continue
             }
+            failures.removeValue(forKey: kind)
+        }
+    }
+
+    /// The last error per kind, cleared when that kind's pass next succeeds.
+    private(set) var failures: [String: String] = [:]
+
+    private func pass(kind: String, deadline: Date, generation startedGeneration: Int, live: () -> Bool) async throws {
+        switch HealthReadings.reading(for: kind) {
+        case .dailySteps:
+            try await steps(generation: startedGeneration)
+        case .hourly(let id, let unit, let options, let scale):
+            try await hourly(kind: kind, id: id, unit: unit, options: options, scale: scale, live: live)
+        case .sample, .standHour, .mindful, .stateOfMind, .sleep:
+            try await anchored(kind: kind, deadline: deadline, live: live)
+        case .workout:
+            try await anchored(kind: kind, deadline: deadline, live: live)
+            try await retryRoutes(deadline: deadline, live: live)
+        case .workoutPart, nil:
+            return
         }
     }
 
@@ -157,6 +191,7 @@ private final class RouteGathering: @unchecked Sendable {
             try Task.checkCancellation()
             var records: [HealthRecord] = []
             for sample in found {
+                try Task.checkCancellation()
                 if kind == "workout", let w = sample as? HKWorkout {
                     let parts = try await workoutRecords(w)
                     records += parts
@@ -309,8 +344,8 @@ private final class RouteGathering: @unchecked Sendable {
     private static func points(_ samples: [HKSample], unit: HKUnit) -> [[Double?]] {
         var out: [[Double?]] = []
         for sample in samples {
-            guard let q = sample as? HKQuantitySample else { continue }
-            let point: [Double?] = [sample.startDate.timeIntervalSince1970.rounded(), q.quantity.doubleValue(for: unit)]
+            guard let q = sample as? HKQuantitySample,
+                  let point = HealthBatching.seriesPoint(epoch: sample.startDate.timeIntervalSince1970, value: q.quantity.doubleValue(for: unit)) else { continue }
             out.append(point)
         }
         return out
@@ -398,7 +433,9 @@ private final class RouteGathering: @unchecked Sendable {
                 let altitude: Double? = l.verticalAccuracy >= 0 ? l.altitude : nil
                 let speed: Double? = l.speed >= 0 ? l.speed : nil
                 let accuracy: Double? = l.horizontalAccuracy >= 0 ? l.horizontalAccuracy : nil
-                let point: [Double?] = [l.timestamp.timeIntervalSince1970.rounded(), l.coordinate.latitude, l.coordinate.longitude, altitude, speed, accuracy]
+                // Bounds-checked: one point the server refuses sinks the batch.
+                guard let point = HealthBatching.routePoint(epoch: l.timestamp.timeIntervalSince1970, latitude: l.coordinate.latitude, longitude: l.coordinate.longitude,
+                                                            altitude: altitude, speed: speed, accuracy: accuracy) else { continue }
                 points.append(point)
             }
         }

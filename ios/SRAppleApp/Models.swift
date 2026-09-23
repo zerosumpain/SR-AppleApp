@@ -97,8 +97,14 @@ struct PersistedState: Codable {
     /// by itself has to be watchable: "slept all night and saved a fortune" and
     /// "stopped recording at nine and nobody noticed" look identical without it.
     var gateEvents: [GateEvent] = []
-    /// 0 = toggles are per-kind (pre-catalogue); 1 = toggles are groups.
-    var catalogueVersion = 0
+    /// 0 = toggles are per-kind (pre-catalogue); 1 = toggles are groups, but
+    /// workouts collected before the catalogue still lack their series, route
+    /// and events; 2 = workouts re-read with depth, after the reader granted the
+    /// new permissions. Fresh state (a new install, or `clear()` on re-pair)
+    /// starts at the current version: it has nothing old to migrate. A file on
+    /// disk without the key decodes as 0 (below).
+    static let currentCatalogueVersion = 2
+    var catalogueVersion = PersistedState.currentCatalogueVersion
     /// Where each hourly-statistics kind resumes. Re-reads the last 48 hours
     /// every pass, because a Watch can sync a day late.
     var hourlyFrom: [String: Date] = [:]

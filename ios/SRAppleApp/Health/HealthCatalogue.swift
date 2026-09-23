@@ -39,8 +39,11 @@ enum HealthCatalogue {
     /// The server's rule, applied before a record is queued. A record the
     /// server would refuse is dropped here, because a refused batch is retried
     /// forever and holds every later upload behind it.
-    static func accepts(_ r: HealthRecord) -> Bool {
+    static func accepts(_ r: HealthRecord, now: Date = Date()) -> Bool {
         guard let spec = file.kinds[r.kind] else { return false }
+        // The server refuses an end more than five minutes ahead, or before the start.
+        guard let start = parseTimestamp(r.start), let end = parseTimestamp(r.end),
+              end >= start, end.timeIntervalSince(now) <= 300 else { return false }
         switch spec.shape {
         case "sample", "hourly", "event", "daily", "workout":
             guard let value = r.value, value.isFinite, let lo = spec.min, let hi = spec.max else { return false }

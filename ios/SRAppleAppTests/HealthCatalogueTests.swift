@@ -68,4 +68,39 @@ final class HealthCatalogueTests: XCTestCase {
         XCTAssertTrue(HKQuantityType.quantityType(forIdentifier: .vo2Max)!.is(compatibleWith: HealthReadings.vo2Unit))
         XCTAssertEqual(HKQuantity(unit: HealthReadings.vo2Unit, doubleValue: 45).doubleValue(for: HealthReadings.vo2Unit), 45)
     }
+    func testFreshStateStartsAtTheCurrentCatalogueVersion() throws {
+        XCTAssertEqual(PersistedState().catalogueVersion, PersistedState.currentCatalogueVersion)
+        XCTAssertEqual(try JSONDecoder().decode(PersistedState.self, from: Data("{}".utf8)).catalogueVersion, 0,
+                       "a state file from before the catalogue must still migrate")
+    }
+
+    @MainActor func testRePairingDoesNotRerunTheMigration() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
+        try outbox.clear()
+        XCTAssertEqual(outbox.state.catalogueVersion, PersistedState.currentCatalogueVersion)
+    }
+
+    func testARecordEndingInTheFutureIsRefused() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var r = HealthRecord(id: "x", kind: "heart_rate", start: timestamp(now), end: timestamp(now.addingTimeInterval(240)), value: 60, unit: "bpm", source: "Watch")
+        XCTAssertTrue(HealthCatalogue.accepts(r, now: now), "under five minutes ahead is clock skew, and the server allows it")
+        r.end = timestamp(now.addingTimeInterval(360))
+        XCTAssertFalse(HealthCatalogue.accepts(r, now: now))
+        r.end = timestamp(now.addingTimeInterval(-60))
+        XCTAssertFalse(HealthCatalogue.accepts(r, now: now), "an end before the start is refused too")
+    }
+
+    func testRoutePointsKeepToTheServersBounds() {
+        let ok = HealthBatching.routePoint(epoch: 1_790_000_000.4, latitude: 51.5, longitude: -0.1, altitude: 30, speed: 3, accuracy: 5)
+        XCTAssertEqual(ok, [1_790_000_000, 51.5, -0.1, 30, 3, 5])
+        let wild = HealthBatching.routePoint(epoch: 1_790_000_000, latitude: 51.5, longitude: -0.1, altitude: 12_000, speed: 500, accuracy: 20_000)
+        XCTAssertEqual(wild, [1_790_000_000, 51.5, -0.1, nil, nil, nil], "a wild altitude, speed or accuracy is dropped, not the point")
+        XCTAssertNil(HealthBatching.routePoint(epoch: 1_790_000_000, latitude: 91, longitude: 0, altitude: nil, speed: nil, accuracy: nil))
+        XCTAssertNil(HealthBatching.routePoint(epoch: 1_790_000_000, latitude: 0, longitude: .nan, altitude: nil, speed: nil, accuracy: nil))
+        XCTAssertNil(HealthBatching.seriesPoint(epoch: 1_790_000_000, value: .infinity))
+        XCTAssertNil(HealthBatching.seriesPoint(epoch: 1_790_000_000, value: 2e6))
+        XCTAssertEqual(HealthBatching.seriesPoint(epoch: 1_790_000_000, value: 142), [1_790_000_000, 142])
+    }
 }
