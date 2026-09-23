@@ -30,7 +30,9 @@ enum TrailSamples {
           "energyKcal": 512,
           "hasTrack": true,
           "segmentCount": 3,
-          "highlight": { "label": "2nd best", "detail": "heron.slate.ridge, 4:12" }
+          "highlight": { "label": "2nd best", "detail": "heron.slate.ridge, 4:12" },
+          "source": "apple",
+          "alsoFrom": ["companion"]
         },
         {
           "id": "strava:1234567",
@@ -107,6 +109,27 @@ enum TrailSamples {
         { "segmentId": 57, "name": "wren.amber.causeway", "descriptor": "0.4 km, flat", "distanceM": 402,
           "durationS": 101, "paceSPerKm": 251.2, "avgHeartrate": 158, "rankByTime": 1, "rankedByTimeOf": 4, "effortCount": 4 }
       ]
+    }
+    """
+
+    /// An outing the SR app captured from background location: a walk by
+    /// speed, a partial track, no elevation, no heart rate, no segments.
+    static let capturedActivity = """
+    {
+      "activity": {
+        "id": "companion:1727000000",
+        "name": "Captured walk",
+        "activityType": "walk",
+        "startDate": "2026-09-21T12:40:00.000Z",
+        "startDateLocal": "2026-09-21 13:40:00 +0100",
+        "distanceM": 2410, "durationS": 1935, "movingS": null,
+        "elevationGainM": null, "avgHeartrate": null, "paceSPerKm": 803,
+        "energyKcal": null, "hasTrack": true, "segmentCount": 0, "highlight": null,
+        "source": "companion", "alsoFrom": [],
+        "route": [[40.7680, -73.9810], [40.7712, -73.9790], [40.7745, -73.9760], [40.7790, -73.9700]],
+        "bounds": { "n": 40.7790, "s": 40.7680, "e": -73.9700, "w": -73.9810 }
+      },
+      "physio": null
     }
     """
 
@@ -329,9 +352,127 @@ final class TrailFormatTests: XCTestCase {
         let figures = ActivityHero.figures(detail.activity.row)
         XCTAssertEqual(figures.map(\.label), ["Distance", "Moving", "Pace", "Climb", "Avg HR", "Energy"])
         XCTAssertEqual(figures.filter(\.lit).count, 1)
-        XCTAssertEqual(ActivityHero.sourceLabel("apple", id: "x"), "Apple Health")
-        XCTAssertEqual(ActivityHero.sourceLabel(nil, id: "strava:1"), "Strava")
     }
+}
+
+/// Where an activity came from — decoded tolerantly, and worded as the
+/// website words it.
+final class ActivityOriginTests: XCTestCase {
+
+    private func row(_ fields: String, id: String = "apple:X") throws -> ActivityRow {
+        try TrailSamples.decode(#"{ "id": "\#(id)", "name": "Walk", "durationS": 60\#(fields) }"#)
+    }
+
+    func testSourceAndAlsoFromDecodeWhenPresent() throws {
+        let page: ActivitiesPage = try TrailSamples.decode(TrailSamples.activities)
+        XCTAssertEqual(page.activities[0].source, "apple")
+        XCTAssertEqual(page.activities[0].alsoFrom, ["companion"])
+
+        let captured: ActivityDetailResponse = try TrailSamples.decode(TrailSamples.capturedActivity)
+        XCTAssertEqual(captured.activity.row.source, "companion")
+        XCTAssertEqual(captured.activity.source, "companion", "the detail reads the same key as its row")
+        XCTAssertEqual(captured.activity.row.origin, "companion")
+        XCTAssertTrue(captured.activity.row.alsoFrom.isEmpty)
+    }
+
+    func testAbsentFieldsDefaultAndTheIdStandsIn() throws {
+        let page: ActivitiesPage = try TrailSamples.decode(TrailSamples.activities)
+        let ride = page.activities[1]
+        XCTAssertNil(ride.source)
+        XCTAssertEqual(ride.alsoFrom, [])
+        XCTAssertEqual(ride.origin, "strava", "an older server sent no source; the id prefix says it")
+        XCTAssertEqual(ride.originLine, "Strava")
+
+        let bare = try row("", id: "no-prefix")
+        XCTAssertNil(bare.source)
+        XCTAssertEqual(bare.origin, "")
+        XCTAssertEqual(bare.originLine, "", "nothing to say, so the row says nothing")
+    }
+
+    func testMalformedFieldsCostOnlyThemselves() throws {
+        let wrongTypes = try row(#", "source": 42, "alsoFrom": "companion""#)
+        XCTAssertNil(wrongTypes.source)
+        XCTAssertEqual(wrongTypes.alsoFrom, [])
+        XCTAssertEqual(wrongTypes.origin, "apple")
+        XCTAssertEqual(wrongTypes.name, "Walk", "the rest of the row still decoded")
+
+        let nulls = try row(#", "source": null, "alsoFrom": null"#)
+        XCTAssertNil(nulls.source)
+        XCTAssertEqual(nulls.alsoFrom, [])
+
+        let blanks = try row(#", "source": "  ", "alsoFrom": ["", "companion"]"#)
+        XCTAssertNil(blanks.source)
+        XCTAssertEqual(blanks.alsoFrom, ["companion"])
+
+        let mixed = try row(#", "alsoFrom": ["companion", 7]"#)
+        XCTAssertEqual(mixed.alsoFrom, [], "a list with a non-string in it is unreadable, not half-read")
+    }
+
+    func testEveryOriginHasTheWebsitesLabel() {
+        XCTAssertEqual(ActivityOrigin.label("apple"), "Apple Health")
+        XCTAssertEqual(ActivityOrigin.label("companion"), "SR app")
+        XCTAssertEqual(ActivityOrigin.label("recorded"), "Site recorder")
+        XCTAssertEqual(ActivityOrigin.label("strava"), "Strava")
+        XCTAssertEqual(ActivityOrigin.label("whoop"), "WHOOP")
+        XCTAssertEqual(ActivityOrigin.label("manual"), "Manual")
+        XCTAssertEqual(ActivityOrigin.label("Companion"), "SR app")
+        XCTAssertEqual(ActivityOrigin.label("healthkit"), "Apple Health")
+        // Unknown: the raw key, capitalised, never a blank.
+        XCTAssertEqual(ActivityOrigin.label("garmin"), "Garmin")
+        XCTAssertEqual(ActivityOrigin.label("polar_flow"), "Polar Flow")
+        XCTAssertEqual(ActivityOrigin.label(""), "")
+    }
+
+    func testTheKeyFallsBackToTheIdPrefix() {
+        XCTAssertEqual(ActivityOrigin.key(nil, id: "companion:1727000000"), "companion")
+        XCTAssertEqual(ActivityOrigin.key("", id: "strava:1"), "strava")
+        XCTAssertEqual(ActivityOrigin.key("whoop", id: "apple:X"), "whoop", "an explicit source wins over the id")
+        XCTAssertEqual(ActivityOrigin.key(nil, id: "plain"), "")
+    }
+
+    func testTheRowLine() {
+        XCTAssertEqual(ActivityOrigin.line("apple", alsoFrom: []), "Apple Health")
+        XCTAssertEqual(ActivityOrigin.line("apple", alsoFrom: ["companion"]), "Apple Health · also SR app")
+        XCTAssertEqual(ActivityOrigin.line("apple", alsoFrom: ["companion", "companion", "apple"]), "Apple Health · also SR app")
+        XCTAssertEqual(ActivityOrigin.line("companion", alsoFrom: []), "SR app · captured")
+        XCTAssertEqual(ActivityOrigin.line("", alsoFrom: ["companion"]), "")
+    }
+
+    func testTheDetailExplainsACapturedOutingAndAFoldedOne() throws {
+        let captured: ActivityDetailResponse = try TrailSamples.decode(TrailSamples.capturedActivity)
+        XCTAssertEqual(ActivityOriginNote.sentences(captured.activity.row), [
+            "Captured in the background by the SR app's movement tracking — no workout was started. The type is inferred from speed, there is no elevation, and the app keeps location for 30 days.",
+        ])
+
+        let page: ActivitiesPage = try TrailSamples.decode(TrailSamples.activities)
+        let folded = ActivityOriginNote.sentences(page.activities[0])
+        XCTAssertEqual(folded.count, 2)
+        XCTAssertEqual(folded.last, "The SR app also captured this outing; the Apple Health workout is shown instead because the Watch measured it.")
+        XCTAssertNil(ActivityOrigin.foldedNote("apple", alsoFrom: []))
+        XCTAssertNotNil(ActivityOrigin.explanation("mystery"))
+    }
+
+    #if DEBUG
+    /// The `-SRDemo` fixtures are what the showcase screenshots draw, so they
+    /// must decode against these same models.
+    func testTheDemoFixturesCarryBothOrigins() throws {
+        let base = "https://demo.invalid/"
+        let list = SRDemoFixtures.reply(method: "GET", url: URL(string: base + "api/native/health/activities?limit=30")!, body: nil)
+        let page = try JSONDecoder().decode(ActivitiesPage.self, from: list.body)
+        let captured = try XCTUnwrap(page.activities.first { $0.origin == "companion" })
+        XCTAssertEqual(captured.originLine, "SR app · captured")
+        XCTAssertNil(captured.elevationGainM)
+        XCTAssertTrue(page.activities.contains { $0.origin == "apple" && $0.alsoFrom == ["companion"] })
+
+        let path = "api/native/health/activities/" + captured.id.replacingOccurrences(of: ":", with: "%3A")
+        let reply = SRDemoFixtures.reply(method: "GET", url: URL(string: base + path)!, body: nil)
+        XCTAssertEqual(reply.status, 200)
+        let detail = try JSONDecoder().decode(ActivityDetailResponse.self, from: reply.body)
+        XCTAssertEqual(detail.activity.source, "companion")
+        XCTAssertTrue(detail.activity.elevation.isEmpty)
+        XCTAssertFalse(detail.activity.route.isEmpty)
+    }
+    #endif
 }
 
 /// An activity id carries a colon, and it must arrive at the server escaped
@@ -422,6 +563,17 @@ final class TrailSnapshotTests: XCTestCase {
                 .navigationBarTitleDisplayMode(.inline),
             name: "Activity — ink hero, map, charts, splits",
             height: 2600
+        )
+    }
+
+    @MainActor func testTheCapturedActivityDetail() throws {
+        let detail: ActivityDetailResponse = try TrailSamples.decode(TrailSamples.capturedActivity)
+        snapshot(
+            ActivityDetailBody(detail: detail)
+                .navigationTitle(detail.activity.row.name)
+                .navigationBarTitleDisplayMode(.inline),
+            name: "Activity — captured by the SR app",
+            height: 1400
         )
     }
 

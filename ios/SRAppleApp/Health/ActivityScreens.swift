@@ -157,6 +157,9 @@ struct ActivityDetailBody: View {
             VStack(alignment: .leading, spacing: 0) {
                 ActivityHero(detail: activity)
                 VStack(alignment: .leading, spacing: 30) {
+                    if !row.origin.isEmpty {
+                        ActivityOriginNote(row: row)
+                    }
                     if !activity.route.isEmpty {
                         RouteMap(route: activity.route)
                     }
@@ -317,18 +320,8 @@ struct ActivityHero: View {
     }
 
     private var kicker: String {
-        let source = Self.sourceLabel(detail.source, id: row.id)
+        let source = ActivityOrigin.label(row.origin)
         return source.isEmpty ? Sport.label(row.activityType) : "\(Sport.label(row.activityType)) · \(source)"
-    }
-
-    static func sourceLabel(_ source: String?, id: String) -> String {
-        let raw = (source?.isEmpty == false ? source! : String(id.split(separator: ":").first ?? "")).lowercased()
-        switch raw {
-        case "apple", "apple_health", "healthkit", "hae": return "Apple Health"
-        case "strava": return "Strava"
-        case "": return ""
-        default: return raw.replacingOccurrences(of: "_", with: " ").capitalized
-        }
     }
 
     /// Distance lit, because it is the figure the activity is remembered by.
@@ -353,6 +346,47 @@ struct ActivityHero: View {
             figures.append(SRInkFigure(label: "Energy", value: "\(Int(kcal.rounded()))", unit: "kcal"))
         }
         return figures
+    }
+}
+
+/// Where this activity came from, and what that means for its figures.
+///
+/// Directly under the hero rather than at the foot: for an outing the SR app
+/// captured, "the type is a guess and there is no elevation" is how the
+/// numbers above it should be read, so it belongs next to them.
+struct ActivityOriginNote: View {
+    let row: ActivityRow
+
+    var body: some View {
+        TrailSection(title: "Source") {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: ActivityOrigin.icon(row.origin))
+                    .font(SR.Text.label(13))
+                    .foregroundStyle(SR.accent)
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ActivityOrigin.label(row.origin))
+                        .font(SR.Text.bodyMedium(15))
+                        .foregroundStyle(SR.ink)
+                    ForEach(Self.sentences(row), id: \.self) { sentence in
+                        Text(sentence)
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// What the origin means, then why a duplicate is missing, if one is.
+    static func sentences(_ row: ActivityRow) -> [String] {
+        [
+            ActivityOrigin.explanation(row.origin),
+            ActivityOrigin.foldedNote(row.origin, alsoFrom: row.alsoFrom),
+        ].compactMap { $0 }
     }
 }
 

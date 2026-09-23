@@ -51,10 +51,19 @@ struct ActivityRow: Decodable, Identifiable, Hashable {
     let hasTrack: Bool
     let segmentCount: Int
     let highlight: ActivityHighlight?
+    /// `apple`, `companion`, `recorded`, `strava`, `whoop`, `manual` — or a key
+    /// this build has not heard of. Nil when the server did not say; the id's
+    /// prefix then stands in (see `origin`).
+    let source: String?
+    /// Origins whose copy of this same outing was folded into this row. In
+    /// practice `["companion"]` on an Apple Health workout the SR app's
+    /// background tracking also caught. Usually empty.
+    let alsoFrom: [String]
 
     private enum CodingKeys: String, CodingKey {
         case id, name, activityType, startDate, startDateLocal, distanceM, durationS, movingS
         case elevationGainM, avgHeartrate, paceSPerKm, energyKcal, hasTrack, segmentCount, highlight
+        case source, alsoFrom
     }
 
     init(from decoder: Decoder) throws {
@@ -74,7 +83,16 @@ struct ActivityRow: Decodable, Identifiable, Hashable {
         hasTrack = (c.maybe(.hasTrack) as Bool?) ?? false
         segmentCount = (c.maybe(.segmentCount) as Int?) ?? 0
         highlight = c.maybe(.highlight)
+        let rawSource = (c.maybe(.source) as String?)?.trimmingCharacters(in: .whitespaces)
+        source = rawSource?.isEmpty == false ? rawSource : nil
+        alsoFrom = (c.list(.alsoFrom) as [String]).filter { !$0.isEmpty }
     }
+
+    /// The normalised origin key — `source`, or the id's prefix without one.
+    var origin: String { ActivityOrigin.key(source, id: id) }
+
+    /// "Apple Health · also SR app" — the quiet provenance line on a row.
+    var originLine: String { ActivityOrigin.line(origin, alsoFrom: alsoFrom) }
 
     /// Moving time where the source measured it, elapsed otherwise.
     var timeS: Double { movingS ?? durationS }
@@ -150,7 +168,6 @@ struct ActivityDetail: Decodable, Hashable {
     let elevationLossM: Double?
     let temperatureC: Double?
     let timezone: String?
-    let source: String?
     /// [lat, lng], downsampled by the server. Empty when there was no track.
     let route: [CLLocationCoordinate2D]
     let bounds: ActivityBounds?
@@ -159,7 +176,7 @@ struct ActivityDetail: Decodable, Hashable {
     let splits: [ActivitySplit]
 
     private enum CodingKeys: String, CodingKey {
-        case maxHeartrate, avgCadence, elevationLossM, temperatureC, timezone, source
+        case maxHeartrate, avgCadence, elevationLossM, temperatureC, timezone
         case route, bounds, elevation, heartRate, splits
     }
 
@@ -171,7 +188,6 @@ struct ActivityDetail: Decodable, Hashable {
         elevationLossM = c.maybe(.elevationLossM)
         temperatureC = c.maybe(.temperatureC)
         timezone = c.maybe(.timezone)
-        source = c.maybe(.source)
         route = Self.coordinates(c.list(.route))
         bounds = c.maybe(.bounds)
         elevation = c.list(.elevation)
@@ -188,6 +204,9 @@ struct ActivityDetail: Decodable, Hashable {
             return CLLocationCoordinate2D(latitude: pair[0], longitude: pair[1])
         }
     }
+
+    /// The row decodes `source` from this same object, so it is read once.
+    var source: String? { row.source }
 
     static func == (lhs: ActivityDetail, rhs: ActivityDetail) -> Bool { lhs.row == rhs.row }
     func hash(into hasher: inout Hasher) { hasher.combine(row) }

@@ -353,6 +353,14 @@ enum SRDemoFixtures {
         let segmentCount: Int
         let highlightLabel: String?
         let highlightDetail: String?
+        /// Origins whose copy of this outing the server folded into this row.
+        var alsoFrom: [String] = []
+
+        /// `apple`, `strava`, `companion` — the id's own prefix.
+        var source: String { String(id.split(separator: ":").first ?? "apple") }
+        /// Captured by the app from location: no workout, so no elevation or
+        /// heart rate, and a type guessed from speed.
+        var captured: Bool { source == "companion" }
     }
 
     static let demoActivities: [DemoActivity] = [
@@ -360,6 +368,12 @@ enum SRDemoFixtures {
                      minutesAgo: 60 * 5, distanceM: 7423.4, durationS: 2533, movingS: 2470, gainM: 58.2,
                      avgHR: 148.6, pace: 332.7, kcal: 512, hasTrack: true, segmentCount: 3,
                      highlightLabel: "2nd best", highlightDetail: "heron.slate.ridge, 4:12"),
+        // An outing the app caught itself from background location: no
+        // workout was started, so no heart rate, no elevation, no energy.
+        DemoActivity(id: "companion:1758560400", name: "Captured walk", type: "walk",
+                     minutesAgo: 60 * 19, distanceM: 2410, durationS: 1935, movingS: nil, gainM: nil,
+                     avgHR: nil, pace: 803, kcal: nil, hasTrack: true, segmentCount: 0,
+                     highlightLabel: nil, highlightDetail: nil),
         DemoActivity(id: "strava:1234567", name: "Evening ride", type: "ride",
                      minutesAgo: 60 * 27, distanceM: 32180, durationS: 4210, movingS: 4050, gainM: 310,
                      avgHR: 138, pace: 125.9, kcal: 820, hasTrack: true, segmentCount: 2,
@@ -371,7 +385,7 @@ enum SRDemoFixtures {
         DemoActivity(id: "apple:1B2C3D4E-5F60-4B7C-9D8E-1F2A3B4C5D6E", name: "Lunch walk", type: "walk",
                      minutesAgo: 60 * 76, distanceM: 3120, durationS: 2280, movingS: 2200, gainM: 12,
                      avgHR: 96, pace: 705, kcal: 180, hasTrack: true, segmentCount: 0,
-                     highlightLabel: nil, highlightDetail: nil),
+                     highlightLabel: nil, highlightDetail: nil, alsoFrom: ["companion"]),
         DemoActivity(id: "strava:1234512", name: "Long run", type: "run",
                      minutesAgo: 60 * 24 * 5 + 180, distanceM: 16104, durationS: 5820, movingS: 5710, gainM: 142,
                      avgHR: 151, pace: 354.6, kcal: 1130, hasTrack: true, segmentCount: 4,
@@ -402,7 +416,8 @@ enum SRDemoFixtures {
         "distanceM": \(n(a.distanceM)), "durationS": \(n(a.durationS)), "movingS": \(n(a.movingS)),
         "elevationGainM": \(n(a.gainM)), "avgHeartrate": \(n(a.avgHR)), "paceSPerKm": \(n(a.pace)),
         "energyKcal": \(n(a.kcal)), "hasTrack": \(b(a.hasTrack)), "segmentCount": \(a.segmentCount),
-        "highlight": \(highlight)
+        "highlight": \(highlight),
+        "source": \(s(a.source)), "alsoFrom": \(list(a.alsoFrom.map { s($0) }))
         """
     }
 
@@ -446,11 +461,12 @@ enum SRDemoFixtures {
         guard let a = demoActivities.first(where: { $0.id == id }) else { return nil }
         let distance = a.distanceM ?? 0
         let time = a.movingS ?? a.durationS
-        let route = a.hasTrack ? loop() : []
+        // A captured walk covers only part of the loop — it is 2.4 km, not 6.
+        let route = a.hasTrack ? (a.captured ? Array(loop().prefix(28)) : loop()) : []
 
         // Elevation: rolling, the park's own gentle hills.
         var elevation: [String] = []
-        if a.hasTrack, distance > 0 {
+        if a.hasTrack, distance > 0, !a.captured {
             for i in 0...40 {
                 let d = distance * Double(i) / 40
                 let x = Double(i) / 40 * 2 * Double.pi
@@ -483,7 +499,7 @@ enum SRDemoFixtures {
             for k in 1...whole {
                 let p = (pace + 9 * sin(Double(k) * 1.7) + (k == whole ? -6 : 0)).rounded()
                 let gain = max(0, (6 * sin(Double(k) * 1.1) + 5).rounded())
-                splits.append("{\"index\": \(k), \"distanceM\": 1000, \"durationS\": \(n(p)), \"paceSPerKm\": \(n(p)), \"elevationGainM\": \(n(gain))}")
+                splits.append("{\"index\": \(k), \"distanceM\": 1000, \"durationS\": \(n(p)), \"paceSPerKm\": \(n(p)), \"elevationGainM\": \(a.captured ? "null" : n(gain))}")
             }
             let rest = distance - Double(whole) * 1000
             if rest >= 50 {
@@ -507,7 +523,7 @@ enum SRDemoFixtures {
         if let label = a.highlightLabel, let detail = a.highlightDetail {
             highlights.append("{\"label\": \(s(label)), \"detail\": \(s(detail))}")
         }
-        if !splits.isEmpty {
+        if splits.count >= 4 {
             highlights.append("{\"label\": \"Fastest km\", \"detail\": \"Kilometre 4, a touch under target\"}")
         }
 
@@ -522,7 +538,7 @@ enum SRDemoFixtures {
             \(rowFields(a, clock)),
             "maxHeartrate": \(n(a.avgHR.map { ($0 + 23).rounded() })), "avgCadence": \(a.type == "run" ? "168" : "null"),
             "elevationLossM": \(n(a.gainM.map { ($0 * 0.95).rounded() })), "temperatureC": 12.5,
-            "timezone": "America/New_York", "source": \(s(a.id.hasPrefix("strava:") ? "strava" : "apple")),
+            "timezone": "America/New_York",
             "route": \(routeJSON(route)),
             "bounds": \(boundsJSON(route)),
             "elevation": \(list(elevation)),

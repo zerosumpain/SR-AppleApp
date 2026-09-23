@@ -147,6 +147,37 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Activity detail, scrolled further")
     }
 
+    /// An outing the SR app caught by itself: the origin note under the hero is
+    /// the thing to look at.
+    @MainActor func testShowcaseCapturedWalk() {
+        let app = launch()
+        openTab(app, "Health")
+
+        let all = app.buttons["health-all-activities"]
+        if scroll(app, to: all) {
+            all.tap()
+            settle(app)
+        } else {
+            soft(false, "no route to the activities list; trying a recent row")
+        }
+
+        let walk = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Captured walk")
+        ).firstMatch
+        let walkText = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Captured walk")
+        ).firstMatch
+        if walk.waitForExistence(timeout: 10) {
+            walk.tap()
+        } else if walkText.waitForExistence(timeout: 5) {
+            walkText.tap()
+        } else {
+            soft(false, "no captured walk to open")
+        }
+        settle(app, seconds: 4)
+        attach(app, "Showcase — Captured walk")
+    }
+
     @MainActor func testShowcaseSegments() {
         let app = launch()
         openTab(app, "Health")
