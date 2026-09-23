@@ -32,6 +32,44 @@ final class HealthCatalogueTests: XCTestCase {
         }
     }
 
+    func testRingGoalsAreReadFromTheActivitySummaryNotObserved() {
+        for kind in ["move_goal", "exercise_goal", "stand_goal"] {
+            XCTAssertTrue(HealthReadings.isActivityGoal(kind), kind)
+            XCTAssertNil(HealthReadings.sampleType(for: kind), "\(kind): HKActivitySummary cannot be observed")
+        }
+        XCTAssertEqual(HealthReadings.activityGoals.map(\.kind), ["move_goal", "exercise_goal", "stand_goal"])
+        XCTAssertFalse(HealthReadings.isActivityGoal("steps"))
+    }
+
+    func testRingGoalsBecomeOneDailyRecordPerKindForTheSummarysOwnDay() {
+        var london = Calendar(identifier: .gregorian); london.timeZone = TimeZone(identifier: "Europe/London")!
+        // 29 March 2026: the clocks go forward, so the local day is 23 hours.
+        let day = DateComponents(era: 1, year: 2026, month: 3, day: 29)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)   // well after that day
+        let records = HealthBatching.activityGoals([("move_goal", 620), ("exercise_goal", nil), ("stand_goal", 12)],
+                                                   day: day, calendar: london, now: now, tz: "Europe/London")
+        XCTAssertEqual(records.map(\.id), ["move_goal-2026-03-29", "stand_goal-2026-03-29"], "a missing exercise goal (an old summary) is left out")
+        XCTAssertEqual(records.map(\.unit), ["kcal", "count"])
+        XCTAssertEqual(records.map(\.value), [620, 12])
+        XCTAssertEqual(records[0].start, "2026-03-29T00:00:00Z")
+        XCTAssertEqual(records[0].end, "2026-03-29T23:00:00Z", "the local day's end, an hour short on the spring-forward day")
+        XCTAssertEqual(records[0].source, "HealthKit activity summary")
+        XCTAssertEqual(records[0].tz, "Europe/London")
+        for r in records { XCTAssertTrue(HealthCatalogue.accepts(r, now: now), r.id) }
+    }
+
+    func testTodaysRingGoalsEndNowAndAZeroOrFutureGoalIsSkipped() {
+        var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+        let now = utc.date(from: DateComponents(year: 2026, month: 9, day: 3, hour: 14, minute: 30))!
+        let today = HealthBatching.activityGoals([("move_goal", 0), ("exercise_goal", 30), ("stand_goal", Double.nan)],
+                                                 day: DateComponents(year: 2026, month: 9, day: 3), calendar: utc, now: now, tz: "UTC")
+        XCTAssertEqual(today.map(\.id), ["exercise_goal-2026-09-03"], "a 0 goal (Move Time users) and a non-finite one are left out")
+        XCTAssertEqual(today.first?.start, "2026-09-03T00:00:00Z")
+        XCTAssertEqual(today.first?.end, timestamp(now), "today's record ends now, never in the future")
+        XCTAssertEqual(today.first?.unit, "min")
+        XCTAssertTrue(HealthBatching.activityGoals([("stand_goal", 12)], day: DateComponents(year: 2026, month: 9, day: 4), calendar: utc, now: now, tz: "UTC").isEmpty)
+    }
+
     func testEverySeriesMetricTheWorkoutPassSendsIsCatalogued() {
         for s in HealthReadings.workoutSeries {
             XCTAssertNotNil(HealthCatalogue.file.series[s.metric], s.metric)

@@ -74,6 +74,30 @@ enum HealthBatching {
         return kept + batches(records)
     }
 
+    // MARK: - Activity-ring goals
+
+    /// One `HKActivitySummary` day's goals as daily records: ids
+    /// `move_goal-2026-09-22` from the summary's OWN date components (so a
+    /// re-read replaces in place), spanning that local day, its end clamped to
+    /// `now`. A goal that is missing, zero or not finite is left out — an old
+    /// summary has no exercise goal, and a Move Time user's energy goal is 0.
+    static func activityGoals(_ goals: [(kind: String, value: Double?)], day: DateComponents, calendar: Calendar, now: Date, tz: String) -> [HealthRecord] {
+        guard let year = day.year, let month = day.month, let date = day.day else { return [] }
+        var components = DateComponents(year: year, month: month, day: date)
+        components.era = day.era
+        guard let start = calendar.date(from: components), start <= now,
+              let next = calendar.date(byAdding: .day, value: 1, to: start) else { return [] }
+        let end = min(next, now)
+        let label = String(format: "%04d-%02d-%02d", year, month, date)
+        return goals.compactMap { goal in
+            guard let value = goal.value, value.isFinite, value > 0 else { return nil }
+            var r = HealthRecord(id: "\(goal.kind)-\(label)", kind: goal.kind, start: timestamp(start), end: timestamp(end), value: value,
+                                 unit: HealthCatalogue.file.kinds[goal.kind]?.unit, source: "HealthKit activity summary")
+            r.tz = tz
+            return r
+        }
+    }
+
     // MARK: - Refused batches
 
     /// 400 (a record the server will never take) or 413 (too big): sending the

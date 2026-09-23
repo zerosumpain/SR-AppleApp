@@ -82,6 +82,8 @@ private final class RouteGathering: @unchecked Sendable {
                 types.insert(Self.quantityType(.estimatedWorkoutEffortScore))
             }
         }
+        // The ring goals live on HKActivitySummary, which is not a sample type.
+        if enabledKinds.contains(where: HealthReadings.isActivityGoal) { types.insert(HKObjectType.activitySummaryType()) }
         return types
     }
 
@@ -194,6 +196,11 @@ private final class RouteGathering: @unchecked Sendable {
         case .workout:
             try await anchored(kind: kind, deadline: deadline, live: live)
             try await retryRoutes(deadline: deadline, live: live)
+        case .activityGoal:
+            // One summary query covers all three goals: run it for the first
+            // enabled goal kind only, so it happens once per collect.
+            guard kind == enabledKinds.first(where: HealthReadings.isActivityGoal) else { return }
+            try await activityGoals(generation: startedGeneration)
         case .workoutPart, nil:
             return
         }
@@ -366,6 +373,53 @@ private final class RouteGathering: @unchecked Sendable {
         try outbox.change {
             $0.batches = HealthBatching.queue(changed, into: $0.batches)
             $0.hourlySent["steps"] = sent
+        }
+    }
+
+    /// Apple's daily Move, Exercise and Stand goals, one record per kind per
+    /// local day, from the Activity summaries of the same 30 days `steps`
+    /// re-reads. HKActivitySummary cannot be observed, so this rides every
+    /// collect pass; the changed-only dedupe keeps unchanged goals out of the
+    /// queue.
+    private func activityGoals(generation startedGeneration: Int) async throws {
+        let calendar = Calendar.current
+        let now = Date()
+        let recentStart = calendar.date(byAdding: .day, value: -29, to: now)!
+        let dayParts: Set<Calendar.Component> = [.era, .year, .month, .day]
+        var from = calendar.dateComponents(dayParts, from: max(outbox.state.historyStart, recentStart))
+        var to = calendar.dateComponents(dayParts, from: now)
+        from.calendar = calendar; to.calendar = calendar
+        let predicate = HKQuery.predicate(forActivitySummariesBetweenStart: from, end: to)
+        let summaries: [HKActivitySummary] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKActivitySummaryQuery(predicate: predicate) { _, summaries, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: summaries ?? []) }
+            }
+            store.execute(query)
+        }
+        guard generation == startedGeneration else { return }
+        try Task.checkCancellation()
+        let tz = zone
+        var records: [HealthRecord] = []
+        for summary in summaries {
+            let goals = HealthReadings.activityGoals.map { (kind: $0.kind, value: HealthReadings.goal($0.kind, in: summary)) }
+            records += HealthBatching.activityGoals(goals, day: summary.dateComponents(for: calendar), calendar: calendar, now: now, tz: tz)
+        }
+        // As `steps`, per kind: only days whose goal moved, replacing any queued copy.
+        let kinds = HealthReadings.activityGoals.map(\.kind).filter(enabledKinds.contains)
+        var updates: [(kind: String, changed: [HealthRecord], sent: [String: Double])] = []
+        for kind in kinds {
+            let accepted = records.filter { $0.kind == kind && HealthCatalogue.accepts($0) }
+            let before = outbox.state.hourlySent[kind] ?? [:]
+            let (changed, sent) = HealthBatching.changed(accepted, since: before)
+            if !changed.isEmpty || sent != before { updates.append((kind: kind, changed: changed, sent: sent)) }
+        }
+        guard !updates.isEmpty else { return }
+        try outbox.change {
+            for update in updates {
+                $0.batches = HealthBatching.queue(update.changed, into: $0.batches)
+                $0.hourlySent[update.kind] = update.sent
+            }
         }
     }
 
