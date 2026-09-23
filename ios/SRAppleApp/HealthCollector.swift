@@ -22,8 +22,6 @@ private final class RouteGathering: @unchecked Sendable {
     private var collecting = false
     private var alerting = false
     private var generation = 0
-    // removed in Task 6 — labels come from HealthCatalogue.
-    static let labels = ["steps": "Steps", "heart_rate": "Heart rate", "resting_heart_rate": "Resting heart rate", "sleep": "Sleep", "workout": "Workouts"]
 
     init(outbox: Outbox) {
         self.outbox = outbox

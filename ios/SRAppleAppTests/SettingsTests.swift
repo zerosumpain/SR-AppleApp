@@ -223,4 +223,11 @@ final class SettingsTests: XCTestCase {
         let json = String(decoding: try JSONEncoder().encode(r), as: UTF8.self)
         XCTAssertFalse(json.contains("points"), "nil fields must be omitted, or the server's exact-keys check still passes but payloads bloat")
     }
+
+    func testEveryKindTheUploadedListCanShowHasALabel() {
+        for kind in HealthCatalogue.file.kinds.keys {
+            XCTAssertFalse(HealthScreen.label(for: kind).isEmpty)
+        }
+        XCTAssertEqual(HealthScreen.label(for: "heart_rate_variability"), "Heart rate variability")
+    }
 }
