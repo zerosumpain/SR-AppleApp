@@ -24,6 +24,19 @@ Run inside the service container or with `DATABASE_PATH` pointing to the intende
 
 Do not seed demo accounts in an environment containing real data. Use trusted TLS and secure the persistent volume/backups. No public telemetry or third-party analytics is included. This is a single-process family pilot, not a multi-instance service.
 
+## The one read /health makes (2026-09-23)
+
+`GET /api/apple/journeys?from=&to=` (epoch seconds, at most the retention window) lets SR-Health put the owner's journeys in `/health/activities` beside the workouts. It is the only thing the service lane opens:
+
+- `Authorization: Bearer $APPLE_SERVICE_TOKEN`, compared as a digest. Any other path given that token answers exactly as a stale device token would.
+- The person is `APPLE_SERVICE_OWNER` (an email already in `users`), fixed by configuration. There is no user parameter, so no other family member's movement can be asked for.
+- Read-through: /health keeps no copy. Retention and `DELETE /api/apple/data` therefore reach /health on its next read.
+- Unset token or owner = 404.
+
+It returns journeys exactly as `activitiesOf` finds them, each with its fixes and the heart-rate readings inside it, plus the phone's own workout records for the window. Deciding what counts as an activity (on foot, long enough, not already a workout) is SR-Health's job, in `src/lib/trails/companion.ts`.
+
+In production SR-Health's web container runs with host networking and reaches this server on `http://127.0.0.1:5295`, so the token never leaves the machine.
+
 ## Later integration work
 
 - Exchange the site's authenticated session for a short-lived, audience-bound identity with stable per-person IDs; retain API ownership checks.

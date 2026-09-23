@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { hash, issue } from './store.mjs';
@@ -59,7 +60,7 @@ function locationRecord(r) {
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER } = {}) {
   const rate = new Map();
   const csrfOrigin = new URL(origin).origin;
   const secure = csrfOrigin.startsWith('https:');
@@ -130,6 +131,62 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           db.exec('COMMIT');
           return send(200, { token, userId: code.user_id });
         } catch (error) { db.exec('ROLLBACK'); throw error; }
+      }
+      // THE SERVICE LANE — /health on the same host, reading the owner's
+      // journeys so they can sit in its activity list beside the workouts.
+      //
+      // A third way in, and a deliberately narrow one: ONE endpoint, GET only,
+      // ONE person. The token opens nothing else on this server — it is checked
+      // here, before the device and browser lanes, and every other path falls
+      // through to them as if the token were a stale device credential. The
+      // person is fixed by configuration, not by the caller: there is no user
+      // parameter, so the family's tracks cannot be asked for by anyone.
+      //
+      // Read-through, never a copy. /health asks every time and keeps nothing,
+      // so this server's thirty-day retention and "delete my data" still mean
+      // what they say — a journey pruned here is gone from /health on its next
+      // read.
+      //
+      // Unset token or owner = the endpoint does not exist (404), which is the
+      // state of every environment that has not opted in.
+      if (path === '/api/apple/journeys' && method === 'GET') {
+        if (!serviceToken || !serviceOwner) fail(404, 'Not found');
+        const presented = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1] ?? '';
+        // Compared as digests so the lengths always match and the comparison
+        // leaks nothing about the token through its timing.
+        if (!timingSafeEqual(Buffer.from(hash(presented), 'hex'), Buffer.from(hash(serviceToken), 'hex'))) fail(401, 'Not authorised');
+        if ([...url.searchParams.keys()].some(k => !['from', 'to'].includes(k))) fail(400, 'Journeys can only be read for the configured owner');
+        const now = Math.floor(Date.now() / 1000);
+        const rawFrom = url.searchParams.get('from'), rawTo = url.searchParams.get('to');
+        const to = rawTo === null || rawTo === '' ? now : Number(rawTo);
+        const from = rawFrom === null || rawFrom === '' ? to - RETENTION_DAYS * 86400 : Number(rawFrom);
+        if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from || to - from > (RETENTION_DAYS + 1) * 86400) fail(400, 'Invalid window');
+        const owner = db.prepare('SELECT id FROM users WHERE email=?').get(serviceOwner.toLowerCase());
+        if (!owner) return send(200, { from, to, retentionDays: RETENTION_DAYS, journeys: [], workouts: [], truncated: false });
+        const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
+        const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? AND recorded>=? AND recorded<? ORDER BY recorded LIMIT ${TRACK_LIMIT + 1}`).all(owner.id, fromISO, toISO);
+        const points = rows.slice(0, TRACK_LIMIT).map(r => {
+          const p = JSON.parse(r.payload);
+          return [round(p.longitude, 6), round(p.latitude, 6), Math.round(Date.parse(p.recorded) / 1000), round(p.accuracy, 1), p.moving ? 1 : 0, round(p.speed, 2)];
+        });
+        const beats = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='heart_rate' AND start>=? AND start<? ORDER BY start").all(owner.id, fromISO, toISO)
+          .map(r => JSON.parse(r.payload)).map(h => [Math.round(Date.parse(h.start) / 1000), h.value]);
+        // The same journeys the map draws — `activitiesOf` is the one definition
+        // of what a day's movement was. What counts as an ACTIVITY (on foot,
+        // long enough, not already a workout) is /health's decision, not this
+        // server's, so the journeys go out whole with their fixes.
+        const journeys = activitiesOf(points).filter(a => a.kind === 'journey').map(a => ({
+          from: a.from, to: a.to, seconds: a.seconds, metres: a.metres, fixes: a.fixes,
+          points: points.slice(a.first, a.last + 1),
+          heartRate: beats.filter(([t]) => t >= a.from && t <= a.to),
+        }));
+        // The phone's own record of the workouts, which reaches this server
+        // within the hour. /health's copy arrives through Health Auto Export
+        // and can lag it by a day, so without these a walk the Watch recorded
+        // would show twice until that export caught up.
+        const workouts = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='workout' AND start<? AND end>? ORDER BY start").all(owner.id, toISO, fromISO)
+          .map(r => JSON.parse(r.payload)).map(w => ({ activity: w.activity, start: w.start, end: w.end, source: w.source }));
+        return send(200, { from, to, retentionDays: RETENTION_DAYS, journeys, workouts, truncated: rows.length > TRACK_LIMIT });
       }
       // Two ways in, and only two.
       //
