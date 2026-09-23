@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import CoreLocation
 
+struct WorkoutEventRecord: Codable, Equatable { var type: String; var start: String; var end: String }
 struct HealthRecord: Codable, Identifiable {
     var id: String
     var kind: String
@@ -14,6 +15,22 @@ struct HealthRecord: Codable, Identifiable {
     var activity: String?
     var distance: Double?
     var energy: Double?
+    /// The phone's IANA zone when this was collected, so /health can write
+    /// the local date the webhook used to (spec E12).
+    var tz: String?
+    // Workout depth (kind "workout").
+    var indoor: Bool?
+    var elevation: Double?
+    var mets: Double?
+    var temperature: Double?
+    var humidity: Double?
+    var effort: Double?
+    var events: [WorkoutEventRecord]?
+    // A chunk of a workout's route or series (kinds "workout_route" / "workout_series").
+    var workout: String?
+    var metric: String?
+    var chunk: Int?
+    var points: [[Double?]]?
 }
 struct LocationRecord: Codable, Identifiable {
     var id: String = UUID().uuidString
@@ -80,6 +97,14 @@ struct PersistedState: Codable {
     /// by itself has to be watchable: "slept all night and saved a fortune" and
     /// "stopped recording at nine and nobody noticed" look identical without it.
     var gateEvents: [GateEvent] = []
+    /// 0 = toggles are per-kind (pre-catalogue); 1 = toggles are groups.
+    var catalogueVersion = 0
+    /// Where each hourly-statistics kind resumes. Re-reads the last 48 hours
+    /// every pass, because a Watch can sync a day late.
+    var hourlyFrom: [String: Date] = [:]
+    /// Workouts whose route watchOS has not saved yet (it lands after the
+    /// workout), by workout UUID → workout end. Retried for 7 days.
+    var pendingRoutes: [String: Date] = [:]
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -110,6 +135,9 @@ struct PersistedState: Codable {
         gateState = try c.decodeIfPresent(GateState.self, forKey: .gateState) ?? .tracking
         anchor = try c.decodeIfPresent(GateAnchor.self, forKey: .anchor)
         gateEvents = try c.decodeIfPresent([GateEvent].self, forKey: .gateEvents) ?? []
+        catalogueVersion = try c.decodeIfPresent(Int.self, forKey: .catalogueVersion) ?? 0
+        hourlyFrom = try c.decodeIfPresent([String: Date].self, forKey: .hourlyFrom) ?? [:]
+        pendingRoutes = try c.decodeIfPresent([String: Date].self, forKey: .pendingRoutes) ?? [:]
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`

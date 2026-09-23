@@ -207,4 +207,20 @@ final class SettingsTests: XCTestCase {
         }
         XCTAssertEqual(outbox.state.battery.count, BatteryMonitor.maxSamples)
     }
+
+    func testAPreCatalogueStateStillDecodesAndCarriesNoVersion() throws {
+        let old = """
+        {"batches":[],"anchors":{},"healthEnabled":["steps","workout"],"sharing":true,"historyStart":768000}
+        """
+        let state = try JSONDecoder().decode(PersistedState.self, from: Data(old.utf8))
+        XCTAssertEqual(state.catalogueVersion, 0)
+        XCTAssertEqual(state.hourlyFrom, [:])
+        XCTAssertEqual(state.pendingRoutes, [:])
+    }
+
+    func testARecordWithNoNewFieldsEncodesWithoutThem() throws {
+        let r = HealthRecord(id: "a", kind: "heart_rate", start: "2026-09-23T01:00:00Z", end: "2026-09-23T01:00:00Z", value: 60, unit: "bpm", source: "Watch")
+        let json = String(decoding: try JSONEncoder().encode(r), as: UTF8.self)
+        XCTAssertFalse(json.contains("points"), "nil fields must be omitted, or the server's exact-keys check still passes but payloads bloat")
+    }
 }
