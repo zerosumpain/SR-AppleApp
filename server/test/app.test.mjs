@@ -112,6 +112,27 @@ test('summary stays owner scoped even with a noisy heart-rate history', async t 
   assert.equal((await request('summary', { user: 'sam' })).body.records.length, 0);
 });
 
+test('summary only surfaces legacy kinds, not the whole catalogue', async t => {
+  const { request } = await fixture(t);
+  const stamp = new Date().toISOString();
+  const ox = { id: 'ox', kind: 'oxygen_saturation', start: stamp, end: stamp, value: 98, unit: '%', source: 'Watch' };
+  await request('sync', { method: 'POST', body: batch([health(), ox]) });
+  const result = await request('summary');
+  assert.deepEqual(result.body.records.map(r => r.kind).sort(), ['heart_rate']);
+});
+
+test('unfiltered /health hides workout route/series chunks, but an explicit kind still returns them', async t => {
+  const { request } = await fixture(t);
+  const stamp = new Date().toISOString();
+  const t0 = Math.floor(Date.now() / 1000) - 10;
+  const route = { id: 'route:W1:0', kind: 'workout_route', start: stamp, end: stamp, source: 'Watch', workout: 'W1', chunk: 0, points: [[t0, 51.5, -0.1, 10, 3, 5]] };
+  await request('sync', { method: 'POST', body: batch([health(), route]) });
+  const all = await request('health');
+  assert.deepEqual(all.body.records.map(r => r.kind).sort(), ['heart_rate']);
+  const explicit = await request('health?kind=workout_route');
+  assert.equal(explicit.body.records.length, 1);
+});
+
 test('QR pixels contain the canonical origin and a single-use code; regeneration revokes the previous code', async t => {
   const { PNG } = await import('pngjs');
   const { default: jsQR } = await import('jsqr');

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { hash, issue } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
 import { SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
-import { KINDS, validateHealthRecord } from './catalogue.mjs';
+import { KINDS, catalogue, validateHealthRecord } from './catalogue.mjs';
 import { exportPage } from './export.mjs';
 import { createDoorbell } from './doorbell.mjs';
 /**
@@ -266,7 +266,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { sharing: body.enabled });
       }
       if (path === '/api/apple/summary' && method === 'GET') {
-        const records = [...KINDS].flatMap(kind => {
+        // The dashboard's tiles only ever draw the legacy kinds (labels exist
+        // for those five, nothing else); looping every catalogued kind meant
+        // up to 35 point lookups a call for tiles nothing shows.
+        const records = Object.keys(catalogue.legacyKinds).flatMap(kind => {
           const row = db.prepare('SELECT payload,received FROM health WHERE user_id=? AND kind=? ORDER BY start DESC LIMIT 1').get(auth.user_id, kind);
           return row ? [{ ...JSON.parse(row.payload), received: row.received }] : [];
         });
@@ -277,7 +280,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const kind = url.searchParams.get('kind');
         if (kind && !KINDS.has(kind)) fail(400, 'Unknown health category');
         const before = url.searchParams.get('before') ?? '9999';
-        const rows = db.prepare('SELECT payload, received FROM health WHERE user_id=? AND (? IS NULL OR kind=?) AND start<? ORDER BY start DESC LIMIT 501').all(auth.user_id, kind, kind, before);
+        // Unfiltered, this fed the dashboard's list — which has no way to draw a
+        // route/series chunk and no `value` to show for one (see app.js). An
+        // explicit `?kind=workout_route` still reads them; only the "everything"
+        // view excludes the megabyte-sized `points` arrays.
+        const rows = db.prepare(`SELECT payload, received FROM health WHERE user_id=? AND ((? IS NULL AND kind NOT IN ('workout_route','workout_series')) OR kind=?) AND start<? ORDER BY start DESC LIMIT 501`).all(auth.user_id, kind, kind, before);
         return send(200, { records: rows.slice(0, 500).map(r => ({ ...JSON.parse(r.payload), received: r.received })), truncated: rows.length > 500 });
       }
       // Your own movement, for the map on the dashboard.

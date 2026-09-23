@@ -13,6 +13,9 @@ async function action(fn) { error(''); try { await fn(); } catch (e) { error(e.m
 function value(r) {
   if (r.kind === 'sleep') return `${r.stage.replaceAll('_', ' ')} · ${((Date.parse(r.end) - Date.parse(r.start)) / 3600000).toFixed(1)} h`;
   if (r.kind === 'workout') return `${r.activity} · ${Math.round(r.value / 60)} min`;
+  // A workout_route/workout_series chunk has no `value` — an explicit
+  // `?kind=` can still return one, and it must not throw the row away.
+  if (r.value === undefined) return `${r.points?.length ?? 0} points`;
   return `${r.value.toLocaleString()} ${r.unit}`;
 }
 async function health() {
