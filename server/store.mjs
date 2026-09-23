@@ -25,6 +25,13 @@ export function openStore(path) {
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS locations_user_time ON locations(user_id, recorded);
     CREATE INDEX IF NOT EXISTS health_user_kind_time ON health(user_id, kind, start);
+    CREATE TABLE IF NOT EXISTS health_deleted (
+      user_id TEXT NOT NULL REFERENCES users(id), id TEXT NOT NULL,
+      kind TEXT NOT NULL, start TEXT NOT NULL, deleted TEXT NOT NULL,
+      PRIMARY KEY(user_id, id));
+    CREATE INDEX IF NOT EXISTS health_deleted_time ON health_deleted(user_id, deleted);
+    CREATE INDEX IF NOT EXISTS health_workout_parts ON health(user_id, json_extract(payload, '$.workout'))
+      WHERE kind IN ('workout_route', 'workout_series');
   `);
   // Sign-in moved to the main site's Google session, so the stored scrypt hashes
   // authenticate nothing. They are DROPPED rather than left in place: a password

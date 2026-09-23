@@ -490,3 +490,30 @@ test('the service lane does not exist until it is configured', async t => {
   const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/journeys`, { headers: { Authorization: 'Bearer anything' } });
   assert.equal(response.status, 404);
 });
+test('a HealthKit deletion leaves a tombstone naming its kind and start, and takes the workout\'s chunks with it', async t => {
+  const { request, db } = await fixture(t);
+  const start = new Date(Date.now() - 7200_000).toISOString(), end = new Date(Date.now() - 3600_000).toISOString();
+  const t0 = Math.floor(Date.now() / 1000) - 7000;
+  const workout = { id: 'W1', kind: 'workout', start, end, value: 3600, unit: 'seconds', activity: 'Outdoor Run', source: 'Watch' };
+  const route = { id: 'route:W1:0', kind: 'workout_route', start, end, source: 'Watch', workout: 'W1', chunk: 0, points: [[t0, 51.5, -0.1, 10, 3, 5], [t0 + 5, 51.5001, -0.1, 10, 3, 5]] };
+  assert.equal((await request('sync', { method: 'POST', body: batch([workout, route]) })).status, 200);
+  assert.equal((await request('sync', { method: 'POST', body: batch([], [], ['W1']) })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='alex'").get().n, 0);
+  const stone = db.prepare("SELECT kind, start FROM health_deleted WHERE user_id='alex' AND id='W1'").get();
+  assert.deepEqual({ ...stone }, { kind: 'workout', start });
+});
+test('re-uploading a deleted id clears its tombstone; deleting an unknown id leaves none', async t => {
+  const { request, db } = await fixture(t);
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  await request('sync', { method: 'POST', body: batch([], [], ['A', 'never-seen']) });
+  assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 1);
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 0);
+});
+test('delete-my-data removes tombstones too', async t => {
+  const { request, db } = await fixture(t);
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  await request('sync', { method: 'POST', body: batch([], [], ['A']) });
+  await request('data', { method: 'DELETE' });
+  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='alex'").get().n, 0);
+});

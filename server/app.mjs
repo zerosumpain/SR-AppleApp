@@ -357,8 +357,21 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         db.exec('BEGIN IMMEDIATE');
         try {
           const put = db.prepare('INSERT INTO health VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET kind=excluded.kind,start=excluded.start,end=excluded.end,payload=excluded.payload,received=excluded.received');
-          for (const r of health) put.run(auth.user_id, r.id, r.kind, r.start, r.end, JSON.stringify(r), received);
-          for (const id of body.deleted) db.prepare('DELETE FROM health WHERE user_id=? AND id=?').run(auth.user_id, id);
+          const unstone = db.prepare('DELETE FROM health_deleted WHERE user_id=? AND id=?');
+          for (const r of health) { put.run(auth.user_id, r.id, r.kind, r.start, r.end, JSON.stringify(r), received); unstone.run(auth.user_id, r.id); }
+          // A deletion must reach /health's COPY, so it is remembered as a
+          // tombstone the export hands on (spec E8). A workout's route and
+          // series chunks go with it: they have no HealthKit identity of their
+          // own, and /health drops them through the activity's cascade.
+          const find = db.prepare('SELECT kind, start FROM health WHERE user_id=? AND id=?');
+          const stone = db.prepare('INSERT INTO health_deleted VALUES (?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET kind=excluded.kind,start=excluded.start,deleted=excluded.deleted');
+          for (const id of body.deleted) {
+            const row = find.get(auth.user_id, id);
+            if (!row) continue;
+            stone.run(auth.user_id, id, row.kind, row.start, received);
+            db.prepare('DELETE FROM health WHERE user_id=? AND id=?').run(auth.user_id, id);
+            if (row.kind === 'workout') db.prepare("DELETE FROM health WHERE user_id=? AND kind IN ('workout_route','workout_series') AND json_extract(payload,'$.workout')=?").run(auth.user_id, id);
+          }
           for (const r of locations) db.prepare('INSERT OR IGNORE INTO locations VALUES (?,?,?,?,?)').run(auth.user_id, r.id, r.recorded, JSON.stringify(r), received);
           // Location history is deliberately bounded; family API exposes latest
           // only, and `track` exposes this window to its owner and nobody else.
@@ -371,6 +384,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         db.exec('BEGIN IMMEDIATE');
         try {
           db.prepare('DELETE FROM health WHERE user_id=?').run(auth.user_id);
+          db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(auth.user_id);
           db.prepare('DELETE FROM locations WHERE user_id=?').run(auth.user_id);
           db.prepare("DELETE FROM credentials WHERE user_id=? AND kind IN ('device','pair')").run(auth.user_id);
           db.prepare('UPDATE users SET sharing=0 WHERE id=?').run(auth.user_id);
