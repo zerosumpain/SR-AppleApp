@@ -40,10 +40,14 @@ enum Keychain {
         }
         return url
     }
-    func request<T: Decodable>(_ path: String, method: String = "GET", data: Data? = nil) async throws -> T {
+    /// `timeout`: 25 s fits the small GETs; a POST sync during a backfill can
+    /// spend far longer than that on the wire uploading one batch, so the
+    /// caller raises it rather than the request timing out under load the
+    /// server is still happily processing.
+    func request<T: Decodable>(_ path: String, method: String = "GET", data: Data? = nil, timeout: TimeInterval = 25) async throws -> T {
         guard let baseURL else { throw CompanionError.message("Pair your iPhone first.") }
         var req = URLRequest(url: baseURL.appendingPathComponent("api/apple/" + path))
-        req.httpMethod = method; req.httpBody = data; req.timeoutInterval = 25
+        req.httpMethod = method; req.httpBody = data; req.timeoutInterval = timeout
         if data != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let config = URLSessionConfiguration.ephemeral; config.urlCache = nil

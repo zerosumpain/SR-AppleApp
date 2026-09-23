@@ -161,6 +161,10 @@ let outboxFullMessage = "Offline queue is full. Connect and sync before collecti
 @MainActor final class Outbox: ObservableObject {
     @Published private(set) var state: PersistedState
     private let url: URL
+    /// Set by a deferred `change`, whose write `persistIfDirty()` owes the
+    /// disk. Any immediate `change` clears it, because it writes the current
+    /// state in full anyway — deferred removals included.
+    private var dirty = false
     init(url: URL? = nil) throws {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         self.url = url ?? directory.appendingPathComponent("sync-state.json")
@@ -171,13 +175,30 @@ let outboxFullMessage = "Offline queue is full. Connect and sync before collecti
         var resource = URLResourceValues(); resource.isExcludedFromBackup = true
         var dir = self.url.deletingLastPathComponent(); try dir.setResourceValues(resource)
     }
-    func change(_ transform: (inout PersistedState) throws -> Void) throws {
+    /// `persist: false` updates `state` and marks the outbox dirty WITHOUT
+    /// writing — for removing a batch the server has already accepted, where
+    /// a crash before the next write just re-sends it and the server upserts
+    /// by id. Every other change (appends, anchors, settings, drops) must
+    /// keep writing immediately, or a crash could lose collected records that
+    /// exist nowhere else.
+    func change(persist: Bool = true, _ transform: (inout PersistedState) throws -> Void) throws {
         var next = state; try transform(&next)
         let count = next.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }
         guard count <= 50000 else { throw CompanionError.message(outboxFullMessage) }
-        let data = try JSONEncoder().encode(next)
-        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         state = next
+        if persist { try write() } else { dirty = true }
+    }
+    /// Writes the current state once, if a deferred `change` left it dirty.
+    /// Call at the end of a flush, periodically during a long one, and on
+    /// backgrounding — the points a deferred removal must not outlive.
+    func persistIfDirty() throws {
+        guard dirty else { return }
+        try write()
+    }
+    private func write() throws {
+        let data = try JSONEncoder().encode(state)
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        dirty = false
     }
     func clear() throws { try change { $0 = PersistedState() } }
 }

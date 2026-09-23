@@ -6,6 +6,24 @@ import os
 private let syncLog = Logger(subsystem: "com.strangeramblings.com.appleapp", category: "sync")
 private let reviewPrompt = "Apple Health has new categories. Tap Review Apple Health permissions to allow them."
 
+/// Network failures a retry can plausibly fix on its own — worth a calm
+/// "paused, will resume" message rather than the raw `URLError` text (which
+/// is what a long backfill outrunning `beginBackgroundTask` and getting
+/// suspended mid-request looks like: "The request timed out.").
+func isTransientUploadFailure(_ error: Error) -> Bool {
+    guard let code = (error as? URLError)?.code else { return false }
+    let transient: Set<URLError.Code> = [
+        .timedOut, .networkConnectionLost, .notConnectedToInternet, .cancelled,
+        .cannotConnectToHost, .dnsLookupFailed, .backgroundSessionWasDisconnected,
+        .internationalRoamingOff, .dataNotAllowed,
+    ]
+    return transient.contains(code)
+}
+/// A flush that got at least one batch through is worth retrying soon — the
+/// backfill it interrupted is still moving. One that accepted nothing waits
+/// the old 60 s, so a systemic failure does not hammer the server.
+func retryDelay(madeProgress: Bool) -> TimeInterval { madeProgress ? 5 : 60 }
+
 @MainActor final class Companion: ObservableObject {
     let api = API()
     let outbox: Outbox
@@ -125,10 +143,20 @@ private let reviewPrompt = "Apple Health has new categories. Tap Review Apple He
         updateQueue()
         guard paired, !sending else { return }
         sending = true; defer { sending = false; updateQueue() }
+        // A stale error must not sit on screen for the minutes a backfill can
+        // take: show the queue's size now, and count it down as it drains.
+        if queueCount > 0 { message = "Uploading \(queueCount) record\(queueCount == 1 ? "" : "s")…" }
         var dropped = 0
+        var madeProgress = false
+        var lastPersist = Date()
         var taskID: UIBackgroundTaskIdentifier = .invalid
         taskID = UIApplication.shared.beginBackgroundTask(withName: "Sync SR records") { UIApplication.shared.endBackgroundTask(taskID); taskID = .invalid }
-        defer { if taskID != .invalid { UIApplication.shared.endBackgroundTask(taskID) } }
+        defer {
+            // Whatever a deferred removal left unwritten must not outlive the
+            // flush that made it.
+            try? outbox.persistIfDirty()
+            if taskID != .invalid { UIApplication.shared.endBackgroundTask(taskID) }
+        }
         do {
             // Apply a local offline choice before reconciling remote changes.
             if let pending = outbox.state.pendingSharing {
@@ -148,7 +176,7 @@ private let reviewPrompt = "Apple Health has new categories. Tap Review Apple He
                     try outbox.change { $0.batches.removeAll { $0.id == batch.id } }; continue
                 }
                 do {
-                    let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(batch))
+                    let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(batch), timeout: 60)
                 } catch CompanionError.response(let status, let reason) where HealthBatching.isRefusal(status: status) {
                     // Refused (400/413). Judge the batch as it stands now (the
                     // collector may have replaced records in it meanwhile).
@@ -170,7 +198,15 @@ private let reviewPrompt = "Apple Health has new categories. Tap Review Apple He
                     }
                     continue
                 }
-                try outbox.change { $0.batches.removeAll { $0.id == batch.id }; $0.lastUpload = Date() }
+                // Deferred: the server upserts by id, so a crash before the
+                // next write just re-sends an already-accepted batch, which is
+                // harmless — unlike deferring an append, which could lose a
+                // record that exists nowhere else.
+                try outbox.change(persist: false) { $0.batches.removeAll { $0.id == batch.id }; $0.lastUpload = Date() }
+                madeProgress = true
+                updateQueue()
+                if queueCount > 0 { message = "Uploading \(queueCount) record\(queueCount == 1 ? "" : "s")…" }
+                if Date().timeIntervalSince(lastPersist) >= 2 { try outbox.persistIfDirty(); lastPersist = Date() }
                 let evidenced = round.accepted()
                 if !evidenced.isEmpty { dropped += try drop(evidenced, status: 400, reason: "refused while others were accepted") }
             }
@@ -182,10 +218,13 @@ private let reviewPrompt = "Apple Health has new categories. Tap Review Apple He
             message = health.needsPermissionReview ? reviewPrompt : withHealthNotes("Up to date with the server.", dropped: dropped)
             retryTask?.cancel(); retryTask = nil
         } catch {
-            message = withHealthNotes("Upload pending: \(error.localizedDescription)", dropped: dropped)
+            message = isTransientUploadFailure(error)
+                ? withHealthNotes("Upload paused — \(queueCount) record\(queueCount == 1 ? "" : "s") left; it will resume automatically.", dropped: dropped)
+                : withHealthNotes("Upload pending: \(error.localizedDescription)", dropped: dropped)
             retryTask?.cancel()
+            let delay = retryDelay(madeProgress: madeProgress)
             retryTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
                 await self?.flush()
             }
