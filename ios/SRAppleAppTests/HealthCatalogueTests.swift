@@ -9,7 +9,7 @@ final class HealthCatalogueTests: XCTestCase {
 
     func testOldPerKindTogglesBecomeGroups() {
         XCTAssertEqual(HealthCatalogue.migrate(["steps", "heart_rate", "resting_heart_rate", "sleep", "workout"]),
-                       ["activity", "heart", "sleep", "workouts"])
+                       ["activity", "heart", "workouts", "sleep"])
         XCTAssertEqual(HealthCatalogue.migrate(["heart", "vitals"]), ["heart", "vitals"], "already-migrated state is left alone")
         XCTAssertEqual(HealthCatalogue.migrate([]), [])
     }
