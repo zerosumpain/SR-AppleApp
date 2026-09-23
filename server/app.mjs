@@ -8,6 +8,7 @@ import { demoIdentity, sessionIdentity } from './session.mjs';
 import { SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
 import { KINDS, validateHealthRecord } from './catalogue.mjs';
 import { exportPage } from './export.mjs';
+import { createDoorbell } from './doorbell.mjs';
 /**
  * How long a location history is kept, in days. Enforced by the prune in
  * `sync`, reported by `track` so the day strip can draw the right number of
@@ -51,8 +52,9 @@ function locationRecord(r) {
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, doorbellUrl = process.env.APPLE_DOORBELL_URL, fetchImpl = fetch } = {}) {
   const rate = new Map();
+  const ring = createDoorbell({ url: doorbellUrl, token: serviceToken, fetchImpl });
   const csrfOrigin = new URL(origin).origin;
   const secure = csrfOrigin.startsWith('https:');
   function limit(key) {
@@ -393,6 +395,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(Date.now() - RETENTION_DAYS * 86400000).toISOString());
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
+        if (health.length || body.deleted.length) {
+          const owner = serviceOwner && db.prepare('SELECT id FROM users WHERE email=?').get(serviceOwner.toLowerCase());
+          if (owner?.id === auth.user_id) ring();
+        }
         return send(200, { accepted: health.length + locations.length + body.deleted.length, received });
       }
       if (path === '/api/apple/data' && method === 'DELETE') {

@@ -79,6 +79,22 @@ test('tombstones ride the same cursor', async t => {
   assert.deepEqual(second.body.tombstones.map(s => [s.id, s.kind]), [['a1', 'heart_rate']]);
 });
 
+test('an owner upload rings the doorbell once per burst; a family upload does not', async t => {
+  const calls = [];
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const fetchImpl = async (url, init) => { calls.push([url, init.headers.authorization]); await gate; return { ok: true }; };
+  const { sync } = await lane(t, { doorbellUrl: 'https://example.test/api/health/apple/companion/pull', fetchImpl });
+  await sync('alex', [hr('a1', 600)]);
+  await sync('alex', [hr('a2', 500)]);
+  await sync('alex', [hr('a3', 400)]);
+  await sync('sam', [hr('s1', 400)]);
+  release();
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(calls.length, 2, 'one ring, plus one follow-up for everything that arrived while it was in flight');
+  assert.deepEqual(calls[0], ['https://example.test/api/health/apple/companion/pull', `Bearer ${TOKEN}`]);
+});
+
 test('the page query is answered from the cursor index, not a scan of the owner\'s history', t => {
   const db = openStore(':memory:');
   t.after(() => db.close());
