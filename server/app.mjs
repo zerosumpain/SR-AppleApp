@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { hash, issue } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
 import { SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
-const kinds = new Set(['steps', 'heart_rate', 'resting_heart_rate', 'sleep', 'workout']);
+import { KINDS, validateHealthRecord } from './catalogue.mjs';
 /**
  * How long a location history is kept, in days. Enforced by the prune in
  * `sync`, reported by `track` so the day strip can draw the right number of
@@ -44,17 +44,7 @@ const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 's
 function exactKeys(obj, allowed) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || Object.keys(obj).some(k => !allowed.includes(k))) fail(400, 'Unexpected fields');
 }
-function healthRecord(r) {
-  exactKeys(r, ['id', 'kind', 'start', 'end', 'value', 'unit', 'source', 'stage', 'activity', 'distance', 'energy']);
-  if (!string(r.id) || !kinds.has(r.kind) || !iso(r.start) || !iso(r.end) || Date.parse(r.end) < Date.parse(r.start) || Date.parse(r.end) > Date.now() + 300000 || !string(r.source)) fail(400, 'Invalid health record');
-  if (r.kind === 'steps' && (!bounded(r.value, 0, 300000) || r.unit !== 'count')) fail(400, 'Invalid steps');
-  if (['heart_rate', 'resting_heart_rate'].includes(r.kind) && (!bounded(r.value, 1, 350) || r.unit !== 'bpm')) fail(400, 'Invalid heart rate');
-  if (r.kind === 'sleep' && !['in_bed', 'awake', 'asleep', 'core', 'deep', 'rem'].includes(r.stage)) fail(400, 'Invalid sleep stage');
-  if (r.kind === 'workout' && (!string(r.activity, 80) || !bounded(r.value, 0, 604800) || r.unit !== 'seconds')) fail(400, 'Invalid workout');
-  if (r.distance != null && !bounded(r.distance, 0, 10000000)) fail(400, 'Invalid distance');
-  if (r.energy != null && !bounded(r.energy, 0, 100000)) fail(400, 'Invalid energy');
-  return { ...r, start: new Date(r.start).toISOString(), end: new Date(r.end).toISOString() };
-}
+const healthRecord = validateHealthRecord;
 function locationRecord(r) {
   exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving']);
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
@@ -259,7 +249,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { sharing: body.enabled });
       }
       if (path === '/api/apple/summary' && method === 'GET') {
-        const records = [...kinds].flatMap(kind => {
+        const records = [...KINDS].flatMap(kind => {
           const row = db.prepare('SELECT payload,received FROM health WHERE user_id=? AND kind=? ORDER BY start DESC LIMIT 1').get(auth.user_id, kind);
           return row ? [{ ...JSON.parse(row.payload), received: row.received }] : [];
         });
@@ -268,7 +258,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       if (path === '/api/apple/health' && method === 'GET') {
         if ([...url.searchParams.keys()].some(k => !['kind', 'before'].includes(k))) fail(400, 'Health can only be read for the signed-in user');
         const kind = url.searchParams.get('kind');
-        if (kind && !kinds.has(kind)) fail(400, 'Unknown health category');
+        if (kind && !KINDS.has(kind)) fail(400, 'Unknown health category');
         const before = url.searchParams.get('before') ?? '9999';
         const rows = db.prepare('SELECT payload, received FROM health WHERE user_id=? AND (? IS NULL OR kind=?) AND start<? ORDER BY start DESC LIMIT 501').all(auth.user_id, kind, kind, before);
         return send(200, { records: rows.slice(0, 500).map(r => ({ ...JSON.parse(r.payload), received: r.received })), truncated: rows.length > 500 });
