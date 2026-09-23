@@ -293,20 +293,43 @@ struct MarkdownText: View {
     }
 
     private func inline(_ text: String) -> AttributedString {
-        // `.full` keeps the newlines a transcript depends on; the default
-        // collapses them and turns a list into one paragraph.
+        // Inline-only, WHITESPACE PRESERVED. `.full` was here, under a comment
+        // saying it kept the newlines — it does not. It turns them into block
+        // structure (`presentationIntent`) that a single `Text` never renders,
+        // so a list came out as one run-on line: "off:Mon easy 6 kmWed 5 x 1 km".
+        // Found by the demo screenshots. The block syntax a transcript actually
+        // uses — bullets, numbered items, headings — is done by hand per line
+        // below, and the inline syntax (bold, code, links) by the parser.
         let options = AttributedString.MarkdownParsingOptions(
             allowsExtendedAttributes: true,
-            interpretedSyntax: .full,
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
-        if var parsed = try? AttributedString(markdown: text, options: options) {
+        var result = AttributedString()
+        let lines = text.components(separatedBy: "\n")
+        for (index, raw) in lines.enumerated() {
+            var line = raw
+            var heading = false
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+                let indent = String(line.prefix(while: { $0 == " " }))
+                line = indent + "•  " + trimmed.dropFirst(2)
+            } else if trimmed.hasPrefix("#") {
+                let body = trimmed.drop(while: { $0 == "#" })
+                if body.hasPrefix(" ") {
+                    line = String(body.dropFirst())
+                    heading = true
+                }
+            }
+            var parsed = (try? AttributedString(markdown: line, options: options)) ?? AttributedString(line)
             for run in parsed.runs where run.inlinePresentationIntent == .code {
                 parsed[run.range].font = SR.mono(14)
             }
-            return parsed
+            if heading { parsed.font = SR.bodyBold(17) }
+            result += parsed
+            if index < lines.count - 1 { result += AttributedString("\n") }
         }
-        return AttributedString(text)
+        return result
     }
 }
 

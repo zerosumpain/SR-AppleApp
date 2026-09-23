@@ -361,6 +361,9 @@ struct ChatScreen: View {
         }
         .navigationTitle(store.title ?? conversation.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
+        // A thread is the composer's screen. The tab bar under it was a second
+        // floating bar competing for the thumb.
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
