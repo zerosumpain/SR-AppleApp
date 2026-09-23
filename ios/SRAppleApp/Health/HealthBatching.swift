@@ -97,6 +97,10 @@ enum HealthBatching {
         return [first, second]
     }
 
+    /// The server's reason for a body it could not parse: a truncated upload,
+    /// never the record's fault, so it never costs a record.
+    static let invalidJSON = "Invalid JSON"
+
     // MARK: - Guards and reporting
 
     /// Optional workout figures with NaN/infinity cleared: a non-finite
@@ -119,5 +123,63 @@ enum HealthBatching {
         let kinds = failures.keys.sorted()
         let what = kinds.count == 1 ? kinds[0] : "\(kinds.count) health kinds"
         return "Could not read \(what) from Apple Health: \(failures[kinds[0]] ?? "unknown error")"
+    }
+}
+
+
+/// What to do with a batch the server refused (400/413).
+enum RefusalStep: Equatable {
+    /// Halve it and send the halves.
+    case split
+    /// A lone record the server will not take while it takes others: drop it.
+    case drop
+    /// Keep it, skip it for the rest of this flush, try the batches behind it.
+    case hold
+    /// Stop the flush, keep everything, retry later.
+    case stop
+}
+
+/// One flush's evidence about refusals. A 400 is not always the record's
+/// fault: a catalogue the deployed server does not know yet, a phone clock
+/// ahead, a truncated body. Anchors and `hourlySent` have already moved on,
+/// so a dropped record is gone for good — a record is dropped only once the
+/// server has accepted something else in the same flush, a deletion never,
+/// and three refusals in a row stop the flush with everything kept.
+struct UploadRound {
+    private(set) var acceptedAny = false
+    private(set) var consecutiveRefusals = 0
+    /// Lone refused batches set aside for this flush.
+    private(set) var held: Set<UUID> = []
+    /// Held batches that become droppable once anything is accepted.
+    private(set) var awaitingEvidence: [UUID] = []
+
+    static let breaker = 3
+
+    /// The next batch to send: the first one not set aside.
+    func next(in queue: [UploadBatch]) -> UploadBatch? { queue.first { !held.contains($0.id) } }
+
+    /// The server took a batch. Returns the held batches that can now be
+    /// dropped: it has shown it takes records, so theirs was refused on merit.
+    mutating func accepted() -> [UUID] {
+        acceptedAny = true
+        consecutiveRefusals = 0
+        let evidenced = awaitingEvidence
+        awaitingEvidence = []
+        return evidenced
+    }
+
+    /// The server refused `batch` (as it stands in the queue now) with `reason`.
+    /// A reason that is not our server's own JSON (`uploadFallbackMessage`:
+    /// a proxy's page, say) or "Invalid JSON" says nothing about the record.
+    mutating func refused(_ batch: UploadBatch, reason: String) -> RefusalStep {
+        consecutiveRefusals += 1
+        let transient = reason == HealthBatching.invalidJSON || reason == uploadFallbackMessage
+        if transient || consecutiveRefusals >= Self.breaker { return .stop }
+        if batch.health.count + batch.locations.count + batch.deleted.count > 1 { return .split }
+        let deletion = !batch.deleted.isEmpty
+        if acceptedAny && !deletion { return .drop }
+        held.insert(batch.id)
+        if !deletion { awaitingEvidence.append(batch.id) }
+        return .hold
     }
 }

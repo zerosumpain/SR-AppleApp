@@ -73,6 +73,7 @@ private let reviewPrompt = "Apple Health has new categories. Tap Review Apple He
                     $0.batches.removeAll { $0.health.isEmpty && $0.locations.isEmpty && $0.deleted.isEmpty }
                 }
             }
+            if !enabled { health.forgetFailures(for: kinds) }
             health.startObservers(); updateQueue()
         } catch { message = error.localizedDescription; return }
         // A group turned on later brings types the reader was never asked
@@ -140,33 +141,43 @@ private let reviewPrompt = "Apple Health has new categories. Tap Review Apple He
                 try outbox.change { $0.sharing = false; for i in $0.batches.indices { $0.batches[i].locations = [] } }
                 location.stop()
             }
-            while let batch = outbox.state.batches.first {
+            var round = UploadRound()
+            while let batch = round.next(in: outbox.state.batches) {
                 try Task.checkCancellation()
                 if batch.health.isEmpty && batch.locations.isEmpty && batch.deleted.isEmpty {
-                    try outbox.change { $0.batches.removeFirst() }; continue
+                    try outbox.change { $0.batches.removeAll { $0.id == batch.id } }; continue
                 }
                 do {
                     let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(batch))
                 } catch CompanionError.response(let status, let reason) where HealthBatching.isRefusal(status: status) {
-                    // Refused (400/413): resending can only fail again, and it
-                    // holds every later upload behind it. Halve the batch as it
-                    // stands now; a lone record still refused is dropped.
-                    var lost: [HealthRecord] = [], lostOther = 0
-                    try outbox.change { state in
-                        guard let index = state.batches.firstIndex(where: { $0.id == batch.id }) else { return }
-                        let halves = HealthBatching.split(state.batches[index])
-                        if halves.isEmpty {
-                            lost = state.batches[index].health
-                            lostOther = state.batches[index].locations.count + state.batches[index].deleted.count
+                    // Refused (400/413). Judge the batch as it stands now (the
+                    // collector may have replaced records in it meanwhile).
+                    guard let current = outbox.state.batches.first(where: { $0.id == batch.id }) else { continue }
+                    switch round.refused(current, reason: reason) {
+                    case .split:
+                        try outbox.change { state in
+                            guard let index = state.batches.firstIndex(where: { $0.id == batch.id }) else { return }
+                            state.batches.replaceSubrange(index...index, with: HealthBatching.split(state.batches[index]))
                         }
-                        state.batches.replaceSubrange(index...index, with: halves)
+                    case .drop:
+                        dropped += try drop([batch.id], status: status, reason: reason)
+                    case .hold:
+                        break
+                    case .stop:
+                        // Possibly systemic (catalogue ahead of the server, clock
+                        // ahead, truncated body): keep everything, retry later.
+                        throw CompanionError.response(status, reason)
                     }
-                    for r in lost { syncLog.error("Dropped a refused health record: kind \(r.kind, privacy: .public) id \(r.id, privacy: .public) status \(status) reason \(reason, privacy: .public)") }
-                    if lostOther > 0 { syncLog.error("Dropped a refused location or deletion: status \(status) reason \(reason, privacy: .public)") }
-                    dropped += lost.count + lostOther
                     continue
                 }
                 try outbox.change { $0.batches.removeAll { $0.id == batch.id }; $0.lastUpload = Date() }
+                let evidenced = round.accepted()
+                if !evidenced.isEmpty { dropped += try drop(evidenced, status: 400, reason: "refused while others were accepted") }
+            }
+            // A held deletion (or a record no acceptance vouched against)
+            // is still queued: retry it later, as for any failed upload.
+            if outbox.state.batches.contains(where: { round.held.contains($0.id) }) {
+                throw CompanionError.message("Some records were refused and will retry.")
             }
             message = health.needsPermissionReview ? reviewPrompt : withHealthNotes("Up to date with the server.", dropped: dropped)
             retryTask?.cancel(); retryTask = nil
@@ -179,6 +190,17 @@ private let reviewPrompt = "Apple Health has new categories. Tap Review Apple He
                 await self?.flush()
             }
         }
+    }
+    /// Removes refused batches (each a lone record) and logs what went — kind
+    /// and id, never values. Returns how many records that was.
+    private func drop(_ ids: [UUID], status: Int, reason: String) throws -> Int {
+        let gone = outbox.state.batches.filter { ids.contains($0.id) }
+        try outbox.change { $0.batches.removeAll { ids.contains($0.id) } }
+        for b in gone {
+            for r in b.health { syncLog.error("Dropped a refused health record: kind \(r.kind, privacy: .public) id \(r.id, privacy: .public) status \(status) reason \(reason, privacy: .public)") }
+            if !b.locations.isEmpty { syncLog.error("Dropped a refused location: status \(status) reason \(reason, privacy: .public)") }
+        }
+        return gone.reduce(0) { $0 + $1.health.count + $1.locations.count }
     }
     /// `base`, then anything the user should know that did not stop the
     /// upload: records the server refused, and Apple Health kinds that could

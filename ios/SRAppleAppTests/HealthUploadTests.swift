@@ -67,26 +67,113 @@ final class HealthUploadTests: XCTestCase {
         }
     }
 
-    func testARefusedBatchIsHalvedUntilOnlyTheBadRecordIsDropped() {
-        let records = (0..<400).map { bucket("h\($0)", Double($0)) }
-        var queue = [UploadBatch(health: records)]
-        var sent: [String] = [], dropped: [String] = [], requests = 0
-        while let batch = queue.first {
+    /// One flush, applying `UploadRound` the way `Companion.flush` does.
+    /// `refuse` answers a batch with the server's reason, or nil to accept it.
+    private func flush(_ queue: inout [UploadBatch], refuse: (UploadBatch) -> String?) -> (sent: [String], dropped: [String], stopped: Bool) {
+        func ids(_ b: UploadBatch) -> [String] { b.health.map(\.id) + b.deleted }
+        var round = UploadRound(), sent: [String] = [], dropped: [String] = [], requests = 0
+        while let batch = round.next(in: queue) {
             requests += 1
-            XCTAssertLessThan(requests, 100, "halving must end")
-            if requests >= 100 { break }
-            if batch.health.contains(where: { $0.id == "h137" }) {
-                let halves = HealthBatching.split(batch)
-                if halves.isEmpty { dropped += batch.health.map(\.id) }
-                queue.replaceSubrange(0...0, with: halves)
+            if requests > 1000 { XCTFail("a flush must end"); break }
+            if let reason = refuse(batch) {
+                switch round.refused(batch, reason: reason) {
+                case .split:
+                    let index = queue.firstIndex(where: { $0.id == batch.id })!
+                    queue.replaceSubrange(index...index, with: HealthBatching.split(batch))
+                case .drop:
+                    dropped += ids(batch); queue.removeAll { $0.id == batch.id }
+                case .hold:
+                    break
+                case .stop:
+                    return (sent, dropped, true)
+                }
             } else {
-                sent += batch.health.map(\.id)
-                queue.removeFirst()
+                sent += ids(batch); queue.removeAll { $0.id == batch.id }
+                let evidenced = round.accepted()
+                dropped += queue.filter { evidenced.contains($0.id) }.flatMap { ids($0) }
+                queue.removeAll { evidenced.contains($0.id) }
             }
         }
-        XCTAssertEqual(dropped, ["h137"])
-        XCTAssertEqual(sent, records.map(\.id).filter { $0 != "h137" }, "every other record goes, in order")
-        XCTAssertLessThan(requests, 30)
+        return (sent, dropped, false)
+    }
+
+    private func count(_ queue: [UploadBatch]) -> Int { queue.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count } }
+
+    func testASystemicRefusalKeepsEverything() {
+        // Catalogue ahead of the server: it refuses everything.
+        let plain = (0..<400).map { bucket("h\($0)", Double($0)) }
+        var queue = [UploadBatch(health: plain), UploadBatch(health: [bucket("route:W:0", nil, kind: "workout_route")]), UploadBatch(deleted: ["gone"])]
+        for _ in 0..<20 {
+            let result = flush(&queue) { _ in "Unknown health category" }
+            XCTAssertTrue(result.dropped.isEmpty, "nothing is dropped while the server accepts nothing")
+            XCTAssertTrue(result.sent.isEmpty)
+        }
+        XCTAssertEqual(count(queue), 402, "every record, the chunk and the deletion are all still queued")
+        XCTAssertTrue(queue.contains { $0.deleted == ["gone"] })
+    }
+
+    func testALoneRecordIsDroppedOnlyOnceTheServerAcceptsAnother() {
+        let bad: (UploadBatch) -> String? = { $0.health.contains { $0.id == "bad" } ? "Invalid heart_rate" : nil }
+        var alone = [UploadBatch(health: [bucket("bad", 1)])]
+        let first = flush(&alone, refuse: bad)
+        XCTAssertTrue(first.dropped.isEmpty, "the first refusal of a flush proves nothing")
+        XCTAssertFalse(first.stopped)
+        XCTAssertEqual(count(alone), 1, "kept for the next flush")
+
+        var queue = [UploadBatch(health: [bucket("bad", 1)]), UploadBatch(health: [bucket("good", 2)])]
+        let second = flush(&queue, refuse: bad)
+        XCTAssertEqual(second.sent, ["good"], "a held record does not block the batches behind it")
+        XCTAssertEqual(second.dropped, ["bad"], "dropped once the server accepted another in the same flush")
+        XCTAssertTrue(queue.isEmpty)
+    }
+
+    func testABadRecordIsIsolatedAcrossFlushesWithoutLosingOthers() {
+        for badIndex in [0, 137, 399] {
+            let records = (0..<400).map { bucket("h\($0)", Double($0)) }
+            let badID = "h\(badIndex)"
+            var queue = [UploadBatch(health: records)], sent: [String] = [], dropped: [String] = [], flushes = 0
+            while !queue.isEmpty && flushes < 12 {
+                flushes += 1
+                let result = flush(&queue) { $0.health.contains { $0.id == badID } ? "Invalid step_count" : nil }
+                sent += result.sent; dropped += result.dropped
+            }
+            XCTAssertTrue(queue.isEmpty, "bad record at \(badIndex): the queue drains")
+            XCTAssertEqual(dropped, [badID])
+            XCTAssertEqual(sent, records.map(\.id).filter { $0 != badID }, "every other record goes, in order")
+        }
+    }
+
+    func testTheBreakerTripsAtThreeRefusalsInARow() {
+        let two = UploadBatch(health: [bucket("a", 1), bucket("b", 2)])
+        var round = UploadRound()
+        XCTAssertEqual(round.refused(two, reason: "Invalid step_count"), .split)
+        XCTAssertEqual(round.refused(two, reason: "Invalid step_count"), .split)
+        XCTAssertEqual(round.refused(two, reason: "Invalid step_count"), .stop)
+        var reset = UploadRound()
+        _ = reset.refused(two, reason: "Invalid step_count"); _ = reset.refused(two, reason: "Invalid step_count")
+        _ = reset.accepted()
+        XCTAssertEqual(reset.refused(two, reason: "Invalid step_count"), .split, "an acceptance resets the count")
+    }
+
+    func testInvalidJSONAndAProxysPageNeverDrop() {
+        var round = UploadRound()
+        _ = round.accepted()
+        XCTAssertEqual(round.refused(UploadBatch(health: [bucket("a", 1)]), reason: HealthBatching.invalidJSON), .stop)
+        var proxied = UploadRound()
+        _ = proxied.accepted()
+        XCTAssertEqual(proxied.refused(UploadBatch(health: [bucket("a", 1)]), reason: uploadFallbackMessage), .stop)
+        var merit = UploadRound()
+        _ = merit.accepted()
+        XCTAssertEqual(merit.refused(UploadBatch(health: [bucket("a", 1)]), reason: "Invalid step_count"), .drop)
+    }
+
+    func testADeletionIsNeverDropped() {
+        var round = UploadRound()
+        _ = round.accepted()
+        let deletion = UploadBatch(deleted: ["x"])
+        XCTAssertEqual(round.refused(deletion, reason: "Invalid deletion IDs"), .hold)
+        XCTAssertTrue(round.accepted().isEmpty, "a held deletion never becomes droppable")
+        XCTAssertNil(round.next(in: [deletion]), "held for this flush only; the queue keeps it")
     }
 
     func testSplitCoversHealthLocationsAndDeletions() {

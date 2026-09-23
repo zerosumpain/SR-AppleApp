@@ -1,6 +1,9 @@
 import Foundation
 import Security
 
+/// The reason given when a response carries no `{"error": …}` from our
+/// server (a proxy's page, an empty body).
+let uploadFallbackMessage = "Upload failed. Queued records will retry."
 enum CompanionError: LocalizedError {
     case message(String)
     case response(Int, String)
@@ -49,7 +52,7 @@ enum Keychain {
         let (body, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let error = try? JSONDecoder().decode(APIError.self, from: body)
-            throw CompanionError.response((response as? HTTPURLResponse)?.statusCode ?? 0, error?.error ?? "Upload failed. Queued records will retry.")
+            throw CompanionError.response((response as? HTTPURLResponse)?.statusCode ?? 0, error?.error ?? uploadFallbackMessage)
         }
         return try JSONDecoder().decode(T.self, from: body)
     }

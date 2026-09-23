@@ -178,6 +178,11 @@ private final class RouteGathering: @unchecked Sendable {
     /// The last error per kind, cleared when that kind's pass next succeeds.
     private(set) var failures: [String: String] = [:]
 
+    /// A group turned off: its kinds' errors no longer apply.
+    func forgetFailures(for kinds: Set<String>) {
+        for kind in kinds { failures.removeValue(forKey: kind) }
+    }
+
     private func pass(kind: String, deadline: Date, generation startedGeneration: Int, live: () -> Bool) async throws {
         switch HealthReadings.reading(for: kind) {
         case .dailySteps:
