@@ -11,6 +11,12 @@ services:
       # refuses to start on an https origin without it. DEMO_MODE is
       # deliberately not set here — it only works on a non-https origin anyway.
       AUTH_SECRET: ${AUTH_SECRET:?Copy AUTH_SECRET from the main site's environment}
+      # The service lane /health reads the owner's journeys through — see
+      # docs/INTEGRATION.md. Both empty = the endpoint 404s, which is the right
+      # state for anywhere that has not opted in. The token is shared with
+      # SR-Health's COMPANION_SERVICE_TOKEN; the owner is an email in `users`.
+      APPLE_SERVICE_TOKEN: ${APPLE_SERVICE_TOKEN:-}
+      APPLE_SERVICE_OWNER: ${APPLE_SERVICE_OWNER:-}
     ports:
       - '127.0.0.1:5295:5295'
     volumes:

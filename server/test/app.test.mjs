@@ -432,3 +432,61 @@ test('a day is listed as journeys and the stops between them', async t => {
   // The day index counts journeys too, so the strip can say what a day was.
   assert.equal(body.days.find(d => d.date === date).journeys, 2);
 });
+
+test('the service lane reads only the configured owner\'s journeys, and nothing else', async t => {
+  const db = openStore(':memory:');
+  for (const [id, family] of [['alex', 'one'], ['sam', 'one']]) createUser(db, { id, family, email: `${id}@example.test`, name: id });
+  const serviceToken = 'service-token-for-tests';
+  const app = createApp(db, { origin: 'http://localhost', serviceToken, serviceOwner: 'Alex@Example.test' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const base = `http://127.0.0.1:${app.address().port}/api/apple`;
+  const get = async (path, token = serviceToken) => {
+    const response = await fetch(`${base}/${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    return { status: response.status, body: await response.json() };
+  };
+
+  // A twenty-minute walk for alex, and one for sam that must never be read.
+  const start = Math.floor(Date.now() / 1000) - 3600;
+  const put = db.prepare('INSERT INTO locations VALUES (?,?,?,?,?)');
+  for (const [user, lng] of [['alex', 0], ['sam', 1]]) {
+    for (let i = 0; i <= 40; i++) {
+      const recorded = new Date((start + i * 30) * 1000).toISOString();
+      put.run(user, `${user}-${i}`, recorded, JSON.stringify({ id: `${user}-${i}`, recorded, latitude: 51 + i * 0.0004, longitude: lng, accuracy: 5, speed: 1.4, moving: true }), recorded);
+    }
+  }
+  const beat = new Date((start + 300) * 1000).toISOString();
+  db.prepare('INSERT INTO health VALUES (?,?,?,?,?,?,?)').run('alex', 'hr', 'heart_rate', beat, beat, JSON.stringify({ id: 'hr', kind: 'heart_rate', start: beat, end: beat, value: 101, unit: 'bpm', source: 'Watch' }), beat);
+  const ws = new Date(start * 1000).toISOString(), we = new Date((start + 1200) * 1000).toISOString();
+  db.prepare('INSERT INTO health VALUES (?,?,?,?,?,?,?)').run('alex', 'w', 'workout', ws, we, JSON.stringify({ id: 'w', kind: 'workout', start: ws, end: we, value: 1200, unit: 'seconds', source: 'Watch', activity: 'Walking' }), we);
+
+  const ok = await get('journeys');
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.journeys.length, 1);
+  const [journey] = ok.body.journeys;
+  assert.equal(journey.from, start);
+  assert.equal(journey.points.length, 41);
+  assert.ok(journey.points.every(p => p[0] === 0), 'another user\'s fixes leaked into the owner\'s journey');
+  assert.deepEqual(journey.heartRate, [[start + 300, 101]]);
+  assert.deepEqual(ok.body.workouts.map(w => w.activity), ['Walking']);
+  assert.equal(ok.body.retentionDays, 30);
+
+  // Wrong, missing and device-shaped tokens are all refused.
+  assert.equal((await get('journeys', 'wrong')).status, 401);
+  assert.equal((await get('journeys', null)).status, 401);
+  // No way to ask for somebody else.
+  assert.equal((await get('journeys?user=sam')).status, 400);
+  assert.equal((await get(`journeys?from=${start - 90 * 86400}&to=${start}`)).status, 400);
+  // The token opens nothing but this one endpoint.
+  assert.equal((await get('track')).status, 401);
+  assert.equal((await get('health')).status, 401);
+});
+
+test('the service lane does not exist until it is configured', async t => {
+  const db = openStore(':memory:');
+  const app = createApp(db, { origin: 'http://localhost', serviceToken: '', serviceOwner: '' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/journeys`, { headers: { Authorization: 'Bearer anything' } });
+  assert.equal(response.status, 404);
+});
