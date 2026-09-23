@@ -35,7 +35,7 @@ Do not seed demo accounts in an environment containing real data. Use trusted TL
 
 It returns journeys exactly as `activitiesOf` finds them, each with its fixes and the heart-rate readings inside it, plus the phone's own workout records for the window. Deciding what counts as an activity (on foot, long enough, not already a workout) is SR-Health's job, in `src/lib/trails/companion.ts`.
 
-In production SR-Health's web container runs with host networking and reaches this server on `http://127.0.0.1:5295`, so the token never leaves the machine.
+In production SR-Health's web container runs with host networking and reaches this server on `http://127.0.0.1:5295`, so the service token never leaves the machine — it is used only for these loopback reads. The doorbell below is a separate, deliberately weaker secret that does leave the machine.
 
 ## Second read — the health export (a COPY)
 
@@ -51,7 +51,10 @@ server but not /health's copy; tombstones for individual HealthKit deletions do 
 it. Location never leaves through this endpoint.
 
 After each upload by the owner, this server POSTs `APPLE_DOORBELL_URL` (empty body,
-same bearer token) so /health pulls at once.
+`Authorization: Bearer $APPLE_DOORBELL_TOKEN`) so /health pulls at once. This is its
+own ring-only token, not `APPLE_SERVICE_TOKEN` — it can only trigger a pull and
+grants no read access, so it is safe to leave the host even though the service
+token above never does. Unset token or URL = no ring, as before.
 
 ## Later integration work
 

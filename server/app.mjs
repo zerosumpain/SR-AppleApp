@@ -52,9 +52,12 @@ function locationRecord(r) {
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, doorbellUrl = process.env.APPLE_DOORBELL_URL, fetchImpl = fetch } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
   const rate = new Map();
-  const ring = createDoorbell({ url: doorbellUrl, token: serviceToken, fetchImpl });
+  // Its OWN ring-only secret, never the service token — that token can READ
+  // the owner's export, and this URL is not guaranteed to stay on loopback the
+  // way the service lane is (R5). Unset token or URL = no ring, as before.
+  const ring = createDoorbell({ url: doorbellUrl, token: doorbellToken, fetchImpl });
   const csrfOrigin = new URL(origin).origin;
   const secure = csrfOrigin.startsWith('https:');
   function limit(key) {
