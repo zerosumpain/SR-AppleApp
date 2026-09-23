@@ -46,6 +46,12 @@ export function exportPage(db, userId, { after, limit }) {
   const tombstones = db.prepare('SELECT id, kind, start, deleted FROM health_deleted WHERE user_id=? AND deleted>? AND deleted<=? ORDER BY deleted').all(userId, afterISO, end).map(r => ({ ...r }));
   // Where the owner's history on this server begins. /health's one-off switch
   // replaces the webhook's rows from here on (spec E10) and keeps those before.
-  const earliest = db.prepare('SELECT min(start) e FROM health WHERE user_id=?').get(userId).e ?? null;
+  //
+  // The legacy daily `steps` row starts at local midnight — up to ~20h before
+  // the phone's own historyStart — and route/series chunks carry a workout's
+  // start, not the phone's collection start. Counting either would pull
+  // `earliest` back before any record the switch is meant to protect, and
+  // /health would delete webhook data this export never replaces (R4).
+  const earliest = db.prepare(`SELECT min(start) e FROM health WHERE user_id=? AND kind NOT IN ('steps','workout_route','workout_series')`).get(userId).e ?? null;
   return { after, next: Date.parse(end), more, earliest, records, workouts, tombstones };
 }

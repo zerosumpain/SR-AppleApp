@@ -31,6 +31,14 @@ test('the export is the configured owner\'s only, and needs the service token', 
   assert.equal((await exportPage('?user=sam')).status, 400);
 });
 
+test('earliest skips the legacy daily steps row and workout parts, which start hours before the phone\'s own history', async t => {
+  const { sync, exportPage } = await lane(t);
+  const steps = { id: 'daily-steps', kind: 'steps', start: iso(200000), end: iso(200000 - 86400), value: 4000, unit: 'count', source: 'HealthKit statistics' };
+  await sync('alex', [steps, hr('a1', 600)]);
+  const { body } = await exportPage();
+  assert.equal(body.earliest, body.records.find(r => r.kind === 'heart_rate').start, 'earliest must not be pulled back by the legacy steps row');
+});
+
 test('an unconfigured lane has no export', async t => {
   const { exportPage } = await lane(t, { serviceToken: undefined, serviceOwner: undefined });
   assert.equal((await exportPage()).status, 404);
