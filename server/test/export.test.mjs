@@ -108,6 +108,41 @@ test('tombstones ride the same cursor', async t => {
   assert.deepEqual(second.body.tombstones.map(s => [s.id, s.kind]), [['a1', 'heart_rate']]);
 });
 
+test('deleting one of two same-instant heart_rate duplicates omits its tombstone: /health would delete the survivor by (kind, start), not by id', async t => {
+  const { sync, exportPage } = await lane(t);
+  const start = iso(600);
+  await sync('alex', [{ ...hr('a1', 600), start, end: start }, { ...hr('a2', 600), start, end: start }]);
+  const first = await exportPage('?after=0');
+  await new Promise(r => setTimeout(r, 5));
+  await sync('alex', [], ['a1']);
+  const second = await exportPage(`?after=${first.body.next}`);
+  assert.deepEqual(second.body.tombstones, [], 'a2 still lives at the same kind+start; sending a1\'s tombstone would take it down too');
+});
+
+test('deleting a heart_rate sample with no twin still exports its tombstone', async t => {
+  const { sync, exportPage } = await lane(t);
+  await sync('alex', [hr('a1', 600)]);
+  const first = await exportPage('?after=0');
+  await new Promise(r => setTimeout(r, 5));
+  await sync('alex', [], ['a1']);
+  const second = await exportPage(`?after=${first.body.next}`);
+  assert.deepEqual(second.body.tombstones.map(s => [s.id, s.kind]), [['a1', 'heart_rate']], 'nothing else lives at this kind+start, so the tombstone must reach /health');
+});
+
+test('a deleted workout still exports its tombstone even with a same-start sibling: /health deletes workouts by id, not by (kind, start)', async t => {
+  const { sync, exportPage } = await lane(t);
+  const start = iso(4000), end = iso(400);
+  await sync('alex', [
+    { id: 'W1', kind: 'workout', start, end, value: 3600, unit: 'seconds', activity: 'Outdoor Run', source: 'Watch', indoor: false },
+    { id: 'W2', kind: 'workout', start, end, value: 1800, unit: 'seconds', activity: 'Indoor Run', source: 'Watch', indoor: true },
+  ]);
+  const first = await exportPage('?after=0');
+  await new Promise(r => setTimeout(r, 5));
+  await sync('alex', [], ['W1']);
+  const second = await exportPage(`?after=${first.body.next}`);
+  assert.deepEqual(second.body.tombstones.map(s => [s.id, s.kind]), [['W1', 'workout']], 'W2 shares kind+start with W1, but workout/sleep tombstones always export');
+});
+
 test('an owner upload rings the doorbell once per burst; a family upload does not', async t => {
   const DOORBELL_TOKEN = 'doorbell-token-for-tests';
   const calls = [];
