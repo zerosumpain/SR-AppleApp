@@ -21,7 +21,13 @@ targets:
     # `Font.custom` fails SILENTLY on a missing face (it falls back to the
     # system font and the screen still renders, just wrong), so
     # `SiteTests.testEveryNamedFontIsRegistered` asserts each one arrived.
-    sources: [SRAppleApp]
+    sources:
+      - SRAppleApp
+      # The pilot server's own list of health kinds, units and bounds. Bundled,
+      # not copied, so the phone can never send a kind the server refuses — a
+      # refused batch wedges the outbox forever.
+      - path: ../server/health-catalogue.json
+        buildPhase: resources
     settings:
       base:
         TARGETED_DEVICE_FAMILY: '1'
