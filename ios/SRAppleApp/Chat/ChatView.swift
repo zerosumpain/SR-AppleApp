@@ -61,7 +61,7 @@ struct ThreadListScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $store.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search the archive")
         .onChange(of: store.query) { _, _ in store.search() }
-        .refreshable { await store.load() }
+        .srRefreshable { await store.load() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

@@ -92,6 +92,8 @@ jobs:
       # App Store Connect bounces a build whose Siri metadata names an Apple
       # product (ITMS-90626) — and only says so by email, hours later.
       - run: node scripts/check-intent-metadata.mjs
+      # A bare `.refreshable` is cancelled by the redraw its own store causes.
+      - run: node scripts/check-refreshable.mjs
   ios:
     needs: scope
     if: needs.scope.outputs.ios == 'true'

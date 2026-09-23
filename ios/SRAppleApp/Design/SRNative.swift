@@ -409,3 +409,20 @@ extension View {
             .listRowSeparatorTint(SR.divider)
     }
 }
+
+extension View {
+    /// `.refreshable`, with the work shielded from SwiftUI's cancellation.
+    ///
+    /// SwiftUI runs a refresh action in a task it owns and CANCELS that task
+    /// when the view redraws mid-refresh. Every store here sets `loading = true`
+    /// as its first line, which redraws the screen — so a bare `.refreshable`
+    /// cancelled its own request within a frame, and URLSession surfaced it as
+    /// the banner "cancelled". An unstructured task does not inherit the
+    /// cancellation, and awaiting its value keeps the spinner up until the
+    /// work really finishes.
+    ///
+    /// `scripts/check-refreshable.mjs` fails CI on a bare `.refreshable`.
+    func srRefreshable(_ action: @escaping @MainActor () async -> Void) -> some View {
+        refreshable { await Task { @MainActor in await action() }.value }
+    }
+}

@@ -22,7 +22,7 @@ struct AlertsScreen: View {
         .srPaper()
         .navigationTitle("Alerts")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await alerts.refresh() }
+        .srRefreshable { await alerts.refresh() }
         .overlay {
             if alerts.recent.isEmpty && !alerts.loading {
                 SREmpty(
