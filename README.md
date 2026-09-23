@@ -129,6 +129,17 @@ which forwards `/apple-app/` and `/api/apple/` without injecting the site's
 owner session. It never touches production data, credentials or the Docker
 socket. Its host, paths and volume name are deliberately not published here.
 
+### Environment variables
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `APP_ORIGIN` | yes | the HTTPS origin the companion is served on |
+| `DATABASE_PATH` | yes | SQLite file path, inside the mounted volume |
+| `AUTH_SECRET` | yes | verifies the main site's Auth.js session cookie; copied from the site's own environment |
+| `APPLE_SERVICE_TOKEN` | no | shared bearer token for /health's service lane; empty = both service-lane reads 404 |
+| `APPLE_SERVICE_OWNER` | no | the fixed owner (an email already in `users`) those reads are scoped to |
+| `APPLE_DOORBELL_URL` | no | POSTed (empty body, same bearer token) after each owner upload so /health pulls the export at once; empty = no ring, and /health still catches up on its own page-load backstop |
+
 ## CI cost
 
 The `ios` job runs on macOS, which GitHub bills at a **10x minute multiplier**

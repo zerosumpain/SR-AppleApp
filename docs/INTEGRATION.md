@@ -24,9 +24,9 @@ Run inside the service container or with `DATABASE_PATH` pointing to the intende
 
 Do not seed demo accounts in an environment containing real data. Use trusted TLS and secure the persistent volume/backups. No public telemetry or third-party analytics is included. This is a single-process family pilot, not a multi-instance service.
 
-## The one read /health makes (2026-09-23)
+## The two reads /health makes (2026-09-23)
 
-`GET /api/apple/journeys?from=&to=` (epoch seconds, at most the retention window) lets SR-Health put the owner's journeys in `/health/activities` beside the workouts. It is the only thing the service lane opens:
+`GET /api/apple/journeys?from=&to=` (epoch seconds, at most the retention window) lets SR-Health put the owner's journeys in `/health/activities` beside the workouts. It is the first of two things the service lane opens; see "Second read — the health export" below for the other.
 
 - `Authorization: Bearer $APPLE_SERVICE_TOKEN`, compared as a digest. Any other path given that token answers exactly as a stale device token would.
 - The person is `APPLE_SERVICE_OWNER` (an email already in `users`), fixed by configuration. There is no user parameter, so no other family member's movement can be asked for.
@@ -36,6 +36,22 @@ Do not seed demo accounts in an environment containing real data. Use trusted TL
 It returns journeys exactly as `activitiesOf` finds them, each with its fixes and the heart-rate readings inside it, plus the phone's own workout records for the window. Deciding what counts as an activity (on foot, long enough, not already a workout) is SR-Health's job, in `src/lib/trails/companion.ts`.
 
 In production SR-Health's web container runs with host networking and reaches this server on `http://127.0.0.1:5295`, so the token never leaves the machine.
+
+## Second read — the health export (a COPY)
+
+`GET /api/apple/export?after=<epoch ms>&limit=<≤5000>` — same token, same fixed owner,
+same 404-when-unconfigured rule as journeys. Returns `{ after, next, more, earliest,
+records, workouts, tombstones }` (`earliest` = the owner's oldest record here); pass `next` back as `after`. An upload is never split across
+pages. A workout arrives whole (`{ workout, route, series }`) whenever any part of it
+changed. Deletions arrive as `tombstones` (`{ id, kind, start, deleted }`).
+
+Unlike journeys, /health KEEPS what it reads here: the owner's health history, the
+same data Health Auto Export used to post. So `DELETE /api/apple/data` clears this
+server but not /health's copy; tombstones for individual HealthKit deletions do reach
+it. Location never leaves through this endpoint.
+
+After each upload by the owner, this server POSTs `APPLE_DOORBELL_URL` (empty body,
+same bearer token) so /health pulls at once.
 
 ## Later integration work
 

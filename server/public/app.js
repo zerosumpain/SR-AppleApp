@@ -22,7 +22,7 @@ async function health() {
   if (!records.length) $('records').append(node('p', 'No uploaded records in this category. Pair your iPhone and sync to get started.'));
   for (const r of records) {
     const row = node('div', '', 'row'), description = node('div', ''), timing = node('div', '');
-    description.append(node('strong', `${labels[r.kind]} · ${value(r)}`), node('p', r.source, 'muted'));
+    description.append(node('strong', `${labels[r.kind] ?? r.kind.replace(/_/g, ' ')} · ${value(r)}`), node('p', r.source, 'muted'));
     timing.append(node('time', when(r.start)), node('p', `Received ${when(r.received)}`, 'muted'));
     row.append(description, timing); $('records').append(row);
   }
