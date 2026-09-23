@@ -86,6 +86,9 @@ struct SRInkKicker: View {
 struct SRInkBand<Content: View>: View {
     var kicker: String? = nil
     var meta: String? = nil
+    /// How far the slab sits in from its container's edge. A screen edge wants
+    /// the gutter; a grouped list's row has already been inset.
+    var inset: CGFloat = SR.Glass.bandInset
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -107,15 +110,21 @@ struct SRInkBand<Content: View>: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, SR.gutter)
-        .padding(.top, 24)
-        .padding(.bottom, 28)
+        .padding(.horizontal, 18)
+        .padding(.top, 20)
+        .padding(.bottom, 22)
+        // Smoked glass: the ink band, lifted off the page and inset from its
+        // edges. The band used to dock the page under it at full width; on
+        // glass it floats, and it is the one dark thing on the screen, so it
+        // still reads as the hero it was.
         .background {
-            ZStack {
-                SR.ink
-                SRGrain(opacity: 0.05)
-            }
+            SRGrain(opacity: 0.05)
+                .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius + 4, style: .continuous))
         }
+        .srGlassCard(.ink, radius: SR.Glass.radius + 4)
+        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, inset)
+        .padding(.vertical, 6)
     }
 }
 
@@ -192,9 +201,12 @@ struct SRInkTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(SR.inkTilePadding)
         .frame(minHeight: 112, alignment: .topLeading)
-        .background(SR.ink)
-        .overlay(Rectangle().strokeBorder(selected ? SR.accentOnDark : SR.onInk(.hairline), lineWidth: 1))
-        .contentShape(Rectangle())
+        .background(SR.onInk(.fill), in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                .strokeBorder(selected ? SR.accentOnDark : SR.onInk(.hairline), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
     }
 
     private func figureLine(_ size: CGFloat) -> some View {
@@ -257,14 +269,17 @@ struct SRInkCellGrid: View {
                     ForEach(row) { figure in SRInkCell(figure: figure) }
                     if row.count < columns {
                         ForEach(0..<(columns - row.count), id: \.self) { _ in
-                            SR.ink.frame(maxWidth: .infinity, maxHeight: .infinity)
+                            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
                 }
             }
         }
-        .background(SR.onInk(.hairline))
-        .overlay(Rectangle().strokeBorder(SR.onInk(.hairline), lineWidth: 1))
+        .background(SR.onInk(.fill), in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                .strokeBorder(SR.onInk(.hairline), lineWidth: 1)
+        )
     }
 }
 
@@ -295,7 +310,6 @@ struct SRInkCell: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
-        .background(SR.ink)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(figure.label): \(figure.value) \(figure.unit ?? "")")
     }
@@ -315,7 +329,10 @@ struct SRInkDonut: View {
                 .stroke(SR.onInk(.track), lineWidth: 10)
             Circle()
                 .trim(from: 0, to: max(0, min(1, fraction)))
-                .stroke(SR.accentOnDark, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                .stroke(
+                    AngularGradient(colors: [SR.accent, SR.accentOnDark, Color(hex: 0xF2B27A)], center: .center),
+                    style: StrokeStyle(lineWidth: 10, lineCap: .round)
+                )
                 .rotationEffect(.degrees(-90))
             Text(score)
                 .font(SR.Text.hero(34))
@@ -360,8 +377,11 @@ struct SRInkReadiness: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(18)
-        .background(SR.onInk(.fill))
-        .overlay(Rectangle().strokeBorder(SR.onInk(.hairline), lineWidth: 1))
+        .background(SR.onInk(.fill), in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                .strokeBorder(SR.onInk(.hairline), lineWidth: 1)
+        )
         .accessibilityElement(children: .combine)
     }
 }
@@ -374,7 +394,7 @@ extension View {
     func srInkRow() -> some View {
         self
             .listRowInsets(EdgeInsets())
-            .listRowBackground(SR.ink)
+            .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
     }
 }

@@ -114,20 +114,24 @@ struct NewsStoryScreen: View {
                 }
             }
 
-            HStack(spacing: 10) {
-                ForEach([NewsAction.favourite, .graph, .note, .research], id: \.rawValue) { action in
-                    Button {
-                        Task { await act(action) }
-                    } label: {
-                        Image(systemName: action.icon)
-                            .font(.system(size: 15))
-                            .foregroundStyle(SR.inkSecondary)
-                            .frame(width: 44, height: 40)
-                            .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
+            SRGlassGroup(spacing: 10) {
+                HStack(spacing: 10) {
+                    ForEach([NewsAction.favourite, .graph, .note, .research], id: \.rawValue) { action in
+                        Button {
+                            SRHaptic.tap()
+                            Task { await act(action) }
+                        } label: {
+                            Image(systemName: action.icon)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(SR.inkSecondary)
+                                .frame(width: 48, height: 48)
+                                .srGlass(.paper, in: Circle(), interactive: true)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(acting)
+                        .accessibilityLabel(action.label)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(acting)
-                    .accessibilityLabel(action.label)
                 }
             }
         }

@@ -17,6 +17,8 @@ struct HealthScreen: View {
 
     var body: some View {
         List {
+            SRPageHeader(kicker: "Body · \(Date().formatted(.dateTime.weekday(.wide)))", title: "Health")
+                .srBareRow()
             if let summary = store.summary {
                 // The ink band: readiness and today's figures, /health's hero.
                 HealthHero(summary: summary).srInkRow()
@@ -31,18 +33,19 @@ struct HealthScreen: View {
                     actionLabel: "Try again",
                     action: reload
                 )
-                .srPlainRow()
+                .srBareRow()
             } else if store.loading {
                 HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                    .srPlainRow().padding(.vertical, 40)
+                    .padding(.vertical, 40)
+                    .srBareRow()
             }
 
             if store.summary == nil { recentActivities }
             uploaded
             family
         }
-        .listStyle(.plain)
-        .srPaper()
+        .listStyle(.insetGrouped)
+        .srGround(.vital)
         .navigationTitle("Health")
         // Inline, not large. A large title renders BLANK on this OS with this
         // appearance proxy — the bar lays out at full height and paints no text.
@@ -56,6 +59,7 @@ struct HealthScreen: View {
             try? await companion.refresh()
         }
         .toolbar {
+            ToolbarItem(placement: .principal) { SRBarMark() }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { router.openSettings(.health) } label: { Image(systemName: "gearshape") }
                     .accessibilityLabel("Health settings")
@@ -103,28 +107,28 @@ struct HealthScreen: View {
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .srPlainRow()
+                        .srGlassRow()
                         .padding(.vertical, 10)
                 } else {
                     ForEach(recent.rows.prefix(5)) { row in
                         NavigationLink(value: ActivityRef(id: row.id, name: row.name)) {
                             ActivityListRow(row: row)
                         }
-                        .srPlainRow()
+                        .srGlassRow()
                     }
                 }
                 NavigationLink(value: HealthRoute.activities) {
                     SRRow(title: "All activities", icon: "list.bullet")
                 }
-                .srPlainRow()
+                .srGlassRow()
                 .accessibilityIdentifier("health-all-activities")
                 NavigationLink(value: HealthRoute.segments) {
                     SRRow(title: "Segments", icon: "flag.checkered")
                 }
-                .srPlainRow()
+                .srGlassRow()
                 .accessibilityIdentifier("health-segments")
             } header: {
-                SRSectionLabel(text: "Recent activities").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "Recent activities")
             }
         }
     }
@@ -148,11 +152,9 @@ struct HealthScreen: View {
                 SRStatTile(value: TrailFormat.minutes(week.durationMinutes), label: "Moving", caption: "7 days", onTap: openActivities)
                 SRStatTile(value: "\(week.elevationM)", unit: "m", label: "Climbed", caption: "7 days", onTap: openActivities)
             }
-            .padding(.bottom, 6)
-            .srPlainRow()
-            .listRowSeparator(.hidden)
+            .srBareRow()
         } header: {
-            SRSectionLabel(text: "This week").srPlainRow().padding(.vertical, 6)
+            SRSectionLabel(text: "This week")
         }
     }
 
@@ -165,10 +167,10 @@ struct HealthScreen: View {
                         .font(SR.Text.mono(14))
                         .foregroundStyle(SR.ink)
                 }
-                .srPlainRow()
+                .srGlassRow()
             }
         } header: {
-            SRSectionLabel(text: "Personal records").srPlainRow().padding(.vertical, 6)
+            SRSectionLabel(text: "Personal records")
         }
     }
 
@@ -184,7 +186,7 @@ struct HealthScreen: View {
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .srPlainRow()
+                    .srGlassRow()
                     .padding(.vertical, 10)
             } else {
                 ForEach(companion.records.prefix(8)) { record in
@@ -203,19 +205,16 @@ struct HealthScreen: View {
                             }
                         }
                     }
-                    .srPlainRow()
+                    .srGlassRow()
                 }
             }
         } header: {
             SRSectionLabel(text: "From this iPhone", trailing: companion.queueCount > 0 ? "\(companion.queueCount) waiting" : nil)
-                .srPlainRow()
-                .padding(.vertical, 6)
         } footer: {
             Text("Only you can see these. Heart rate is not a live feed, and sleep records can overlap between sources.")
                 .font(SR.Text.mono())
                 .foregroundStyle(SR.inkMuted)
-                .srPlainRow()
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
         }
     }
 
@@ -224,16 +223,15 @@ struct HealthScreen: View {
         if !companion.family.isEmpty {
             Section {
                 ForEach(companion.family) { member in
-                    FamilyRow(member: member).srPlainRow()
+                    FamilyRow(member: member).srGlassRow()
                 }
             } header: {
-                SRSectionLabel(text: "Family").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "Family")
             } footer: {
                 Text("Family members see a location you chose to share, and nothing else.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
-                    .srPlainRow()
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
             }
         }
     }
@@ -254,7 +252,8 @@ struct HealthHero: View {
     @EnvironmentObject private var router: Router
 
     var body: some View {
-        SRInkBand(kicker: "Readiness · Today", meta: updated) {
+        // Inset 0: the grouped list already holds it off the screen edge.
+        SRInkBand(kicker: "Readiness · Today", meta: updated, inset: 0) {
             if let readiness = summary.readiness {
                 SRInkReadiness(readiness: readiness)
             } else {
@@ -378,9 +377,7 @@ struct FigureTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(SR.cardPadding)
         .frame(minHeight: 104, alignment: .topLeading)
-        .background(SR.surface)
-        .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-        .contentShape(Rectangle())
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(figure.label): \(figure.displayWithUnit)"

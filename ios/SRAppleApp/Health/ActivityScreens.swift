@@ -23,19 +23,17 @@ struct ActivitiesScreen: View {
                         icon: "figure.walk",
                         message: "Workouts appear here once Apple Health or Strava has sent them to the site."
                     )
-                    .srPlainRow()
-                    .listRowSeparator(.hidden)
+                    .srBareRow()
                 } else {
                     TrailStateView(state: store.state, retry: reload)
-                        .srPlainRow()
-                        .listRowSeparator(.hidden)
+                        .srBareRow()
                 }
             } else {
                 ForEach(store.rows) { row in
                     NavigationLink(value: ActivityRef(id: row.id, name: row.name)) {
                         ActivityListRow(row: row)
                     }
-                    .srPlainRow()
+                    .srGlassRow()
                     .onAppear {
                         // The list continuing is what every iPhone list does; a
                         // "More" button at the end is a control you have to find.
@@ -44,12 +42,12 @@ struct ActivitiesScreen: View {
                 }
                 if store.loadingMore {
                     HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                        .srPlainRow()
+                        .srGlassRow()
                         .padding(.vertical, 12)
                 }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .srPaper()
         .navigationTitle("Activities")
         .navigationBarTitleDisplayMode(.inline)
@@ -83,12 +81,10 @@ struct SegmentsScreen: View {
                         icon: "flag.checkered",
                         message: "A segment appears once the same stretch has been covered more than once."
                     )
-                    .srPlainRow()
-                    .listRowSeparator(.hidden)
+                    .srBareRow()
                 } else {
                     TrailStateView(state: store.state, noun: "segment", retry: reload)
-                        .srPlainRow()
-                        .listRowSeparator(.hidden)
+                        .srBareRow()
                 }
             } else {
                 Section {
@@ -96,16 +92,15 @@ struct SegmentsScreen: View {
                         NavigationLink(value: SegmentRef(id: row.id, name: row.name)) {
                             SegmentListRow(row: row)
                         }
-                        .srPlainRow()
+                        .srGlassRow()
                     }
                 } header: {
                     SRSectionLabel(text: "Most recently covered", trailing: "\(store.rows.count)")
-                        .srPlainRow()
                         .padding(.vertical, 6)
                 }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .srPaper()
         .navigationTitle("Segments")
         .navigationBarTitleDisplayMode(.inline)

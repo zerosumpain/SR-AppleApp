@@ -10,20 +10,47 @@ struct ChatBubble: View {
     let message: ChatMessage
 
     var body: some View {
+        if message.isUser { userTurn } else { assistantTurn }
+    }
+
+    /// Your turn: smoked ink, trailing, the one dark shape in the transcript.
+    ///
+    /// Not an accent bubble. Cream on burnt orange measures under 4:1 at body
+    /// size, and a whole paragraph in the accent would spend the colour that is
+    /// supposed to mean "this matters" on "you said this".
+    private var userTurn: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
+                MarkdownText(raw: message.content, register: .ink)
+                attachments(register: .ink)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .srGlass(.ink, in: UnevenRoundedRectangle(
+                topLeadingRadius: 22, bottomLeadingRadius: 22,
+                bottomTrailingRadius: 8, topTrailingRadius: 22,
+                style: .continuous
+            ))
+            .environment(\.colorScheme, .dark)
+            meta
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.leading, 44)
+    }
+
+    /// jkai's turn: prose on the page, the way an answer reads on the desk.
+    /// Glass around a long answer would be a box around an essay.
+    private var assistantTurn: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text(message.isUser ? "You" : "jkai")
-                    .font(SR.monoMedium(12))
-                    .tracking(1.2)
-                    .foregroundStyle(message.isUser ? SR.accent : SR.inkSecondary)
-                if message.source == "whatsapp" {
-                    SRPill(text: "WhatsApp", tone: SR.good)
-                }
-                if let stamp = message.createdAt {
-                    Text(shortAgo(stamp))
-                        .font(SR.mono(12))
-                        .foregroundStyle(SR.inkMuted)
-                }
+                // The monogram as jkai's avatar — the one place the brand mark
+                // speaks.
+                (Text("sr").foregroundStyle(SR.paper) + Text(".").foregroundStyle(SR.accentOnDark))
+                    .font(SR.Text.brand(13))
+                    .frame(width: 26, height: 26)
+                    .background(SR.ink, in: Circle())
+                    .accessibilityHidden(true)
+                meta
             }
 
             if message.content.isEmpty {
@@ -37,34 +64,50 @@ struct ChatBubble: View {
                 MarkdownText(raw: message.content)
             }
 
-            if !message.attachments.isEmpty {
-                ForEach(message.attachments) { attachment in
-                    HStack(spacing: 7) {
-                        Image(systemName: "paperclip").font(.system(size: 11))
-                        Text(attachment.filename ?? attachment.kind ?? "Attachment")
-                            .font(SR.mono(12))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(SR.inkMuted)
-                }
-            }
+            attachments(register: .paper)
 
             if !message.toolSteps.isEmpty {
                 ToolStepList(steps: message.toolSteps)
+                    .padding(12)
+                    .srGlassCard(.paper, radius: SR.Glass.innerRadius)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 12)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(message.isUser ? SR.accent : SR.line)
-                .frame(width: message.isUser ? 3 : 1)
+    }
+
+    private var meta: some View {
+        HStack(spacing: 8) {
+            Text(message.isUser ? "YOU" : "JKAI")
+                .font(SR.monoMedium(12))
+                .tracking(1.2)
+                .foregroundStyle(message.isUser ? SR.accent : SR.inkSecondary)
+            if message.source == "whatsapp" {
+                SRPill(text: "WhatsApp", tone: SR.good)
+            }
+            if let stamp = message.createdAt {
+                Text(shortAgo(stamp))
+                    .font(SR.mono(12))
+                    .foregroundStyle(SR.inkMuted)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func attachments(register: SRRegister) -> some View {
+        if !message.attachments.isEmpty {
+            ForEach(message.attachments) { attachment in
+                HStack(spacing: 7) {
+                    Image(systemName: "paperclip").font(.system(size: 11))
+                    Text(attachment.filename ?? attachment.kind ?? "Attachment")
+                        .font(SR.mono(12))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(register.muted)
+            }
         }
     }
 }
 
-/// What ran, and whether it worked. One grey line per step — the whole of what
-/// a transcript on a small screen can usefully say about a tool call.
 struct ToolStepList: View {
     let steps: [ToolStep]
 
@@ -125,15 +168,13 @@ struct TurnActivityPanel: View {
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(10)
-                        .background(SR.ink.opacity(0.04))
+                        .background(SR.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 12)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(SR.accent.opacity(0.4)).frame(width: 1)
-        }
+        .padding(14)
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
     }
 }
 
@@ -159,19 +200,17 @@ struct BlockedTurnCard: View {
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
             Link(destination: SiteClient.defaultOrigin.appendingPathComponent("jkai")) {
-                Text("Open jkai on the web".uppercased())
-                    .font(SR.monoMedium(12))
-                    .tracking(1.2)
-                    .foregroundStyle(SR.paper)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 11)
-                    .background(SR.accent)
+                SRButtonLabel(title: "Open jkai on the web", icon: "safari")
             }
+            .srButton(.prominent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(SR.surface)
-        .overlay(Rectangle().strokeBorder(SR.accent.opacity(0.5), lineWidth: 1))
+        .padding(18)
+        .srGlassCard(.paper)
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .strokeBorder(SR.accent.opacity(0.55), lineWidth: 1)
+        )
     }
 }
 
@@ -184,6 +223,9 @@ struct BlockedTurnCard: View {
 /// rather than tinting it.
 struct MarkdownText: View {
     let raw: String
+    /// Which ground the prose is on. A user turn is smoked ink now, and ink
+    /// type on it would be invisible.
+    var register: SRRegister = .paper
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -195,7 +237,8 @@ struct MarkdownText: View {
                     Text(inline(text))
                         .font(SR.body(16))
                         .lineSpacing(5)
-                        .foregroundStyle(SR.ink)
+                        .foregroundStyle(register.primary)
+                        .tint(register.accent)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -250,20 +293,43 @@ struct MarkdownText: View {
     }
 
     private func inline(_ text: String) -> AttributedString {
-        // `.full` keeps the newlines a transcript depends on; the default
-        // collapses them and turns a list into one paragraph.
+        // Inline-only, WHITESPACE PRESERVED. `.full` was here, under a comment
+        // saying it kept the newlines — it does not. It turns them into block
+        // structure (`presentationIntent`) that a single `Text` never renders,
+        // so a list came out as one run-on line: "off:Mon easy 6 kmWed 5 x 1 km".
+        // Found by the demo screenshots. The block syntax a transcript actually
+        // uses — bullets, numbered items, headings — is done by hand per line
+        // below, and the inline syntax (bold, code, links) by the parser.
         let options = AttributedString.MarkdownParsingOptions(
             allowsExtendedAttributes: true,
-            interpretedSyntax: .full,
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
-        if var parsed = try? AttributedString(markdown: text, options: options) {
+        var result = AttributedString()
+        let lines = text.components(separatedBy: "\n")
+        for (index, raw) in lines.enumerated() {
+            var line = raw
+            var heading = false
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+                let indent = String(line.prefix(while: { $0 == " " }))
+                line = indent + "•  " + trimmed.dropFirst(2)
+            } else if trimmed.hasPrefix("#") {
+                let body = trimmed.drop(while: { $0 == "#" })
+                if body.hasPrefix(" ") {
+                    line = String(body.dropFirst())
+                    heading = true
+                }
+            }
+            var parsed = (try? AttributedString(markdown: line, options: options)) ?? AttributedString(line)
             for run in parsed.runs where run.inlinePresentationIntent == .code {
                 parsed[run.range].font = SR.mono(14)
             }
-            return parsed
+            if heading { parsed.font = SR.bodyBold(17) }
+            result += parsed
+            if index < lines.count - 1 { result += AttributedString("\n") }
         }
-        return AttributedString(text)
+        return result
     }
 }
 
@@ -294,6 +360,6 @@ struct CodeBlock: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SR.ink)
+        .background(SR.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

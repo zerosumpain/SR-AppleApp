@@ -16,19 +16,22 @@ struct NewsScreen: View {
     @StateObject private var store = NewsStore()
 
     var body: some View {
-        List {
-            Section {
-                viewPicker.srPlainRow().padding(.vertical, 4).listRowSeparator(.hidden)
+        // A scroll of cards rather than a `List`: a NavigationLink inside a list
+        // row earns a disclosure chevron, and beside a lifted card it floats in
+        // the gutter pointing at nothing.
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                SRPageHeader(kicker: "The desk", title: "On the wire")
+                    .padding(.horizontal, SR.gutter)
+                    .padding(.top, 4)
+                viewPicker
                 Text(strap)
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .srPlainRow()
-                    .padding(.bottom, 8)
-                    .listRowSeparator(.hidden)
-            }
+                    .padding(.horizontal, SR.gutter + 4)
+                    .padding(.bottom, 4)
 
-            Section {
                 ForEach(store.stories) { story in
                     NavigationLink(value: story) {
                         NewsLedgerRow(
@@ -39,12 +42,13 @@ struct NewsScreen: View {
                             onAction: { action in Task { await store.act(action, on: story) } }
                         )
                     }
-                    .srPlainRow()
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, SR.gutter)
                 }
             }
+            .padding(.bottom, 28)
         }
-        .listStyle(.plain)
-        .srPaper()
+        .srGround(.wire)
         .navigationTitle("News")
         // Inline, not large. A large title renders BLANK on this OS with this
         // appearance proxy — the bar lays out at full height and paints no text.
@@ -69,6 +73,7 @@ struct NewsScreen: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .principal) { SRBarMark() }
             ToolbarItem(placement: .topBarTrailing) {
                 if let feed = store.feed, let updated = isoDate(feed.updatedAt) {
                     Text((feed.cached ? "Cached " : "") + updated.formatted(date: .omitted, time: .shortened))
@@ -106,41 +111,42 @@ struct NewsScreen: View {
     /// one 66 points, into which "Favourites" does not go, and the system
     /// truncates rather than wrapping. Chips keep every label legible and let
     /// the row scroll.
+    /// The five views as glass chips. On iOS 26 they share one container, so
+    /// the selection's accent glass flows from chip to chip rather than
+    /// blinking between them.
     private var viewPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(NewsView.allCases) { item in
-                    let current = item == store.view
-                    Button {
-                        SRHaptic.select()
-                        Task { await store.select(item) }
-                    } label: {
-                        Text(item.label.uppercased())
-                            .font(SR.Text.label())
-                            .tracking(1.2)
-                            .foregroundStyle(current ? SR.paper : SR.inkSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .frame(minHeight: 38)
-                            .background(current ? SR.ink : Color.clear)
-                            .overlay(Rectangle().strokeBorder(SR.line, lineWidth: current ? 0 : 1))
+            SRGlassGroup(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(NewsView.allCases) { item in
+                        let current = item == store.view
+                        Button {
+                            SRHaptic.select()
+                            Task { await store.select(item) }
+                        } label: {
+                            Text(item.label.uppercased())
+                                .font(SR.Text.label())
+                                .tracking(1.2)
+                                .foregroundStyle(current ? SR.paper : SR.inkSecondary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .frame(minHeight: 40)
+                                .srGlass(current ? .accent : .paper, in: Capsule(), interactive: true)
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("news-view-\(item.rawValue)")
+                        .accessibilityAddTraits(current ? [.isSelected] : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("news-view-\(item.rawValue)")
-                    .accessibilityAddTraits(current ? [.isSelected] : [])
                 }
+                .padding(.horizontal, SR.gutter)
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 2)
         }
         .scrollClipDisabled()
     }
 }
 
-/// One row of the ledger.
-///
-/// `grid-template-columns: 56px minmax(0, 1.5fr) …` on the web. On a phone the
-/// numeral column narrows to 34pt and the rest stacks, but the shape holds: a
-/// display-font numeral in accent, then what the thing IS, then the claim.
 struct NewsLedgerRow: View {
     let story: NewsStory
     let saved: Bool
@@ -151,9 +157,9 @@ struct NewsLedgerRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
                 Text("\(story.rank)")
-                    .font(SR.display(24))
+                    .font(SR.Text.display(26))
                     .foregroundStyle(story.read ? SR.ink.opacity(0.3) : SR.accent)
-                    .frame(width: 34, alignment: .leading)
+                    .frame(width: 36, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 8) {
                     // The eyebrow's two halves STACK rather than sitting side by
@@ -210,10 +216,12 @@ struct NewsLedgerRow: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(SR.paper)
-            .contentShape(Rectangle())
+            // Read stories sink: less glass, more page.
+            .srGlassCard(story.read ? .clear : .paper, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .accessibilityIdentifier("news-row-\(story.key)")
         .accessibilityLabel("\(story.title), \(story.sourceLabel)")
         // The four row actions. A swipe would be invisible; a context menu is
@@ -269,10 +277,11 @@ struct SRToast: View {
         Text(text)
             .font(SR.body(14))
             .foregroundStyle(SR.paper)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(SR.ink)
+            .srGlass(.ink, in: Capsule())
+            .environment(\.colorScheme, .dark)
             .padding(.horizontal, SR.gutter)
             .padding(.bottom, 12)
             .transition(.move(edge: .bottom).combined(with: .opacity))

@@ -132,6 +132,15 @@ final class SiteClient {
     private init() {
         origin = UserDefaults.standard.url(forKey: "site-origin") ?? Self.defaultOrigin
         token = SiteKeychain.read()
+        #if DEBUG
+        // Demo mode (`-SRDemo`, DEBUG only): paired with a pretend credential
+        // that lives in memory and is never written to the Keychain, against
+        // the default origin, with every request answered by `SRDemoFixtures`.
+        if SRDemo.isOn {
+            origin = Self.defaultOrigin
+            token = SRDemo.token
+        }
+        #endif
     }
 
     private lazy var session: URLSession = {
@@ -141,6 +150,12 @@ final class SiteClient {
         // A chat turn can think for a long time before its first token. The
         // stream's own idle timeout is what ends a dead connection, not this.
         config.timeoutIntervalForResource = 600
+        #if DEBUG
+        if SRDemo.isOn {
+            let demo: [AnyClass] = [SRDemoURLProtocol.self]
+            config.protocolClasses = demo + (config.protocolClasses ?? [])
+        }
+        #endif
         return URLSession(configuration: config)
     }()
 
@@ -235,6 +250,10 @@ final class SiteClient {
     private struct PairResponse: Decodable { let token: String; let expiresAt: String }
 
     func pair(_ payload: SitePairing) async throws {
+        #if DEBUG
+        // Never let a demo session reach the Keychain.
+        if SRDemo.isOn { throw SiteError.message("Demo mode: pairing is switched off.") }
+        #endif
         guard let url = URL(string: payload.server), url.scheme == "https" else {
             throw SiteError.message("A pairing code must name an HTTPS address.")
         }
@@ -256,6 +275,13 @@ final class SiteClient {
     }
 
     func signOut() {
+        #if DEBUG
+        // A demo sign-out must not delete a real saved credential.
+        if SRDemo.isOn {
+            token = nil
+            return
+        }
+        #endif
         try? SiteKeychain.save(nil)
         token = nil
         // A revoked credential must not leave thread titles behind in iPhone

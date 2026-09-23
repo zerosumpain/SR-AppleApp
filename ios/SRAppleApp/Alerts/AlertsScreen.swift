@@ -15,10 +15,10 @@ struct AlertsScreen: View {
     var body: some View {
         List {
             ForEach(alerts.recent) { alert in
-                row(alert).srPlainRow()
+                row(alert).srGlassRow()
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .srPaper()
         .navigationTitle("Alerts")
         .navigationBarTitleDisplayMode(.inline)
@@ -115,7 +115,7 @@ struct AlertRoutingScreen: View {
             Section {
                 permissionRow
             } header: {
-                SRSectionLabel(text: "On this iPhone").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "On this iPhone")
             } footer: {
                 Text("""
                      This app has no push certificate, so the site cannot wake it. \
@@ -126,7 +126,7 @@ struct AlertRoutingScreen: View {
                      """)
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
-                    .srPlainRow()
+                    .srGlassRow()
                     .padding(.vertical, 8)
             }
 
@@ -142,7 +142,7 @@ struct AlertRoutingScreen: View {
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .srPlainRow()
+                        .srGlassRow()
                         .padding(.vertical, 10)
                 } else {
                     ForEach(alerts.routes) { route in
@@ -153,14 +153,14 @@ struct AlertRoutingScreen: View {
                                 EmptyView()
                             }
                         }
-                        .srPlainRow()
+                        .srGlassRow()
                     }
                 }
             } header: {
-                SRSectionLabel(text: "Categories").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "Categories")
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .srPaper()
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
@@ -178,7 +178,7 @@ struct AlertRoutingScreen: View {
         switch alerts.permission {
         case .authorized, .provisional, .ephemeral:
             SRRow(title: "Notifications allowed", subtitle: "iOS will show alerts from this app", icon: "checkmark.circle.fill", tone: SR.good)
-                .srPlainRow()
+                .srGlassRow()
         case .denied:
             Button {
                 SRHaptic.tap()
@@ -189,7 +189,7 @@ struct AlertRoutingScreen: View {
                 }
             }
             .buttonStyle(.plain)
-            .srPlainRow()
+            .srGlassRow()
         default:
             Button {
                 Task { await alerts.requestPermission() }
@@ -197,7 +197,7 @@ struct AlertRoutingScreen: View {
                 SRRow(title: "Allow notifications", subtitle: "Needed before anything can appear on this iPhone", icon: "bell.badge", tone: SR.accent)
             }
             .buttonStyle(.plain)
-            .srPlainRow()
+            .srGlassRow()
         }
     }
 }
@@ -232,7 +232,7 @@ struct RouteDetail: View {
                             SRRow(title: "WhatsApp", subtitle: "Arrives immediately", icon: "phone.bubble")
                         }
                         .tint(SR.accent)
-                        .srPlainRow()
+                        .srGlassRow()
 
                         Toggle(isOn: Binding(
                             get: { route.native },
@@ -241,14 +241,14 @@ struct RouteDetail: View {
                             SRRow(title: "This iPhone", subtitle: "On the next background refresh", icon: "iphone")
                         }
                         .tint(SR.accent)
-                        .srPlainRow()
+                        .srGlassRow()
                     } header: {
-                        SRSectionLabel(text: "Deliver to").srPlainRow().padding(.vertical, 6)
+                        SRSectionLabel(text: "Deliver to")
                     } footer: {
                         Text(route.description)
                             .font(SR.Text.mono())
                             .foregroundStyle(SR.inkMuted)
-                            .srPlainRow()
+                            .srGlassRow()
                             .padding(.vertical, 8)
                     }
 
@@ -264,19 +264,19 @@ struct RouteDetail: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .srPlainRow()
+                            .srGlassRow()
                         }
                     } header: {
-                        SRSectionLabel(text: "How often").srPlainRow().padding(.vertical, 6)
+                        SRSectionLabel(text: "How often")
                     } footer: {
                         Text("A floor applies to the whole category, in both channels. Health ships at three hours: the figures move all day and a phone that says so all day is a phone you switch off.")
                             .font(SR.Text.mono())
                             .foregroundStyle(SR.inkMuted)
-                            .srPlainRow()
+                            .srGlassRow()
                             .padding(.vertical, 8)
                     }
                 }
-                .listStyle(.plain)
+                .listStyle(.insetGrouped)
                 .srPaper()
                 .navigationTitle(route.label)
                 .navigationBarTitleDisplayMode(.inline)

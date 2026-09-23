@@ -115,6 +115,9 @@ struct ContentView: View {
             .tag(Router.Tab.news)
         }
         .tint(SR.accent)
+        // On iOS 26 the glass tab bar shrinks to a pill while you read and
+        // comes back when you scroll up — the content gets the screen.
+        .srTabBarMinimizes()
         .preferredColorScheme(.light)
         .environmentObject(router)
         .environmentObject(alerts)
@@ -198,6 +201,17 @@ struct ContentView: View {
             .srPaper()
             .navigationTitle(what.capitalized)
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func srTabBarMinimizes() -> some View {
+        if #available(iOS 26.0, *) {
+            self.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            self
         }
     }
 }

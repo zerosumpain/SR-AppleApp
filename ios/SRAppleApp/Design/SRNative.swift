@@ -32,6 +32,10 @@ enum SRChrome {
     /// the opposite of the failure mode `SRShell` had, where a screen that
     /// forgot came out as a system-grey page in the middle of a cream app.
     static func install() {
+        if #available(iOS 26.0, *) {
+            installGlass()
+            return
+        }
         let paper = UIColor(SR.paper)
         let ink = UIColor(SR.ink)
         let accent = UIColor(SR.accent)
@@ -100,6 +104,38 @@ enum SRChrome {
         UITextView.appearance().tintColor = accent
     }
 
+    /// iOS 26: the bars are Liquid Glass, and the proxy stays out of their way.
+    ///
+    /// `configureWithOpaqueBackground` + a cream fill is what made the app look
+    /// as if it had not noticed the OS it was on — it painted a flat slab over
+    /// exactly the material the system draws there. So on 26 the bars are
+    /// TRANSPARENT (the system's scroll-edge effect does the separating) and the
+    /// tab bar is not configured at all. What survives is the paint: the title
+    /// face and colour, and the accent as the tint.
+    ///
+    /// Still colour-only on the large title — a custom face there paints
+    /// nothing on this OS. Tab roots put their headline in the scroll instead.
+    private static func installGlass() {
+        let ink = UIColor(SR.ink)
+        let bar = UINavigationBarAppearance()
+        bar.configureWithTransparentBackground()
+        bar.titleTextAttributes = [
+            .foregroundColor: ink,
+            .font: scaled(SR.Face.bodyBold, 17, .headline),
+        ]
+        bar.largeTitleTextAttributes = [.foregroundColor: ink]
+        UINavigationBar.appearance().standardAppearance = bar
+        UINavigationBar.appearance().compactAppearance = bar
+        UINavigationBar.appearance().scrollEdgeAppearance = bar
+        UINavigationBar.appearance().compactScrollEdgeAppearance = bar
+        UINavigationBar.appearance().tintColor = UIColor(SR.accent)
+
+        UITableView.appearance().backgroundColor = .clear
+        UICollectionView.appearance().backgroundColor = .clear
+        UITextField.appearance().tintColor = UIColor(SR.accent)
+        UITextView.appearance().tintColor = UIColor(SR.accent)
+    }
+
     /// A bundled face at a size that still answers the reader's text setting.
     ///
     /// `UIFont(name:size:)` is fixed, exactly as `Font.custom(name:size:)` is.
@@ -137,17 +173,24 @@ enum SRHaptic {
 /// opaque one and the reason this does not take a tint parameter.
 struct SRCard<Content: View>: View {
     var accented: Bool = false
+    /// Set when the card is the label of a button, so the glass answers the
+    /// finger.
+    var interactive: Bool = false
     @ViewBuilder var content: Content
 
     var body: some View {
         content
-            .padding(SR.cardPadding)
+            .padding(SR.cardPadding + 2)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(SR.surface)
+            // The accent rule survives the move to glass as a short bar at the
+            // leading edge, inset from the curve — a hairline down a rounded
+            // side would bend with it and read as a mistake.
             .overlay(alignment: .leading) {
-                if accented { Rectangle().fill(SR.accent).frame(width: 3) }
+                if accented {
+                    Capsule().fill(SR.accent).frame(width: 3).padding(.vertical, 18)
+                }
             }
-            .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
+            .srGlassCard(.paper, interactive: interactive)
     }
 }
 
@@ -230,9 +273,8 @@ struct SRStatTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(SR.cardPadding)
         .frame(minHeight: 96, alignment: .topLeading)
-        .background(SR.surface)
-        .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-        .contentShape(Rectangle())
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4, interactive: onTap != nil)
+        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label): \(value) \(unit ?? "")\(caption.map { ", \($0)" } ?? "")")
 
@@ -339,8 +381,10 @@ struct SREmpty: View {
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(SR.inkMuted)
+                .font(.system(size: 30, weight: .regular))
+                .foregroundStyle(SR.accent)
+                .frame(width: 72, height: 72)
+                .srGlass(.paper, in: Circle())
             Text(title)
                 .font(SR.Text.display(19))
                 .foregroundStyle(SR.ink)
@@ -354,15 +398,10 @@ struct SREmpty: View {
             }
             if let action, let actionLabel {
                 Button { SRHaptic.tap(); action() } label: {
-                    Text(actionLabel.uppercased())
-                        .font(SR.Text.label())
-                        .tracking(1.2)
-                        .foregroundStyle(SR.paper)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(SR.accent)
+                    SRButtonLabel(title: actionLabel)
                 }
-                .buttonStyle(.plain)
+                .srButton(.prominent)
+                .controlSize(.large)
             }
         }
         .padding(32)
@@ -376,14 +415,22 @@ struct SRBanner: View {
     var tone: Color = SR.ink
 
     var body: some View {
-        Text(text)
-            .font(SR.Text.secondary(14))
-            .foregroundStyle(SR.paper)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, SR.gutter)
-            .padding(.vertical, 11)
-            .background(tone)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+        HStack(spacing: 10) {
+            Circle().fill(tone == SR.ink ? SR.accentOnDark : SR.errorOnDark).frame(width: 7, height: 7)
+            Text(text)
+                .font(SR.Text.secondary(14))
+                .foregroundStyle(SR.paper)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        // Floating smoked glass rather than a full-width strip: on iOS 26 a
+        // message rises out of the chrome, it does not slot under it.
+        .srGlass(.ink, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
             .accessibilityAddTraits(.isStaticText)
     }
 }
@@ -396,15 +443,13 @@ extension View {
     /// `.background(SR.paper)` alone leaves the system's grouped-list ground
     /// showing through a `List`, which is the two-apps look again.
     func srPaper() -> some View {
-        self
-            .scrollContentBackground(.hidden)
-            .background(SR.paper.ignoresSafeArea())
+        srGround(.quiet)
     }
 
     /// A plain list row with no system insets or separators of its own.
     func srPlainRow() -> some View {
         self
-            .listRowBackground(SR.paper)
+            .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 0, leading: SR.gutter, bottom: 0, trailing: SR.gutter))
             .listRowSeparatorTint(SR.divider)
     }
