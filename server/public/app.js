@@ -13,6 +13,9 @@ async function action(fn) { error(''); try { await fn(); } catch (e) { error(e.m
 function value(r) {
   if (r.kind === 'sleep') return `${r.stage.replaceAll('_', ' ')} · ${((Date.parse(r.end) - Date.parse(r.start)) / 3600000).toFixed(1)} h`;
   if (r.kind === 'workout') return `${r.activity} · ${Math.round(r.value / 60)} min`;
+  // A workout_route/workout_series chunk has no `value` — an explicit
+  // `?kind=` can still return one, and it must not throw the row away.
+  if (r.value === undefined) return `${r.points?.length ?? 0} points`;
   return `${r.value.toLocaleString()} ${r.unit}`;
 }
 async function health() {
@@ -22,7 +25,7 @@ async function health() {
   if (!records.length) $('records').append(node('p', 'No uploaded records in this category. Pair your iPhone and sync to get started.'));
   for (const r of records) {
     const row = node('div', '', 'row'), description = node('div', ''), timing = node('div', '');
-    description.append(node('strong', `${labels[r.kind]} · ${value(r)}`), node('p', r.source, 'muted'));
+    description.append(node('strong', `${labels[r.kind] ?? r.kind.replace(/_/g, ' ')} · ${value(r)}`), node('p', r.source, 'muted'));
     timing.append(node('time', when(r.start)), node('p', `Received ${when(r.received)}`, 'muted'));
     row.append(description, timing); $('records').append(row);
   }

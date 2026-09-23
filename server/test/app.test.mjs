@@ -7,7 +7,11 @@ async function fixture(t) {
   const db = openStore(':memory:');
   for (const [id, family] of [['alex', 'one'], ['sam', 'one'], ['robin', 'two']]) createUser(db, { id, family, email: `${id}@example.test`, name: id });
   const tokens = Object.fromEntries(['alex', 'sam', 'robin'].map(id => [id, issue(db, id, 'device', 'Test phone', 3600000)]));
-  const app = createApp(db, { origin: 'http://localhost', demo: true });
+  // A configured owner so the tombstone tests below (R7: tombstones are only
+  // kept for the configured service owner) exercise the real gate rather than
+  // the "no owner configured" branch. serviceToken stays unset, so the
+  // service lane itself remains closed (404) for every test using fixture().
+  const app = createApp(db, { origin: 'http://localhost', demo: true, serviceOwner: 'alex@example.test' });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
   const request = async (path, { user = 'alex', method = 'GET', body, headers = {} } = {}) => {
@@ -110,6 +114,27 @@ test('summary stays owner scoped even with a noisy heart-rate history', async t 
   const result = await request('summary');
   assert.equal(result.body.records.find(r => r.kind === 'steps').value, 4567);
   assert.equal((await request('summary', { user: 'sam' })).body.records.length, 0);
+});
+
+test('summary only surfaces legacy kinds, not the whole catalogue', async t => {
+  const { request } = await fixture(t);
+  const stamp = new Date().toISOString();
+  const ox = { id: 'ox', kind: 'oxygen_saturation', start: stamp, end: stamp, value: 98, unit: '%', source: 'Watch' };
+  await request('sync', { method: 'POST', body: batch([health(), ox]) });
+  const result = await request('summary');
+  assert.deepEqual(result.body.records.map(r => r.kind).sort(), ['heart_rate']);
+});
+
+test('unfiltered /health hides workout route/series chunks, but an explicit kind still returns them', async t => {
+  const { request } = await fixture(t);
+  const stamp = new Date().toISOString();
+  const t0 = Math.floor(Date.now() / 1000) - 10;
+  const route = { id: 'route:W1:0', kind: 'workout_route', start: stamp, end: stamp, source: 'Watch', workout: 'W1', chunk: 0, points: [[t0, 51.5, -0.1, 10, 3, 5]] };
+  await request('sync', { method: 'POST', body: batch([health(), route]) });
+  const all = await request('health');
+  assert.deepEqual(all.body.records.map(r => r.kind).sort(), ['heart_rate']);
+  const explicit = await request('health?kind=workout_route');
+  assert.equal(explicit.body.records.length, 1);
 });
 
 test('QR pixels contain the canonical origin and a single-use code; regeneration revokes the previous code', async t => {
@@ -489,4 +514,62 @@ test('the service lane does not exist until it is configured', async t => {
   t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
   const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/journeys`, { headers: { Authorization: 'Bearer anything' } });
   assert.equal(response.status, 404);
+});
+test('a HealthKit deletion leaves a tombstone naming its kind and start, and takes the workout\'s chunks with it', async t => {
+  const { request, db } = await fixture(t);
+  const start = new Date(Date.now() - 7200_000).toISOString(), end = new Date(Date.now() - 3600_000).toISOString();
+  const t0 = Math.floor(Date.now() / 1000) - 7000;
+  const workout = { id: 'W1', kind: 'workout', start, end, value: 3600, unit: 'seconds', activity: 'Outdoor Run', source: 'Watch' };
+  const route = { id: 'route:W1:0', kind: 'workout_route', start, end, source: 'Watch', workout: 'W1', chunk: 0, points: [[t0, 51.5, -0.1, 10, 3, 5], [t0 + 5, 51.5001, -0.1, 10, 3, 5]] };
+  assert.equal((await request('sync', { method: 'POST', body: batch([workout, route]) })).status, 200);
+  assert.equal((await request('sync', { method: 'POST', body: batch([], [], ['W1']) })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='alex'").get().n, 0);
+  const stone = db.prepare("SELECT kind, start FROM health_deleted WHERE user_id='alex' AND id='W1'").get();
+  assert.deepEqual({ ...stone }, { kind: 'workout', start });
+});
+test('re-uploading a deleted id clears its tombstone; deleting an unknown id leaves none', async t => {
+  const { request, db } = await fixture(t);
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  await request('sync', { method: 'POST', body: batch([], [], ['A', 'never-seen']) });
+  assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 1);
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 0);
+});
+test('delete-my-data removes tombstones too', async t => {
+  const { request, db } = await fixture(t);
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  await request('sync', { method: 'POST', body: batch([], [], ['A']) });
+  await request('data', { method: 'DELETE' });
+  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='alex'").get().n, 0);
+});
+test('a tombstone is kept only for the configured service owner\'s deletions (R7)', async t => {
+  const { request, db } = await fixture(t);
+  // sam is not APPLE_SERVICE_OWNER (alex is). /health only ever reads alex's
+  // export, so a tombstone for sam's deletion would sit in the table forever,
+  // never handed to anyone — and sam is not who this export is scoped to.
+  await request('sync', { user: 'sam', method: 'POST', body: batch([health('S1')]) });
+  assert.equal((await request('sync', { user: 'sam', method: 'POST', body: batch([], [], ['S1']) })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='sam'").get().n, 0, 'the deletion itself still applies');
+  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='sam'").get().n, 0, 'no tombstone for a non-owner');
+
+  // The owner's own deletion is still tombstoned exactly as before.
+  await request('sync', { method: 'POST', body: batch([health('A1')]) });
+  await request('sync', { method: 'POST', body: batch([], [], ['A1']) });
+  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='alex'").get().n, 1);
+});
+test('with no service owner configured, deletions apply but no tombstone is kept (R7)', async t => {
+  const db = openStore(':memory:');
+  createUser(db, { id: 'alex', family: 'one', email: 'alex@example.test', name: 'alex' });
+  const token = issue(db, 'alex', 'device', 'Test phone', 3600000);
+  const app = createApp(db, { origin: 'http://localhost', demo: true });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const request = async (path, { method = 'GET', body } = {}) => {
+    const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, body: await response.json() };
+  };
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  assert.equal((await request('sync', { method: 'POST', body: batch([], [], ['A']) })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='alex'").get().n, 0, 'the deletion itself still applies');
+  assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 0, 'no owner configured means no tombstone');
 });

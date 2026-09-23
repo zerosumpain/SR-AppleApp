@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { hash, issue } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
 import { SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
-const kinds = new Set(['steps', 'heart_rate', 'resting_heart_rate', 'sleep', 'workout']);
+import { KINDS, catalogue, validateHealthRecord } from './catalogue.mjs';
+import { exportPage } from './export.mjs';
+import { createDoorbell } from './doorbell.mjs';
 /**
  * How long a location history is kept, in days. Enforced by the prune in
  * `sync`, reported by `track` so the day strip can draw the right number of
@@ -44,24 +46,18 @@ const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 's
 function exactKeys(obj, allowed) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || Object.keys(obj).some(k => !allowed.includes(k))) fail(400, 'Unexpected fields');
 }
-function healthRecord(r) {
-  exactKeys(r, ['id', 'kind', 'start', 'end', 'value', 'unit', 'source', 'stage', 'activity', 'distance', 'energy']);
-  if (!string(r.id) || !kinds.has(r.kind) || !iso(r.start) || !iso(r.end) || Date.parse(r.end) < Date.parse(r.start) || Date.parse(r.end) > Date.now() + 300000 || !string(r.source)) fail(400, 'Invalid health record');
-  if (r.kind === 'steps' && (!bounded(r.value, 0, 300000) || r.unit !== 'count')) fail(400, 'Invalid steps');
-  if (['heart_rate', 'resting_heart_rate'].includes(r.kind) && (!bounded(r.value, 1, 350) || r.unit !== 'bpm')) fail(400, 'Invalid heart rate');
-  if (r.kind === 'sleep' && !['in_bed', 'awake', 'asleep', 'core', 'deep', 'rem'].includes(r.stage)) fail(400, 'Invalid sleep stage');
-  if (r.kind === 'workout' && (!string(r.activity, 80) || !bounded(r.value, 0, 604800) || r.unit !== 'seconds')) fail(400, 'Invalid workout');
-  if (r.distance != null && !bounded(r.distance, 0, 10000000)) fail(400, 'Invalid distance');
-  if (r.energy != null && !bounded(r.energy, 0, 100000)) fail(400, 'Invalid energy');
-  return { ...r, start: new Date(r.start).toISOString(), end: new Date(r.end).toISOString() };
-}
+const healthRecord = validateHealthRecord;
 function locationRecord(r) {
   exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving']);
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
   const rate = new Map();
+  // Its OWN ring-only secret, never the service token — that token can READ
+  // the owner's export, and this URL is not guaranteed to stay on loopback the
+  // way the service lane is (R5). Unset token or URL = no ring, as before.
+  const ring = createDoorbell({ url: doorbellUrl, token: doorbellToken, fetchImpl });
   const csrfOrigin = new URL(origin).origin;
   const secure = csrfOrigin.startsWith('https:');
   function limit(key) {
@@ -149,27 +145,32 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       //
       // Unset token or owner = the endpoint does not exist (404), which is the
       // state of every environment that has not opted in.
-      if (path === '/api/apple/journeys' && method === 'GET') {
+      // The service lane's gate, shared by its two endpoints. Returns the
+      // configured owner's user id, or null when that person has no account.
+      const serviceOwnerId = (allowedParams) => {
         if (!serviceToken || !serviceOwner) fail(404, 'Not found');
         const presented = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1] ?? '';
         // Compared as digests so the lengths always match and the comparison
         // leaks nothing about the token through its timing.
         if (!timingSafeEqual(Buffer.from(hash(presented), 'hex'), Buffer.from(hash(serviceToken), 'hex'))) fail(401, 'Not authorised');
-        if ([...url.searchParams.keys()].some(k => !['from', 'to'].includes(k))) fail(400, 'Journeys can only be read for the configured owner');
+        if ([...url.searchParams.keys()].some(k => !allowedParams.includes(k))) fail(400, 'Only the configured owner can be read');
+        return db.prepare('SELECT id FROM users WHERE email=?').get(serviceOwner.toLowerCase())?.id ?? null;
+      };
+      if (path === '/api/apple/journeys' && method === 'GET') {
+        const ownerId = serviceOwnerId(['from', 'to']);
         const now = Math.floor(Date.now() / 1000);
         const rawFrom = url.searchParams.get('from'), rawTo = url.searchParams.get('to');
         const to = rawTo === null || rawTo === '' ? now : Number(rawTo);
         const from = rawFrom === null || rawFrom === '' ? to - RETENTION_DAYS * 86400 : Number(rawFrom);
         if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from || to - from > (RETENTION_DAYS + 1) * 86400) fail(400, 'Invalid window');
-        const owner = db.prepare('SELECT id FROM users WHERE email=?').get(serviceOwner.toLowerCase());
-        if (!owner) return send(200, { from, to, retentionDays: RETENTION_DAYS, journeys: [], workouts: [], truncated: false });
+        if (!ownerId) return send(200, { from, to, retentionDays: RETENTION_DAYS, journeys: [], workouts: [], truncated: false });
         const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
-        const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? AND recorded>=? AND recorded<? ORDER BY recorded LIMIT ${TRACK_LIMIT + 1}`).all(owner.id, fromISO, toISO);
+        const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? AND recorded>=? AND recorded<? ORDER BY recorded LIMIT ${TRACK_LIMIT + 1}`).all(ownerId, fromISO, toISO);
         const points = rows.slice(0, TRACK_LIMIT).map(r => {
           const p = JSON.parse(r.payload);
           return [round(p.longitude, 6), round(p.latitude, 6), Math.round(Date.parse(p.recorded) / 1000), round(p.accuracy, 1), p.moving ? 1 : 0, round(p.speed, 2)];
         });
-        const beats = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='heart_rate' AND start>=? AND start<? ORDER BY start").all(owner.id, fromISO, toISO)
+        const beats = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='heart_rate' AND start>=? AND start<? ORDER BY start").all(ownerId, fromISO, toISO)
           .map(r => JSON.parse(r.payload)).map(h => [Math.round(Date.parse(h.start) / 1000), h.value]);
         // The same journeys the map draws — `activitiesOf` is the one definition
         // of what a day's movement was. What counts as an ACTIVITY (on foot,
@@ -184,9 +185,18 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         // within the hour. /health's copy arrives through Health Auto Export
         // and can lag it by a day, so without these a walk the Watch recorded
         // would show twice until that export caught up.
-        const workouts = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='workout' AND start<? AND end>? ORDER BY start").all(owner.id, toISO, fromISO)
+        const workouts = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='workout' AND start<? AND end>? ORDER BY start").all(ownerId, toISO, fromISO)
           .map(r => JSON.parse(r.payload)).map(w => ({ activity: w.activity, start: w.start, end: w.end, source: w.source }));
         return send(200, { from, to, retentionDays: RETENTION_DAYS, journeys, workouts, truncated: rows.length > TRACK_LIMIT });
+      }
+      // A COPY, unlike journeys (spec E1, E14). Health figures only — location
+      // never leaves through here, and "delete my data" does not reach the copy.
+      if (path === '/api/apple/export' && method === 'GET') {
+        const ownerId = serviceOwnerId(['after', 'limit']);
+        const after = Number(url.searchParams.get('after') ?? 0), limit = Number(url.searchParams.get('limit') ?? 2000);
+        if (!Number.isInteger(after) || after < 0 || !Number.isInteger(limit) || limit < 1 || limit > 5000) fail(400, 'Invalid cursor');
+        if (!ownerId) return send(200, { after, next: after, more: false, earliest: null, records: [], workouts: [], tombstones: [] });
+        return send(200, exportPage(db, ownerId, { after, limit }));
       }
       // Two ways in, and only two.
       //
@@ -259,7 +269,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { sharing: body.enabled });
       }
       if (path === '/api/apple/summary' && method === 'GET') {
-        const records = [...kinds].flatMap(kind => {
+        // The dashboard's tiles only ever draw the legacy kinds (labels exist
+        // for those five, nothing else); looping every catalogued kind meant
+        // up to 35 point lookups a call for tiles nothing shows.
+        const records = Object.keys(catalogue.legacyKinds).flatMap(kind => {
           const row = db.prepare('SELECT payload,received FROM health WHERE user_id=? AND kind=? ORDER BY start DESC LIMIT 1').get(auth.user_id, kind);
           return row ? [{ ...JSON.parse(row.payload), received: row.received }] : [];
         });
@@ -268,9 +281,13 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       if (path === '/api/apple/health' && method === 'GET') {
         if ([...url.searchParams.keys()].some(k => !['kind', 'before'].includes(k))) fail(400, 'Health can only be read for the signed-in user');
         const kind = url.searchParams.get('kind');
-        if (kind && !kinds.has(kind)) fail(400, 'Unknown health category');
+        if (kind && !KINDS.has(kind)) fail(400, 'Unknown health category');
         const before = url.searchParams.get('before') ?? '9999';
-        const rows = db.prepare('SELECT payload, received FROM health WHERE user_id=? AND (? IS NULL OR kind=?) AND start<? ORDER BY start DESC LIMIT 501').all(auth.user_id, kind, kind, before);
+        // Unfiltered, this fed the dashboard's list — which has no way to draw a
+        // route/series chunk and no `value` to show for one (see app.js). An
+        // explicit `?kind=workout_route` still reads them; only the "everything"
+        // view excludes the megabyte-sized `points` arrays.
+        const rows = db.prepare(`SELECT payload, received FROM health WHERE user_id=? AND ((? IS NULL AND kind NOT IN ('workout_route','workout_series')) OR kind=?) AND start<? ORDER BY start DESC LIMIT 501`).all(auth.user_id, kind, kind, before);
         return send(200, { records: rows.slice(0, 500).map(r => ({ ...JSON.parse(r.payload), received: r.received })), truncated: rows.length > 500 });
       }
       // Your own movement, for the map on the dashboard.
@@ -364,23 +381,49 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!body.deleted.every(id => string(id))) fail(400, 'Invalid deletion IDs');
         if (locations.length && !auth.sharing) fail(409, 'Location sharing is paused');
         const received = new Date().toISOString();
+        // Resolved once per request rather than per call site: the tombstone
+        // gate below and the doorbell ring at the end of this handler both
+        // need "is this upload from the configured owner", and a stale second
+        // lookup could answer it differently mid-request.
+        const ownerId = serviceOwner ? db.prepare('SELECT id FROM users WHERE email=?').get(serviceOwner.toLowerCase())?.id ?? null : null;
         db.exec('BEGIN IMMEDIATE');
         try {
           const put = db.prepare('INSERT INTO health VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET kind=excluded.kind,start=excluded.start,end=excluded.end,payload=excluded.payload,received=excluded.received');
-          for (const r of health) put.run(auth.user_id, r.id, r.kind, r.start, r.end, JSON.stringify(r), received);
-          for (const id of body.deleted) db.prepare('DELETE FROM health WHERE user_id=? AND id=?').run(auth.user_id, id);
+          const unstone = db.prepare('DELETE FROM health_deleted WHERE user_id=? AND id=?');
+          for (const r of health) { put.run(auth.user_id, r.id, r.kind, r.start, r.end, JSON.stringify(r), received); unstone.run(auth.user_id, r.id); }
+          // A deletion must reach /health's COPY, so it is remembered as a
+          // tombstone the export hands on (spec E8). A workout's route and
+          // series chunks go with it: they have no HealthKit identity of their
+          // own, and /health drops them through the activity's cascade.
+          //
+          // Only the configured owner's deletions are worth remembering this
+          // way (R7): /health only ever reads the owner's export, so a
+          // tombstone for anyone else — or for an unconfigured lane — would
+          // sit in the table forever, read by nobody. The deletion itself
+          // still applies to every uploader.
+          const find = db.prepare('SELECT kind, start FROM health WHERE user_id=? AND id=?');
+          const stone = db.prepare('INSERT INTO health_deleted VALUES (?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET kind=excluded.kind,start=excluded.start,deleted=excluded.deleted');
+          for (const id of body.deleted) {
+            const row = find.get(auth.user_id, id);
+            if (!row) continue;
+            if (ownerId && auth.user_id === ownerId) stone.run(auth.user_id, id, row.kind, row.start, received);
+            db.prepare('DELETE FROM health WHERE user_id=? AND id=?').run(auth.user_id, id);
+            if (row.kind === 'workout') db.prepare("DELETE FROM health WHERE user_id=? AND kind IN ('workout_route','workout_series') AND json_extract(payload,'$.workout')=?").run(auth.user_id, id);
+          }
           for (const r of locations) db.prepare('INSERT OR IGNORE INTO locations VALUES (?,?,?,?,?)').run(auth.user_id, r.id, r.recorded, JSON.stringify(r), received);
           // Location history is deliberately bounded; family API exposes latest
           // only, and `track` exposes this window to its owner and nobody else.
           db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(Date.now() - RETENTION_DAYS * 86400000).toISOString());
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
+        if ((health.length || body.deleted.length) && ownerId && auth.user_id === ownerId) ring();
         return send(200, { accepted: health.length + locations.length + body.deleted.length, received });
       }
       if (path === '/api/apple/data' && method === 'DELETE') {
         db.exec('BEGIN IMMEDIATE');
         try {
           db.prepare('DELETE FROM health WHERE user_id=?').run(auth.user_id);
+          db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(auth.user_id);
           db.prepare('DELETE FROM locations WHERE user_id=?').run(auth.user_id);
           db.prepare("DELETE FROM credentials WHERE user_id=? AND kind IN ('device','pair')").run(auth.user_id);
           db.prepare('UPDATE users SET sharing=0 WHERE id=?').run(auth.user_id);

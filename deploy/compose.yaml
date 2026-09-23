@@ -17,6 +17,13 @@ services:
       # SR-Health's COMPANION_SERVICE_TOKEN; the owner is an email in `users`.
       APPLE_SERVICE_TOKEN: ${APPLE_SERVICE_TOKEN:-}
       APPLE_SERVICE_OWNER: ${APPLE_SERVICE_OWNER:-}
+      # /health's doorbell (spec E2): rung after each owner upload so /health
+      # pulls the export at once. Empty = no ring; /health still catches up on
+      # its page-load backstop. APPLE_DOORBELL_TOKEN is its OWN ring-only
+      # secret, never APPLE_SERVICE_TOKEN above — it can only trigger a pull
+      # and grants no read access, unlike the service token.
+      APPLE_DOORBELL_URL: ${APPLE_DOORBELL_URL:-}
+      APPLE_DOORBELL_TOKEN: ${APPLE_DOORBELL_TOKEN:-}
     ports:
       - '127.0.0.1:5295:5295'
     volumes:
