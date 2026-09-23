@@ -381,6 +381,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!body.deleted.every(id => string(id))) fail(400, 'Invalid deletion IDs');
         if (locations.length && !auth.sharing) fail(409, 'Location sharing is paused');
         const received = new Date().toISOString();
+        // Resolved once per request rather than per call site: the tombstone
+        // gate below and the doorbell ring at the end of this handler both
+        // need "is this upload from the configured owner", and a stale second
+        // lookup could answer it differently mid-request.
+        const ownerId = serviceOwner ? db.prepare('SELECT id FROM users WHERE email=?').get(serviceOwner.toLowerCase())?.id ?? null : null;
         db.exec('BEGIN IMMEDIATE');
         try {
           const put = db.prepare('INSERT INTO health VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET kind=excluded.kind,start=excluded.start,end=excluded.end,payload=excluded.payload,received=excluded.received');
@@ -390,12 +395,18 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           // tombstone the export hands on (spec E8). A workout's route and
           // series chunks go with it: they have no HealthKit identity of their
           // own, and /health drops them through the activity's cascade.
+          //
+          // Only the configured owner's deletions are worth remembering this
+          // way (R7): /health only ever reads the owner's export, so a
+          // tombstone for anyone else — or for an unconfigured lane — would
+          // sit in the table forever, read by nobody. The deletion itself
+          // still applies to every uploader.
           const find = db.prepare('SELECT kind, start FROM health WHERE user_id=? AND id=?');
           const stone = db.prepare('INSERT INTO health_deleted VALUES (?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET kind=excluded.kind,start=excluded.start,deleted=excluded.deleted');
           for (const id of body.deleted) {
             const row = find.get(auth.user_id, id);
             if (!row) continue;
-            stone.run(auth.user_id, id, row.kind, row.start, received);
+            if (ownerId && auth.user_id === ownerId) stone.run(auth.user_id, id, row.kind, row.start, received);
             db.prepare('DELETE FROM health WHERE user_id=? AND id=?').run(auth.user_id, id);
             if (row.kind === 'workout') db.prepare("DELETE FROM health WHERE user_id=? AND kind IN ('workout_route','workout_series') AND json_extract(payload,'$.workout')=?").run(auth.user_id, id);
           }
@@ -405,10 +416,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(Date.now() - RETENTION_DAYS * 86400000).toISOString());
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
-        if (health.length || body.deleted.length) {
-          const owner = serviceOwner && db.prepare('SELECT id FROM users WHERE email=?').get(serviceOwner.toLowerCase());
-          if (owner?.id === auth.user_id) ring();
-        }
+        if ((health.length || body.deleted.length) && ownerId && auth.user_id === ownerId) ring();
         return send(200, { accepted: health.length + locations.length + body.deleted.length, received });
       }
       if (path === '/api/apple/data' && method === 'DELETE') {

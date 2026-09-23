@@ -7,7 +7,11 @@ async function fixture(t) {
   const db = openStore(':memory:');
   for (const [id, family] of [['alex', 'one'], ['sam', 'one'], ['robin', 'two']]) createUser(db, { id, family, email: `${id}@example.test`, name: id });
   const tokens = Object.fromEntries(['alex', 'sam', 'robin'].map(id => [id, issue(db, id, 'device', 'Test phone', 3600000)]));
-  const app = createApp(db, { origin: 'http://localhost', demo: true });
+  // A configured owner so the tombstone tests below (R7: tombstones are only
+  // kept for the configured service owner) exercise the real gate rather than
+  // the "no owner configured" branch. serviceToken stays unset, so the
+  // service lane itself remains closed (404) for every test using fixture().
+  const app = createApp(db, { origin: 'http://localhost', demo: true, serviceOwner: 'alex@example.test' });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
   const request = async (path, { user = 'alex', method = 'GET', body, headers = {} } = {}) => {
@@ -537,4 +541,35 @@ test('delete-my-data removes tombstones too', async t => {
   await request('sync', { method: 'POST', body: batch([], [], ['A']) });
   await request('data', { method: 'DELETE' });
   assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='alex'").get().n, 0);
+});
+test('a tombstone is kept only for the configured service owner\'s deletions (R7)', async t => {
+  const { request, db } = await fixture(t);
+  // sam is not APPLE_SERVICE_OWNER (alex is). /health only ever reads alex's
+  // export, so a tombstone for sam's deletion would sit in the table forever,
+  // never handed to anyone — and sam is not who this export is scoped to.
+  await request('sync', { user: 'sam', method: 'POST', body: batch([health('S1')]) });
+  assert.equal((await request('sync', { user: 'sam', method: 'POST', body: batch([], [], ['S1']) })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='sam'").get().n, 0, 'the deletion itself still applies');
+  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='sam'").get().n, 0, 'no tombstone for a non-owner');
+
+  // The owner's own deletion is still tombstoned exactly as before.
+  await request('sync', { method: 'POST', body: batch([health('A1')]) });
+  await request('sync', { method: 'POST', body: batch([], [], ['A1']) });
+  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='alex'").get().n, 1);
+});
+test('with no service owner configured, deletions apply but no tombstone is kept (R7)', async t => {
+  const db = openStore(':memory:');
+  createUser(db, { id: 'alex', family: 'one', email: 'alex@example.test', name: 'alex' });
+  const token = issue(db, 'alex', 'device', 'Test phone', 3600000);
+  const app = createApp(db, { origin: 'http://localhost', demo: true });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const request = async (path, { method = 'GET', body } = {}) => {
+    const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, body: await response.json() };
+  };
+  await request('sync', { method: 'POST', body: batch([health('A')]) });
+  assert.equal((await request('sync', { method: 'POST', body: batch([], [], ['A']) })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='alex'").get().n, 0, 'the deletion itself still applies');
+  assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 0, 'no owner configured means no tombstone');
 });
