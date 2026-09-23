@@ -37,15 +37,21 @@ import BackgroundTasks
             try await refresh()
         } catch { message = error.localizedDescription }
     }
-    func setHealth(_ kind: String, enabled: Bool) {
+    /// Toggles a GROUP. Turning one off drops its kinds' anchors and hourly
+    /// cursors (so re-enabling re-reads from historyStart) and purges their
+    /// unsent records — the behaviour the per-kind toggle had.
+    func setHealth(_ group: String, enabled: Bool) {
+        let kinds = Set(HealthCatalogue.kinds(inGroups: [group]))
         do {
             try outbox.change {
-                $0.healthEnabled.removeAll { $0 == kind }
-                if enabled { $0.healthEnabled.append(kind) }
-                else {
-                    // Remove unsent records and restart this category's anchor if re-enabled.
-                    $0.anchors.removeValue(forKey: kind)
-                    for index in $0.batches.indices { $0.batches[index].health.removeAll { $0.kind == kind } }
+                var groups = Set($0.healthEnabled)
+                groups.remove(group)
+                if enabled { groups.insert(group) }
+                $0.healthEnabled = HealthCatalogue.groupOrder.filter { groups.contains($0) }
+                if !enabled {
+                    for kind in kinds { $0.anchors.removeValue(forKey: kind); $0.hourlyFrom.removeValue(forKey: kind) }
+                    if kinds.contains("workout") { $0.pendingRoutes.removeAll() }
+                    for index in $0.batches.indices { $0.batches[index].health.removeAll { kinds.contains($0.kind) } }
                     $0.batches.removeAll { $0.health.isEmpty && $0.locations.isEmpty && $0.deleted.isEmpty }
                 }
             }
@@ -54,7 +60,7 @@ import BackgroundTasks
     }
     func authorizeHealth() async {
         busy = true; defer { busy = false }
-        do { try await health.authorize(); try await health.collect(); await flush() }
+        do { try await health.authorize(); try await health.collect(until: Date().addingTimeInterval(120)); await flush() }
         catch { message = error.localizedDescription }
     }
     func setSharing(_ enabled: Bool) async {
@@ -71,10 +77,12 @@ import BackgroundTasks
         } catch { message = "Saved on this phone. Server update pending: \(error.localizedDescription)" }
         updateQueue()
     }
-    func sync() async {
+    /// `collectingFor`: 120 s in the foreground; a background refresh passes
+    /// 25 s so the upload and the notification pass still fit its budget.
+    func sync(collectingFor seconds: TimeInterval = 120) async {
         guard paired, !busy else { return }
         busy = true; defer { busy = false }
-        do { try await health.collect(); await flush(); try await refresh() }
+        do { try await health.collect(until: Date().addingTimeInterval(seconds)); await flush(); try await refresh() }
         catch { message = error.localizedDescription }
     }
     func refresh() async throws {
