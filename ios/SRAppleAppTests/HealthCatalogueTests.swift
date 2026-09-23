@@ -24,4 +24,26 @@ final class HealthCatalogueTests: XCTestCase {
         var unknown = base; unknown.kind = "blood_glucose"
         XCTAssertFalse(HealthCatalogue.accepts(unknown))
     }
+
+    func testEveryCatalogueKindHasAReading() {
+        for kind in HealthCatalogue.file.kinds.keys {
+            XCTAssertNotNil(HealthReadings.reading(for: kind), "no HealthKit reading for \(kind)")
+        }
+    }
+
+    func testEverySeriesMetricTheWorkoutPassSendsIsCatalogued() {
+        for s in HealthReadings.workoutSeries {
+            XCTAssertNotNil(HealthCatalogue.file.series[s.metric], s.metric)
+        }
+    }
+
+    func testWorkoutNamesMatchWhatTheWebhookStored() {
+        // /health already holds 2,312 workouts named by Health Auto Export; the
+        // switch rewrites the last 30 days of them, so the names must not change.
+        XCTAssertEqual(HealthReadings.name(for: .walking, indoor: false), "Outdoor Walk")
+        XCTAssertEqual(HealthReadings.name(for: .running, indoor: true), "Indoor Run")
+        XCTAssertEqual(HealthReadings.name(for: .cycling, indoor: false), "Outdoor Cycling")
+        XCTAssertEqual(HealthReadings.name(for: .highIntensityIntervalTraining, indoor: false), "High Intensity Interval Training")
+        XCTAssertEqual(HealthReadings.name(for: .archery, indoor: false), "Other")
+    }
 }
