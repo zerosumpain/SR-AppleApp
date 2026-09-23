@@ -43,7 +43,7 @@ struct SettingsScreen: View {
                 }
 
                 Section {
-                    link(.health, "Apple Health", "\(outbox.state.healthEnabled.count) of 5 categories", "heart.text.square")
+                    link(.health, "Apple Health", "\(outbox.state.healthEnabled.count) of \(HealthCatalogue.groupOrder.count) categories", "heart.text.square")
                     link(.location, "Location & battery", draft, "location")
                     link(.log, "Gate history", "When GPS slept, and why", "list.bullet.rectangle")
                 } header: {
@@ -357,17 +357,17 @@ struct AppleHealthScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var location: LocationCollector
 
-    private let kinds = ["steps", "heart_rate", "resting_heart_rate", "sleep", "workout"]
+    private let groups = HealthCatalogue.groupOrder
 
     var body: some View {
         List {
             Section {
-                ForEach(kinds, id: \.self) { kind in
+                ForEach(groups, id: \.self) { group in
                     Toggle(isOn: Binding(
-                        get: { outbox.state.healthEnabled.contains(kind) },
-                        set: { value in SRHaptic.select(); companion.setHealth(kind, enabled: value) }
+                        get: { outbox.state.healthEnabled.contains(group) },
+                        set: { value in SRHaptic.select(); companion.setHealth(group, enabled: value) }
                     )) {
-                        Text(HealthCollector.labels[kind] ?? kind)
+                        Text(HealthCatalogue.label(forGroup: group))
                             .font(SR.Text.body(16))
                             .foregroundStyle(SR.ink)
                     }
@@ -381,7 +381,9 @@ struct AppleHealthScreen: View {
                     SRHaptic.tap()
                     Task { await companion.authorizeHealth() }
                 } label: {
-                    SRRow(title: "Review Apple Health permissions", icon: "heart.text.square")
+                    SRRow(title: "Review Apple Health permissions",
+                          subtitle: companion.healthReviewNeeded ? "Some categories have not been allowed yet" : nil,
+                          icon: "heart.text.square")
                 }
                 .buttonStyle(.plain)
                 .disabled(companion.busy || outbox.state.healthEnabled.isEmpty)

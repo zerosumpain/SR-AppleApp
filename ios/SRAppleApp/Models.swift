@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import CoreLocation
 
+struct WorkoutEventRecord: Codable, Equatable { var type: String; var start: String; var end: String }
 struct HealthRecord: Codable, Identifiable {
     var id: String
     var kind: String
@@ -14,6 +15,22 @@ struct HealthRecord: Codable, Identifiable {
     var activity: String?
     var distance: Double?
     var energy: Double?
+    /// The phone's IANA zone when this was collected, so /health can write
+    /// the local date the webhook used to (spec E12).
+    var tz: String?
+    // Workout depth (kind "workout").
+    var indoor: Bool?
+    var elevation: Double?
+    var mets: Double?
+    var temperature: Double?
+    var humidity: Double?
+    var effort: Double?
+    var events: [WorkoutEventRecord]?
+    // A chunk of a workout's route or series (kinds "workout_route" / "workout_series").
+    var workout: String?
+    var metric: String?
+    var chunk: Int?
+    var points: [[Double?]]?
 }
 struct LocationRecord: Codable, Identifiable {
     var id: String = UUID().uuidString
@@ -80,6 +97,25 @@ struct PersistedState: Codable {
     /// by itself has to be watchable: "slept all night and saved a fortune" and
     /// "stopped recording at nine and nobody noticed" look identical without it.
     var gateEvents: [GateEvent] = []
+    /// 0 = toggles are per-kind (pre-catalogue); 1 = toggles are groups, but
+    /// workouts collected before the catalogue still lack their series, route
+    /// and events; 2 = workouts re-read with depth, after the reader granted the
+    /// new permissions. Fresh state (a new install, or `clear()` on re-pair)
+    /// starts at the current version: it has nothing old to migrate. A file on
+    /// disk without the key decodes as 0 (below).
+    static let currentCatalogueVersion = 2
+    var catalogueVersion = PersistedState.currentCatalogueVersion
+    /// Where each hourly-statistics kind resumes. Re-reads the last 48 hours
+    /// every pass, because a Watch can sync a day late.
+    var hourlyFrom: [String: Date] = [:]
+    /// Workouts whose route watchOS has not saved yet (it lands after the
+    /// workout), by workout UUID → workout end. Retried for 7 days.
+    var pendingRoutes: [String: Date] = [:]
+    /// The value last queued per hourly (and daily `steps`) bucket, by kind →
+    /// bucket id. Every pass re-reads the last 48 hours (30 days for `steps`);
+    /// only a bucket whose value moved is queued again. Holds exactly the
+    /// buckets the last pass read, so it prunes itself to that window.
+    var hourlySent: [String: [String: Double]] = [:]
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -110,12 +146,18 @@ struct PersistedState: Codable {
         gateState = try c.decodeIfPresent(GateState.self, forKey: .gateState) ?? .tracking
         anchor = try c.decodeIfPresent(GateAnchor.self, forKey: .anchor)
         gateEvents = try c.decodeIfPresent([GateEvent].self, forKey: .gateEvents) ?? []
+        catalogueVersion = try c.decodeIfPresent(Int.self, forKey: .catalogueVersion) ?? 0
+        hourlyFrom = try c.decodeIfPresent([String: Date].self, forKey: .hourlyFrom) ?? [:]
+        pendingRoutes = try c.decodeIfPresent([String: Date].self, forKey: .pendingRoutes) ?? [:]
+        hourlySent = try c.decodeIfPresent([String: [String: Double]].self, forKey: .hourlySent) ?? [:]
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`
     /// suppresses.
     init() {}
 }
+/// What a change that would push the outbox past 50,000 records throws.
+let outboxFullMessage = "Offline queue is full. Connect and sync before collecting more data."
 @MainActor final class Outbox: ObservableObject {
     @Published private(set) var state: PersistedState
     private let url: URL
@@ -132,7 +174,7 @@ struct PersistedState: Codable {
     func change(_ transform: (inout PersistedState) throws -> Void) throws {
         var next = state; try transform(&next)
         let count = next.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }
-        guard count <= 50000 else { throw CompanionError.message("Offline queue is full. Connect and sync before collecting more data.") }
+        guard count <= 50000 else { throw CompanionError.message(outboxFullMessage) }
         let data = try JSONEncoder().encode(next)
         try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         state = next

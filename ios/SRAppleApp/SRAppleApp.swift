@@ -39,7 +39,7 @@ import UIKit
                     // certificate — so it runs even when the outbox is empty,
                     // and it runs SECOND so a full outbox cannot starve it of
                     // the whole budget.
-                    await companion.sync()
+                    await companion.sync(collectingFor: 15)
                     await AlertStore.backgroundPass()
                     task.setTaskCompleted(success: companion.queueCount == 0)
                 }

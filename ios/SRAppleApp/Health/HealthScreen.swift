@@ -191,7 +191,7 @@ struct HealthScreen: View {
             } else {
                 ForEach(companion.records.prefix(8)) { record in
                     SRRow(
-                        title: HealthCollector.labels[record.kind] ?? record.kind,
+                        title: HealthScreen.label(for: record.kind),
                         subtitle: "\(record.source) · \(shortAgo(record.start))"
                     ) {
                         if let value = record.value {
@@ -239,6 +239,18 @@ struct HealthScreen: View {
     private func openActivities() {
         router.health.append(HealthRoute.activities)
     }
+
+    /// A HealthKit-ish kind ("heart_rate_variability") as a reader-facing
+    /// label ("Heart rate variability"). Kinds are catalogued with their
+    /// groups, not with a display name of their own, so this is the display
+    /// name — derived, not looked up.
+    static func label(for kind: String) -> String {
+        kind.replacingOccurrences(of: "_", with: " ").capitalizedFirst
+    }
+}
+
+fileprivate extension String {
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }
 
 // MARK: - The ink hero
