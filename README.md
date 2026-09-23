@@ -134,8 +134,8 @@ socket. Its host, paths and volume name are deliberately not published here.
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `APP_ORIGIN` | yes | the HTTPS origin the companion is served on |
-| `DATABASE_PATH` | yes | SQLite file path, inside the mounted volume |
-| `AUTH_SECRET` | yes | verifies the main site's Auth.js session cookie; copied from the site's own environment |
+| `DATABASE_PATH` | no | SQLite file path; defaults to `./data/apple.sqlite`, and Compose pins it to `/app/data/apple.sqlite` in the mounted volume rather than leaving it operator-settable through `pilot.env` |
+| `AUTH_SECRET` | yes on https | verifies the main site's Auth.js session cookie; copied from the site's own environment. Only enforced when `APP_ORIGIN` is https — a non-https `APP_ORIGIN` (e.g. the local preview) can start without it |
 | `APPLE_SERVICE_TOKEN` | no | shared bearer token for /health's service lane; empty = both service-lane reads 404 |
 | `APPLE_SERVICE_OWNER` | no | the fixed owner (an email already in `users`) those reads are scoped to |
 | `APPLE_DOORBELL_URL` | no | POSTed (empty body, same bearer token) after each owner upload so /health pulls the export at once; empty = no ring, and /health still catches up on its own page-load backstop |
