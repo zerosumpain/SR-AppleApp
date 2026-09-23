@@ -43,4 +43,81 @@ enum HealthBatching {
         let plainBatches = stride(from: 0, to: plain.count, by: plainPerBatch).map { UploadBatch(health: Array(plain[$0..<min($0 + plainPerBatch, plain.count)])) }
         return plainBatches + parts.map { UploadBatch(health: [$0]) }
     }
+
+    // MARK: - Re-read buckets
+
+    /// The hourly (or daily) buckets whose value differs from the one last
+    /// queued, and the map to keep for next time: exactly the buckets read
+    /// now, so ids that have left the re-read window fall out by themselves.
+    /// A record without a value is always sent.
+    static func changed(_ records: [HealthRecord], since sent: [String: Double]) -> (changed: [HealthRecord], sent: [String: Double]) {
+        var out: [HealthRecord] = [], next: [String: Double] = [:]
+        for r in records {
+            if let value = r.value {
+                next[r.id] = value
+                if sent[r.id] == value { continue }
+            }
+            out.append(r)
+        }
+        return (out, next)
+    }
+
+    /// Appends `records`, first dropping any still-queued record with the same
+    /// id: a bucket updated twice before an upload travels once, with its
+    /// latest value. A batch left empty by that is removed.
+    static func queue(_ records: [HealthRecord], into queued: [UploadBatch]) -> [UploadBatch] {
+        guard !records.isEmpty else { return queued }
+        let ids = Set(records.map(\.id))
+        var kept = queued
+        for index in kept.indices { kept[index].health.removeAll { ids.contains($0.id) } }
+        kept.removeAll { $0.health.isEmpty && $0.locations.isEmpty && $0.deleted.isEmpty }
+        return kept + batches(records)
+    }
+
+    // MARK: - Refused batches
+
+    /// 400 (a record the server will never take) or 413 (too big): sending the
+    /// same batch again can only fail again. Anything else — offline, 5xx,
+    /// 401, 409 — may pass later, so it waits and retries.
+    static func isRefusal(status: Int) -> Bool { status == 400 || status == 413 }
+
+    /// A refused batch in two halves — health, then locations, then deletions,
+    /// in order — so the good records still go; `[]` when it held one record,
+    /// which the caller drops. Each half is non-empty and strictly smaller, so
+    /// halving always ends.
+    static func split(_ b: UploadBatch) -> [UploadBatch] {
+        let total = b.health.count + b.locations.count + b.deleted.count
+        guard total > 1 else { return [] }
+        let half = total / 2
+        let h = min(b.health.count, half)
+        let l = min(b.locations.count, half - h)
+        let d = half - h - l
+        let first = UploadBatch(health: Array(b.health.prefix(h)), locations: Array(b.locations.prefix(l)), deleted: Array(b.deleted.prefix(d)))
+        let second = UploadBatch(health: Array(b.health.dropFirst(h)), locations: Array(b.locations.dropFirst(l)), deleted: Array(b.deleted.dropFirst(d)))
+        return [first, second]
+    }
+
+    // MARK: - Guards and reporting
+
+    /// Optional workout figures with NaN/infinity cleared: a non-finite
+    /// Double makes JSONEncoder throw inside `outbox.change`, which would fail
+    /// the whole workout pass on every wake.
+    static func finiteWorkoutFields(_ record: HealthRecord) -> HealthRecord {
+        var r = record
+        func finite(_ x: Double?) -> Double? { x.flatMap { $0.isFinite ? $0 : nil } }
+        r.distance = finite(r.distance); r.energy = finite(r.energy); r.elevation = finite(r.elevation)
+        r.mets = finite(r.mets); r.temperature = finite(r.temperature); r.humidity = finite(r.humidity)
+        r.effort = finite(r.effort)
+        return r
+    }
+
+    /// One line for the status message: a full outbox first (it stops
+    /// location too), else how many kinds could not be read, with one reason.
+    static func failureSummary(_ failures: [String: String]) -> String? {
+        guard !failures.isEmpty else { return nil }
+        if failures.values.contains(outboxFullMessage) { return outboxFullMessage }
+        let kinds = failures.keys.sorted()
+        let what = kinds.count == 1 ? kinds[0] : "\(kinds.count) health kinds"
+        return "Could not read \(what) from Apple Health: \(failures[kinds[0]] ?? "unknown error")"
+    }
 }

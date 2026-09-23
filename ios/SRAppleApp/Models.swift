@@ -111,6 +111,11 @@ struct PersistedState: Codable {
     /// Workouts whose route watchOS has not saved yet (it lands after the
     /// workout), by workout UUID → workout end. Retried for 7 days.
     var pendingRoutes: [String: Date] = [:]
+    /// The value last queued per hourly (and daily `steps`) bucket, by kind →
+    /// bucket id. Every pass re-reads the last 48 hours (30 days for `steps`);
+    /// only a bucket whose value moved is queued again. Holds exactly the
+    /// buckets the last pass read, so it prunes itself to that window.
+    var hourlySent: [String: [String: Double]] = [:]
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -144,12 +149,15 @@ struct PersistedState: Codable {
         catalogueVersion = try c.decodeIfPresent(Int.self, forKey: .catalogueVersion) ?? 0
         hourlyFrom = try c.decodeIfPresent([String: Date].self, forKey: .hourlyFrom) ?? [:]
         pendingRoutes = try c.decodeIfPresent([String: Date].self, forKey: .pendingRoutes) ?? [:]
+        hourlySent = try c.decodeIfPresent([String: [String: Double]].self, forKey: .hourlySent) ?? [:]
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`
     /// suppresses.
     init() {}
 }
+/// What a change that would push the outbox past 50,000 records throws.
+let outboxFullMessage = "Offline queue is full. Connect and sync before collecting more data."
 @MainActor final class Outbox: ObservableObject {
     @Published private(set) var state: PersistedState
     private let url: URL
@@ -166,7 +174,7 @@ struct PersistedState: Codable {
     func change(_ transform: (inout PersistedState) throws -> Void) throws {
         var next = state; try transform(&next)
         let count = next.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }
-        guard count <= 50000 else { throw CompanionError.message("Offline queue is full. Connect and sync before collecting more data.") }
+        guard count <= 50000 else { throw CompanionError.message(outboxFullMessage) }
         let data = try JSONEncoder().encode(next)
         try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         state = next
