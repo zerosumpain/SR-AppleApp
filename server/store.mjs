@@ -25,6 +25,10 @@ export function openStore(path) {
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS locations_user_time ON locations(user_id, recorded);
     CREATE INDEX IF NOT EXISTS health_user_kind_time ON health(user_id, kind, start);
+    -- The export cursor pages by received (id trailing so its ORDER BY needs no
+    -- temp sort) and earliest by start, neither led by kind.
+    CREATE INDEX IF NOT EXISTS health_user_received ON health(user_id, received, id);
+    CREATE INDEX IF NOT EXISTS health_user_start ON health(user_id, start);
     CREATE TABLE IF NOT EXISTS health_deleted (
       user_id TEXT NOT NULL REFERENCES users(id), id TEXT NOT NULL,
       kind TEXT NOT NULL, start TEXT NOT NULL, deleted TEXT NOT NULL,

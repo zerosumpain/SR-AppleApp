@@ -78,3 +78,13 @@ test('tombstones ride the same cursor', async t => {
   const second = await exportPage(`?after=${first.body.next}`);
   assert.deepEqual(second.body.tombstones.map(s => [s.id, s.kind]), [['a1', 'heart_rate']]);
 });
+
+test('the page query is answered from the cursor index, not a scan of the owner\'s history', t => {
+  const db = openStore(':memory:');
+  t.after(() => db.close());
+  // The exact SQL export.mjs's page query runs (export.mjs's first `SELECT`).
+  const plan = db.prepare(`EXPLAIN QUERY PLAN SELECT id, kind, payload, received FROM health WHERE user_id=? AND received>? ORDER BY received, id LIMIT ?`).all('alex', '1970-01-01T00:00:00.000Z', 10);
+  const detail = plan.map(r => r.detail).join('\n');
+  assert.match(detail, /health_user_received/, 'the page query should search the received index, not scan by user_id alone');
+  assert.doesNotMatch(detail, /USE TEMP B-TREE/, 'the ORDER BY should be satisfied by the index, not a temp sort');
+});
