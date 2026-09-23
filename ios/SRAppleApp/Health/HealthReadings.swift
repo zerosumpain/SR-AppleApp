@@ -12,6 +12,10 @@ enum Reading {
 enum HealthReadings {
     static let bpm = HKUnit.count().unitDivided(by: .minute())
     static let metresPerSecond = HKUnit.meter().unitDivided(by: .second())
+    /// ml/(kg·min), built explicitly rather than parsed from a string — HKUnit's
+    /// grammar can read "ml/kg*min" as (ml/kg)*min, which is a different unit
+    /// and compiling would never catch it.
+    static let vo2Unit = HKUnit.literUnit(with: .milli).unitDivided(by: HKUnit.gramUnit(with: .kilo).unitMultiplied(by: .minute()))
 
     static func reading(for kind: String) -> Reading? {
         switch kind {
@@ -37,7 +41,7 @@ enum HealthReadings {
         case "oxygen_saturation": return .sample(.oxygenSaturation, .percent(), scale: 100)
         case "respiratory_rate": return .sample(.respiratoryRate, bpm, scale: 1)
         case "apple_sleeping_wrist_temperature": return .sample(.appleSleepingWristTemperature, .degreeCelsius(), scale: 1)
-        case "vo2_max": return .sample(.vo2Max, HKUnit(from: "ml/kg*min"), scale: 1)
+        case "vo2_max": return .sample(.vo2Max, vo2Unit, scale: 1)
         case "six_minute_walk_distance": return .sample(.sixMinuteWalkTestDistance, .meter(), scale: 1)
         case "walking_speed": return .sample(.walkingSpeed, metresPerSecond, scale: 1)
         case "walking_step_length": return .sample(.walkingStepLength, .meterUnit(with: .centi), scale: 1)

@@ -1,4 +1,5 @@
 import XCTest
+import HealthKit
 @testable import SRAppleApp
 
 final class HealthCatalogueTests: XCTestCase {
@@ -61,5 +62,10 @@ final class HealthCatalogueTests: XCTestCase {
         let chunk = HealthBatching.chunks(kind: "workout_series", workout: "W1", metric: "power", unit: "W", points: [[1_758_600_000, 250]], source: "W", size: 5000)
         let batches = HealthBatching.batches(plain + chunk)
         XCTAssertEqual(batches.map(\.health.count), [400, 400, 100, 1])
+    }
+
+    func testVo2UnitIsBuiltNotParsed() {
+        XCTAssertTrue(HKQuantityType.quantityType(forIdentifier: .vo2Max)!.is(compatibleWith: HealthReadings.vo2Unit))
+        XCTAssertEqual(HKQuantity(unit: HealthReadings.vo2Unit, doubleValue: 45).doubleValue(for: HealthReadings.vo2Unit), 45)
     }
 }
