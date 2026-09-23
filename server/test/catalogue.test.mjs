@@ -34,8 +34,38 @@ test('a workout carries optional depth fields, each bounded', () => {
     events: [{ type: 'pause', start: at(600), end: at(660) }, { type: 'lap', start: at(0), end: at(300) }],
   }));
   assert.equal(w.events.length, 2);
-  assert.throws(() => validateHealthRecord(base('workout', { value: 1800, unit: 'seconds', activity: 'Run', effort: 11 })), { status: 400 });
-  assert.throws(() => validateHealthRecord(base('workout', { value: 1800, unit: 'seconds', activity: 'Run', events: [{ type: 'nap', start: at(), end: at() }] })), { status: 400 });
+});
+
+// R6: an odd optional workout field must not wedge the phone's whole outbox —
+// it is dropped from the returned record, and the batch still goes through.
+// Required fields (id/kind/start/end/source, value/unit, activity) stay fatal.
+test('an out-of-range optional workout field is dropped, not fatal (R6)', () => {
+  const out = validateHealthRecord(base('workout', { value: 1800, unit: 'seconds', activity: 'Run', effort: 11, indoor: 'yes', elevation: -5 }));
+  assert.equal('effort' in out, false);
+  assert.equal('indoor' in out, false);
+  assert.equal('elevation' in out, false);
+  // Fields inside bounds still come through.
+  const ok = validateHealthRecord(base('workout', { value: 1800, unit: 'seconds', activity: 'Run', effort: 7 }));
+  assert.equal(ok.effort, 7);
+});
+
+test('an unknown workout event type is filtered out, not fatal; a non-array is dropped (R6)', () => {
+  const mixed = validateHealthRecord(base('workout', { value: 1800, unit: 'seconds', activity: 'Run', events: [{ type: 'nap', start: at(), end: at() }, { type: 'lap', start: at(0), end: at(300) }] }));
+  assert.deepEqual(mixed.events.map(e => e.type), ['lap']);
+  const notArray = validateHealthRecord(base('workout', { value: 1800, unit: 'seconds', activity: 'Run', events: 'oops' }));
+  assert.equal('events' in notArray, false);
+});
+
+test('required workout fields still fail the whole record', () => {
+  assert.throws(() => validateHealthRecord(base('workout', { value: 1800, unit: 'seconds' })), { status: 400 }, 'activity is still required');
+  assert.throws(() => validateHealthRecord(base('workout', { value: -1, unit: 'seconds', activity: 'Run' })), { status: 400 }, 'value/unit are still bounded and fatal');
+});
+
+test('part/workout-only fields are rejected on kinds that do not own them', () => {
+  assert.throws(() => validateHealthRecord(base('heart_rate', { value: 60, unit: 'bpm', points: [[1, 2]] })), { status: 400 });
+  assert.throws(() => validateHealthRecord(base('heart_rate', { value: 60, unit: 'bpm', effort: 5 })), { status: 400 });
+  assert.throws(() => validateHealthRecord(base('heart_rate', { value: 60, unit: 'bpm', activity: 'Run' })), { status: 400 });
+  assert.throws(() => validateHealthRecord(base('workout_route', { workout: 'W1', chunk: 0, points: [[Math.floor(Date.now() / 1000), 51, 0, 1, 1, 1]], metric: 'power' })), { status: 400 }, 'metric is series-only');
 });
 
 test('route chunks name their workout and stay under the point limit', () => {
@@ -53,7 +83,8 @@ test('series chunks must use a catalogued series metric', () => {
   assert.throws(() => validateHealthRecord(base('workout_series', { workout: 'W1', metric: 'power', unit: 'kW', chunk: 0, points: [[t, 2]] })), { status: 400 });
 });
 
-test('tz, when present, must be an IANA-looking zone', () => {
+test('tz, when present, must be an IANA-looking zone; a bad one is dropped, not fatal (R6)', () => {
   assert.equal(validateHealthRecord(base('heart_rate', { value: 60, unit: 'bpm', tz: 'America/New_York' })).tz, 'America/New_York');
-  assert.throws(() => validateHealthRecord(base('heart_rate', { value: 60, unit: 'bpm', tz: '<script>' })), { status: 400 });
+  const dropped = validateHealthRecord(base('heart_rate', { value: 60, unit: 'bpm', tz: '<script>' }));
+  assert.equal('tz' in dropped, false);
 });

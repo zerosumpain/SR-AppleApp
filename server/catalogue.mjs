@@ -12,6 +12,13 @@ export const EVENT_LIMIT = 500;
 
 const FIELDS = ['id', 'kind', 'start', 'end', 'value', 'unit', 'source', 'stage', 'activity', 'distance', 'energy', 'tz',
   'indoor', 'elevation', 'mets', 'temperature', 'humidity', 'effort', 'events', 'workout', 'metric', 'chunk', 'points'];
+// Fields that belong to exactly one shape. Present on any other kind, they are
+// refused outright (R6) — unlike the workout depth fields below, these say
+// something structural (which workout a chunk belongs to, which series metric
+// it carries) rather than an odd sensor reading, so there is nothing sensible
+// to sanitise them into.
+const WORKOUT_ONLY = ['indoor', 'elevation', 'mets', 'temperature', 'humidity', 'effort', 'events', 'activity', 'distance', 'energy'];
+const PART_ONLY = ['points', 'workout', 'chunk'];
 const iso = v => typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) && Number.isFinite(Date.parse(v));
 const bounded = (x, lo, hi) => typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi;
 const optional = (x, lo, hi) => x == null || bounded(x, lo, hi);
@@ -19,13 +26,17 @@ const string = (x, max = 200) => typeof x === 'string' && x.length > 0 && x.leng
 const zone = x => x == null || (typeof x === 'string' && /^[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+){0,2}$/.test(x) && x.length <= 64);
 function fail(message) { throw Object.assign(new Error(message), { status: 400 }); }
 const epoch = t => Number.isInteger(t) && t > 1e9 && t < Date.now() / 1000 + 300;
+const wellFormedEvent = e => !!e && typeof e === 'object' && !Array.isArray(e) && catalogue.workoutEventTypes.includes(e.type)
+  && iso(e.start) && iso(e.end) && Object.keys(e).length === 3 && ['type', 'start', 'end'].every(k => k in e);
 
 export function validateHealthRecord(r) {
   if (!r || typeof r !== 'object' || Array.isArray(r) || Object.keys(r).some(k => !FIELDS.includes(k))) fail('Unexpected fields');
   const spec = catalogue.kinds[r.kind];
   if (!spec) fail('Unknown health category');
   if (!string(r.id) || !iso(r.start) || !iso(r.end) || Date.parse(r.end) < Date.parse(r.start) || Date.parse(r.end) > Date.now() + 300000 || !string(r.source)) fail('Invalid health record');
-  if (!zone(r.tz)) fail('Invalid time zone');
+  if (spec.shape !== 'workout' && WORKOUT_ONLY.some(k => r[k] != null)) fail('Unexpected fields');
+  if (spec.shape !== 'route' && spec.shape !== 'series' && PART_ONLY.some(k => r[k] != null)) fail('Unexpected fields');
+  if (spec.shape !== 'series' && r.metric != null) fail('Unexpected fields');
   switch (spec.shape) {
     case 'sample': case 'hourly': case 'event': case 'daily': case 'workout':
       if (!bounded(r.value, spec.min, spec.max) || r.unit !== spec.unit) fail(`Invalid ${r.kind}`);
@@ -44,15 +55,29 @@ export function validateHealthRecord(r) {
       for (const p of r.points) if (!Array.isArray(p) || p.length !== 2 || !epoch(p[0]) || !bounded(p[1], -1e6, 1e6)) fail('Invalid series point');
       break;
   }
+  if (spec.shape === 'workout' && !string(r.activity, 80)) fail('Invalid workout');
+  const out = { ...r, start: new Date(r.start).toISOString(), end: new Date(r.end).toISOString() };
+  // A tz that doesn't look like a zone says nothing about whether the rest of
+  // the record is good, so it is dropped rather than sinking the whole batch
+  // (R6) — every kind, not just workouts.
+  if (!zone(r.tz)) delete out.tz;
   if (spec.shape === 'workout') {
-    if (!string(r.activity, 80)) fail('Invalid workout');
-    if (!optional(r.distance, 0, 10000000) || !optional(r.energy, 0, 100000) || !optional(r.elevation, 0, 20000) || !optional(r.mets, 0, 30)
-      || !optional(r.temperature, -60, 70) || !optional(r.humidity, 0, 100) || !optional(r.effort, 1, 10)
-      || (r.indoor != null && typeof r.indoor !== 'boolean')) fail('Invalid workout');
+    // Depth fields the same way: an odd sensor value from a watch/HealthKit
+    // build we don't control must not wedge the phone's whole sync outbox.
+    // Only `activity` (checked above) and value/unit (checked in the switch)
+    // stay fatal for a workout.
+    if (!optional(r.distance, 0, 10000000)) delete out.distance;
+    if (!optional(r.energy, 0, 100000)) delete out.energy;
+    if (!optional(r.elevation, 0, 20000)) delete out.elevation;
+    if (!optional(r.mets, 0, 30)) delete out.mets;
+    if (!optional(r.temperature, -60, 70)) delete out.temperature;
+    if (!optional(r.humidity, 0, 100)) delete out.humidity;
+    if (!optional(r.effort, 1, 10)) delete out.effort;
+    if (r.indoor != null && typeof r.indoor !== 'boolean') delete out.indoor;
     if (r.events != null) {
-      if (!Array.isArray(r.events) || r.events.length > EVENT_LIMIT) fail('Invalid workout events');
-      for (const e of r.events) if (!e || !catalogue.workoutEventTypes.includes(e.type) || !iso(e.start) || !iso(e.end) || Object.keys(e).some(k => !['type', 'start', 'end'].includes(k))) fail('Invalid workout events');
+      if (!Array.isArray(r.events)) delete out.events;
+      else out.events = r.events.filter(wellFormedEvent).slice(0, EVENT_LIMIT);
     }
-  } else if (r.distance != null || r.energy != null || r.events != null || r.activity != null) fail('Unexpected fields');
-  return { ...r, start: new Date(r.start).toISOString(), end: new Date(r.end).toISOString() };
+  }
+  return out;
 }
