@@ -43,7 +43,21 @@ export function exportPage(db, userId, { after, limit }) {
     }
     workouts.push({ workout: JSON.parse(head.payload), route, series });
   }
-  const tombstones = db.prepare('SELECT id, kind, start, deleted FROM health_deleted WHERE user_id=? AND deleted>? AND deleted<=? ORDER BY deleted').all(userId, afterISO, end).map(r => ({ ...r }));
+  // A metric tombstone (anything but workout/sleep) is deleted on /health by
+  // (kind, start), not by this row's id — its table holds no sample id. If a
+  // live row still sits at the same kind+start (a replaced id, or one of two
+  // same-instant duplicates), sending the tombstone would delete that
+  // survivor. Workout/sleep tombstones are deleted by id there, so they
+  // always go out whole.
+  const tombstones = db.prepare(`
+    SELECT id, kind, start, deleted FROM health_deleted hd
+    WHERE user_id=? AND deleted>? AND deleted<=?
+      AND NOT (
+        kind NOT IN ('workout','sleep')
+        AND EXISTS (SELECT 1 FROM health h WHERE h.user_id=hd.user_id AND h.kind=hd.kind AND h.start=hd.start)
+      )
+    ORDER BY deleted
+  `).all(userId, afterISO, end).map(r => ({ ...r }));
   // Where the owner's history on this server begins. /health's one-off switch
   // replaces the webhook's rows from here on (spec E10) and keeps those before.
   //

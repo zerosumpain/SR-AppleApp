@@ -45,7 +45,7 @@ earliestByKind, records, workouts, tombstones }` (`earliest` = the owner's oldes
 here; `earliestByKind` gives the same minimum per kind, so a rebase can use each metric's
 own history start rather than one borrowed from another kind); pass `next` back as `after`. An upload is never split across
 pages. A workout arrives whole (`{ workout, route, series }`) whenever any part of it
-changed. Deletions arrive as `tombstones` (`{ id, kind, start, deleted }`).
+changed. Deletions arrive as `tombstones` (`{ id, kind, start, deleted }`); a metric deletion is omitted while another sample still holds the same kind and start.
 
 Unlike journeys, /health KEEPS what it reads here: the owner's health history, the
 same data Health Auto Export used to post. So `DELETE /api/apple/data` clears this
