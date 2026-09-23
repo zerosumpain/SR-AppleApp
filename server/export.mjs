@@ -53,5 +53,14 @@ export function exportPage(db, userId, { after, limit }) {
   // `earliest` back before any record the switch is meant to protect, and
   // /health would delete webhook data this export never replaces (R4).
   const earliest = db.prepare(`SELECT min(start) e FROM health WHERE user_id=? AND kind NOT IN ('steps','workout_route','workout_series')`).get(userId).e ?? null;
-  return { after, next: Date.parse(end), more, earliest, records, workouts, tombstones };
+  // The single scalar above hides which KIND it came from. Live data showed
+  // a resting_heart_rate sample whose interval starts ~20h before heart_rate
+  // itself does — pulling `earliest` back that far would make /health delete
+  // hours of webhook heart-rate rows nothing here replaces (R10). Per-kind
+  // mins let a future rebase move each metric from its own history start
+  // rather than one borrowed from an unrelated kind.
+  const earliestByKind = Object.fromEntries(db.prepare(
+    `SELECT kind, min(start) e FROM health WHERE user_id=? AND kind NOT IN ('steps','workout_route','workout_series') GROUP BY kind`
+  ).all(userId).map(r => [r.kind, r.e]));
+  return { after, next: Date.parse(end), more, earliest, earliestByKind, records, workouts, tombstones };
 }

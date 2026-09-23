@@ -19,6 +19,7 @@ async function lane(t, extra = {}) {
 }
 const iso = s => new Date(Date.now() - s * 1000).toISOString();
 const hr = (id, secondsAgo, value = 60) => ({ id, kind: 'heart_rate', start: iso(secondsAgo), end: iso(secondsAgo), value, unit: 'bpm', source: 'Watch', tz: 'Europe/London' });
+const rhr = (id, secondsAgo, value = 55) => ({ id, kind: 'resting_heart_rate', start: iso(secondsAgo), end: iso(secondsAgo), value, unit: 'bpm', source: 'Watch' });
 
 test('the export is the configured owner\'s only, and needs the service token', async t => {
   const { sync, exportPage } = await lane(t);
@@ -34,9 +35,29 @@ test('the export is the configured owner\'s only, and needs the service token', 
 test('earliest skips the legacy daily steps row and workout parts, which start hours before the phone\'s own history', async t => {
   const { sync, exportPage } = await lane(t);
   const steps = { id: 'daily-steps', kind: 'steps', start: iso(200000), end: iso(200000 - 86400), value: 4000, unit: 'count', source: 'HealthKit statistics' };
-  await sync('alex', [steps, hr('a1', 600)]);
+  // The workout itself starts EARLIER than the heart_rate row, and its route
+  // chunk starts earlier still — proving `workout` is counted (its own start
+  // pulls `earliest` back) while `workout_route` is excluded (its earlier
+  // start must NOT pull `earliest` back any further, R4).
+  const workout = { id: 'W1', kind: 'workout', start: iso(5000), end: iso(4000), value: 600, unit: 'seconds', activity: 'Outdoor Run', source: 'Watch', indoor: false };
+  const route = { id: 'route:W1:0', kind: 'workout_route', start: iso(50000), end: iso(49000), source: 'Watch', workout: 'W1', chunk: 0, points: [[Math.floor(Date.now() / 1000) - 50000, 51.5, -0.1, 10, 3, 5]] };
+  await sync('alex', [steps, workout, route, hr('a1', 600)]);
   const { body } = await exportPage();
-  assert.equal(body.earliest, body.records.find(r => r.kind === 'heart_rate').start, 'earliest must not be pulled back by the legacy steps row');
+  const workoutStart = body.workouts[0].workout.start;
+  const heartRateStart = body.records.find(r => r.kind === 'heart_rate').start;
+  assert.equal(body.earliest, workoutStart, 'earliest must not be pulled back by the legacy steps row or the even-earlier route chunk, but IS pulled to the included workout');
+  assert.deepEqual(body.earliestByKind, { workout: workoutStart, heart_rate: heartRateStart }, 'steps and workout_route are excluded from earliestByKind too');
+});
+
+test('earliestByKind maps each kind to its own min, excluding steps/workout_route/workout_series', async t => {
+  const { sync, exportPage } = await lane(t);
+  const steps = { id: 'daily-steps', kind: 'steps', start: iso(200000), end: iso(200000 - 86400), value: 4000, unit: 'count', source: 'HealthKit statistics' };
+  await sync('alex', [steps, rhr('r1', 100000), rhr('r2', 900), hr('a1', 600)]);
+  const { body } = await exportPage();
+  assert.deepEqual(body.earliestByKind, {
+    resting_heart_rate: body.records.find(r => r.id === 'r1').start,
+    heart_rate: body.records.find(r => r.kind === 'heart_rate').start,
+  }, 'each kind maps to its own min, independent of the others, and excluded kinds are absent');
 });
 
 test('an unconfigured lane has no export', async t => {
@@ -105,6 +126,15 @@ test('an owner upload rings the doorbell once per burst; a family upload does no
   // that /health's read lane accepts (R5) — a leaked ring can only trigger a
   // pull, not a read.
   assert.deepEqual(calls[0], ['https://example.test/api/health/apple/companion/pull', `Bearer ${DOORBELL_TOKEN}`]);
+});
+
+test('a doorbell token equal to the service token never rings (R9): the read-capable token must never leave over the ring', async t => {
+  const calls = [];
+  const fetchImpl = async (url, init) => { calls.push([url, init.headers.authorization]); return { ok: true }; };
+  const { sync } = await lane(t, { doorbellUrl: 'https://example.test/api/health/apple/companion/pull', doorbellToken: TOKEN, fetchImpl });
+  await sync('alex', [hr('a1', 600)]);
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(calls.length, 0, 'a ring token identical to the service token must be treated as unconfigured');
 });
 
 test('the page query is answered from the cursor index, not a scan of the owner\'s history', t => {

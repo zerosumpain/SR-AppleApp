@@ -41,7 +41,9 @@ In production SR-Health's web container runs with host networking and reaches th
 
 `GET /api/apple/export?after=<epoch ms>&limit=<≤5000>` — same token, same fixed owner,
 same 404-when-unconfigured rule as journeys. Returns `{ after, next, more, earliest,
-records, workouts, tombstones }` (`earliest` = the owner's oldest record here); pass `next` back as `after`. An upload is never split across
+earliestByKind, records, workouts, tombstones }` (`earliest` = the owner's oldest record
+here; `earliestByKind` gives the same minimum per kind, so a rebase can use each metric's
+own history start rather than one borrowed from another kind); pass `next` back as `after`. An upload is never split across
 pages. A workout arrives whole (`{ workout, route, series }`) whenever any part of it
 changed. Deletions arrive as `tombstones` (`{ id, kind, start, deleted }`).
 

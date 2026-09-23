@@ -57,7 +57,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
   // Its OWN ring-only secret, never the service token — that token can READ
   // the owner's export, and this URL is not guaranteed to stay on loopback the
   // way the service lane is (R5). Unset token or URL = no ring, as before.
-  const ring = createDoorbell({ url: doorbellUrl, token: doorbellToken, fetchImpl });
+  // A misconfiguration that sets the ring token to the SAME value as the
+  // service token is treated the same as unset (R9): the read-capable token
+  // must never travel over the ring, whatever the operator's env file says.
+  const ringToken = doorbellToken && serviceToken && doorbellToken === serviceToken ? undefined : doorbellToken;
+  const ring = createDoorbell({ url: doorbellUrl, token: ringToken, fetchImpl });
   const csrfOrigin = new URL(origin).origin;
   const secure = csrfOrigin.startsWith('https:');
   function limit(key) {
@@ -195,7 +199,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const ownerId = serviceOwnerId(['after', 'limit']);
         const after = Number(url.searchParams.get('after') ?? 0), limit = Number(url.searchParams.get('limit') ?? 2000);
         if (!Number.isInteger(after) || after < 0 || !Number.isInteger(limit) || limit < 1 || limit > 5000) fail(400, 'Invalid cursor');
-        if (!ownerId) return send(200, { after, next: after, more: false, earliest: null, records: [], workouts: [], tombstones: [] });
+        if (!ownerId) return send(200, { after, next: after, more: false, earliest: null, earliestByKind: {}, records: [], workouts: [], tombstones: [] });
         return send(200, exportPage(db, ownerId, { after, limit }));
       }
       // Two ways in, and only two.
