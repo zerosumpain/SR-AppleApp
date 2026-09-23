@@ -129,6 +129,8 @@ enum SRDemoFixtures {
         case ("POST", "api/workflows/orchestrator/chat"):
             // Calm, not clever: the composer shows this as the turn's error.
             return #"{"jobId":null,"error":"Demo mode: sending is switched off."}"#
+        case ("POST", "api/native/chat/attachments"):
+            return #"{"id":"demo-attachment","filename":"Photo.jpg","kind":"image","mimeType":"image/jpeg","sizeBytes":182044}"#
         case ("DELETE", "api/workflows/orchestrator/chat"):
             return #"{"ok":true}"#
         case ("GET", "api/native/news"):

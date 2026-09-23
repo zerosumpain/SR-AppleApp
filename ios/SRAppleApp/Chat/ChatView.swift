@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// The thread library.
 ///
@@ -259,6 +260,10 @@ struct ChatScreen: View {
     @EnvironmentObject private var router: Router
     @State private var draft = ""
     @State private var atBottom = true
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var choosingPhotos = false
+    @State private var choosingFiles = false
+    @State private var takingPhoto = false
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -428,12 +433,17 @@ struct ChatScreen: View {
             if let message = store.message {
                 SRBanner(text: message, tone: SR.error)
             }
+            if !store.pending.isEmpty {
+                PendingAttachmentStrip(items: store.pending) { store.removePending($0) }
+            }
             // A floating glass capsule, the shape iOS 26 gives every composer:
             // the transcript runs on underneath it, and nothing hard-edged
             // separates the two.
             SRGlassGroup(spacing: 10) {
                 HStack(alignment: .bottom, spacing: 10) {
-                    TextField("Message jkai", text: $draft, axis: .vertical)
+                    attachMenu
+
+                    TextField(store.pending.isEmpty ? "Message jkai" : "Say something about it", text: $draft, axis: .vertical)
                         .font(SR.Text.body())
                         .foregroundStyle(SR.ink)
                         .lineLimit(1...6)
@@ -450,7 +460,7 @@ struct ChatScreen: View {
                             Task { await store.cancel() }
                         } else {
                             let text = draft
-                            draft = ""
+                            clearDraft()
                             atBottom = true
                             SRHaptic.tap()
                             Task { await store.send(text) }
@@ -472,9 +482,107 @@ struct ChatScreen: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
+        .photosPicker(
+            isPresented: $choosingPhotos,
+            selection: $photoItems,
+            maxSelectionCount: max(1, ChatStore.maxAttachments - store.pending.count),
+            matching: .images
+        )
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            // Emptied first so picking the same photo twice still changes it.
+            photoItems = []
+            Task {
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        store.attachPhoto(image)
+                    } else {
+                        store.message = "That photo could not be read."
+                    }
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $choosingFiles,
+            allowedContentTypes: ChatUpload.documentTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            guard case .success(let urls) = result else { return }
+            for url in urls { attachFile(url) }
+        }
+        .fullScreenCover(isPresented: $takingPhoto) {
+            CameraPicker { store.attachPhoto($0) }
+                .ignoresSafeArea()
+        }
+    }
+
+    /// Photo, camera, file — one button, the way Messages does it.
+    ///
+    /// A menu rather than three icons: the composer is a capsule a thumb has to
+    /// hit, and three more targets beside the field would halve it.
+    private var attachMenu: some View {
+        Menu {
+            Button { choosingPhotos = true } label: {
+                Label("Photo Library", systemImage: "photo.on.rectangle")
+            }
+            if CameraPicker.isAvailable {
+                Button { takingPhoto = true } label: {
+                    Label("Take Photo", systemImage: "camera")
+                }
+            }
+            Button { choosingFiles = true } label: {
+                Label("Choose File", systemImage: "doc")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(SR.ink)
+                .frame(width: 48, height: 48)
+                .srGlass(.paper, in: Circle(), interactive: true)
+                .contentShape(Circle())
+        }
+        .disabled(store.sending || !store.canAttachMore)
+        .accessibilityLabel("Attach")
+        .accessibilityIdentifier("chat-attach")
+    }
+
+    /// A file from the Files picker. Photos go through the photo path so they
+    /// are resized and re-encoded like any other.
+    private func attachFile(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            store.message = "\(url.lastPathComponent) could not be read."
+            return
+        }
+        let mime = ChatUpload.mimeType(for: url)
+        if mime.hasPrefix("image/"), let image = UIImage(data: data) {
+            store.attachPhoto(image)
+        } else {
+            store.attach(data, filename: url.lastPathComponent, mimeType: mime)
+        }
+    }
+
+    /// Empty the composer after a send — and then do it again a moment later.
+    ///
+    /// Setting the binding once was the whole of the old code, and on a phone
+    /// the sent text stayed in the box. The vertical `TextField` is a
+    /// `UITextView`, and the keyboard can still be holding input the binding
+    /// never saw — an inline prediction, an autocorrection waiting on the next
+    /// space, a dictation segment. The clear lands, the text view then commits
+    /// that pending input, and the whole draft is written back through the
+    /// binding. That is the diagnosis the symptom fits; it was not reproduced,
+    /// because the simulator has no predictive keyboard to hold anything.
+    ///
+    /// The second clear lands after that commit. Nobody types a character in
+    /// the gap, so it can only ever remove the sent text.
+    private func clearDraft() {
+        draft = ""
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { draft = "" }
     }
 
     private var sendable: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !store.uploading
     }
 }

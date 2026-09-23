@@ -84,6 +84,8 @@ struct ChatAttachment: Decodable, Hashable, Identifiable {
     let kind: String?
     let mimeType: String?
     let sizeBytes: Int?
+
+    var isImage: Bool { kind == "image" || (mimeType ?? "").hasPrefix("image/") }
 }
 
 struct ChatMessage: Decodable, Identifiable, Hashable {

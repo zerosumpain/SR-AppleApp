@@ -95,7 +95,12 @@ struct ChatBubble: View {
     @ViewBuilder
     private func attachments(register: SRRegister) -> some View {
         if !message.attachments.isEmpty {
-            ForEach(message.attachments) { attachment in
+            // A photo is drawn; anything else is named. A paperclip and
+            // "Photo 2026-09-23.jpg" tells you nothing about which picture.
+            ForEach(message.attachments.filter(\.isImage)) { attachment in
+                AttachmentImage(attachment: attachment)
+            }
+            ForEach(message.attachments.filter { !$0.isImage }) { attachment in
                 HStack(spacing: 7) {
                     Image(systemName: "paperclip").font(.system(size: 11))
                     Text(attachment.filename ?? attachment.kind ?? "Attachment")
