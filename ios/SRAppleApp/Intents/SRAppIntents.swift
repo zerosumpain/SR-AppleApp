@@ -75,7 +75,7 @@ struct AskJkaiIntent: AppIntent {
 /// "Sync my health" — push whatever is queued, now.
 struct SyncNowIntent: AppIntent {
     static var title: LocalizedStringResource = "Sync now"
-    static var description = IntentDescription("Upload anything this iPhone has collected and not yet sent.")
+    static var description = IntentDescription("Upload anything this phone has collected and not yet sent.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
