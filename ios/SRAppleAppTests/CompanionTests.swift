@@ -38,6 +38,51 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(second.state.batches[0].deleted, ["removed-sample"])
         XCTAssertEqual(second.state.anchors["sleep"], Data([1, 2, 3]))
     }
+    // MARK: Sync progress and pause (stale-error / outbox-rewrite fix)
+
+    func testRetryDelayChoosesFiveSecondsOnlyAfterProgress() {
+        XCTAssertEqual(retryDelay(madeProgress: true, transient: true), 5)
+        XCTAssertEqual(retryDelay(madeProgress: false, transient: true), 60)
+        XCTAssertEqual(retryDelay(madeProgress: true, transient: false), 60, "a refusal or breaker trip must not be retried fast")
+    }
+    func testTransientNetworkFailuresReadAsPausedNotStale() {
+        let transient: [URLError.Code] = [
+            .timedOut, .networkConnectionLost, .notConnectedToInternet, .cancelled,
+            .cannotConnectToHost, .dnsLookupFailed, .backgroundSessionWasDisconnected,
+            .internationalRoamingOff, .dataNotAllowed,
+        ]
+        for code in transient {
+            XCTAssertTrue(isTransientUploadFailure(URLError(code)), "\(code) should read as transient")
+        }
+        XCTAssertFalse(isTransientUploadFailure(URLError(.badServerResponse)), "a real server response is not a network blip")
+        XCTAssertFalse(isTransientUploadFailure(CompanionError.message("refused")), "a non-network error never reads as transient")
+    }
+    @MainActor func testDeferredOutboxChangeDoesNotWriteUntilPersisted() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("state.json")
+        let outbox = try Outbox(url: url)
+
+        try outbox.persistIfDirty()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "no-op on a clean outbox: nothing to write")
+
+        try outbox.change(persist: false) { $0.batches.append(UploadBatch(deleted: ["accepted"])) }
+        XCTAssertEqual(outbox.state.batches.first?.deleted, ["accepted"], "state updates immediately regardless")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "a deferred change must not touch disk")
+
+        try outbox.persistIfDirty()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertEqual(try Outbox(url: url).state.batches.map(\.deleted), [["accepted"]])
+
+        // An immediate change after a deferred one writes both: the deferred
+        // removal already sits in `state`, and an immediate `change` always
+        // encodes the whole current state.
+        try outbox.change(persist: false) { $0.batches.append(UploadBatch(deleted: ["also-deferred"])) }
+        try outbox.change { $0.anchors["sleep"] = Data([9]) }
+        let reloaded = try Outbox(url: url)
+        XCTAssertEqual(reloaded.state.batches.map(\.deleted), [["accepted"], ["also-deferred"]])
+        XCTAssertEqual(reloaded.state.anchors["sleep"], Data([9]))
+    }
     @MainActor func testCorruptQueueIsNotSilentlyDiscarded() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

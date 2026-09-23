@@ -179,6 +179,10 @@ import UIKit
                         if phase == .background {
                             battery.sample()
                             companion.scheduleRefresh()
+                            // A deferred outbox removal (an accepted batch,
+                            // written lazily during a flush) must not ride
+                            // into a suspend unwritten.
+                            try? companion.outbox.persistIfDirty()
                         }
                     }
             } else { ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(delegate.startupError ?? "Starting…")) }
