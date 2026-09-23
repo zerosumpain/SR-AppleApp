@@ -182,3 +182,109 @@ enum Sport {
         ["run", "trail_run", "hike", "walk"].contains(key(type))
     }
 }
+
+/// Where a recorded activity came from, in the words the website uses.
+///
+/// The list now mixes outings from more than one origin — a workout the Watch
+/// recorded into Apple Health, and an outing the SR app caught on its own from
+/// background location — and they are not equally trustworthy. A captured walk
+/// has its type guessed from speed and no elevation at all, so the owner has
+/// to be able to tell at a glance which kind of row he is reading.
+///
+/// The server sends `source`; an older server did not send it on list rows, so
+/// the id's prefix (`apple:…`, `companion:…`) stands in when it is missing.
+enum ActivityOrigin {
+    /// A normalised source key: `apple`, `companion`, `recorded`, `strava`,
+    /// `whoop`, `manual`, or whatever unknown key arrived, lowercased.
+    static func key(_ source: String?, id: String = "") -> String {
+        let trimmed = source?.trimmingCharacters(in: .whitespaces) ?? ""
+        let raw: String
+        if !trimmed.isEmpty {
+            raw = trimmed.lowercased()
+        } else if id.contains(":") {
+            raw = String(id.split(separator: ":").first ?? "").lowercased()
+        } else {
+            // No source and no prefix to read it from.
+            return ""
+        }
+        switch raw {
+        case "apple", "apple_health", "healthkit", "hae": return "apple"
+        default: return raw
+        }
+    }
+
+    static func label(_ key: String) -> String {
+        switch self.key(key) {
+        case "apple": return "Apple Health"
+        case "companion": return "SR app"
+        case "recorded": return "Site recorder"
+        case "strava": return "Strava"
+        case "whoop": return "WHOOP"
+        case "manual": return "Manual"
+        case "": return ""
+        default: return key.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    static func icon(_ key: String) -> String {
+        switch self.key(key) {
+        case "apple": return "heart.fill"
+        case "companion": return "location.fill"
+        case "recorded": return "record.circle"
+        case "strava": return "arrow.triangle.2.circlepath"
+        case "whoop": return "waveform.path.ecg"
+        case "manual": return "pencil"
+        default: return "tray.and.arrow.down"
+        }
+    }
+
+    /// One sentence on what this origin means for the figures on the screen.
+    static func explanation(_ key: String) -> String? {
+        switch self.key(key) {
+        case "apple": return "Recorded as a workout by the Watch or phone and sent to the site through Apple Health."
+        case "companion": return "Captured in the background by the SR app's movement tracking — no workout was started. The type is inferred from speed, there is no elevation, and the app keeps location for 30 days."
+        case "recorded": return "Recorded live with the site's own recorder."
+        case "strava": return "Synced from Strava."
+        case "whoop": return "Recorded by WHOOP and synced to the site."
+        case "manual": return "Entered by hand, so there is no track behind it."
+        case "": return nil
+        default: return "Sent to the site from \(label(key))."
+        }
+    }
+
+    /// Why a duplicate of this outing is not in the list, or nil when nothing
+    /// was folded into it.
+    static func foldedNote(_ key: String, alsoFrom: [String]) -> String? {
+        let others = folded(self.key(key), alsoFrom)
+        guard !others.isEmpty else { return nil }
+        if self.key(key) == "apple", others.contains("companion") {
+            return "The SR app also captured this outing; the Apple Health workout is shown instead because the Watch measured it."
+        }
+        let names = others.map { label($0) }.joined(separator: " and ")
+        return "\(names) also recorded this outing; this copy is shown instead."
+    }
+
+    /// The quiet line on a list row: "Apple Health", "Apple Health · also SR
+    /// app", "SR app · captured". Empty when the origin is unknown entirely.
+    static func line(_ key: String, alsoFrom: [String]) -> String {
+        let primary = self.key(key)
+        guard !primary.isEmpty else { return "" }
+        var parts = [label(primary)]
+        if primary == "companion" { parts.append("captured") }
+        let others = folded(primary, alsoFrom)
+        if !others.isEmpty {
+            parts.append("also " + others.map { label($0) }.joined(separator: ", "))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The other origins folded into a row, normalised, once each, never the
+    /// row's own origin again.
+    private static func folded(_ primary: String, _ alsoFrom: [String]) -> [String] {
+        var seen: [String] = []
+        for other in alsoFrom.map({ key($0) }) where !other.isEmpty && other != primary && !seen.contains(other) {
+            seen.append(other)
+        }
+        return seen
+    }
+}

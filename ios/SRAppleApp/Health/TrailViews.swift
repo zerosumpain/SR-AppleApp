@@ -39,6 +39,21 @@ struct ActivityListRow: View {
                     .font(SR.Text.mono())
                     .tracking(0.8)
                     .foregroundStyle(SR.inkMuted)
+                if !row.originLine.isEmpty {
+                    // Where the outing came from. Quieter than the figures —
+                    // it qualifies them, it is not one of them.
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: ActivityOrigin.icon(row.origin))
+                            .font(SR.Text.label(10))
+                            .accessibilityHidden(true)
+                        Text(row.originLine)
+                            .font(SR.Text.secondary(13))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(SR.inkMuted)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("From \(row.originLine)")
+                }
                 if let highlight = row.highlight {
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Image(systemName: "star.fill").font(.system(size: 9, weight: .bold))
