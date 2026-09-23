@@ -2,10 +2,6 @@ import Foundation
 import HealthKit
 import CoreLocation
 
-/// Reads the server's health catalogue out of HealthKit in four passes —
-/// anchored samples, hourly statistics, daily steps and workouts (with their
-/// series, route and events) — each under a deadline, so a background wake
-/// stops in time and the rest resumes from the saved anchors next wake.
 /// The route handler's running state. A box, not captured `var`s: the
 /// handler may be imported as @Sendable, and mutating a captured var there does
 /// not compile. HealthKit calls it serially, so no lock is needed.
@@ -14,6 +10,10 @@ private final class RouteGathering: @unchecked Sendable {
     var finished = false
 }
 
+/// Reads the server's health catalogue out of HealthKit in four passes —
+/// anchored samples, hourly statistics, daily steps and workouts (with their
+/// series, route and events) — each under a deadline, so a background wake
+/// stops in time and the rest resumes from the saved anchors next wake.
 @MainActor final class HealthCollector {
     let store = HKHealthStore()
     let outbox: Outbox
@@ -40,9 +40,28 @@ private final class RouteGathering: @unchecked Sendable {
 
     var enabledKinds: [String] { HealthCatalogue.kinds(inGroups: outbox.state.healthEnabled) }
 
-    /// An upgraded install whose new categories have not been put to the reader yet.
+    /// An upgraded install whose new categories have not been put to the
+    /// reader yet, or an enabled type HealthKit says was never asked for (a
+    /// group turned on later). The second is cached by
+    /// `refreshAuthorizationStatus()`, because HealthKit only answers async.
     var needsPermissionReview: Bool {
-        outbox.state.catalogueVersion < PersistedState.currentCatalogueVersion && !outbox.state.healthEnabled.isEmpty
+        (outbox.state.catalogueVersion < PersistedState.currentCatalogueVersion && !outbox.state.healthEnabled.isEmpty)
+            || unrequestedTypes
+    }
+
+    private(set) var unrequestedTypes = false
+
+    /// Asks HealthKit whether the permission sheet still has something to
+    /// show for the enabled types (`.shouldRequest`). An error counts as no.
+    func refreshAuthorizationStatus() async {
+        let types = readTypes
+        guard HKHealthStore.isHealthDataAvailable(), !types.isEmpty else { unrequestedTypes = false; return }
+        let status: HKAuthorizationRequestStatus? = await withCheckedContinuation { continuation in
+            store.getRequestStatusForAuthorization(toShare: [], read: types) { status, error in
+                if error != nil { continuation.resume(returning: nil) } else { continuation.resume(returning: status) }
+            }
+        }
+        unrequestedTypes = status == .shouldRequest
     }
 
     private static func quantityType(_ id: HKQuantityTypeIdentifier) -> HKQuantityType {
@@ -208,6 +227,9 @@ private final class RouteGathering: @unchecked Sendable {
                 if !gone.isEmpty { $0.batches.append(UploadBatch(deleted: gone)) }
                 $0.anchors[kind] = nextData
             }
+            // A workout backfill runs for minutes: upload each page as it
+            // lands rather than holding the lot until the pass ends.
+            if kind == "workout", !records.isEmpty || !gone.isEmpty { onUpdate?() }
             more = found.count + deleted.count >= limit
         }
     }
@@ -291,10 +313,18 @@ private final class RouteGathering: @unchecked Sendable {
         guard live(), enabledKinds.contains(kind) else { return }
         try Task.checkCancellation()
         let accepted = records.filter { HealthCatalogue.accepts($0) }
+        // Only buckets whose value moved since they were last queued; the 48
+        // hours re-read every wake would otherwise queue ~49 unchanged rows
+        // per kind per wake, and fill the offline outbox within a day.
+        var queued = 0
         try outbox.change {
-            $0.batches += HealthBatching.batches(accepted)
+            let (changed, sent) = HealthBatching.changed(accepted, since: $0.hourlySent[kind] ?? [:])
+            $0.batches = HealthBatching.queue(changed, into: $0.batches)
+            $0.hourlySent[kind] = sent
             $0.hourlyFrom[kind] = end.addingTimeInterval(-48 * 3600)
+            queued = changed.count
         }
+        if queued > 0 { onUpdate?() }
     }
 
     /// The pilot's own timeline reads `steps`: one record per local day.
@@ -325,7 +355,13 @@ private final class RouteGathering: @unchecked Sendable {
         }
         guard generation == startedGeneration, enabledKinds.contains("steps") else { return }
         try Task.checkCancellation()
-        if !records.isEmpty { try outbox.change { $0.batches.append(UploadBatch(health: records)) } }
+        // As `hourly`: only days whose total moved, replacing any queued copy.
+        let (changed, sent) = HealthBatching.changed(records, since: outbox.state.hourlySent["steps"] ?? [:])
+        guard !changed.isEmpty || sent != (outbox.state.hourlySent["steps"] ?? [:]) else { return }
+        try outbox.change {
+            $0.batches = HealthBatching.queue(changed, into: $0.batches)
+            $0.hourlySent["steps"] = sent
+        }
     }
 
     // MARK: - Workouts
@@ -397,7 +433,7 @@ private final class RouteGathering: @unchecked Sendable {
                 }
             }
         }
-        var out = [r]
+        var out = [HealthBatching.finiteWorkoutFields(r)]
         // Series: samples HealthKit ASSOCIATES with the workout; a third-party
         // app may associate none, so fall back to the workout's time window.
         var seen = Set<String>()
