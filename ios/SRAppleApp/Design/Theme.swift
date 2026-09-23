@@ -238,3 +238,43 @@ extension SR {
     /// Inside a card.
     static let cardPadding: CGFloat = 16
 }
+
+// MARK: - The ink band
+//
+// /health's hero sections are full-width ink bands on the paper page, and every
+// colour on them is cream at a strength rather than a second palette. That is
+// the whole trick: one hue, stepped, so nothing on the band can be a paper token
+// by mistake. The ladder below is copied from the SR-Health stylesheet, rung for
+// rung — `rgba(237, 228, 212, a)`.
+extension SR {
+    /// Cream on ink at a named strength. Ask for a rung, not an opacity.
+    static func onInk(_ rung: InkRung) -> Color { Color(hex: 0xEDE4D4, alpha: rung.rawValue) }
+
+    enum InkRung: Double {
+        /// A card's fill on the band.
+        case fill = 0.05
+        /// A donut's or bar's empty track.
+        case track = 0.14
+        /// The band's hairline. The only rule weight on ink.
+        case hairline = 0.16
+        /// Ghosted, inactive.
+        case ghost = 0.3
+        /// A unit or a meta line.
+        case unit = 0.45
+        /// A mono label.
+        case label = 0.55
+        /// A note in body copy.
+        case note = 0.7
+        /// A date under a title.
+        case date = 0.75
+        /// Primary cream.
+        case primary = 1
+    }
+
+    /// Mono kicker tracking on the band — 0.18em of a 12pt face.
+    static let inkKickerTracking: CGFloat = 2.16
+    /// Tile label tracking — 0.15em.
+    static let inkLabelTracking: CGFloat = 1.8
+    /// Inside an ink tile.
+    static let inkTilePadding: CGFloat = 18
+}

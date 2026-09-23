@@ -108,21 +108,27 @@ struct TodayScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                if !site.paired {
-                    connectCard
-                } else {
-                    if let health = store.payload?.health { healthCard(health) }
-                    alertsCard
-                    if let thread = store.payload?.lastThread { threadCard(thread) }
-                    if let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
-                    quickActions
+            VStack(alignment: .leading, spacing: 0) {
+                // The ink hero sits OUTSIDE the gutter: an inset ink panel
+                // floats, a full-width band docks the page under it.
+                if site.paired, let health = store.payload?.health {
+                    healthHero(health)
                 }
-                syncFooter
+                VStack(alignment: .leading, spacing: 22) {
+                    if !site.paired {
+                        connectCard
+                    } else {
+                        alertsCard
+                        if let thread = store.payload?.lastThread { threadCard(thread) }
+                        if let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
+                        quickActions
+                    }
+                    syncFooter
+                }
+                .padding(.horizontal, SR.gutter)
+                .padding(.top, site.paired && store.payload?.health != nil ? 24 : 8)
+                .padding(.bottom, 28)
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.top, 8)
-            .padding(.bottom, 28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .srPaper()
@@ -178,55 +184,51 @@ struct TodayScreen: View {
         }
     }
 
+    /// Readiness and today's figures on an ink band, the way /health opens.
+    /// The whole band is one tap into the Health tab.
     @ViewBuilder
-    private func healthCard(_ health: TodayHealth) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SRSectionLabel(text: "Health", trailing: shortAgo(health.generatedAt))
+    private func healthHero(_ health: TodayHealth) -> some View {
+        Button {
+            SRHaptic.tap()
+            router.show(.health)
+        } label: {
+            SRInkBand(kicker: "Health · Today", meta: updatedLine(health.generatedAt)) {
+                if let readiness = health.readiness {
+                    SRInkReadiness(readiness: readiness, donut: 96)
+                } else {
+                    Text(health.strap)
+                        .font(SR.Text.body(15))
+                        .foregroundStyle(SR.onInk(.note))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-            Button {
-                SRHaptic.tap()
-                router.show(.health)
-            } label: {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let readiness = health.readiness {
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Text("\(Int(readiness.score.rounded()))")
-                                .font(SR.Text.hero(44))
-                                .foregroundStyle(SR.ink)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(readiness.label.uppercased())
-                                    .font(SR.Text.label())
-                                    .tracking(1.3)
-                                    .foregroundStyle(SR.accent)
-                                Text("Readiness").font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(SR.inkMuted)
-                        }
-                    }
-
-                    SRTileGrid {
-                        ForEach(health.figures) { figure in
-                            FigureTile(figure: figure)
-                        }
-                    }
-
-                    if health.isMock {
-                        HStack(spacing: 5) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(SR.warn)
-                            Text("Demonstration data — no real measurement in this window.")
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkSecondary)
-                        }
+                SRTileGrid {
+                    ForEach(health.figures) { figure in
+                        InkFigureTile(figure: figure)
                     }
                 }
+
+                if health.isMock {
+                    SRInkMockNote()
+                }
+
+                HStack(spacing: 6) {
+                    Text("OPEN HEALTH")
+                        .font(SR.Text.label())
+                        .tracking(SR.inkLabelTracking)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .foregroundStyle(SR.accentOnDark)
             }
-            .buttonStyle(.plain)
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("today-health")
+    }
+
+    private func updatedLine(_ iso: String) -> String? {
+        let ago = shortAgo(iso)
+        return ago.isEmpty ? nil : "Updated \(ago) ago"
     }
 
     private var alertsCard: some View {

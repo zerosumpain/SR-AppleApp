@@ -11,14 +11,16 @@ import MapKit
 struct HealthScreen: View {
     @ObservedObject var companion: Companion
     @StateObject private var store = HealthStore()
+    /// The latest few activities. The full history is its own screen.
+    @StateObject private var recent = ActivitiesStore(pageSize: 5)
     @EnvironmentObject private var router: Router
 
     var body: some View {
         List {
             if let summary = store.summary {
-                if summary.isMock { mockNotice }
-                readiness(summary)
-                figures(summary)
+                // The ink band: readiness and today's figures, /health's hero.
+                HealthHero(summary: summary).srInkRow()
+                recentActivities
                 if let week = summary.week { weekSection(week) }
                 if !summary.records.isEmpty { records(summary.records) }
             } else if store.unavailable {
@@ -35,6 +37,7 @@ struct HealthScreen: View {
                     .srPlainRow().padding(.vertical, 40)
             }
 
+            if store.summary == nil { recentActivities }
             uploaded
             family
         }
@@ -49,6 +52,7 @@ struct HealthScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
             await store.load(fresh: true)
+            await recent.load()
             try? await companion.refresh()
         }
         .toolbar {
@@ -58,7 +62,21 @@ struct HealthScreen: View {
             }
         }
         .navigationDestination(for: HealthFigure.self) { FigureDetail(figure: $0) }
-        .task { await store.load() }
+        // Every trails screen is pushed by value onto THIS stack, so an activity
+        // can open a segment that opens another activity, and each is one swipe
+        // back. Registered once, here, at the root.
+        .navigationDestination(for: ActivityRef.self) { ActivityDetailScreen(ref: $0) }
+        .navigationDestination(for: SegmentRef.self) { SegmentDetailScreen(ref: $0) }
+        .navigationDestination(for: HealthRoute.self) { route in
+            switch route {
+            case .activities: ActivitiesScreen()
+            case .segments: SegmentsScreen()
+            }
+        }
+        .task {
+            await store.load()
+            if recent.rows.isEmpty { await recent.load() }
+        }
     }
 
     /// See `ThreadListScreen.startThread` — a closure that is only a `Task`
@@ -70,76 +88,53 @@ struct HealthScreen: View {
 
     // MARK: - Sections
 
-    private var mockNotice: some View {
-        SRCard(accented: true) {
-            VStack(alignment: .leading, spacing: 6) {
-                SRSectionLabel(text: "Demonstration data")
-                Text("No real measurement landed in this window, so these figures are synthetic. They are not you.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .srPlainRow()
-        .padding(.vertical, 8)
-        .listRowSeparator(.hidden)
-    }
-
+    /// The latest activities, each a push to its detail, then the way into
+    /// the whole history and the segments.
+    ///
+    /// Shown only once the store has tried: an unpaired phone has nothing to
+    /// ask, and an empty "Recent activities" header over nothing reads as a
+    /// fault.
     @ViewBuilder
-    private func readiness(_ summary: HealthSummary) -> some View {
-        Section {
-            VStack(alignment: .leading, spacing: 10) {
-                if let readiness = summary.readiness {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text("\(Int(readiness.score.rounded()))")
-                            .font(SR.Text.hero(52))
-                            .foregroundStyle(SR.ink)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(readiness.label.uppercased())
-                                .font(SR.Text.label())
-                                .tracking(1.4)
-                                .foregroundStyle(SR.accent)
-                            Text("Readiness")
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkMuted)
-                        }
-                    }
-                    Text(readiness.recommendation)
-                        .font(SR.Text.body(15))
-                        .foregroundStyle(SR.inkSecondary)
+    private var recentActivities: some View {
+        if recent.state != .idle || !recent.rows.isEmpty {
+            Section {
+                if recent.rows.isEmpty {
+                    Text(recentEmptyLine)
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
+                        .srPlainRow()
+                        .padding(.vertical, 10)
                 } else {
-                    Text(summary.strap)
-                        .font(SR.Text.body(15))
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(recent.rows.prefix(5)) { row in
+                        NavigationLink(value: ActivityRef(id: row.id, name: row.name)) {
+                            ActivityListRow(row: row)
+                        }
+                        .srPlainRow()
+                    }
                 }
+                NavigationLink(value: HealthRoute.activities) {
+                    SRRow(title: "All activities", icon: "list.bullet")
+                }
+                .srPlainRow()
+                .accessibilityIdentifier("health-all-activities")
+                NavigationLink(value: HealthRoute.segments) {
+                    SRRow(title: "Segments", icon: "flag.checkered")
+                }
+                .srPlainRow()
+                .accessibilityIdentifier("health-segments")
+            } header: {
+                SRSectionLabel(text: "Recent activities").srPlainRow().padding(.vertical, 6)
             }
-            .padding(.vertical, 8)
-            .srPlainRow()
-            .listRowSeparator(.hidden)
-            .accessibilityElement(children: .combine)
         }
     }
 
-    @ViewBuilder
-    private func figures(_ summary: HealthSummary) -> some View {
-        Section {
-            SRTileGrid {
-                ForEach(summary.figures) { figure in
-                    NavigationLink(value: figure) {
-                        FigureTile(figure: figure)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.bottom, 6)
-            .srPlainRow()
-            .listRowSeparator(.hidden)
-        } header: {
-            SRSectionLabel(text: "Today", trailing: shortAgo(summary.generatedAt))
-                .srPlainRow()
-                .padding(.vertical, 6)
+    private var recentEmptyLine: String {
+        switch recent.state {
+        case .loading, .idle: return "Loading activities…"
+        case .loaded: return "No activities yet."
+        case .unavailable: return "Health is not answering. Pull to try again."
+        case .missing, .failed: return "Activities could not be loaded."
         }
     }
 
@@ -147,10 +142,11 @@ struct HealthScreen: View {
     private func weekSection(_ week: HealthWeek) -> some View {
         Section {
             SRTileGrid {
-                SRStatTile(value: "\(week.activities)", label: "Activities", caption: "7 days")
-                SRStatTile(value: distance(week.distanceKm), unit: "km", label: "Distance", caption: "7 days")
-                SRStatTile(value: duration(week.durationMinutes), label: "Moving", caption: "7 days")
-                SRStatTile(value: "\(week.elevationM)", unit: "m", label: "Climbed", caption: "7 days")
+                // Each opens the activities that add up to it.
+                SRStatTile(value: "\(week.activities)", label: "Activities", caption: "7 days", onTap: openActivities)
+                SRStatTile(value: TrailFormat.km(fromKm: week.distanceKm), unit: "km", label: "Distance", caption: "7 days", onTap: openActivities)
+                SRStatTile(value: TrailFormat.minutes(week.durationMinutes), label: "Moving", caption: "7 days", onTap: openActivities)
+                SRStatTile(value: "\(week.elevationM)", unit: "m", label: "Climbed", caption: "7 days", onTap: openActivities)
             }
             .padding(.bottom, 6)
             .srPlainRow()
@@ -242,12 +238,102 @@ struct HealthScreen: View {
         }
     }
 
-    private func distance(_ km: Double) -> String {
-        km >= 100 ? "\(Int(km.rounded()))" : String(format: "%.1f", km)
+    private func openActivities() {
+        router.health.append(HealthRoute.activities)
+    }
+}
+
+// MARK: - The ink hero
+
+/// Readiness and today's figures on an ink band — the top of /health.
+///
+/// The only ink on the tab. Everything under it stays paper: a tall ink area
+/// reads as intensity, and the band is there to be the headline, not the page.
+struct HealthHero: View {
+    let summary: HealthSummary
+
+    var body: some View {
+        SRInkBand(kicker: "Readiness · Today", meta: updated) {
+            if let readiness = summary.readiness {
+                SRInkReadiness(readiness: readiness)
+            } else {
+                Text(summary.strap)
+                    .font(SR.Text.body(15))
+                    .foregroundStyle(SR.onInk(.note))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            SRTileGrid {
+                ForEach(summary.figures) { figure in
+                    NavigationLink(value: figure) {
+                        InkFigureTile(figure: figure)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if summary.isMock {
+                SRInkMockNote()
+            }
+        }
     }
 
-    private func duration(_ minutes: Int) -> String {
-        minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+    private var updated: String? {
+        let ago = shortAgo(summary.generatedAt)
+        return ago.isEmpty ? nil : "Updated \(ago) ago"
+    }
+}
+
+/// "These are not you", said on the band where the figures are.
+struct SRInkMockNote: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(SR.accentOnDark)
+            Text("Demonstration data — no real measurement landed in this window, so these figures are synthetic.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.onInk(.note))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// A /health figure as an ink tile: value and unit apart, the sparkline where
+/// the series travelled, and the movement coloured by whether it is good for
+/// THIS metric.
+struct InkFigureTile: View {
+    let figure: HealthFigure
+
+    var body: some View {
+        SRInkTile(
+            label: figure.label,
+            value: figure.inkValue.value,
+            unit: figure.inkValue.unit,
+            spark: figure.series,
+            foot: figure.deltaDisplay ?? figure.caption,
+            footGood: figure.deltaDisplay == nil ? nil : figure.improving,
+            footIcon: figure.deltaDisplay == nil ? nil : (figure.direction == "down" ? "arrow.down.right" : "arrow.up.right")
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(figure.label): \(figure.displayWithUnit)"
+            + (figure.deltaDisplay.map { ", \($0) \(figure.caption)" } ?? ", \(figure.caption)")
+            + (figure.improving == nil ? "" : figure.improving! ? ", improving" : ", worse")
+        )
+    }
+}
+
+extension HealthFigure {
+    /// The value and the unit apart, for a tile that sets them in two faces.
+    /// Percent stays attached — "62 %" reads as two things.
+    var inkValue: (value: String, unit: String?) {
+        guard measured else { return ("—", nil) }
+        switch unit {
+        case "%": return ("\(display)%", nil)
+        case "h", "": return (display, nil)
+        default: return (display, unit)
+        }
     }
 }
 
@@ -367,6 +453,9 @@ struct FigureDetail: View {
 /// support. The low and the high are printed as text above it instead.
 struct SRSparkline: View {
     let values: [Double]
+    /// On an ink band the line is accent-on-dark and the end dot is too —
+    /// petrol has no role on ink.
+    var register: SRRegister = .paper
 
     var body: some View {
         GeometryReader { geo in
@@ -392,19 +481,19 @@ struct SRSparkline: View {
                     path.addLine(to: CGPoint(x: points.last!.x, y: geo.size.height))
                     path.closeSubpath()
                 }
-                .fill(SR.accent.opacity(0.12))
+                .fill(register.accent.opacity(0.14))
 
                 Path { path in
                     guard let first = points.first else { return }
                     path.move(to: first)
                     for point in points.dropFirst() { path.addLine(to: point) }
                 }
-                .stroke(SR.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .stroke(register.accent, style: StrokeStyle(lineWidth: register == .ink ? 1.5 : 2, lineCap: .round, lineJoin: .round))
 
                 if let last = points.last {
                     Circle()
-                        .fill(SR.accentInk)
-                        .frame(width: 7, height: 7)
+                        .fill(register == .ink ? SR.accentOnDark : SR.accentInk)
+                        .frame(width: register == .ink ? 5 : 7, height: register == .ink ? 5 : 7)
                         .position(last)
                 }
             }
