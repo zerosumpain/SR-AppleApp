@@ -2,7 +2,7 @@
 .env*
 !.env.example
 data/
-node_modules/
+node_modules
 *.sqlite*
 *.xcodeproj/
 DerivedData/
