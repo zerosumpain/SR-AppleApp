@@ -34,9 +34,16 @@ enum SRNoise {
         ])
         let context = CIContext()
         guard let image = context.createCGImage(mono, from: CGRect(x: 0, y: 0, width: 200, height: 200)) else { return nil }
+        // Redrawn into a plain bitmap once, so the tile owns its pixels outright
+        // rather than holding whatever Core Image backed it with.
+        let format = UIGraphicsImageRendererFormat()
         // Scale 2: a 100pt tile of 200px noise, so the grain is one physical
         // pixel pair rather than a visible checker.
-        return UIImage(cgImage: image, scale: 2, orientation: .up)
+        format.scale = 2
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100), format: format).image { _ in
+            UIImage(cgImage: image).draw(in: CGRect(x: 0, y: 0, width: 100, height: 100))
+        }
     }()
 }
 
@@ -154,18 +161,14 @@ struct SRInkTile: View {
                 .foregroundStyle(SR.onInk(.label))
                 .lineLimit(1)
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(SR.Text.figure(32))
-                    .tracking(-0.64)
-                    .foregroundStyle(SR.onInk(.primary))
-                    .lineLimit(1)
-                if let unit {
-                    Text(unit)
-                        .font(SR.Text.mono(13))
-                        .foregroundStyle(SR.onInk(.unit))
-                        .lineLimit(1)
-                }
+            // A step down rather than a truncation: "7h 24m" at 32 does not fit
+            // a half-width tile and came out as "7h 2…". Both steps scale with
+            // the reader's text setting, so this is not `minimumScaleFactor`
+            // quietly undoing it.
+            ViewThatFits(in: .horizontal) {
+                figureLine(32)
+                figureLine(26)
+                figureLine(21)
             }
 
             if let spark, spark.count > 1 {
@@ -192,6 +195,24 @@ struct SRInkTile: View {
         .background(SR.ink)
         .overlay(Rectangle().strokeBorder(selected ? SR.accentOnDark : SR.onInk(.hairline), lineWidth: 1))
         .contentShape(Rectangle())
+    }
+
+    private func figureLine(_ size: CGFloat) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(value)
+                .font(SR.Text.figure(size))
+                .tracking(-size * 0.02)
+                .foregroundStyle(SR.onInk(.primary))
+                .lineLimit(1)
+                .fixedSize()
+            if let unit {
+                Text(unit)
+                    .font(SR.Text.mono(13))
+                    .foregroundStyle(SR.onInk(.unit))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
     }
 
     private var footTone: Color {

@@ -151,6 +151,8 @@ struct ActivityDetailScreen: View {
 /// decoded sample — which is how the unit tests photograph it.
 struct ActivityDetailBody: View {
     let detail: ActivityDetailResponse
+    /// A long walk can carry fourteen highlights. Four, then the rest on ask.
+    @State private var allHighlights = false
 
     private var activity: ActivityDetail { detail.activity }
     private var row: ActivityRow { detail.activity.row }
@@ -221,9 +223,9 @@ struct ActivityDetailBody: View {
     }
 
     private var highlights: some View {
-        TrailSection(title: "Highlights") {
+        TrailSection(title: "Highlights", trailing: "\(detail.highlights.count)") {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(detail.highlights.enumerated()), id: \.offset) { _, highlight in
+                ForEach(Array(shownHighlights.enumerated()), id: \.offset) { _, highlight in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "star.fill")
                             .font(.system(size: 10, weight: .bold))
@@ -239,8 +241,17 @@ struct ActivityDetailBody: View {
                         }
                     }
                 }
+                if detail.highlights.count > Self.highlightLimit {
+                    ShowAllButton(expanded: $allHighlights, total: detail.highlights.count)
+                }
             }
         }
+    }
+
+    static let highlightLimit = 4
+
+    private var shownHighlights: [ActivityHighlight] {
+        allHighlights ? detail.highlights : Array(detail.highlights.prefix(Self.highlightLimit))
     }
 
     private var segments: some View {
@@ -398,7 +409,6 @@ private struct ActivitySegmentLine: View {
             parts.append(pace ? "\(TrailFormat.pace(value)) /km" : "\(TrailFormat.speed(paceSPerKm: value)) km/h")
         }
         if let hr = effort.avgHeartrate, hr > 0 { parts.append("\(Int(hr.rounded())) bpm") }
-        if !effort.descriptor.isEmpty { parts.append(effort.descriptor) }
         return parts.joined(separator: " · ")
     }
 }
@@ -434,6 +444,11 @@ struct SegmentDetailScreen: View {
 
 struct SegmentDetailBody: View {
     let detail: SegmentDetailResponse
+    /// A well-used segment has a hundred efforts. The latest dozen, then the
+    /// rest on ask — the chart above already shows the whole history.
+    @State private var allEfforts = false
+
+    static let effortLimit = 12
 
     private var segment: SegmentRow { detail.segment.row }
 
@@ -461,13 +476,16 @@ struct SegmentDetailBody: View {
                     if !detail.efforts.isEmpty {
                         TrailSection(title: "Efforts", trailing: "newest first") {
                             SRLedger {
-                                ForEach(detail.efforts) { effort in
+                                ForEach(allEfforts ? detail.efforts : Array(detail.efforts.prefix(Self.effortLimit))) { effort in
                                     NavigationLink(value: ActivityRef(id: effort.activityId, name: effort.activityName)) {
                                         SegmentEffortLine(effort: effort, pace: Sport.isPace(segment.activityType))
                                     }
                                     .buttonStyle(.plain)
                                     .disabled(effort.activityId.isEmpty)
                                 }
+                            }
+                            if detail.efforts.count > Self.effortLimit {
+                                ShowAllButton(expanded: $allEfforts, total: detail.efforts.count)
                             }
                         }
                     }
@@ -592,5 +610,30 @@ private struct SegmentEffortLine: View {
         }
         if let hr = effort.avgHeartrate, hr > 0 { parts.append("\(Int(hr.rounded())) bpm") }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+/// "Show all 14" / "Show fewer" under a clipped list.
+private struct ShowAllButton: View {
+    @Binding var expanded: Bool
+    let total: Int
+
+    var body: some View {
+        Button {
+            SRHaptic.tap()
+            expanded.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Text(expanded ? "SHOW FEWER" : "SHOW ALL \(total)")
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+            }
+            .foregroundStyle(SR.accent)
+            .frame(minHeight: SR.tapTarget, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

@@ -399,22 +399,16 @@ final class TrailSnapshotTests: XCTestCase {
         // not arrive, and the frame is what is being checked.
         RunLoop.main.run(until: Date().addingTimeInterval(2.5))
 
-        // Two renderings. `drawHierarchy` is what the screen shows, map and
-        // all, but may leave anything below the physical screen blank;
-        // `layer.render` draws the whole window but not the map's Metal layer.
-        let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
-        let screen = renderer.image { _ in
+        // `drawHierarchy`, not `layer.render`: the second crashed CoreGraphics
+        // on the segment screen's map layer, and the first draws the whole
+        // (taller than the screen) window anyway.
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
-        let layers = renderer.image { context in
-            window.layer.render(in: context.cgContext)
-        }
-        for (image, suffix) in [(screen, ""), (layers, " (layers)")] {
-            let attachment = XCTAttachment(image: image)
-            attachment.name = name + suffix
-            attachment.lifetime = .keepAlways
-            add(attachment)
-        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
 
         window.isHidden = true
         window.rootViewController = nil

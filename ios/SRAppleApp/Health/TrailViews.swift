@@ -75,16 +75,12 @@ struct SegmentListRow: View {
                     .foregroundStyle(SR.ink)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                // Not the descriptor as well: it is "1.51 km · flat · 31
+                // efforts", which is this line again in other words.
                 Text(detailLine)
                     .font(SR.Text.mono(13))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if !row.descriptor.isEmpty {
-                    Text(row.descriptor)
-                        .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkMuted)
-                        .lineLimit(2)
-                }
             }
             Spacer(minLength: 4)
             if let form = row.form, form.known, let delta = form.deltaPct {
@@ -104,7 +100,7 @@ struct SegmentListRow: View {
     }
 
     private var detailLine: String {
-        var parts = ["\(TrailFormat.km(row.distanceM)) km", "\(String(format: "%.1f", row.gradientPct))%"]
+        var parts = ["\(TrailFormat.km(row.distanceM)) km", "\(row.terrain) \(String(format: "%.1f", row.gradientPct))%"]
         if let best = row.bestDurationS { parts.append("best \(TrailFormat.duration(best))") }
         parts.append(row.effortCount == 1 ? "1 effort" : "\(row.effortCount) efforts")
         return parts.joined(separator: " · ")

@@ -251,6 +251,7 @@ struct HealthScreen: View {
 /// reads as intensity, and the band is there to be the headline, not the page.
 struct HealthHero: View {
     let summary: HealthSummary
+    @EnvironmentObject private var router: Router
 
     var body: some View {
         SRInkBand(kicker: "Readiness · Today", meta: updated) {
@@ -264,8 +265,14 @@ struct HealthHero: View {
             }
 
             SRTileGrid {
+                // Buttons that push, not NavigationLinks: inside a List row a
+                // NavigationLink earns a disclosure chevron, and four of them
+                // drew chevrons in the gutters between the tiles.
                 ForEach(summary.figures) { figure in
-                    NavigationLink(value: figure) {
+                    Button {
+                        SRHaptic.tap()
+                        router.health.append(figure)
+                    } label: {
                         InkFigureTile(figure: figure)
                     }
                     .buttonStyle(.plain)
