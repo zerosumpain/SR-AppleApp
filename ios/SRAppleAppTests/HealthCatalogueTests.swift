@@ -46,4 +46,20 @@ final class HealthCatalogueTests: XCTestCase {
         XCTAssertEqual(HealthReadings.name(for: .highIntensityIntervalTraining, indoor: false), "High Intensity Interval Training")
         XCTAssertEqual(HealthReadings.name(for: .archery, indoor: false), "Other")
     }
+
+    func testRoutesAreChunkedByTwoThousandWithStableIds() {
+        let t0 = 1_758_600_000.0
+        let points: [[Double?]] = (0..<4500).map { [t0 + Double($0), 51.5, -0.1, nil, 3, 5] }
+        let chunks = HealthBatching.chunks(kind: "workout_route", workout: "W1", metric: nil, unit: nil, points: points, source: "Watch", size: 2000)
+        XCTAssertEqual(chunks.map(\.id), ["route:W1:0", "route:W1:1", "route:W1:2"])
+        XCTAssertEqual(chunks.map { $0.points?.count }, [2000, 2000, 500])
+        XCTAssertEqual(chunks[1].start, timestamp(Date(timeIntervalSince1970: t0 + 2000)))
+    }
+
+    func testChunksTravelAloneAndPlainRecordsTravelInFourHundreds() {
+        let plain = (0..<900).map { HealthRecord(id: "h\($0)", kind: "heart_rate", start: "2026-09-23T01:00:00Z", end: "2026-09-23T01:00:00Z", value: 60, unit: "bpm", source: "W") }
+        let chunk = HealthBatching.chunks(kind: "workout_series", workout: "W1", metric: "power", unit: "W", points: [[1_758_600_000, 250]], source: "W", size: 5000)
+        let batches = HealthBatching.batches(plain + chunk)
+        XCTAssertEqual(batches.map(\.health.count), [400, 400, 100, 1])
+    }
 }
