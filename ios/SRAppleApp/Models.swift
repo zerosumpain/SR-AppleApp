@@ -185,8 +185,13 @@ let outboxFullMessage = "Offline queue is full. Connect and sync before collecti
         var next = state; try transform(&next)
         let count = next.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }
         guard count <= 50000 else { throw CompanionError.message(outboxFullMessage) }
+        // A failed write leaves the state exactly as it was, as before this
+        // change: callers treat a throw as "not committed" and re-collect.
+        let previous = state
         state = next
-        if persist { try write() } else { dirty = true }
+        if persist {
+            do { try write() } catch { state = previous; throw error }
+        } else { dirty = true }
     }
     /// Writes the current state once, if a deferred `change` left it dirty.
     /// Call at the end of a flush, periodically during a long one, and on
