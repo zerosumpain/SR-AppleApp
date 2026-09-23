@@ -32,6 +32,23 @@ test('an ok response releases its body and logs nothing', async () => {
   assert.equal(cancelled, true);
 });
 
+test('a cancel that rejects (an errored stream) never becomes an unhandled rejection (R8)', async () => {
+  const logs = [];
+  const log = { warn: (...args) => logs.push(args.join(' ')) };
+  const fetchImpl = async () => ({ ok: true, body: { cancel: () => Promise.reject(new Error('reset')) } });
+  const ring = createDoorbell({ url: 'https://example.test/pull', token: 'secret', fetchImpl, log });
+  let unhandled = null;
+  const onUnhandled = error => { unhandled = error; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    ring();
+    await new Promise(r => setTimeout(r, 20));
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+  assert.equal(unhandled, null, 'a rejected cancel must never surface as an unhandled rejection');
+});
+
 test('a rejection that is not an Error does not itself throw inside the catch', async () => {
   const logs = [];
   const log = { warn: (...args) => logs.push(args.join(' ')) };
