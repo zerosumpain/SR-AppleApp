@@ -7,6 +7,9 @@ enum Reading {
     case sample(HKQuantityTypeIdentifier, HKUnit, scale: Double)
     case hourly(HKQuantityTypeIdentifier, HKUnit, HKStatisticsOptions, scale: Double)
     case standHour, mindful, stateOfMind, dailySteps, sleep, workout, workoutPart
+    /// A daily Activity-ring goal from `HKActivitySummary`: not a sample type,
+    /// so never observed — all three are read together on every collect pass.
+    case activityGoal
 }
 
 enum HealthReadings {
@@ -55,6 +58,7 @@ enum HealthReadings {
         case "sleep": return .sleep
         case "workout": return .workout
         case "workout_route", "workout_series": return .workoutPart
+        case "move_goal", "exercise_goal", "stand_goal": return .activityGoal
         default: return nil
         }
     }
@@ -77,8 +81,47 @@ enum HealthReadings {
         case .sleep: return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!
         case .workout: return HKObjectType.workoutType()
         case .workoutPart: return kind == "workout_route" ? HKSeriesType.workoutRoute() : nil
+        case .activityGoal: return nil   // HKActivitySummary: authorised via activitySummaryType(), never observed
         case nil: return nil
         }
+    }
+
+    /// The three ring goals, in the order the goal pass emits them, with the
+    /// unit that yields each catalogue unit (kcal, min, count).
+    static let activityGoals: [(kind: String, unit: HKUnit)] = [
+        ("move_goal", .kilocalorie()),
+        ("exercise_goal", .minute()),
+        ("stand_goal", .count()),
+    ]
+
+    static func isActivityGoal(_ kind: String) -> Bool {
+        if case .activityGoal = reading(for: kind) { return true }
+        return false
+    }
+
+    /// One summary's goal for `kind`, in its catalogue unit; nil when the
+    /// summary does not carry it. `exerciseTimeGoal` / `standHoursGoal`
+    /// (iOS 16+, optional) are what the Fitness app edits; the older
+    /// `apple…Goal` properties are read through an Optional because a summary
+    /// written before iOS 16 may not have them despite their non-null import.
+    static func goal(_ kind: String, in summary: HKActivitySummary) -> Double? {
+        let quantity: HKQuantity?
+        switch kind {
+        case "move_goal":
+            let energy: HKQuantity? = summary.activeEnergyBurnedGoal
+            quantity = energy
+        case "exercise_goal":
+            let legacy: HKQuantity? = summary.appleExerciseTimeGoal
+            quantity = summary.exerciseTimeGoal ?? legacy
+        case "stand_goal":
+            let legacy: HKQuantity? = summary.appleStandHoursGoal
+            quantity = summary.standHoursGoal ?? legacy
+        default:
+            quantity = nil
+        }
+        guard let quantity, let unit = activityGoals.first(where: { $0.kind == kind })?.unit,
+              quantity.is(compatibleWith: unit) else { return nil }
+        return quantity.doubleValue(for: unit)
     }
 
     /// Series read per workout. Two HealthKit types may share a metric name

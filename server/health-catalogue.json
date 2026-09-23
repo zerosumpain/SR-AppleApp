@@ -1,7 +1,7 @@
 {
   "version": 1,
   "groups": {
-    "activity": { "label": "Activity", "kinds": ["steps", "step_count", "active_energy", "basal_energy", "walking_running_distance", "distance_cycling", "flights_climbed", "apple_exercise_time", "apple_stand_hour"] },
+    "activity": { "label": "Activity", "kinds": ["steps", "step_count", "active_energy", "basal_energy", "walking_running_distance", "distance_cycling", "flights_climbed", "apple_exercise_time", "apple_stand_hour", "move_goal", "exercise_goal", "stand_goal"] },
     "heart": { "label": "Heart", "kinds": ["heart_rate", "resting_heart_rate", "heart_rate_variability", "walking_heart_rate_average", "heart_rate_recovery_one_minute"] },
     "vitals": { "label": "Overnight vitals", "kinds": ["oxygen_saturation", "respiratory_rate", "apple_sleeping_wrist_temperature"] },
     "fitness": { "label": "Fitness", "kinds": ["vo2_max", "six_minute_walk_distance"] },
@@ -22,6 +22,9 @@
     "flights_climbed": { "shape": "hourly", "unit": "count", "min": 0, "max": 1000 },
     "apple_exercise_time": { "shape": "hourly", "unit": "min", "min": 0, "max": 60 },
     "apple_stand_hour": { "shape": "event", "unit": "count", "min": 0, "max": 1 },
+    "move_goal": { "shape": "daily", "unit": "kcal", "min": 0, "max": 10000 },
+    "exercise_goal": { "shape": "daily", "unit": "min", "min": 0, "max": 1440 },
+    "stand_goal": { "shape": "daily", "unit": "count", "min": 0, "max": 24 },
     "heart_rate": { "shape": "sample", "unit": "bpm", "min": 1, "max": 350 },
     "resting_heart_rate": { "shape": "sample", "unit": "bpm", "min": 1, "max": 350 },
     "heart_rate_variability": { "shape": "sample", "unit": "ms", "min": 0, "max": 1000 },

@@ -17,6 +17,22 @@ test('a sample must carry the catalogued unit and stay inside its bounds', () =>
   assert.throws(() => validateHealthRecord(base('oxygen_saturation', { value: 0.97, unit: '%' })), { status: 400 });
 });
 
+// Apple's daily Activity-ring goals (HKActivitySummary) ride the plain daily
+// shape: value + catalogued unit + bounds, one record per kind per local day.
+test('the daily Move, Exercise and Stand goals validate as daily records', () => {
+  const day = (kind, value, unit) => ({ id: `${kind}-2026-09-22`, kind, start: new Date(Date.now() - 86_400_000).toISOString(), end: at(), value, unit, source: 'HealthKit activity summary', tz: 'Europe/London' });
+  for (const kind of ['move_goal', 'exercise_goal', 'stand_goal']) {
+    assert.equal(catalogue.kinds[kind].shape, 'daily', kind);
+    assert.ok(catalogue.groups.activity.kinds.includes(kind), kind);
+  }
+  assert.equal(validateHealthRecord(day('move_goal', 600, 'kcal')).value, 600);
+  assert.equal(validateHealthRecord(day('exercise_goal', 30, 'min')).value, 30);
+  assert.equal(validateHealthRecord(day('stand_goal', 12, 'count')).tz, 'Europe/London');
+  assert.throws(() => validateHealthRecord(day('move_goal', 600, 'kJ')), { status: 400 }, 'the goal is kcal, not the hourly kJ');
+  assert.throws(() => validateHealthRecord(day('exercise_goal', 1441, 'min')), { status: 400 });
+  assert.throws(() => validateHealthRecord(day('stand_goal', 25, 'count')), { status: 400 });
+});
+
 test('unknown kinds and unknown fields are refused', () => {
   assert.throws(() => validateHealthRecord(base('blood_glucose', { value: 5, unit: 'mmol/L' })), { status: 400 });
   assert.throws(() => validateHealthRecord(base('heart_rate', { value: 60, unit: 'bpm', mood: 'fine' })), { status: 400 });
