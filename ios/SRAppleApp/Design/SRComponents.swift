@@ -283,20 +283,15 @@ struct SRButton: View {
     let action: () -> Void
 
     var body: some View {
+        // Glass now, like every other button in the app. `register` still
+        // decides the label's colour for the outlined weight on an ink band.
         Button(action: action) {
-            Text(title.uppercased())
-                .font(SR.monoMedium(12))
-                .tracking(1.2)
-                .foregroundStyle(filled ? register.background : register.primary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .frame(maxWidth: .infinity)
-                .background(filled ? register.accent : Color.clear)
-                .overlay(Rectangle().strokeBorder(filled ? Color.clear : register.primary.opacity(0.55), lineWidth: 1))
+            SRButtonLabel(title: title, fill: true)
+                .foregroundStyle(filled ? SR.paper : register.primary)
         }
-        .buttonStyle(.plain)
+        .srButton(filled ? .prominent : .regular)
+        .controlSize(.large)
         .disabled(disabled)
-        .opacity(disabled ? 0.45 : 1)
     }
 }
 

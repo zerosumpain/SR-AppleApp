@@ -21,11 +21,15 @@ struct ThreadListScreen: View {
 
     var body: some View {
         List {
+            if store.query.isEmpty {
+                SRPageHeader(kicker: "jkai", title: "Threads")
+                    .srBareRow()
+            }
             if !store.pinned.isEmpty && store.query.isEmpty {
                 Section {
                     ForEach(store.pinned) { row($0) }
                 } header: {
-                    SRSectionLabel(text: "Pinned").srPlainRow().padding(.vertical, 6)
+                    SRSectionLabel(text: "Pinned")
                 }
             }
 
@@ -42,16 +46,18 @@ struct ThreadListScreen: View {
                 }
                 if store.loading && !store.conversations.isEmpty {
                     HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                        .srPlainRow().padding(.vertical, 12)
+                        .srGlassRow().padding(.vertical, 12)
                 }
             } header: {
                 if !store.pinned.isEmpty && store.query.isEmpty {
-                    SRSectionLabel(text: "Recent").srPlainRow().padding(.vertical, 6)
+                    SRSectionLabel(text: "Recent")
                 }
             }
         }
-        .listStyle(.plain)
-        .srPaper()
+        // Inset-grouped: on iOS 26 the sections are the rounded sheets the rest
+        // of the system uses, and the atmosphere shows round their edges.
+        .listStyle(.insetGrouped)
+        .srGround(.quiet)
         .navigationTitle("Threads")
         // Inline, not large. A large title renders BLANK on this OS with this
         // appearance proxy — the bar lays out at full height and paints no text.
@@ -59,10 +65,13 @@ struct ThreadListScreen: View {
         // Archivo Black correctly. A compact bar also gives a list more of the
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $store.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search the archive")
+        // Default placement: on iOS 26 that is the glass field the system puts
+        // where the thumb is, rather than a drawer under the bar.
+        .searchable(text: $store.query, prompt: "Search the archive")
         .onChange(of: store.query) { _, _ in store.search() }
         .srRefreshable { await store.load() }
         .toolbar {
+            ToolbarItem(placement: .principal) { SRBarMark() }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     SRHaptic.tap()
@@ -151,8 +160,7 @@ struct ThreadListScreen: View {
         NavigationLink(value: conversation) {
             ThreadRow(conversation: conversation)
         }
-        .srPlainRow()
-        .listRowSeparator(.visible)
+        .srGlassRow()
         .accessibilityIdentifier("thread-\(conversation.id)")
         // Leading swipe is the reversible one. Nothing destructive lives on a
         // swipe: a thread deleted by a thumb on the train is gone from the
@@ -190,6 +198,15 @@ struct ThreadRow: View {
     let conversation: Conversation
 
     var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            // The source, as a glyph in a disc: a thread that came in over
+            // WhatsApp and one started here are different kinds of thing.
+            Image(systemName: conversation.isWhatsApp ? "phone.bubble" : "sparkle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(conversation.isWhatsApp ? SR.good : SR.accent)
+                .frame(width: 34, height: 34)
+                .background((conversation.isWhatsApp ? SR.good : SR.accent).opacity(0.12), in: Circle())
+                .padding(.top, 2)
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
                 if conversation.pinned {
@@ -224,7 +241,8 @@ struct ThreadRow: View {
                     .foregroundStyle(SR.good)
             }
         }
-        .padding(.vertical, 9)
+        }
+        .padding(.vertical, 6)
         .frame(minHeight: SR.tapTarget, alignment: .leading)
     }
 }
@@ -295,7 +313,7 @@ struct ChatScreen: View {
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .srPaper()
+            .srGround(.quiet)
             .scrollDismissesKeyboard(.interactively)
             // Dragging up means "I am reading something", and an answer that
             // keeps arriving must not snatch the view back. `atBottom` goes
@@ -331,14 +349,13 @@ struct ChatScreen: View {
                     Label("Latest", systemImage: "arrow.down")
                         .font(SR.Text.label())
                         .tracking(1.1)
-                        .foregroundStyle(SR.paper)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(SR.ink)
-                        .clipShape(Capsule())
+                        .foregroundStyle(SR.ink)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .srGlass(.paper, in: Capsule(), interactive: true)
                 }
                 .buttonStyle(.plain)
-                .padding(.bottom, 78)
+                .padding(.bottom, 84)
                 .transition(.opacity)
             }
         }
@@ -400,7 +417,7 @@ struct ChatScreen: View {
     /// keeps its full height and simply insets its content, so the last turn
     /// stays visible with the keyboard up.
     private var composer: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 8) {
             // The banner sits INSIDE the composer's stack rather than as an
             // overlay pushed up by a guessed 70 points. The composer grows with
             // the draft — one to six lines — and with the reader's text size, so
@@ -408,47 +425,49 @@ struct ChatScreen: View {
             if let message = store.message {
                 SRBanner(text: message, tone: SR.error)
             }
-            Rectangle().fill(SR.line).frame(height: 1)
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField("Message jkai", text: $draft, axis: .vertical)
-                    .font(SR.Text.body())
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(1...6)
-                    .focused($composerFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .frame(minHeight: SR.tapTarget)
-                    .background(SR.surface)
-                    .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-                    .accessibilityIdentifier("chat-composer")
+            // A floating glass capsule, the shape iOS 26 gives every composer:
+            // the transcript runs on underneath it, and nothing hard-edged
+            // separates the two.
+            SRGlassGroup(spacing: 10) {
+                HStack(alignment: .bottom, spacing: 10) {
+                    TextField("Message jkai", text: $draft, axis: .vertical)
+                        .font(SR.Text.body())
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1...6)
+                        .focused($composerFocused)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .frame(minHeight: 48)
+                        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .accessibilityIdentifier("chat-composer")
 
-                Button {
-                    if store.sending {
-                        SRHaptic.tap()
-                        Task { await store.cancel() }
-                    } else {
-                        let text = draft
-                        draft = ""
-                        atBottom = true
-                        SRHaptic.tap()
-                        Task { await store.send(text) }
+                    Button {
+                        if store.sending {
+                            SRHaptic.tap()
+                            Task { await store.cancel() }
+                        } else {
+                            let text = draft
+                            draft = ""
+                            atBottom = true
+                            SRHaptic.tap()
+                            Task { await store.send(text) }
+                        }
+                    } label: {
+                        Image(systemName: store.sending ? "stop.fill" : "arrow.up")
+                            .font(.system(size: store.sending ? 14 : 17, weight: .bold))
+                            .foregroundStyle(sendable || store.sending ? SR.paper : SR.inkMuted)
+                            .frame(width: 48, height: 48)
+                            .srGlass(sendable || store.sending ? .accent : .paper, in: Circle(), interactive: true)
+                            .contentShape(Circle())
                     }
-                } label: {
-                    Image(systemName: store.sending ? "stop.fill" : "arrow.up")
-                        .font(.system(size: store.sending ? 14 : 16, weight: .bold))
-                        .foregroundStyle(SR.paper)
-                        .frame(width: SR.tapTarget, height: SR.tapTarget)
-                        .background(sendable || store.sending ? SR.accent : SR.inkGhost)
+                    .buttonStyle(.plain)
+                    .disabled(!sendable && !store.sending)
+                    .accessibilityLabel(store.sending ? "Stop" : "Send")
+                    .accessibilityIdentifier("chat-send")
                 }
-                .buttonStyle(.plain)
-                .disabled(!sendable && !store.sending)
-                .accessibilityLabel(store.sending ? "Stop" : "Send")
-                .accessibilityIdentifier("chat-send")
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.top, 10)
-            .padding(.bottom, 10)
-            .background(SR.paper)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
         }
     }
 

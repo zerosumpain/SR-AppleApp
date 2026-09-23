@@ -97,8 +97,11 @@ final class TodayStore: ObservableObject {
 /// that is a glance: how the body is doing, what the site has been trying to
 /// tell you, and where the conversation got to.
 ///
-/// Every card is a summary that goes somewhere. Nothing here is the only place
-/// to read anything.
+/// Under glass the screen is a stack of lifted sheets on a warm ground: the
+/// date and the headline in the page, the smoked readiness slab, an "Ask jkai"
+/// field that is one tap from a fresh thread, then the alerts, the last thread
+/// and the wire. Every card is a summary that goes somewhere. Nothing here is
+/// the only place to read anything.
 struct TodayScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var alerts: AlertStore
@@ -108,16 +111,20 @@ struct TodayScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // The ink hero sits OUTSIDE the gutter: an inset ink panel
-                // floats, a full-width band docks the page under it.
+            VStack(alignment: .leading, spacing: 18) {
+                SRPageHeader(kicker: dateLine, title: greeting)
+                    .padding(.horizontal, SR.gutter)
+                    .padding(.top, 4)
+
                 if site.paired, let health = store.payload?.health {
                     healthHero(health)
                 }
+
                 VStack(alignment: .leading, spacing: 22) {
                     if !site.paired {
                         connectCard
                     } else {
+                        askField
                         alertsCard
                         if let thread = store.payload?.lastThread { threadCard(thread) }
                         if let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
@@ -126,18 +133,15 @@ struct TodayScreen: View {
                     syncFooter
                 }
                 .padding(.horizontal, SR.gutter)
-                .padding(.top, site.paired && store.payload?.health != nil ? 24 : 8)
                 .padding(.bottom, 28)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .srPaper()
+        .srGround(.warm)
         .navigationTitle("Today")
-        // Inline, not large. A large title renders BLANK on this OS with this
-        // appearance proxy — the bar lays out at full height and paints no text.
-        // Verified in CI screenshots; inline titles in the same build draw in
-        // Archivo Black correctly. A compact bar also gives a list more of the
-        // screen, which on a phone is the thing actually being asked for.
+        // Inline, and the title itself is replaced by the `sr.` mark: the page
+        // carries the headline (see `SRPageHeader` for why a large title is not
+        // an option on this OS with a custom face).
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
             await store.load(fresh: true)
@@ -145,6 +149,13 @@ struct TodayScreen: View {
             if companion.paired { await companion.sync() }
         }
         .toolbar {
+            ToolbarItem(placement: .principal) { SRBarMark() }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { SRHaptic.tap(); router.openAlerts() } label: {
+                    Image(systemName: alerts.unread > 0 ? "bell.badge" : "bell")
+                }
+                .accessibilityLabel(alerts.unread > 0 ? "Alerts, \(alerts.unread) unread" : "Alerts")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { SRHaptic.tap(); router.openSettings() } label: { Image(systemName: "gearshape") }
                     .accessibilityLabel("Settings")
@@ -154,6 +165,23 @@ struct TodayScreen: View {
         .task { await store.load() }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }
+        }
+    }
+
+    // MARK: - Header
+
+    private var dateLine: String {
+        Date().formatted(.dateTime.weekday(.wide).day().month(.wide))
+    }
+
+    /// A time of day rather than a tab name — the tab bar already says where
+    /// you are, so the page can say something.
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12: return "Morning."
+        case 12..<18: return "Afternoon."
+        case 18..<23: return "Evening."
+        default: return "Late one."
         }
     }
 
@@ -171,21 +199,18 @@ struct TodayScreen: View {
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button { SRHaptic.tap(); router.openSettings(.connections) } label: {
-                    Text("CONNECT")
-                        .font(SR.Text.label())
-                        .tracking(1.3)
-                        .foregroundStyle(SR.paper)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background(SR.accent)
+                    SRButtonLabel(title: "Connect", icon: "qrcode.viewfinder", fill: true)
                 }
-                .buttonStyle(.plain)
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityLabel("CONNECT")
+                .padding(.top, 4)
             }
         }
     }
 
-    /// Readiness and today's figures on an ink band, the way /health opens.
-    /// The whole band is one tap into the Health tab.
+    /// Readiness and today's figures on the smoked slab, the way /health opens.
+    /// The whole slab is one tap into the Health tab.
     @ViewBuilder
     private func healthHero(_ health: TodayHealth) -> some View {
         Button {
@@ -231,25 +256,58 @@ struct TodayScreen: View {
         return ago.isEmpty ? nil : "Updated \(ago) ago"
     }
 
+    /// A field that is really a button: tap it and a new thread opens with the
+    /// keyboard up. The shape is the composer's, so the thumb learns it once.
+    private var askField: some View {
+        Button {
+            SRHaptic.tap()
+            router.ask("")
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(SR.accent)
+                Text("Ask jkai anything…")
+                    .font(SR.Text.body())
+                    .foregroundStyle(SR.inkMuted)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(SR.paper)
+                    .frame(width: 34, height: 34)
+                    .background(SR.accent, in: Circle())
+            }
+            .padding(.leading, 18)
+            .padding(.trailing, 7)
+            .frame(minHeight: 50)
+            .srGlass(.paper, in: Capsule(), interactive: true)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Ask jkai")
+        .accessibilityIdentifier("today-ask")
+    }
+
     private var alertsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             SRSectionLabel(
                 text: "Alerts",
                 trailing: alerts.unread > 0 ? "\(alerts.unread) unread" : nil
             )
+            .padding(.horizontal, 4)
 
             Button {
                 SRHaptic.tap()
                 router.openAlerts()
             } label: {
-                SRCard {
+                SRCard(interactive: true) {
                     if let latest = store.payload?.alerts?.latest, !latest.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 12) {
                             ForEach(latest) { row in
                                 HStack(alignment: .top, spacing: 10) {
                                     Circle()
                                         .fill(row.severity == "alert" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
-                                        .frame(width: 6, height: 6)
+                                        .frame(width: 7, height: 7)
                                         .padding(.top, 6)
                                     Text(row.title)
                                         .font(SR.Text.secondary(15))
@@ -281,14 +339,21 @@ struct TodayScreen: View {
 
     @ViewBuilder
     private func threadCard(_ thread: TodayThread) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             SRSectionLabel(text: "Carry on", trailing: shortAgo(thread.updatedAt))
+                .padding(.horizontal, 4)
             Button {
                 SRHaptic.tap()
                 router.show(.chat)
+                router.chat.append(ThreadReference(id: thread.id))
             } label: {
-                SRCard(accented: true) {
-                    HStack(spacing: 10) {
+                SRCard(accented: true, interactive: true) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bubble.left.and.text.bubble.right")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(SR.accent)
+                            .frame(width: 36, height: 36)
+                            .background(SR.accent.opacity(0.12), in: Circle())
                         Text(thread.title?.isEmpty == false ? thread.title! : "Untitled thread")
                             .font(SR.Text.title())
                             .foregroundStyle(SR.ink)
@@ -299,6 +364,7 @@ struct TodayScreen: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(SR.inkMuted)
                     }
+                    .padding(.leading, 6)
                 }
             }
             .buttonStyle(.plain)
@@ -307,25 +373,38 @@ struct TodayScreen: View {
 
     @ViewBuilder
     private func newsCard(_ news: TodayNews) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             SRSectionLabel(text: "On the wire", trailing: news.unseen > 0 ? "\(news.unseen) new" : nil)
+                .padding(.horizontal, 4)
             Button {
                 SRHaptic.tap()
                 router.show(.news)
             } label: {
-                SRCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(news.stories) { story in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(story.title)
-                                    .font(SR.Text.secondary(15))
-                                    .foregroundStyle(SR.ink)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                Text(story.sourceLabel.uppercased())
-                                    .font(SR.Text.mono())
-                                    .tracking(1)
-                                    .foregroundStyle(SR.inkMuted)
+                SRCard(interactive: true) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(news.stories.enumerated()), id: \.element.id) { index, story in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                // The ranked-moves numeral, kept: a position is
+                                // the one thing a wire has that a feed does not.
+                                Text("\(index + 1)")
+                                    .font(SR.Text.display(20))
+                                    .foregroundStyle(SR.accent)
+                                    .frame(width: 22, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(story.title)
+                                        .font(SR.Text.secondary(15))
+                                        .foregroundStyle(SR.ink)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                    Text(story.sourceLabel.uppercased())
+                                        .font(SR.Text.mono())
+                                        .tracking(1)
+                                        .foregroundStyle(SR.inkMuted)
+                                }
+                            }
+                            .padding(.vertical, 10)
+                            if index < news.stories.count - 1 {
+                                Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 34)
                             }
                         }
                     }
@@ -336,12 +415,14 @@ struct TodayScreen: View {
     }
 
     private var quickActions: some View {
-        HStack(spacing: SR.cardGap) {
-            QuickAction(title: "Ask jkai", icon: "bubble.left.and.text.bubble.right") {
-                router.show(.chat)
-            }
-            QuickAction(title: companion.busy ? "Syncing…" : "Sync now", icon: "arrow.triangle.2.circlepath") {
-                Task { await companion.sync() }
+        SRGlassGroup(spacing: SR.cardGap) {
+            HStack(spacing: SR.cardGap) {
+                QuickAction(title: "New thread", icon: "square.and.pencil") {
+                    router.ask("")
+                }
+                QuickAction(title: companion.busy ? "Syncing…" : "Sync now", icon: "arrow.triangle.2.circlepath") {
+                    Task { await companion.sync() }
+                }
             }
         }
     }
@@ -359,11 +440,12 @@ struct TodayScreen: View {
                     .foregroundStyle(SR.inkMuted)
             }
         }
+        .padding(.horizontal, 4)
         .padding(.top, 4)
     }
 }
 
-/// A square-ish tap target with a glyph and a word. Two across.
+/// A glass tile with a glyph and a word. Two across.
 struct QuickAction: View {
     let title: String
     let icon: String
@@ -374,10 +456,12 @@ struct QuickAction: View {
             SRHaptic.tap()
             run()
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(SR.accent)
+                    .frame(width: 34, height: 34)
+                    .background(SR.accent.opacity(0.12), in: Circle())
                 Text(title.uppercased())
                     .font(SR.Text.label())
                     .tracking(1.2)
@@ -389,10 +473,9 @@ struct QuickAction: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(SR.cardPadding)
-            .frame(minHeight: 76, alignment: .leading)
-            .background(SR.surface)
-            .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-            .contentShape(Rectangle())
+            .frame(minHeight: 88, alignment: .leading)
+            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 6, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 6, style: .continuous))
         }
         .buttonStyle(.plain)
     }

@@ -39,7 +39,7 @@ struct SettingsScreen: View {
                          : site.paired ? "Website connected" : companion.paired ? "Companion connected" : "Not connected",
                          "qrcode")
                 } header: {
-                    SRSectionLabel(text: "The app").srPlainRow().padding(.vertical, 6)
+                    SRSectionLabel(text: "The app")
                 }
 
                 Section {
@@ -47,14 +47,14 @@ struct SettingsScreen: View {
                     link(.location, "Location & battery", draft, "location")
                     link(.log, "Gate history", "When GPS slept, and why", "list.bullet.rectangle")
                 } header: {
-                    SRSectionLabel(text: "What it collects").srPlainRow().padding(.vertical, 6)
+                    SRSectionLabel(text: "What it collects")
                 }
 
                 Section {
                     link(.about, "About", "Version, licences and what this holds", "info.circle")
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             .srPaper()
             .navigationTitle("Settings")
             // Inline, not large. A large title renders BLANK on this OS with this
@@ -102,7 +102,7 @@ struct SettingsScreen: View {
         NavigationLink(value: route) {
             SRRow(title: title, subtitle: subtitle, icon: icon)
         }
-        .srPlainRow()
+        .srGlassRow()
         .accessibilityIdentifier("settings-\(route)")
     }
 }
@@ -137,12 +137,12 @@ struct ConnectionsScreen: View {
             Section {
                 if site.paired {
                     SRRow(title: "Connected", subtitle: site.ownerEmail, icon: "checkmark.circle.fill", tone: SR.good)
-                        .srPlainRow()
+                        .srGlassRow()
                     Button(role: .destructive) { SRHaptic.tap(); site.signOut() } label: {
                         SRRow(title: "Disconnect from the website", icon: "xmark.circle", tone: SR.error)
                     }
                     .buttonStyle(.plain)
-                    .srPlainRow()
+                    .srGlassRow()
                 } else {
                     Button {
                         SRHaptic.tap()
@@ -155,7 +155,7 @@ struct ConnectionsScreen: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(site.busy)
-                    .srPlainRow()
+                    .srGlassRow()
                     .accessibilityIdentifier("site-pair-scan")
                 }
                 if let message = site.message {
@@ -163,17 +163,16 @@ struct ConnectionsScreen: View {
                         .font(SR.Text.secondary())
                         .foregroundStyle(site.paired ? SR.inkMuted : SR.error)
                         .fixedSize(horizontal: false, vertical: true)
-                        .srPlainRow()
+                        .srGlassRow()
                         .padding(.vertical, 6)
                 }
             } header: {
                 SRSectionLabel(text: "The website", trailing: site.paired ? "Connected" : nil)
-                    .srPlainRow().padding(.vertical, 6)
             } footer: {
                 Text("Chat threads, the news desk, your health figures and alerts. A device token, not a password — the website can revoke it at any moment, and it expires after ninety days.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
-                    .srPlainRow().padding(.vertical, 8)
+                    .padding(.vertical, 4)
             }
 
             // MARK: Companion
@@ -181,7 +180,7 @@ struct ConnectionsScreen: View {
                 if companion.paired {
                     if let profile = companion.profile {
                         SRRow(title: "Connected", subtitle: profile.name, icon: "checkmark.circle.fill", tone: SR.good)
-                            .srPlainRow()
+                            .srGlassRow()
                     }
                     Button { SRHaptic.tap(); Task { await companion.sync() } } label: {
                         SRRow(title: companion.busy ? "Syncing…" : "Sync now",
@@ -190,13 +189,13 @@ struct ConnectionsScreen: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(companion.busy)
-                    .srPlainRow()
+                    .srGlassRow()
                     Button(role: .destructive) { confirmDisconnect = true } label: {
                         SRRow(title: "Disconnect this iPhone", icon: "xmark.circle", tone: SR.error)
                     }
                     .buttonStyle(.plain)
                     .disabled(companion.busy)
-                    .srPlainRow()
+                    .srGlassRow()
                 } else {
                     Button {
                         SRHaptic.tap()
@@ -210,7 +209,7 @@ struct ConnectionsScreen: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(companion.busy)
-                    .srPlainRow()
+                    .srGlassRow()
                     .accessibilityIdentifier("companion-pair-scan")
 
                     manualPairing
@@ -220,19 +219,18 @@ struct ConnectionsScreen: View {
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .srPlainRow().padding(.vertical, 6)
+                        .srGlassRow().padding(.vertical, 6)
                 }
             } header: {
                 SRSectionLabel(text: "The companion", trailing: companion.paired ? "Connected" : nil)
-                    .srPlainRow().padding(.vertical, 6)
             } footer: {
                 Text("Apple Health uploads and family location. A different server and a different credential: disconnecting either leaves the other running.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
-                    .srPlainRow().padding(.vertical, 8)
+                    .padding(.vertical, 4)
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .srPaper()
         .navigationTitle("Connections")
         .navigationBarTitleDisplayMode(.inline)
@@ -337,7 +335,7 @@ struct ConnectionsScreen: View {
             .disabled(companion.busy || code.isEmpty)
         }
         .padding(.vertical, 10)
-        .srPlainRow()
+        .srGlassRow()
     }
 
     private func connectCompanion() {
@@ -375,7 +373,7 @@ struct AppleHealthScreen: View {
                     }
                     .tint(SR.accent)
                     .disabled(companion.busy)
-                    .srPlainRow()
+                    .srGlassRow()
                     .frame(minHeight: SR.tapTarget)
                 }
 
@@ -387,14 +385,14 @@ struct AppleHealthScreen: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(companion.busy || outbox.state.healthEnabled.isEmpty)
-                .srPlainRow()
+                .srGlassRow()
             } header: {
-                SRSectionLabel(text: "Categories").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "Categories")
             } footer: {
                 Text("Health is read on a schedule iOS controls, not on a timer of ours, so these cost far less than location. Apple does not reveal whether you denied read access, so missing records may mean no data or no permission. Turning one off stops future uploads; delete what is already there on the website.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
-                    .srPlainRow().padding(.vertical, 8)
+                    .padding(.vertical, 4)
             }
 
             Section {
@@ -408,14 +406,14 @@ struct AppleHealthScreen: View {
                 }
                 .tint(SR.accent)
                 .disabled(companion.busy)
-                .srPlainRow()
+                .srGlassRow()
                 .frame(minHeight: SR.tapTarget)
 
                 Text(location.status)
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .srPlainRow().padding(.vertical, 6)
+                    .srGlassRow().padding(.vertical, 6)
 
                 Button {
                     SRHaptic.tap()
@@ -425,40 +423,40 @@ struct AppleHealthScreen: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!outbox.state.sharing)
-                .srPlainRow()
+                .srGlassRow()
             } header: {
-                SRSectionLabel(text: "Family location").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "Family location")
             } footer: {
                 Text("Family members see the position you share and nothing else. Your health data is never shared with them.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
-                    .srPlainRow().padding(.vertical, 8)
+                    .padding(.vertical, 4)
             }
 
             Section {
                 SRRow(title: "Waiting to upload", subtitle: nil) {
                     Text("\(companion.queueCount)").font(SR.Text.mono(15)).foregroundStyle(SR.ink)
                 }
-                .srPlainRow()
+                .srGlassRow()
                 if let last = companion.lastUpload {
                     SRRow(title: "Last upload") {
                         Text(last.formatted(date: .abbreviated, time: .shortened))
                             .font(SR.Text.mono(13))
                             .foregroundStyle(SR.ink)
                     }
-                    .srPlainRow()
+                    .srGlassRow()
                 }
                 Text(companion.message)
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .srPlainRow().padding(.vertical, 6)
+                    .srGlassRow().padding(.vertical, 6)
                     .accessibilityIdentifier("sync-status")
             } header: {
-                SRSectionLabel(text: "Sync").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "Sync")
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .srPaper()
         .navigationTitle("Apple Health")
         .navigationBarTitleDisplayMode(.inline)
@@ -479,15 +477,15 @@ struct AboutScreen: View {
                 SRRow(title: "Version") {
                     Text(version).font(SR.Text.mono(13)).foregroundStyle(SR.inkMuted)
                 }
-                .srPlainRow()
+                .srGlassRow()
                 Link(destination: SiteClient.shared.webURL("apple-app")) {
                     SRRow(title: "Connect & privacy on the web", icon: "safari") {
                         Image(systemName: "arrow.up.forward").foregroundStyle(SR.inkMuted)
                     }
                 }
-                .srPlainRow()
+                .srGlassRow()
             } header: {
-                SRSectionLabel(text: "This app").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "This app")
             }
 
             Section {
@@ -506,9 +504,9 @@ struct AboutScreen: View {
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .srPlainRow().padding(.vertical, 10)
+                    .padding(.vertical, 4)
             } header: {
-                SRSectionLabel(text: "What this holds").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "What this holds")
             }
 
             Section {
@@ -516,12 +514,12 @@ struct AboutScreen: View {
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .srPlainRow().padding(.vertical, 10)
+                    .padding(.vertical, 4)
             } header: {
-                SRSectionLabel(text: "Typefaces").srPlainRow().padding(.vertical, 6)
+                SRSectionLabel(text: "Typefaces")
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .srPaper()
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
