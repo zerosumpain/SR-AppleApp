@@ -47,7 +47,7 @@ struct HealthScreen: View {
         // Archivo Black correctly. A compact bar also gives a list more of the
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable {
+        .srRefreshable {
             await store.load(fresh: true)
             try? await companion.refresh()
         }

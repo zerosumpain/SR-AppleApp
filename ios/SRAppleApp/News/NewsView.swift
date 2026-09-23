@@ -54,7 +54,7 @@ struct NewsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: NewsStory.self) { NewsStoryScreen(story: $0) }
         .task { if store.feed == nil { await store.load() } }
-        .refreshable { await store.load(force: true) }
+        .srRefreshable { await store.load(force: true) }
         .overlay {
             if store.loading && store.stories.isEmpty {
                 ProgressView().tint(SR.accent)

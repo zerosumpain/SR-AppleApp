@@ -93,16 +93,22 @@ import UIKit
 
     // MARK: - Notifications
 
-    /// Show a notification even while the app is open.
+    /// Show a notification even while the app is open — AND keep it.
     ///
     /// The default is to swallow it, which here would mean the one moment the
     /// app is certain to be running — a background refresh that finished as the
     /// reader opened it — is the one moment nothing appears.
+    ///
+    /// `.list` is the half that was missing. Without it a foreground delivery
+    /// shows as a banner and is then gone: it never enters Notification Centre.
+    /// With no push certificate, opening the app is the most common moment the
+    /// queue gets collected, so for most alerts that was the only delivery
+    /// there was.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .badge]
+        [.banner, .list, .sound, .badge]
     }
 
     /// A tapped notification goes to the tab that owns its category.
