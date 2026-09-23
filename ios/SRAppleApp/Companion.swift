@@ -1,6 +1,10 @@
 import SwiftUI
 import UIKit
 import BackgroundTasks
+import os
+
+private let syncLog = Logger(subsystem: "com.strangeramblings.com.appleapp", category: "sync")
+private let reviewPrompt = "Apple Health has new categories. Tap Review Apple Health permissions to allow them."
 
 @MainActor final class Companion: ObservableObject {
     let api = API()
@@ -15,6 +19,9 @@ import BackgroundTasks
     @Published var paired: Bool
     @Published var queueCount = 0
     @Published var lastUpload: Date?
+    /// An enabled Apple Health type the permission sheet has never shown, or
+    /// an upgraded install not yet re-asked. See `refreshHealthReview()`.
+    @Published private(set) var healthReviewNeeded = false
     private var sending = false
     private var retryTask: Task<Void, Never>?
     init(outbox: Outbox) {
@@ -24,7 +31,14 @@ import BackgroundTasks
         location.onUpdate = { [weak self] in Task { await self?.flush() } }
         updateQueue()
         if paired { health.startObservers(); location.start() }
-        if paired && health.needsPermissionReview { message = "Apple Health has new categories. Tap Review Apple Health permissions to allow them." }
+        if paired && health.needsPermissionReview { message = reviewPrompt }
+        Task { [weak self] in await self?.refreshHealthReview() }
+    }
+    /// HealthKit only says asynchronously whether a type was never asked for.
+    func refreshHealthReview() async {
+        await health.refreshAuthorizationStatus()
+        healthReviewNeeded = health.needsPermissionReview
+        if paired && healthReviewNeeded { message = reviewPrompt }
     }
     func updateQueue() { queueCount = outbox.state.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }; lastUpload = outbox.state.lastUpload }
     func pair(server: String, code: String) async {
@@ -40,7 +54,8 @@ import BackgroundTasks
     }
     /// Toggles a GROUP. Turning one off drops its kinds' anchors and hourly
     /// cursors (so re-enabling re-reads from historyStart) and purges their
-    /// unsent records — the behaviour the per-kind toggle had.
+    /// unsent records — the behaviour the per-kind toggle had. Turning one on
+    /// asks HealthKit for its types, then reads them.
     func setHealth(_ group: String, enabled: Bool) {
         let kinds = Set(HealthCatalogue.kinds(inGroups: [group]))
         do {
@@ -50,19 +65,33 @@ import BackgroundTasks
                 if enabled { groups.insert(group) }
                 $0.healthEnabled = HealthCatalogue.groupOrder.filter { groups.contains($0) }
                 if !enabled {
-                    for kind in kinds { $0.anchors.removeValue(forKey: kind); $0.hourlyFrom.removeValue(forKey: kind) }
+                    // `hourlySent` too: the purge below unqueues those values, so
+                    // a re-enable must send every bucket again, not skip them.
+                    for kind in kinds { $0.anchors.removeValue(forKey: kind); $0.hourlyFrom.removeValue(forKey: kind); $0.hourlySent.removeValue(forKey: kind) }
                     if kinds.contains("workout") { $0.pendingRoutes.removeAll() }
                     for index in $0.batches.indices { $0.batches[index].health.removeAll { kinds.contains($0.kind) } }
                     $0.batches.removeAll { $0.health.isEmpty && $0.locations.isEmpty && $0.deleted.isEmpty }
                 }
             }
             health.startObservers(); updateQueue()
-        } catch { message = error.localizedDescription }
+        } catch { message = error.localizedDescription; return }
+        // A group turned on later brings types the reader was never asked
+        // for: ask now (the sheet shows only those), then read them.
+        Task { [weak self] in
+            guard let self else { return }
+            if enabled && !self.busy { await self.authorizeHealth() } else { await self.refreshHealthReview() }
+        }
     }
     func authorizeHealth() async {
         busy = true; defer { busy = false }
-        do { try await health.authorize(); try await health.collect(until: Date().addingTimeInterval(120)); await flush() }
-        catch { message = error.localizedDescription }
+        do {
+            try await health.authorize()
+            await refreshHealthReview()
+            try await health.collect(until: Date().addingTimeInterval(120)); await flush()
+        } catch {
+            message = error.localizedDescription
+            await refreshHealthReview()
+        }
     }
     func setSharing(_ enabled: Bool) async {
         guard !busy else { return }
@@ -95,6 +124,7 @@ import BackgroundTasks
         updateQueue()
         guard paired, !sending else { return }
         sending = true; defer { sending = false; updateQueue() }
+        var dropped = 0
         var taskID: UIBackgroundTaskIdentifier = .invalid
         taskID = UIApplication.shared.beginBackgroundTask(withName: "Sync SR records") { UIApplication.shared.endBackgroundTask(taskID); taskID = .invalid }
         defer { if taskID != .invalid { UIApplication.shared.endBackgroundTask(taskID) } }
@@ -115,15 +145,33 @@ import BackgroundTasks
                 if batch.health.isEmpty && batch.locations.isEmpty && batch.deleted.isEmpty {
                     try outbox.change { $0.batches.removeFirst() }; continue
                 }
-                let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(batch))
+                do {
+                    let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(batch))
+                } catch CompanionError.response(let status, let reason) where HealthBatching.isRefusal(status: status) {
+                    // Refused (400/413): resending can only fail again, and it
+                    // holds every later upload behind it. Halve the batch as it
+                    // stands now; a lone record still refused is dropped.
+                    var lost: [HealthRecord] = [], lostOther = 0
+                    try outbox.change { state in
+                        guard let index = state.batches.firstIndex(where: { $0.id == batch.id }) else { return }
+                        let halves = HealthBatching.split(state.batches[index])
+                        if halves.isEmpty {
+                            lost = state.batches[index].health
+                            lostOther = state.batches[index].locations.count + state.batches[index].deleted.count
+                        }
+                        state.batches.replaceSubrange(index...index, with: halves)
+                    }
+                    for r in lost { syncLog.error("Dropped a refused health record: kind \(r.kind, privacy: .public) id \(r.id, privacy: .public) status \(status) reason \(reason, privacy: .public)") }
+                    if lostOther > 0 { syncLog.error("Dropped a refused location or deletion: status \(status) reason \(reason, privacy: .public)") }
+                    dropped += lost.count + lostOther
+                    continue
+                }
                 try outbox.change { $0.batches.removeAll { $0.id == batch.id }; $0.lastUpload = Date() }
             }
-            message = health.needsPermissionReview
-                ? "Apple Health has new categories. Tap Review Apple Health permissions to allow them."
-                : "Up to date with the server."
+            message = health.needsPermissionReview ? reviewPrompt : withHealthNotes("Up to date with the server.", dropped: dropped)
             retryTask?.cancel(); retryTask = nil
         } catch {
-            message = "Upload pending: \(error.localizedDescription)"
+            message = withHealthNotes("Upload pending: \(error.localizedDescription)", dropped: dropped)
             retryTask?.cancel()
             retryTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(60))
@@ -131,6 +179,15 @@ import BackgroundTasks
                 await self?.flush()
             }
         }
+    }
+    /// `base`, then anything the user should know that did not stop the
+    /// upload: records the server refused, and Apple Health kinds that could
+    /// not be read (including a full offline queue).
+    private func withHealthNotes(_ base: String, dropped: Int) -> String {
+        var parts = [base]
+        if dropped > 0 { parts.append("Skipped \(dropped) record\(dropped == 1 ? "" : "s") the server refused.") }
+        if let failed = HealthBatching.failureSummary(health.failures) { parts.append(failed) }
+        return parts.joined(separator: " ")
     }
     func disconnect() async {
         guard !sending, !busy else { message = "Wait for the current sync before disconnecting."; return }

@@ -381,7 +381,9 @@ struct AppleHealthScreen: View {
                     SRHaptic.tap()
                     Task { await companion.authorizeHealth() }
                 } label: {
-                    SRRow(title: "Review Apple Health permissions", icon: "heart.text.square")
+                    SRRow(title: "Review Apple Health permissions",
+                          subtitle: companion.healthReviewNeeded ? "Some categories have not been allowed yet" : nil,
+                          icon: "heart.text.square")
                 }
                 .buttonStyle(.plain)
                 .disabled(companion.busy || outbox.state.healthEnabled.isEmpty)
