@@ -29,6 +29,8 @@ final class Router: ObservableObject {
     @Published var settingsTarget: SettingsTarget?
     /// A question handed in from outside — a Shortcut, Siri, a quick action.
     @Published var pendingQuestion: String?
+    /// Files handed in from another app — "Open in SR" on a Share sheet.
+    @Published var pendingFiles: [URL] = []
 
     enum Sheet: String, Identifiable { case settings, alerts; var id: String { rawValue } }
     enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
@@ -57,6 +59,11 @@ final class Router: ObservableObject {
 
     func ask(_ question: String) {
         pendingQuestion = question
+        show(.chat)
+    }
+
+    func share(_ files: [URL]) {
+        pendingFiles = files
         show(.chat)
     }
 }
@@ -137,6 +144,18 @@ struct ContentView: View {
         }
         // A thread opened from Spotlight. The index carries the conversation id
         // as the item identifier, so this is a push rather than a search.
+        // A photo or document sent here from another app's Share sheet. The
+        // system copies it into this app's Inbox and hands over a file URL.
+        //
+        // Not a share EXTENSION, which would be the richer version (web pages,
+        // text, a compose sheet without leaving the other app): an extension is
+        // a second target with its own bundle id and provisioning profile, and
+        // this app has exactly one — see the signing notes. A document type
+        // lives in the app target and needs nothing new from the portal.
+        .onOpenURL { url in
+            guard url.isFileURL else { return }
+            router.share([url])
+        }
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             guard let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
             router.show(.chat)

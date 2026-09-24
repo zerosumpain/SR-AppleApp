@@ -86,6 +86,7 @@ struct ChatAttachment: Decodable, Hashable, Identifiable {
     let sizeBytes: Int?
 
     var isImage: Bool { kind == "image" || (mimeType ?? "").hasPrefix("image/") }
+    var isAudio: Bool { kind == "audio" || (mimeType ?? "").hasPrefix("audio/") }
 }
 
 struct ChatMessage: Decodable, Identifiable, Hashable {
@@ -96,6 +97,12 @@ struct ChatMessage: Decodable, Identifiable, Hashable {
     let source: String?
     var toolSteps: [ToolStep]
     var attachments: [ChatAttachment]
+    /// Charts, tables and diagrams the turn made, already reduced by the site.
+    /// Optional, so a thread from an older server — and every fixture — still
+    /// decodes: synthesised `Decodable` throws on a missing non-optional key.
+    var artifacts: [ChatArtifact]?
+    /// The files and research the turn cited.
+    var sources: [ChatSource]?
 
     var isUser: Bool { role == "user" }
 

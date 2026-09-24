@@ -66,10 +66,17 @@ struct ChatBubble: View {
 
             attachments(register: .paper)
 
+            ForEach(Array((message.artifacts ?? []).enumerated()), id: \.offset) { _, artifact in
+                ArtifactCard(artifact: artifact)
+            }
+
+            // The quiet line under an answer: what it cited, then what it ran.
+            // Both folded — the answer is the thing on the page.
+            if let sources = message.sources, !sources.isEmpty {
+                SourcesLine(sources: sources)
+            }
             if !message.toolSteps.isEmpty {
-                ToolStepList(steps: message.toolSteps)
-                    .padding(12)
-                    .srGlassCard(.paper, radius: SR.Glass.innerRadius)
+                FoldedSteps(steps: message.toolSteps)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,7 +107,10 @@ struct ChatBubble: View {
             ForEach(message.attachments.filter(\.isImage)) { attachment in
                 AttachmentImage(attachment: attachment)
             }
-            ForEach(message.attachments.filter { !$0.isImage }) { attachment in
+            ForEach(message.attachments.filter(\.isAudio)) { attachment in
+                VoiceNoteRow(attachment: attachment, register: register)
+            }
+            ForEach(message.attachments.filter { !$0.isImage && !$0.isAudio }) { attachment in
                 HStack(spacing: 7) {
                     Image(systemName: "paperclip").font(.system(size: 11))
                     Text(attachment.filename ?? attachment.kind ?? "Attachment")
@@ -136,38 +146,42 @@ struct ToolStepList: View {
 }
 
 /// The live panel between the send and the answer.
+///
+/// One line while it works — what it is doing and how many steps so far — with
+/// the steps and the reasoning a tap away. It used to print every step as it
+/// ran, which on a phone pushed the answer that was about to arrive off the
+/// bottom of the screen.
 struct TurnActivityPanel: View {
     let activity: TurnActivity
-    @State private var thinkingOpen = false
+    @State private var open = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                ProgressView().scaleEffect(0.6).tint(SR.accent)
-                Text((activity.status ?? "Thinking").uppercased())
-                    .font(SR.monoMedium(12))
-                    .tracking(1.1)
-                    .foregroundStyle(SR.inkSecondary)
-            }
-
-            if !activity.steps.isEmpty {
-                ToolStepList(steps: activity.steps)
-            }
-
-            if !activity.thinking.isEmpty {
-                Button {
-                    thinkingOpen.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: thinkingOpen ? "chevron.down" : "chevron.right")
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { open.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    ProgressView().scaleEffect(0.6).tint(SR.accent)
+                    Text(headline)
+                        .font(SR.monoMedium(12))
+                        .tracking(1.1)
+                        .foregroundStyle(SR.inkSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if hasDetail {
+                        Image(systemName: open ? "chevron.down" : "chevron.right")
                             .font(.system(size: 9, weight: .bold))
-                        Text("Reasoning").font(SR.mono(12)).tracking(1)
+                            .foregroundStyle(SR.inkMuted)
                     }
-                    .foregroundStyle(SR.inkMuted)
                 }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!hasDetail)
 
-                if thinkingOpen {
+            if open {
+                if !activity.steps.isEmpty { ToolStepList(steps: activity.steps) }
+                if !activity.thinking.isEmpty {
                     Text(activity.thinking)
                         .font(SR.mono(12))
                         .foregroundStyle(SR.inkMuted)
@@ -180,6 +194,17 @@ struct TurnActivityPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+    }
+
+    private var hasDetail: Bool { !activity.steps.isEmpty || !activity.thinking.isEmpty }
+
+    private var headline: String {
+        let status = (activity.status ?? "Thinking").uppercased()
+        switch activity.steps.count {
+        case 0: return status
+        case 1: return "\(status) · 1 STEP"
+        default: return "\(status) · \(activity.steps.count) STEPS"
+        }
     }
 }
 
@@ -200,7 +225,7 @@ struct BlockedTurnCard: View {
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Plans, confirmations and credential prompts are answered at the desk. The turn is waiting there, and a WhatsApp message with the link is on its way.")
+            Text("Confirmations and credential prompts are answered at the desk. The turn is waiting there, and a WhatsApp message with the link is on its way.")
                 .font(SR.body(14))
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
