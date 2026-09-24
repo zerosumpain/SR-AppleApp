@@ -126,7 +126,10 @@ struct HeartRateCard: View {
                             .lineStyle(StrokeStyle(lineWidth: 1.8))
                     }
                 }
-                .chartYScale(domain: .automatic(includesZero: false))
+                // Fitted to the readings. The shaded bands have no y of their
+                // own and pull an automatic domain down to zero, which spent
+                // half the card on beats per minute nobody's heart reaches.
+                .chartYScale(domain: yDomain(points))
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .hour, count: 6)) { _ in
                         AxisGridLine().foregroundStyle(SR.line)
@@ -153,6 +156,14 @@ struct HeartRateCard: View {
         .padding(SR.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+    }
+
+    private func yDomain(_ points: [HeartTimeline.Point]) -> ClosedRange<Double> {
+        var values = points.map(\.bpm)
+        if let resting = timeline.restingHeartRate?.value { values.append(resting) }
+        let low = (values.min() ?? 40) - 8
+        let high = (values.max() ?? 160) + 8
+        return max(0, low)...max(low + 20, high)
     }
 
     private func legend(_ color: Color, _ label: String) -> some View {

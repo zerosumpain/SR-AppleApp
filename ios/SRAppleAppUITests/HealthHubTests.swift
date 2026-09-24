@@ -21,9 +21,9 @@ final class HealthHubTests: XCTestCase {
     }
 
     /// Scroll until the element is on screen, or give up after a few swipes.
-    @MainActor private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 8) -> Bool {
+    @MainActor private func reveal(_ app: XCUIApplication, _ element: XCUIElement, swipes: Int = 10) -> Bool {
         for _ in 0..<swipes {
-            if element.exists && element.isHittable { return true }
+            if element.waitForExistence(timeout: 1.5) && element.isHittable { return true }
             app.swipeUp()
         }
         return element.exists && element.isHittable
@@ -31,9 +31,11 @@ final class HealthHubTests: XCTestCase {
 
     @MainActor func testTheReadAndTheHeartRateDraw() {
         let app = openHealth()
+        // A List builds rows as they scroll in, so nothing below the hero
+        // EXISTS until it is on screen: scroll first, then assert.
+        XCTAssertTrue(app.staticTexts["Primed"].waitForExistence(timeout: 20), "the hero did not draw")
         let lede = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Today: recovery at")).firstMatch
-        XCTAssertTrue(lede.waitForExistence(timeout: 20), "the one-line read did not draw")
-        XCTAssertTrue(reveal(app, lede))
+        XCTAssertTrue(reveal(app, lede), "the one-line read did not draw")
         shoot(app, "Health — the read")
 
         let chart = app.descendants(matching: .any)["Heart rate over the last 24 hours"].firstMatch
@@ -47,9 +49,9 @@ final class HealthHubTests: XCTestCase {
 
     @MainActor func testTheFullPicturePushes() {
         let app = openHealth()
+        XCTAssertTrue(app.staticTexts["Primed"].waitForExistence(timeout: 20), "the hero did not draw")
         let instruments = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Instruments")).firstMatch
-        XCTAssertTrue(instruments.waitForExistence(timeout: 20))
-        XCTAssertTrue(reveal(app, instruments))
+        XCTAssertTrue(reveal(app, instruments, swipes: 14), "the full picture did not draw")
         shoot(app, "Health — the full picture")
 
         instruments.tap()
@@ -58,14 +60,14 @@ final class HealthHubTests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
 
         let forecast = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Forecast")).firstMatch
-        XCTAssertTrue(reveal(app, forecast))
+        XCTAssertTrue(reveal(app, forecast), "no Forecast row")
         forecast.tap()
         XCTAssertTrue(app.staticTexts["Rising at +0.03 a month."].firstMatch.waitForExistence(timeout: 10))
         shoot(app, "Health — forecast")
         app.navigationBars.buttons.firstMatch.tap()
 
         let verdict = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "The verdict")).firstMatch
-        XCTAssertTrue(reveal(app, verdict))
+        XCTAssertTrue(reveal(app, verdict), "no verdict row")
         verdict.tap()
         XCTAssertTrue(app.staticTexts["CAPABLE."].waitForExistence(timeout: 10))
         shoot(app, "Health — the verdict")

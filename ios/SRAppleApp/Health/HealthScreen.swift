@@ -163,11 +163,15 @@ struct HealthScreen: View {
                 }
                 .srGlassRow()
                 .accessibilityIdentifier("health-all-activities")
-                NavigationLink(value: HealthRoute.segments) {
-                    SRRow(title: "Segments", icon: "flag.checkered")
+                // Once the digest is here, Segments lives in "The full picture"
+                // with its form counts; two rows to one place is clutter.
+                if hub.hub?.segments == nil {
+                    NavigationLink(value: HealthRoute.segments) {
+                        SRRow(title: "Segments", icon: "flag.checkered")
+                    }
+                    .srGlassRow()
+                    .accessibilityIdentifier("health-segments")
                 }
-                .srGlassRow()
-                .accessibilityIdentifier("health-segments")
             } header: {
                 SRSectionLabel(text: "Recent activities")
             }
@@ -247,28 +251,36 @@ struct HealthScreen: View {
     /// out of. The upload queue is one line under it now.
     @ViewBuilder
     private var heartSection: some View {
-        if companion.paired || SRDemo.isOn {
-            Section {
-                if let timeline = heart.timeline {
-                    HeartRateCard(timeline: timeline).srBareRow()
-                } else if heart.failed {
-                    Text("Heart rate did not load. Pull to try again.")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .srGlassRow()
-                } else {
-                    HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                        .frame(height: 120)
-                        .srBareRow()
-                }
-            } header: {
-                SRSectionLabel(text: "Last 24 hours", trailing: uploadLine)
-            } footer: {
-                Text("From this iPhone via Apple Health. Only you can see it. Not a live feed: it moves when the phone syncs.")
-                    .font(SR.Text.mono())
+        Section {
+            if !companion.paired && !SRDemo.isOn {
+                // A fresh install. The rows this section replaced used to say how
+                // to fill it, and the onboarding test is right that an empty tab
+                // must still say that.
+                Text("Connect the companion to upload from Apple Health, and your heart rate appears here as a day's line.")
+                    .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkMuted)
-                    .padding(.vertical, 4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .srGlassRow()
+                    .padding(.vertical, 10)
+            } else if let timeline = heart.timeline {
+                HeartRateCard(timeline: timeline).srBareRow()
+            } else if heart.failed {
+                Text("Heart rate did not load. Pull to try again.")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .srGlassRow()
+            } else {
+                HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                    .frame(height: 120)
+                    .srBareRow()
             }
+        } header: {
+            SRSectionLabel(text: "Last 24 hours", trailing: uploadLine)
+        } footer: {
+            Text("From this iPhone via Apple Health. Only you can see it. Not a live feed: it moves when the phone syncs.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .padding(.vertical, 4)
         }
     }
 
@@ -352,6 +364,7 @@ struct HealthScreen: View {
                           icon: "flag.checkered") { EmptyView() }
                 }
                 .srGlassRow()
+                .accessibilityIdentifier("health-segments")
             }
             if let verdict = digest.verdict {
                 NavigationLink(value: HealthRoute.verdict) {
