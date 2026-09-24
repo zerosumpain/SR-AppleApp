@@ -100,9 +100,12 @@ final class ChatComposerTests: XCTestCase {
         let app = openTrainingThread()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "2 sources")).firstMatch.waitForExistence(timeout: 15),
                       "the sources line did not draw")
-        shoot(app, "Chat — chart and sources")
-        app.swipeUp()
         shoot(app, "Chat — table")
+        // The thread opens at its foot; the chart is on the earlier answer.
+        let chart = app.descendants(matching: .any)["Distance (km) by Week"].firstMatch
+        for _ in 0..<4 where !(chart.exists && chart.isHittable) { app.swipeDown() }
+        XCTAssertTrue(chart.waitForExistence(timeout: 5), "the chart did not draw")
+        shoot(app, "Chat — chart and sources")
         let sources = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "sources")).firstMatch
         if sources.exists && sources.isHittable {
             sources.tap()
