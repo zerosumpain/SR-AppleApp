@@ -218,4 +218,28 @@ final class SiteURLTests: XCTestCase {
         let url = try built("api/native/news/story/hn/44212")
         XCTAssertEqual(url.path, "/api/native/news/story/hn/44212")
     }
+
+    // MARK: - /health's digest
+
+    /// The demo digest is SR-Health's real output, so decoding it is the cheap
+    /// check that the Swift model still matches the contract. A field renamed on
+    /// one side fails HERE, not as an empty Health tab.
+    func testTheHealthDigestDecodes() throws {
+        let hub = try JSONDecoder().decode(HubDigest.self, from: Data(SRDemoFixtures.healthHub.utf8))
+        XCTAssertEqual(hub.instruments.count, 8)
+        XCTAssertEqual(hub.forecasts.count, 4)
+        XCTAssertFalse(hub.moves.isEmpty)
+        XCTAssertFalse(hub.tripwires.isEmpty)
+        XCTAssertNotNil(hub.readiness)
+        XCTAssertNotNil(hub.verdict)
+        XCTAssertTrue(hub.isMock, "the fixture is the mock series and must say so")
+        XCTAssertTrue(hub.tripwires.contains(where: \.live), "the fixture should exercise the live-tripwire rows")
+    }
+
+    @MainActor func testTheDemoHeartDayHasAGapAndASleep() {
+        let day = SRDemoFixtures.heartTimeline(now: Date())
+        XCTAssertGreaterThan(day.points.count, 80)
+        XCTAssertLessThan(day.points.count, 96, "an unworn hour should leave a gap, not a flat line")
+        XCTAssertFalse(day.sleep.isEmpty)
+    }
 }

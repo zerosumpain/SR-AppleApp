@@ -465,4 +465,11 @@ struct SegmentRef: Hashable {
 enum HealthRoute: Hashable {
     case activities
     case segments
+    // /health's deeper sections, each pushed from "The full picture".
+    case instruments
+    case forecast
+    case tripwires
+    case moves
+    case experiments
+    case verdict
 }

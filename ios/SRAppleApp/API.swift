@@ -44,9 +44,17 @@ enum Keychain {
     /// spend far longer than that on the wire uploading one batch, so the
     /// caller raises it rather than the request timing out under load the
     /// server is still happily processing.
-    func request<T: Decodable>(_ path: String, method: String = "GET", data: Data? = nil, timeout: TimeInterval = 25) async throws -> T {
+    /// `query` is separate from `path` on purpose: `appendingPathComponent`
+    /// escapes a `?`, so "timeline?from=…" would ask for a path no route has —
+    /// the same bug the site client once shipped (see `SiteClient.url(for:)`).
+    func request<T: Decodable>(_ path: String, method: String = "GET", data: Data? = nil, query: [URLQueryItem] = [], timeout: TimeInterval = 25) async throws -> T {
         guard let baseURL else { throw CompanionError.message("Pair your iPhone first.") }
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/apple/" + path))
+        var url = baseURL.appendingPathComponent("api/apple/" + path)
+        if !query.isEmpty, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            parts.queryItems = query
+            url = parts.url ?? url
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = method; req.httpBody = data; req.timeoutInterval = timeout
         if data != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
