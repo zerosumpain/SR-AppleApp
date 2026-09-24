@@ -73,8 +73,9 @@ enum ChatArtifact: Decodable, Hashable {
         let c = try decoder.container(keyedBy: Keys.self)
         let type = try c.decode(String.self, forKey: .type)
         let caption = try c.decodeIfPresent(String.self, forKey: .caption)
+        let simple = try c.decodeIfPresent(Bool.self, forKey: .simple) ?? false
         switch type {
-        case "chart" where (try c.decodeIfPresent(Bool.self, forKey: .simple)) == true:
+        case "chart" where simple:
             self = .chart(
                 mark: try c.decode(String.self, forKey: .mark),
                 x: try c.decode(ChartAxis.self, forKey: .x),
@@ -489,18 +490,25 @@ struct FoldedSteps: View {
 struct StarterPrompts: View {
     let send: (String) -> Void
 
-    static let prompts: [(label: String, icon: String, text: String)] = [
-        ("Check the house", "house", "Give me a quick status of my home — is everything secure, and is anything off or needing attention?"),
-        ("Today's health", "heart", "Summarise my health data for today — sleep, recovery and strain."),
-        ("What's running?", "bolt", "What workflows and scheduled tasks do I have running right now?"),
-        ("What can you do?", "sparkle", "What can you help me with? Give me a short tour of your capabilities."),
+    struct Prompt: Identifiable {
+        let label: String
+        let icon: String
+        let text: String
+        var id: String { label }
+    }
+
+    static let prompts: [Prompt] = [
+        Prompt(label: "Check the house", icon: "house", text: "Give me a quick status of my home — is everything secure, and is anything off or needing attention?"),
+        Prompt(label: "Today's health", icon: "heart", text: "Summarise my health data for today — sleep, recovery and strain."),
+        Prompt(label: "What's running?", icon: "bolt", text: "What workflows and scheduled tasks do I have running right now?"),
+        Prompt(label: "What can you do?", icon: "sparkle", text: "What can you help me with? Give me a short tour of your capabilities."),
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             SRLabel(text: "Start with")
                 .padding(.bottom, 6)
-            ForEach(Self.prompts, id: \.label) { prompt in
+            ForEach(Self.prompts) { prompt in
                 Button {
                     SRHaptic.tap()
                     send(prompt.text)

@@ -513,29 +513,29 @@ struct ChatScreen: View {
 
     /// Send, or Stop while a turn runs.
     private var sendButton: some View {
-                    Button {
-                        if store.sending {
-                            SRHaptic.tap()
-                            Task { await store.cancel() }
-                        } else {
-                            let text = draft
-                            clearDraft()
-                            atBottom = true
-                            SRHaptic.tap()
-                            Task { await store.send(text) }
-                        }
-                    } label: {
-                        Image(systemName: store.sending ? "stop.fill" : "arrow.up")
-                            .font(.system(size: store.sending ? 14 : 17, weight: .bold))
-                            .foregroundStyle(sendable || store.sending ? SR.paper : SR.inkMuted)
-                            .frame(width: 48, height: 48)
-                            .srGlass(sendable || store.sending ? .accent : .paper, in: Circle(), interactive: true)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!sendable && !store.sending)
-                    .accessibilityLabel(store.sending ? "Stop" : "Send")
-                    .accessibilityIdentifier("chat-send")
+        Button {
+            if store.sending {
+                SRHaptic.tap()
+                Task { await store.cancel() }
+            } else {
+                let text = draft
+                clearDraft()
+                atBottom = true
+                SRHaptic.tap()
+                Task { await store.send(text) }
+            }
+        } label: {
+            Image(systemName: store.sending ? "stop.fill" : "arrow.up")
+                .font(.system(size: store.sending ? 14 : 17, weight: .bold))
+                .foregroundStyle(sendable || store.sending ? SR.paper : SR.inkMuted)
+                .frame(width: 48, height: 48)
+                .srGlass(sendable || store.sending ? .accent : .paper, in: Circle(), interactive: true)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!sendable && !store.sending)
+        .accessibilityLabel(store.sending ? "Stop" : "Send")
+        .accessibilityIdentifier("chat-send")
     }
 
     /// A thread with nothing in it yet, and nothing on its way.
