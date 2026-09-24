@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// The thread ledger.
 @MainActor
@@ -171,6 +172,8 @@ final class ChatStore: ObservableObject {
     @Published private(set) var sending = false
     @Published private(set) var activity = TurnActivity()
     @Published private(set) var blocked: BlockedTurn?
+    /// Files picked for the next turn. See `PendingAttachment`.
+    @Published private(set) var pending: [PendingAttachment] = []
     @Published var message: String?
     /// Bumped on every frame that changes what is on screen.
     ///
@@ -236,28 +239,106 @@ final class ChatStore: ObservableObject {
         }
     }
 
+    // MARK: - Attachments
+
+    /// The server's ceiling on one turn.
+    static let maxAttachments = 10
+
+    var canAttachMore: Bool { pending.count < Self.maxAttachments }
+
+    /// A send waits for uploads rather than dropping them. Sending with a photo
+    /// still on its way would ask jkai about a picture it never received.
+    var uploading: Bool { pending.contains { $0.state == .uploading } }
+
+    func attach(_ data: Data, filename: String, mimeType: String, preview: UIImage? = nil) {
+        guard canAttachMore else {
+            message = "Ten files is the most one message can carry."
+            return
+        }
+        let item = PendingAttachment(filename: filename, mimeType: mimeType, preview: preview)
+        pending.append(item)
+        Task { await upload(item, data: data) }
+    }
+
+    func attachPhoto(_ image: UIImage) {
+        guard let photo = ChatUpload.photo(image) else {
+            message = "That photo could not be read."
+            return
+        }
+        // Named by when it was taken: every photo from the library is otherwise
+        // "image.jpg", and they all land in the same /drive folder.
+        let stamp = Self.photoStamp.string(from: Date())
+        attach(photo.data, filename: "Photo \(stamp).jpg", mimeType: "image/jpeg", preview: photo.preview)
+    }
+
+    private static let photoStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HHmmss"
+        return formatter
+    }()
+
+    func removePending(_ item: PendingAttachment) {
+        pending.removeAll { $0.id == item.id }
+    }
+
+    private func upload(_ item: PendingAttachment, data: Data) async {
+        let state: PendingAttachment.State
+        do {
+            let row: ChatAttachment = try await client.upload(
+                "api/native/chat/attachments",
+                file: data,
+                filename: item.filename,
+                mimeType: item.mimeType,
+                fields: ["conversationId": conversationId]
+            )
+            if let preview = item.preview { AttachmentImages.shared.put(preview, for: row.id) }
+            state = .ready(row)
+        } catch {
+            state = .failed(error.localizedDescription)
+            message = error.localizedDescription
+            SRHaptic.bad()
+        }
+        // Removed while it was uploading: nothing to update.
+        guard let index = pending.firstIndex(where: { $0.id == item.id }) else { return }
+        pending[index].state = state
+    }
+
     // MARK: - Sending
 
     private struct JobStart: Decodable { let jobId: String? ; let error: String? }
 
+    private struct TurnBody: Encodable {
+        let message: String
+        let conversationId: String
+        let attachmentIds: [String]?
+    }
+
     func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !sending else { return }
+        guard !trimmed.isEmpty, !sending, !uploading else { return }
         sending = true
         blocked = nil
         activity = TurnActivity()
 
-        let userBubble = ChatMessage.pending(id: "local-user-\(UUID().uuidString)", role: "user", content: trimmed)
+        // Only what actually arrived. A failed chip stays behind in the strip
+        // with its warning, rather than silently vanishing with the send.
+        let attached = pending.compactMap(\.uploaded)
+        pending.removeAll { $0.uploaded != nil }
+
+        var userBubble = ChatMessage.pending(id: "local-user-\(UUID().uuidString)", role: "user", content: trimmed)
+        userBubble.attachments = attached
         let assistantId = "local-assistant-\(UUID().uuidString)"
         messages.append(userBubble)
         messages.append(ChatMessage.pending(id: assistantId, role: "assistant", content: ""))
         liveBubbleId = assistantId
 
         do {
-            let body = try JSONEncoder().encode([
-                "message": trimmed,
-                "conversationId": conversationId,
-            ])
+            let body = try JSONEncoder().encode(TurnBody(
+                message: trimmed,
+                conversationId: conversationId,
+                attachmentIds: attached.isEmpty ? nil : attached.map(\.id)
+            ))
             let data = try await client.post("api/workflows/orchestrator/chat", body: body)
             let start = try JSONDecoder().decode(JobStart.self, from: data)
             guard let job = start.jobId else {

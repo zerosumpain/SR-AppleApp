@@ -224,6 +224,56 @@ final class SiteClient {
         return data
     }
 
+    /// One file as `multipart/form-data`, the shape the site's upload routes
+    /// read with `request.formData()`.
+    ///
+    /// Built by hand: the boundary and two headers per part are the whole
+    /// format, and URLSession has no form encoder of its own.
+    func upload<T: Decodable>(
+        _ path: String,
+        file: Data,
+        filename: String,
+        mimeType: String,
+        fields: [String: String] = [:]
+    ) async throws -> T {
+        let boundary = "sr-\(UUID().uuidString)"
+        var body = Data()
+        func line(_ text: String) { body.append(Data((text + "\r\n").utf8)) }
+        for (name, value) in fields {
+            line("--\(boundary)")
+            line("Content-Disposition: form-data; name=\"\(name)\"")
+            line("")
+            line(value)
+        }
+        // A quote in a filename would end the header early; the server
+        // sanitises names anyway, so it loses nothing it would have kept.
+        let safeName = filename.replacingOccurrences(of: "\"", with: "'")
+        line("--\(boundary)")
+        line("Content-Disposition: form-data; name=\"file\"; filename=\"\(safeName)\"")
+        line("Content-Type: \(mimeType)")
+        line("")
+        body.append(file)
+        line("")
+        line("--\(boundary)--")
+
+        var req = try request(path, method: "POST", body: body)
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await session.data(for: req)
+        try check(response, data)
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw SiteError.message("The server sent something this version of the app cannot read.")
+        }
+    }
+
+    /// Raw bytes — an attachment's image, which is not JSON.
+    func bytes(_ path: String) async throws -> Data {
+        let (data, response) = try await session.data(for: try request(path))
+        try check(response, data)
+        return data
+    }
+
     private func check(_ response: URLResponse, _ data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw SiteError.message("No reply from the server.")
