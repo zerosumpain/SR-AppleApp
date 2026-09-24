@@ -30,4 +30,7 @@
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.strangeramblings.com.appleapp.refresh</string></array>
 <key>UIAppFonts</key><array><string>ArchivoBlack-Regular.ttf</string><string>DMSans-Regular.ttf</string><string>DMSans-Medium.ttf</string><string>DMSans-Bold.ttf</string><string>DMMono-Regular.ttf</string><string>DMMono-Medium.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string><string>JetBrainsMono-Bold.ttf</string></array>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
+<key>NSMicrophoneUsageDescription</key><string>Record a voice note to send to jkai. Nothing is recorded unless you hold the microphone button.</string>
+<key>LSSupportsOpeningDocumentsInPlace</key><false/>
+<key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>Files for jkai</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.image</string><string>com.adobe.pdf</string><string>public.plain-text</string><string>public.comma-separated-values-text</string><string>public.json</string><string>net.daringfireball.markdown</string><string>org.openxmlformats.wordprocessingml.document</string><string>org.openxmlformats.spreadsheetml.sheet</string><string>public.rtf</string><string>public.mpeg-4-audio</string></array></dict></array>
 </dict></plist>

@@ -172,6 +172,10 @@ final class ChatStore: ObservableObject {
     @Published private(set) var sending = false
     @Published private(set) var activity = TurnActivity()
     @Published private(set) var blocked: BlockedTurn?
+    /// A plan or a question the phone CAN answer. See `ChatGates.swift`.
+    @Published private(set) var plan: PlanGate?
+    @Published private(set) var clarify: ClarifyGate?
+    @Published private(set) var answering = false
     /// Files picked for the next turn. See `PendingAttachment`.
     @Published private(set) var pending: [PendingAttachment] = []
     @Published var message: String?
@@ -314,16 +318,18 @@ final class ChatStore: ObservableObject {
         let attachmentIds: [String]?
     }
 
-    func send(_ text: String) async {
+    func send(_ text: String, extra: [ChatAttachment] = []) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !sending, !uploading else { return }
         sending = true
         blocked = nil
+        plan = nil
+        clarify = nil
         activity = TurnActivity()
 
         // Only what actually arrived. A failed chip stays behind in the strip
         // with its warning, rather than silently vanishing with the send.
-        let attached = pending.compactMap(\.uploaded)
+        let attached = pending.compactMap(\.uploaded) + extra
         pending.removeAll { $0.uploaded != nil }
 
         var userBubble = ChatMessage.pending(id: "local-user-\(UUID().uuidString)", role: "user", content: trimmed)
@@ -433,7 +439,16 @@ final class ChatStore: ObservableObject {
         // grace window, the escalation fires, and the message that arrives
         // carries the link. The turn is unaffected; it was already waiting.
         case "plan", "confirm", "clarify", "secret_request", "approval":
-            blocked = BlockedTurn(kind: type, detail: (frame.json["prompt"] as? String) ?? "")
+            // A plan and a question are answered on the phone now; the other
+            // three still need the desk. A frame this app cannot read falls
+            // back to the desk card rather than to nothing.
+            if type == "plan", let gate = PlanGate(frame.json) {
+                plan = gate
+            } else if type == "clarify", let gate = ClarifyGate(frame.json) {
+                clarify = gate
+            } else {
+                blocked = BlockedTurn(kind: type, detail: (frame.json["prompt"] as? String) ?? "")
+            }
             park()
             // Scheduled rather than called: `stop()` cancels the task this
             // handler is running inside, and cancelling yourself mid-frame
@@ -537,6 +552,93 @@ final class ChatStore: ObservableObject {
     func resume() {
         guard sending, streamTask == nil, let job = jobId else { return }
         listen(to: job)
+    }
+
+    // MARK: - Answering a gate
+
+    private struct PlanAck: Encodable {
+        let type = "plan_ack"
+        let planId: String
+        let decision: String
+        let adjustment: String?
+    }
+
+    private struct ClarifyAck: Encodable {
+        let type = "clarify_ack"
+        let clarifyId: String
+        let answers: [String: String]
+    }
+
+    func answerPlan(_ decision: String, adjustment: String?) async {
+        guard let gate = plan else { return }
+        await acknowledge(PlanAck(planId: gate.planId, decision: decision, adjustment: adjustment))
+    }
+
+    func answerClarify(_ answers: [String: String]) async {
+        guard let gate = clarify else { return }
+        await acknowledge(ClarifyAck(clarifyId: gate.clarifyId, answers: answers))
+    }
+
+    /// Send the answer, then pick the turn back up where it stopped.
+    ///
+    /// The job id and the last event id survived `park()` and `stop()` for
+    /// exactly this: the reconnect replays only what came after the gate.
+    private func acknowledge<Body: Encodable>(_ ack: Body) async {
+        guard let job = jobId, !answering else { return }
+        answering = true
+        defer { answering = false }
+        do {
+            let _: EmptyReply = try await client.send(
+                "api/workflows/orchestrator/chat?jobId=\(job)",
+                method: "PATCH",
+                body: try JSONEncoder().encode(ack)
+            )
+        } catch SiteError.status(let code, _) where code == 404 {
+            // Answered at the desk already, or the turn gave up waiting.
+            plan = nil
+            clarify = nil
+            jobId = nil
+            message = "That was already answered, or the turn stopped waiting."
+            await load()
+            return
+        } catch {
+            message = error.localizedDescription
+            SRHaptic.bad()
+            return
+        }
+        plan = nil
+        clarify = nil
+        sending = true
+        activity = TurnActivity()
+        let assistantId = "local-assistant-\(UUID().uuidString)"
+        messages.append(ChatMessage.pending(id: assistantId, role: "assistant", content: ""))
+        liveBubbleId = assistantId
+        streamTick &+= 1
+        listen(to: job)
+    }
+
+    // MARK: - Voice notes
+
+    /// Upload a recording and send it as its own turn.
+    ///
+    /// The chat endpoint will not take a turn with no words, and the web does
+    /// not send one either, so a voice note goes out as "Voice note" with the
+    /// audio attached. The site transcribes it before the model reads it.
+    func sendVoiceNote(_ data: Data) async {
+        guard !sending else { return }
+        do {
+            let row: ChatAttachment = try await client.upload(
+                "api/native/chat/attachments",
+                file: data,
+                filename: "Voice note \(Self.photoStamp.string(from: Date())).m4a",
+                mimeType: "audio/mp4",
+                fields: ["conversationId": conversationId]
+            )
+            await send("Voice note", extra: [row])
+        } catch {
+            message = error.localizedDescription
+            SRHaptic.bad()
+        }
     }
 
     func cancel() async {

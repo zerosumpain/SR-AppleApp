@@ -129,6 +129,9 @@ enum SRDemoFixtures {
         case ("POST", "api/workflows/orchestrator/chat"):
             // Calm, not clever: the composer shows this as the turn's error.
             return #"{"jobId":null,"error":"Demo mode: sending is switched off."}"#
+        case ("GET", "api/native/chat/conversations/demo-thread-training/model"),
+             ("GET", "api/native/chat/conversations/demo-thread-new/model"):
+            return demoModel(locked: path.contains("training"))
         case ("POST", "api/native/chat/attachments"):
             return #"{"id":"demo-attachment","filename":"Photo.jpg","kind":"image","mimeType":"image/jpeg","sizeBytes":182044}"#
         case ("DELETE", "api/workflows/orchestrator/chat"):
@@ -691,6 +694,20 @@ enum SRDemoFixtures {
         return "{\"conversations\": \(list(threads.map { conversationJSON($0, clock) })), \"cursor\": null, \"hasMore\": false}"
     }
 
+    static func demoModel(locked: Bool) -> String {
+        """
+        {"current": {"provider": "codex", "modelId": "codex/gpt-6-astra", "label": "GPT-6 Astra"},
+         "locked": \(b(locked)), "thinkingLevel": "medium", "supportsThinking": true,
+         "levels": ["low", "medium", "high", "xhigh"],
+         "choices": [
+           {"provider": "codex", "modelId": "codex/gpt-6-astra", "label": "GPT-6 Astra", "group": "default"},
+           {"provider": "codex", "modelId": "codex/gpt-5.6-sol", "label": "GPT-5.6 Sol", "group": "codex"},
+           {"provider": "openrouter", "modelId": "anthropic/claude-sonnet-5", "label": "Claude Sonnet 5", "group": "recent"},
+           {"provider": "openrouter", "modelId": "z-ai/glm-5.2", "label": "GLM 5.2", "group": "recent"}
+         ]}
+        """
+    }
+
     static func newConversation(_ clock: DemoClock) -> String {
         """
         {"id": "demo-thread-new", "title": "New thread", "source": "web", "pinned": false, "messageCount": 0, "modelProvider": null, "modelId": null, "preview": null, "createdAt": \(s(clock.iso(minutesAgo: 0))), "updatedAt": \(s(clock.iso(minutesAgo: 0)))}
@@ -726,10 +743,28 @@ enum SRDemoFixtures {
              {"tool": "health_summary", "status": "ok", "summary": "Readiness, HRV and sleep for 14 days"},
              {"tool": "web_search", "status": "error", "summary": "Rate limited, used cached pace tables"}
            ],
+           "artifacts": [
+             {"type": "chart", "simple": true, "mark": "bar",
+              "x": {"field": "week", "title": "Week", "type": "ordinal"},
+              "y": {"field": "km", "title": "Distance (km)", "type": "quantitative"},
+              "color": null,
+              "rows": [{"week": "W1", "km": 31.2}, {"week": "W2", "km": 34.8}, {"week": "W3", "km": 36.1}, {"week": "W4", "km": 28.4}, {"week": "W5", "km": 39.7}, {"week": "W6", "km": 42.1}],
+              "caption": "Weekly running distance"}
+           ],
+           "sources": [
+             {"kind": "research", "title": "Marathon taper, what the studies say", "passage": "Cutting volume by 40 to 60 per cent over two weeks while holding intensity preserved fitness.", "url": "https://example.org/taper", "domain": "example.org"},
+             {"kind": "file", "title": "week-6-plan.pdf", "passage": "Long run 16 km, last 4 at goal pace.", "url": null, "domain": null}
+           ],
            "attachments": []},
           {"id": "m3", "role": "user", "content": "Yes, but keep Tuesday free.", "createdAt": \#(s(clock.iso(minutesAgo: 40))), "source": "web", "toolSteps": [], "attachments": []},
           {"id": "m4", "role": "assistant", "content": "Done. Week 7, with Tuesday off:\n\n1. **Mon** easy 6 km\n2. **Wed** 5 x 1 km at threshold\n3. **Thu** easy 8 km\n4. **Sat** long run, 18 km, last 3 at marathon pace\n5. **Sun** recovery spin, 45 minutes\n\nThat is 44 km of running, a 5% step up. I saved it to `plans/week-7.md` so it shows on the site too.", "createdAt": \#(s(clock.iso(minutesAgo: 38))), "source": "web",
            "toolSteps": [{"tool": "drive_write", "status": "ok", "summary": "Saved plans/week-7.md"}],
+           "artifacts": [
+             {"type": "table", "caption": "Week 7",
+              "columns": [{"key": "day", "label": "Day", "align": "left"}, {"key": "session", "label": "Session", "align": "left"}, {"key": "km", "label": "km", "align": "right"}],
+              "rows": [{"day": "Mon", "session": "Easy", "km": 6}, {"day": "Wed", "session": "5 x 1 km threshold", "km": 9}, {"day": "Thu", "session": "Easy", "km": 8}, {"day": "Sat", "session": "Long run", "km": 18}, {"day": "Sun", "session": "Recovery spin", "km": null}, {"day": "Tue", "session": "Rest", "km": null}],
+              "totalRows": 6}
+           ],
            "attachments": []}
         ]
         """#

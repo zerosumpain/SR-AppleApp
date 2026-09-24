@@ -113,6 +113,13 @@ struct ThreadListScreen: View {
             guard router.pendingQuestion != nil, router.chat.isEmpty else { return }
             if let fresh = await store.create() { router.chat.append(fresh) }
         }
+        // Files shared in from another app get a new thread for the same
+        // reason: they arrive with no context, and the last thread on screen is
+        // not where "what is this?" should be asked.
+        .task(id: router.pendingFiles) {
+            guard !router.pendingFiles.isEmpty, router.chat.isEmpty else { return }
+            if let fresh = await store.create() { router.chat.append(fresh) }
+        }
         .alert("Rename thread", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Title", text: $renameDraft)
             Button("Cancel", role: .cancel) { renaming = nil }
@@ -264,6 +271,11 @@ struct ChatScreen: View {
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
     @State private var takingPhoto = false
+    @State private var showingModel = false
+    @StateObject private var recorder = VoiceRecorder()
+    /// Whether a thumb is still on the mic. Plain state, read by the async
+    /// start: a release that lands before the recorder is up must still stop it.
+    @State private var holdingMic = false
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -305,6 +317,27 @@ struct ChatScreen: View {
                         BlockedTurnCard(blocked: blocked)
                     }
 
+                    if let plan = store.plan {
+                        PlanCard(plan: plan, answering: store.answering) { decision, adjustment in
+                            atBottom = true
+                            Task { await store.answerPlan(decision, adjustment: adjustment) }
+                        }
+                    }
+
+                    if let clarify = store.clarify {
+                        ClarifyCard(gate: clarify, answering: store.answering) { answers in
+                            atBottom = true
+                            Task { await store.answerClarify(answers) }
+                        }
+                    }
+
+                    if showsStarters {
+                        StarterPrompts { prompt in
+                            atBottom = true
+                            Task { await store.send(prompt) }
+                        }
+                    }
+
                     // A zero-height anchor at the foot, so "scroll to the
                     // bottom" means the bottom of the transcript and not the
                     // top of the last bubble. Scrolling to `messages.last`
@@ -340,6 +373,12 @@ struct ChatScreen: View {
                     router.pendingQuestion = nil
                     composerFocused = true
                 }
+                // Files handed in from another app's Share sheet ("Open in").
+                if !router.pendingFiles.isEmpty {
+                    let urls = router.pendingFiles
+                    router.pendingFiles = []
+                    for url in urls { attachFile(url) }
+                }
                 await store.load()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
             }
@@ -372,6 +411,9 @@ struct ChatScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        showingModel = true
+                    } label: { Label("Model & thinking", systemImage: "cpu") }
                     Link(destination: SiteClient.shared.webURL("jkai")) {
                         Label("Open jkai on the web", systemImage: "safari")
                     }
@@ -383,6 +425,9 @@ struct ChatScreen: View {
                 }
                 .accessibilityLabel("Thread actions")
             }
+        }
+        .sheet(isPresented: $showingModel) {
+            ThreadModelSheet(conversationId: conversation.id)
         }
         // Handoff: the same thread, open on the desk. `isEligibleForHandoff`
         // is what puts it on the Mac's dock, and the web URL is what the Mac
@@ -425,7 +470,7 @@ struct ChatScreen: View {
     /// keeps its full height and simply insets its content, so the last turn
     /// stays visible with the keyboard up.
     private var composer: some View {
-        VStack(spacing: 8) {
+        pickers(VStack(spacing: 8) {
             // The banner sits INSIDE the composer's stack rather than as an
             // overlay pushed up by a guessed 70 points. The composer grows with
             // the draft — one to six lines — and with the reader's text size, so
@@ -443,17 +488,31 @@ struct ChatScreen: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     attachMenu
 
-                    TextField(store.pending.isEmpty ? "Message jkai" : "Say something about it", text: $draft, axis: .vertical)
-                        .font(SR.Text.body())
-                        .foregroundStyle(SR.ink)
-                        .lineLimit(1...6)
-                        .focused($composerFocused)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .frame(minHeight: 48)
-                        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .accessibilityIdentifier("chat-composer")
+                    if recorder.recording {
+                        recordingPill
+                    } else {
+                        TextField(store.pending.isEmpty ? "Message jkai" : "Say something about it", text: $draft, axis: .vertical)
+                            .font(SR.Text.body())
+                            .foregroundStyle(SR.ink)
+                            .lineLimit(1...6)
+                            .focused($composerFocused)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 12)
+                            .frame(minHeight: 48)
+                            .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                            .accessibilityIdentifier("chat-composer")
+                    }
 
+                    if showsMic { micButton } else { sendButton }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        })
+    }
+
+    /// Send, or Stop while a turn runs.
+    private var sendButton: some View {
                     Button {
                         if store.sending {
                             SRHaptic.tap()
@@ -477,11 +536,89 @@ struct ChatScreen: View {
                     .disabled(!sendable && !store.sending)
                     .accessibilityLabel(store.sending ? "Stop" : "Send")
                     .accessibilityIdentifier("chat-send")
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+    }
+
+    /// A thread with nothing in it yet, and nothing on its way.
+    private var showsStarters: Bool {
+        store.messages.isEmpty && !store.loading && !store.sending
+            && store.blocked == nil && store.plan == nil && store.clarify == nil
+    }
+
+    // MARK: - Voice
+
+    /// The mic takes the send button's place while there is nothing to send —
+    /// Messages' arrangement, so one circle does one job at a time.
+    private var showsMic: Bool {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && store.pending.isEmpty && !store.sending
+    }
+
+    private var micButton: some View {
+        Image(systemName: recorder.recording ? "waveform" : "mic.fill")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(recorder.recording ? SR.paper : SR.ink)
+            .frame(width: 48, height: 48)
+            .srGlass(recorder.recording ? .accent : .paper, in: Circle(), interactive: true)
+            .contentShape(Circle())
+            // Pressing starts, lifting sends. `onPressingChanged` fires on touch
+            // down, which is when a hold-to-talk control has to start listening.
+            .onLongPressGesture(minimumDuration: 0.3, maximumDistance: 80, perform: {}, onPressingChanged: { pressing in
+                pressing ? beginRecording() : endRecording()
+            })
+            .accessibilityLabel("Hold to record a voice note")
+            .accessibilityIdentifier("chat-mic")
+    }
+
+    private var recordingPill: some View {
+        HStack(spacing: 10) {
+            Circle().fill(SR.error).frame(width: 8, height: 8)
+            Text(Duration.seconds(recorder.elapsed).formatted(.time(pattern: .minuteSecond)))
+                .font(SR.Text.mono(14))
+                .foregroundStyle(SR.ink)
+            Text("Release to send")
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, minHeight: 48)
+        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func beginRecording() {
+        holdingMic = true
+        SRHaptic.tap()
+        Task {
+            do {
+                try await recorder.start()
+                // Lifted while the recorder was still starting.
+                if !holdingMic { recorder.cancel() }
+            } catch VoiceRecorder.Failure.denied {
+                store.message = "Microphone access is off for this app. Settings → SR → Microphone."
+            } catch {
+                store.message = "The microphone could not start."
+            }
+        }
+    }
+
+    private func endRecording() {
+        holdingMic = false
+        guard recorder.recording else { return }
+        if let data = recorder.stop() {
+            SRHaptic.ok()
+            atBottom = true
+            Task { await store.sendVoiceNote(data) }
+        } else {
+            store.message = "Hold the mic to record a voice note."
+        }
+    }
+
+    /// The photo, file and camera pickers the attach menu opens. Split out of
+    /// `composer` so neither is a single expression big enough to stall the
+    /// type checker.
+    private func pickers<Content: View>(_ content: Content) -> some View {
+        content
         .photosPicker(
             isPresented: $choosingPhotos,
             selection: $photoItems,
@@ -551,7 +688,13 @@ struct ChatScreen: View {
     /// are resized and re-encoded like any other.
     private func attachFile(_ url: URL) {
         let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            // A file shared in from another app is a COPY the system dropped in
+            // Documents/Inbox. Once read it is in the upload; leaving it would
+            // grow a folder nobody can see.
+            if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
+        }
         guard let data = try? Data(contentsOf: url) else {
             store.message = "\(url.lastPathComponent) could not be read."
             return
