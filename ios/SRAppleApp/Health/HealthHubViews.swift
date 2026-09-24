@@ -546,6 +546,13 @@ struct ForecastCard: View {
     private var history: [Dated] {
         forecast.history.compactMap { p in date(p.date).map { Dated(at: $0, value: p.value, low: p.value, high: p.value) } }
     }
+    private var yDomain: ClosedRange<Double> {
+        let values = history.map(\.value) + cone.flatMap { [$0.low, $0.high] }
+        guard let low = values.min(), let high = values.max() else { return 0...1 }
+        let pad = max((high - low) * 0.1, abs(high) * 0.02, 0.01)
+        return (low - pad)...(high + pad)
+    }
+
     private var cone: [Dated] {
         forecast.cone.compactMap { p in date(p.date).map { Dated(at: $0, value: p.value, low: p.low, high: p.high) } }
     }
@@ -584,7 +591,9 @@ struct ForecastCard: View {
                             .lineStyle(StrokeStyle(lineWidth: 1.6, dash: [4, 3]))
                     }
                 }
-                .chartYScale(domain: .automatic(includesZero: false))
+                // Fitted, as on the heart chart: `.automatic(includesZero:
+                // false)` still chose 0–10 for a night's sleep of 5 to 9 hours.
+                .chartYScale(domain: yDomain)
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) { _ in
                         AxisGridLine().foregroundStyle(SR.line)

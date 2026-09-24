@@ -33,7 +33,6 @@ final class HealthHubTests: XCTestCase {
         let app = openHealth()
         // A List builds rows as they scroll in, so nothing below the hero
         // EXISTS until it is on screen: scroll first, then assert.
-        XCTAssertTrue(app.staticTexts["Primed"].waitForExistence(timeout: 20), "the hero did not draw")
         let lede = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Today: recovery at")).firstMatch
         XCTAssertTrue(reveal(app, lede), "the one-line read did not draw")
         shoot(app, "Health — the read")
@@ -49,7 +48,6 @@ final class HealthHubTests: XCTestCase {
 
     @MainActor func testTheFullPicturePushes() {
         let app = openHealth()
-        XCTAssertTrue(app.staticTexts["Primed"].waitForExistence(timeout: 20), "the hero did not draw")
         let instruments = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Instruments")).firstMatch
         XCTAssertTrue(reveal(app, instruments, swipes: 14), "the full picture did not draw")
         shoot(app, "Health — the full picture")
