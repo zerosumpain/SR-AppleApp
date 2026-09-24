@@ -252,7 +252,7 @@ struct HealthScreen: View {
     @ViewBuilder
     private var heartSection: some View {
         Section {
-            if !companion.paired && !SRDemo.isOn {
+            if !companion.paired && !Self.demo {
                 // A fresh install. The rows this section replaced used to say how
                 // to fill it, and the onboarding test is right that an empty tab
                 // must still say that.
@@ -399,6 +399,15 @@ struct HealthScreen: View {
                     .padding(.vertical, 4)
             }
         }
+    }
+
+    /// Demo mode, as a plain Bool a Release build can compile.
+    static var demo: Bool {
+        #if DEBUG
+        return SRDemo.isOn
+        #else
+        return false
+        #endif
     }
 
     /// The four figures the ink hero draws from the summary.
