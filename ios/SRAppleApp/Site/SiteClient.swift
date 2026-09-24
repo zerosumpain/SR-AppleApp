@@ -224,11 +224,15 @@ final class SiteClient {
         return data
     }
 
-    /// One file as `multipart/form-data`, the shape the site's upload routes
-    /// read with `request.formData()`.
+    /// One file, as the request body, with its name and any other fields in
+    /// the query string.
     ///
-    /// Built by hand: the boundary and two headers per part are the whole
-    /// format, and URLSession has no form encoder of its own.
+    /// NOT `multipart/form-data`, which is what build 20 sent and why every
+    /// upload came back 403 "Cross-site POST form submissions are forbidden".
+    /// SvelteKit refuses a form-encoded POST whose `Origin` does not match the
+    /// site, before any route runs. A browser always sends one; this app sends
+    /// none. A raw body is not a form, so the check does not apply, and the
+    /// bearer token is what actually rules out a forged request.
     func upload<T: Decodable>(
         _ path: String,
         file: Data,
@@ -236,28 +240,18 @@ final class SiteClient {
         mimeType: String,
         fields: [String: String] = [:]
     ) async throws -> T {
-        let boundary = "sr-\(UUID().uuidString)"
-        var body = Data()
-        func line(_ text: String) { body.append(Data((text + "\r\n").utf8)) }
-        for (name, value) in fields {
-            line("--\(boundary)")
-            line("Content-Disposition: form-data; name=\"\(name)\"")
-            line("")
-            line(value)
-        }
-        // A quote in a filename would end the header early; the server
-        // sanitises names anyway, so it loses nothing it would have kept.
-        let safeName = filename.replacingOccurrences(of: "\"", with: "'")
-        line("--\(boundary)")
-        line("Content-Disposition: form-data; name=\"file\"; filename=\"\(safeName)\"")
-        line("Content-Type: \(mimeType)")
-        line("")
-        body.append(file)
-        line("")
-        line("--\(boundary)--")
+        // `url(for:)` keeps the query VERBATIM, so each value is escaped here,
+        // and strictly: `urlQueryAllowed` lets `&`, `=` and `+` through, and a
+        // photo named "Run & ride.jpg" would split into two parameters.
+        var strict = CharacterSet.urlQueryAllowed
+        strict.remove(charactersIn: "&=+?#")
+        let query = (["filename": filename].merging(fields) { a, _ in a })
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: strict) ?? "")" }
+            .joined(separator: "&")
 
-        var req = try request(path, method: "POST", body: body)
-        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var req = try request("\(path)?\(query)", method: "POST", body: file)
+        req.setValue(mimeType, forHTTPHeaderField: "Content-Type")
         let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {
