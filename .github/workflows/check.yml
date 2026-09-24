@@ -94,6 +94,10 @@ jobs:
       - run: node scripts/check-intent-metadata.mjs
       # A bare `.refreshable` is cancelled by the redraw its own store causes.
       - run: node scripts/check-refreshable.mjs
+      # The macOS job builds DEBUG; the TestFlight archive is RELEASE, where the
+      # demo harness does not exist. An unguarded reference is green here and
+      # fails only at upload.
+      - run: node scripts/check-demo-guard.mjs
   ios:
     needs: scope
     if: needs.scope.outputs.ios == 'true'

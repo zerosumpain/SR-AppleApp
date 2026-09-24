@@ -1037,7 +1037,6 @@ enum SRDemoFixtures {
         return "{\"categories\": \(list(objects))}"
     }
 }
-#endif
 
 // MARK: - Heart rate, for the Health tab's day chart
 
@@ -2312,3 +2311,4 @@ extension SRDemoFixtures {
 }
 """#
 }
+#endif
