@@ -118,6 +118,8 @@ enum SRDemoFixtures {
             return today(clock)
         case ("GET", "api/native/health/summary"):
             return healthSummary(clock)
+        case ("GET", "api/native/health/hub"):
+            return healthHub
         case ("GET", "api/native/health/activities"):
             return activitiesPage(limit: Int(query["limit"] ?? "") ?? 30, before: query["before"], clock: clock)
         case ("GET", "api/native/health/segments"):
@@ -1036,3 +1038,1277 @@ enum SRDemoFixtures {
     }
 }
 #endif
+
+// MARK: - Heart rate, for the Health tab's day chart
+
+extension SRDemoFixtures {
+    /// A plausible day: low and flat through a night's sleep, a rise on
+    /// waking, the desk, an evening run, and back down. Built rather than
+    /// canned so the chart always ends at "now".
+    static func heartTimeline(now: Date) -> HeartTimeline {
+        let to = Int(now.timeIntervalSince1970)
+        let from = to - 24 * 3600
+        let step = 900
+        let iso = ISO8601DateFormatter()
+        var bins: [[Double]] = []
+        let runStart = to - 5 * 3600, runEnd = runStart + 48 * 60
+        let sleepStart = to - 20 * 3600, sleepEnd = sleepStart + Int(7.4 * 3600)
+        var t = from
+        var i = 0
+        while t < to {
+            let bpm: Double
+            if t >= sleepStart && t < sleepEnd {
+                bpm = 51 + 3 * sin(Double(i) / 3)
+            } else if t >= runStart && t < runEnd {
+                bpm = 138 + 12 * sin(Double(t - runStart) / 900)
+            } else {
+                bpm = 68 + 9 * sin(Double(i) / 5) + Double(i % 3)
+            }
+            // A gap, as a real day has: the phone was not worn for an hour.
+            if !(t > to - 11 * 3600 && t < to - 10 * 3600) {
+                bins.append([Double(t), bpm.rounded()])
+            }
+            t += step
+            i += 1
+        }
+        func stamp(_ s: Int) -> String { iso.string(from: Date(timeIntervalSince1970: TimeInterval(s))) }
+        return HeartTimeline(
+            from: from,
+            to: to,
+            heartRate: .init(seconds: step, bins: bins),
+            restingHeartRate: .init(value: 52, at: stamp(sleepEnd)),
+            workouts: [.init(activity: "running", start: stamp(runStart), end: stamp(runEnd))],
+            sleep: [
+                .init(stage: "asleepCore", start: stamp(sleepStart), end: stamp(sleepStart + 3 * 3600)),
+                .init(stage: "asleepDeep", start: stamp(sleepStart + 3 * 3600), end: stamp(sleepEnd)),
+            ]
+        )
+    }
+}
+
+// MARK: - /health's digest
+
+extension SRDemoFixtures {
+    /// A REAL digest: SR-Health's `toHubDigest` run over /health's own mock
+    /// series (`tests/routes/health-hub.test.ts` writes it with
+    /// `HUB_SAMPLE_OUT`), not a hand-written guess at the shape. Regenerate it
+    /// there when the contract moves, rather than editing it here.
+    static let healthHub: String = #"""
+{
+  "generatedAt": "2026-09-24T07:30:00.000Z",
+  "syncedAgoSeconds": 1260,
+  "isMock": true,
+  "lede": "Today: recovery at 28% (-32 on the seven-day average), a resting heart rate 4 bpm over baseline and 5.6 hours of sleep. The composite reads recovery priority.",
+  "readiness": {
+    "score": 46,
+    "label": "Recovery Priority",
+    "recommendation": "Light movement only",
+    "factors": [
+      {
+        "key": "recovery",
+        "label": "Recovery",
+        "score": 28,
+        "weight": 0.4
+      },
+      {
+        "key": "hrvTrend",
+        "label": "HRV trend",
+        "score": 38,
+        "weight": 0.2
+      },
+      {
+        "key": "sleepQuality",
+        "label": "Sleep quality",
+        "score": 52,
+        "weight": 0.2
+      },
+      {
+        "key": "loadBalance",
+        "label": "Load balance",
+        "score": 85,
+        "weight": 0.2
+      }
+    ]
+  },
+  "planner": {
+    "headline": "Readiness 46 clears the walk-substitution gate (<40) but not the steady-climb gate (<55), so the climbing stays steady.",
+    "detail": "ACWR 0.57 sits in the undertraining band, so the target gains 10% on the recent median."
+  },
+  "tiles": [
+    {
+      "key": "recovery",
+      "label": "Recovery",
+      "display": "28",
+      "unit": "%",
+      "foot": "↓32 vs 7d · wk 60%",
+      "tone": "watch",
+      "series": [
+        63,
+        61,
+        68,
+        77,
+        56,
+        36,
+        48,
+        70,
+        28
+      ]
+    },
+    {
+      "key": "hrv",
+      "label": "HRV RMSSD",
+      "display": "31",
+      "unit": "ms",
+      "foot": "7d mean 50 · trough 31",
+      "tone": "watch",
+      "series": [
+        54,
+        53,
+        59,
+        59,
+        50,
+        38,
+        47,
+        53,
+        31
+      ]
+    },
+    {
+      "key": "rhr",
+      "label": "Resting HR",
+      "display": "64",
+      "unit": "bpm",
+      "foot": "+4 on 60 · peak 65",
+      "tone": "watch",
+      "series": [
+        58,
+        60,
+        59,
+        59,
+        61,
+        63,
+        60,
+        61,
+        64
+      ]
+    },
+    {
+      "key": "sleep",
+      "label": "Sleep",
+      "display": "5.6",
+      "unit": "h",
+      "foot": "30d mean 7.2",
+      "tone": "watch",
+      "series": [
+        7.23,
+        7.08,
+        7.04,
+        8.01,
+        6.52,
+        6.68,
+        6.26,
+        8.12,
+        5.6
+      ]
+    },
+    {
+      "key": "volume",
+      "label": "Week volume",
+      "display": "26.9",
+      "unit": "km",
+      "foot": "3 sessions · 4h39m · 7wk low",
+      "tone": "watch",
+      "series": [
+        39.68,
+        37.06,
+        30.74,
+        33.38,
+        33.65,
+        27.78,
+        26.87
+      ]
+    },
+    {
+      "key": "vo2max",
+      "label": "VO₂max",
+      "display": "45.1",
+      "unit": null,
+      "foot": "+0.31/mo · 71st pct",
+      "tone": "good",
+      "series": [
+        44.4,
+        44.1,
+        44.4,
+        44.6,
+        44.9,
+        45,
+        44.8,
+        44.7,
+        45.1
+      ]
+    }
+  ],
+  "instruments": [
+    {
+      "key": "acwr",
+      "label": "ACWR · EWMA",
+      "window": "28d",
+      "display": "0.57",
+      "unit": null,
+      "tone": "watch",
+      "reading": "0.57 · undertraining",
+      "meaning": "Acute 7-day EWMA against chronic 28-day. Below 0.8 is undertraining, and the planner reads it as licence to add 10%. Two more weeks this thin and it drops into detraining."
+    },
+    {
+      "key": "monotony",
+      "label": "Monotony · strain",
+      "window": "7d",
+      "display": "0.7",
+      "unit": null,
+      "tone": "good",
+      "reading": "0.7 · low",
+      "meaning": "Mean ÷ SD of daily load, strain 196. Low, which on a thin week usually means one session and six rest days rather than deliberate variation."
+    },
+    {
+      "key": "polarised",
+      "label": "Intensity mix · 28d",
+      "window": "28d",
+      "display": "88",
+      "unit": "% easy",
+      "tone": "none",
+      "reading": "88% easy",
+      "meaning": "Verdict: Pyramid, not polarised — polarised needs 80% easy AND 10% hard. No junk middle, which is the real trap. One weekly hard effort would tip it. Hard share is 2%."
+    },
+    {
+      "key": "sri",
+      "label": "Sleep regularity · SRI",
+      "window": "30d",
+      "display": "94",
+      "unit": null,
+      "tone": "good",
+      "reading": "94 · regular",
+      "meaning": "Phillips 2017 index: the chance any two nights agree minute-for-minute. At or past the 85 target — bed and wake times are landing in the same window."
+    },
+    {
+      "key": "circadian",
+      "label": "Circadian drift",
+      "window": "21d",
+      "display": "+1.0",
+      "unit": "h",
+      "tone": "watch",
+      "reading": "+1.0 h · drift late",
+      "meaning": "Sleep midpoint has moved 1h01m later over the last week versus the fortnight before. Anything past 1 hour is flagged. Phase, not duration — and the two go wrong together."
+    },
+    {
+      "key": "autonomic",
+      "label": "Autonomic balance",
+      "window": "28d",
+      "display": "44",
+      "unit": null,
+      "tone": "none",
+      "reading": "44 · slightly suppressed",
+      "meaning": "HRV z minus RHR z, mapped to 0–100. Under the midpoint: HRV below its own baseline while resting heart rate sits above. Mild, consistent, and consistent with short sleep."
+    },
+    {
+      "key": "balance",
+      "label": "Sleep balance",
+      "window": "7 nights",
+      "display": "−43",
+      "unit": "min/night",
+      "tone": "watch",
+      "reading": "−43 min/night · short",
+      "meaning": "Average actual sleep 7h27m against 8h10m fresh need; 6 of 7 nights below it. Carried debt is excluded and WHOOP's nap adjustment is included, so each minute is counted once. Actual sleep is +25 min/night versus the preceding nights. WHOOP's latest separate debt adjustment is 20 minutes; it is not summed here."
+    },
+    {
+      "key": "efficiency",
+      "label": "Efficiency · beats/km",
+      "window": "48 outings",
+      "display": "1213",
+      "unit": null,
+      "tone": "none",
+      "reading": "1213 · vs 1194 baseline",
+      "meaning": "Heartbeats spent per kilometre — the cleanest read on whether fitness is moving. Up 2% on baseline, on 48 outings. Needs volume before it means anything; watch, don't act."
+    }
+  ],
+  "forecasts": [
+    {
+      "key": "sleep",
+      "label": "Sleep · 30d mean",
+      "unit": "h",
+      "horizonDays": 90,
+      "now": 7.179,
+      "projected": 7.281,
+      "low": 4.967,
+      "high": 9.595,
+      "reading": "Rising at +0.03 a month.",
+      "history": [
+        {
+          "date": "2026-08-28",
+          "value": 7.51
+        },
+        {
+          "date": "2026-08-29",
+          "value": 7.21
+        },
+        {
+          "date": "2026-08-30",
+          "value": 7.18
+        },
+        {
+          "date": "2026-08-31",
+          "value": 7.2
+        },
+        {
+          "date": "2026-09-01",
+          "value": 7.17
+        },
+        {
+          "date": "2026-09-02",
+          "value": 7.14
+        },
+        {
+          "date": "2026-09-03",
+          "value": 6.89
+        },
+        {
+          "date": "2026-09-04",
+          "value": 6.89
+        },
+        {
+          "date": "2026-09-05",
+          "value": 7.1
+        },
+        {
+          "date": "2026-09-06",
+          "value": 7.23
+        },
+        {
+          "date": "2026-09-07",
+          "value": 7.22
+        },
+        {
+          "date": "2026-09-08",
+          "value": 7.31
+        },
+        {
+          "date": "2026-09-09",
+          "value": 7.36
+        },
+        {
+          "date": "2026-09-10",
+          "value": 7.4
+        },
+        {
+          "date": "2026-09-11",
+          "value": 7.3
+        },
+        {
+          "date": "2026-09-12",
+          "value": 7.12
+        },
+        {
+          "date": "2026-09-13",
+          "value": 6.93
+        },
+        {
+          "date": "2026-09-14",
+          "value": 6.89
+        },
+        {
+          "date": "2026-09-15",
+          "value": 6.92
+        },
+        {
+          "date": "2026-09-16",
+          "value": 6.85
+        },
+        {
+          "date": "2026-09-17",
+          "value": 6.81
+        },
+        {
+          "date": "2026-09-18",
+          "value": 6.89
+        },
+        {
+          "date": "2026-09-19",
+          "value": 6.98
+        },
+        {
+          "date": "2026-09-20",
+          "value": 7.19
+        },
+        {
+          "date": "2026-09-21",
+          "value": 7.45
+        },
+        {
+          "date": "2026-09-22",
+          "value": 7.45
+        },
+        {
+          "date": "2026-09-23",
+          "value": 7.54
+        },
+        {
+          "date": "2026-09-24",
+          "value": 7.45
+        }
+      ],
+      "cone": [
+        {
+          "date": "2026-09-24",
+          "value": 7.179,
+          "low": 7.179,
+          "high": 7.179
+        },
+        {
+          "date": "2026-10-01",
+          "value": 7.187,
+          "low": 6.542,
+          "high": 7.832
+        },
+        {
+          "date": "2026-10-08",
+          "value": 7.195,
+          "low": 6.282,
+          "high": 8.108
+        },
+        {
+          "date": "2026-10-15",
+          "value": 7.203,
+          "low": 6.085,
+          "high": 8.321
+        },
+        {
+          "date": "2026-10-22",
+          "value": 7.211,
+          "low": 5.92,
+          "high": 8.502
+        },
+        {
+          "date": "2026-10-29",
+          "value": 7.219,
+          "low": 5.776,
+          "high": 8.662
+        },
+        {
+          "date": "2026-11-05",
+          "value": 7.226,
+          "low": 5.645,
+          "high": 8.807
+        },
+        {
+          "date": "2026-11-12",
+          "value": 7.234,
+          "low": 5.527,
+          "high": 8.941
+        },
+        {
+          "date": "2026-11-19",
+          "value": 7.242,
+          "low": 5.417,
+          "high": 9.067
+        },
+        {
+          "date": "2026-11-26",
+          "value": 7.25,
+          "low": 5.314,
+          "high": 9.186
+        },
+        {
+          "date": "2026-12-03",
+          "value": 7.258,
+          "low": 5.217,
+          "high": 9.299
+        },
+        {
+          "date": "2026-12-10",
+          "value": 7.266,
+          "low": 5.126,
+          "high": 9.406
+        },
+        {
+          "date": "2026-12-17",
+          "value": 7.274,
+          "low": 5.039,
+          "high": 9.509
+        },
+        {
+          "date": "2026-12-23",
+          "value": 7.281,
+          "low": 4.967,
+          "high": 9.595
+        }
+      ]
+    },
+    {
+      "key": "hrv",
+      "label": "HRV · 7d mean",
+      "unit": "ms",
+      "horizonDays": 90,
+      "now": 45.939,
+      "projected": 23.365,
+      "low": 0,
+      "high": 54.076,
+      "reading": "Declining at −7.53 a month.",
+      "history": [
+        {
+          "date": "2026-08-28",
+          "value": 52.86
+        },
+        {
+          "date": "2026-08-29",
+          "value": 53.14
+        },
+        {
+          "date": "2026-08-30",
+          "value": 52.14
+        },
+        {
+          "date": "2026-08-31",
+          "value": 52.14
+        },
+        {
+          "date": "2026-09-01",
+          "value": 53.14
+        },
+        {
+          "date": "2026-09-02",
+          "value": 53.86
+        },
+        {
+          "date": "2026-09-03",
+          "value": 52
+        },
+        {
+          "date": "2026-09-04",
+          "value": 52.71
+        },
+        {
+          "date": "2026-09-05",
+          "value": 50.71
+        },
+        {
+          "date": "2026-09-06",
+          "value": 51.57
+        },
+        {
+          "date": "2026-09-07",
+          "value": 51
+        },
+        {
+          "date": "2026-09-08",
+          "value": 50.71
+        },
+        {
+          "date": "2026-09-09",
+          "value": 49.57
+        },
+        {
+          "date": "2026-09-10",
+          "value": 50.71
+        },
+        {
+          "date": "2026-09-11",
+          "value": 48
+        },
+        {
+          "date": "2026-09-12",
+          "value": 48.29
+        },
+        {
+          "date": "2026-09-13",
+          "value": 45.29
+        },
+        {
+          "date": "2026-09-14",
+          "value": 44.14
+        },
+        {
+          "date": "2026-09-15",
+          "value": 44.86
+        },
+        {
+          "date": "2026-09-16",
+          "value": 42.14
+        },
+        {
+          "date": "2026-09-17",
+          "value": 41.71
+        },
+        {
+          "date": "2026-09-18",
+          "value": 43.14
+        },
+        {
+          "date": "2026-09-19",
+          "value": 46.14
+        },
+        {
+          "date": "2026-09-20",
+          "value": 48.29
+        },
+        {
+          "date": "2026-09-21",
+          "value": 50.14
+        },
+        {
+          "date": "2026-09-22",
+          "value": 50.71
+        },
+        {
+          "date": "2026-09-23",
+          "value": 52.14
+        },
+        {
+          "date": "2026-09-24",
+          "value": 49.86
+        }
+      ],
+      "cone": [
+        {
+          "date": "2026-09-24",
+          "value": 45.939,
+          "low": 45.939,
+          "high": 45.939
+        },
+        {
+          "date": "2026-10-01",
+          "value": 44.183,
+          "low": 35.618,
+          "high": 52.748
+        },
+        {
+          "date": "2026-10-08",
+          "value": 42.428,
+          "low": 30.315,
+          "high": 54.541
+        },
+        {
+          "date": "2026-10-15",
+          "value": 40.672,
+          "low": 25.837,
+          "high": 55.507
+        },
+        {
+          "date": "2026-10-22",
+          "value": 38.916,
+          "low": 21.786,
+          "high": 56.046
+        },
+        {
+          "date": "2026-10-29",
+          "value": 37.16,
+          "low": 18.008,
+          "high": 56.312
+        },
+        {
+          "date": "2026-11-05",
+          "value": 35.405,
+          "low": 14.425,
+          "high": 56.385
+        },
+        {
+          "date": "2026-11-12",
+          "value": 33.649,
+          "low": 10.989,
+          "high": 56.309
+        },
+        {
+          "date": "2026-11-19",
+          "value": 31.893,
+          "low": 7.668,
+          "high": 56.118
+        },
+        {
+          "date": "2026-11-26",
+          "value": 30.137,
+          "low": 4.442,
+          "high": 55.832
+        },
+        {
+          "date": "2026-12-03",
+          "value": 28.382,
+          "low": 1.298,
+          "high": 55.466
+        },
+        {
+          "date": "2026-12-10",
+          "value": 26.626,
+          "low": 0,
+          "high": 55.032
+        },
+        {
+          "date": "2026-12-17",
+          "value": 24.87,
+          "low": 0,
+          "high": 54.54
+        },
+        {
+          "date": "2026-12-23",
+          "value": 23.365,
+          "low": 0,
+          "high": 54.076
+        }
+      ]
+    },
+    {
+      "key": "vo2max",
+      "label": "VO₂max",
+      "unit": null,
+      "horizonDays": 90,
+      "now": 44.896,
+      "projected": 44.931,
+      "low": 44.51,
+      "high": 45.352,
+      "reading": "Rising at +0.01 a month.",
+      "history": [
+        {
+          "date": "2026-08-26",
+          "value": 44.97
+        },
+        {
+          "date": "2026-08-29",
+          "value": 44.97
+        },
+        {
+          "date": "2026-09-01",
+          "value": 44.9
+        },
+        {
+          "date": "2026-09-04",
+          "value": 44.8
+        },
+        {
+          "date": "2026-09-07",
+          "value": 44.8
+        },
+        {
+          "date": "2026-09-10",
+          "value": 44.77
+        },
+        {
+          "date": "2026-09-13",
+          "value": 44.9
+        },
+        {
+          "date": "2026-09-16",
+          "value": 44.83
+        },
+        {
+          "date": "2026-09-19",
+          "value": 44.97
+        },
+        {
+          "date": "2026-09-22",
+          "value": 45
+        }
+      ],
+      "cone": [
+        {
+          "date": "2026-09-22",
+          "value": 44.896,
+          "low": 44.896,
+          "high": 44.896
+        },
+        {
+          "date": "2026-09-29",
+          "value": 44.899,
+          "low": 44.782,
+          "high": 45.016
+        },
+        {
+          "date": "2026-10-06",
+          "value": 44.902,
+          "low": 44.736,
+          "high": 45.068
+        },
+        {
+          "date": "2026-10-13",
+          "value": 44.904,
+          "low": 44.701,
+          "high": 45.107
+        },
+        {
+          "date": "2026-10-20",
+          "value": 44.907,
+          "low": 44.672,
+          "high": 45.142
+        },
+        {
+          "date": "2026-10-27",
+          "value": 44.91,
+          "low": 44.648,
+          "high": 45.172
+        },
+        {
+          "date": "2026-11-03",
+          "value": 44.912,
+          "low": 44.625,
+          "high": 45.199
+        },
+        {
+          "date": "2026-11-10",
+          "value": 44.915,
+          "low": 44.605,
+          "high": 45.225
+        },
+        {
+          "date": "2026-11-17",
+          "value": 44.918,
+          "low": 44.586,
+          "high": 45.25
+        },
+        {
+          "date": "2026-11-24",
+          "value": 44.92,
+          "low": 44.568,
+          "high": 45.272
+        },
+        {
+          "date": "2026-12-01",
+          "value": 44.923,
+          "low": 44.552,
+          "high": 45.294
+        },
+        {
+          "date": "2026-12-08",
+          "value": 44.926,
+          "low": 44.537,
+          "high": 45.315
+        },
+        {
+          "date": "2026-12-15",
+          "value": 44.928,
+          "low": 44.522,
+          "high": 45.334
+        },
+        {
+          "date": "2026-12-21",
+          "value": 44.931,
+          "low": 44.51,
+          "high": 45.352
+        }
+      ]
+    },
+    {
+      "key": "acwr",
+      "label": "ACWR",
+      "unit": null,
+      "horizonDays": 90,
+      "now": 0.646,
+      "projected": 0.748,
+      "low": 0.555,
+      "high": 0.941,
+      "reading": "Rising at +0.03 a month.",
+      "history": [
+        {
+          "date": "2026-08-28",
+          "value": 0.59
+        },
+        {
+          "date": "2026-08-29",
+          "value": 0.6
+        },
+        {
+          "date": "2026-08-30",
+          "value": 0.6
+        },
+        {
+          "date": "2026-08-31",
+          "value": 0.61
+        },
+        {
+          "date": "2026-09-01",
+          "value": 0.62
+        },
+        {
+          "date": "2026-09-02",
+          "value": 0.62
+        },
+        {
+          "date": "2026-09-03",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-04",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-05",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-06",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-07",
+          "value": 0.65
+        },
+        {
+          "date": "2026-09-08",
+          "value": 0.65
+        },
+        {
+          "date": "2026-09-09",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-10",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-11",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-12",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-13",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-14",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-15",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-16",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-17",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-18",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-19",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-20",
+          "value": 0.63
+        },
+        {
+          "date": "2026-09-21",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-22",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-23",
+          "value": 0.64
+        },
+        {
+          "date": "2026-09-24",
+          "value": 0.65
+        }
+      ],
+      "cone": [
+        {
+          "date": "2026-09-24",
+          "value": 0.646,
+          "low": 0.646,
+          "high": 0.646
+        },
+        {
+          "date": "2026-10-01",
+          "value": 0.654,
+          "low": 0.6,
+          "high": 0.708
+        },
+        {
+          "date": "2026-10-08",
+          "value": 0.662,
+          "low": 0.586,
+          "high": 0.738
+        },
+        {
+          "date": "2026-10-15",
+          "value": 0.67,
+          "low": 0.577,
+          "high": 0.763
+        },
+        {
+          "date": "2026-10-22",
+          "value": 0.678,
+          "low": 0.571,
+          "high": 0.785
+        },
+        {
+          "date": "2026-10-29",
+          "value": 0.686,
+          "low": 0.566,
+          "high": 0.806
+        },
+        {
+          "date": "2026-11-05",
+          "value": 0.694,
+          "low": 0.562,
+          "high": 0.826
+        },
+        {
+          "date": "2026-11-12",
+          "value": 0.702,
+          "low": 0.56,
+          "high": 0.844
+        },
+        {
+          "date": "2026-11-19",
+          "value": 0.709,
+          "low": 0.557,
+          "high": 0.861
+        },
+        {
+          "date": "2026-11-26",
+          "value": 0.717,
+          "low": 0.556,
+          "high": 0.878
+        },
+        {
+          "date": "2026-12-03",
+          "value": 0.725,
+          "low": 0.555,
+          "high": 0.895
+        },
+        {
+          "date": "2026-12-10",
+          "value": 0.733,
+          "low": 0.555,
+          "high": 0.911
+        },
+        {
+          "date": "2026-12-17",
+          "value": 0.741,
+          "low": 0.555,
+          "high": 0.927
+        },
+        {
+          "date": "2026-12-23",
+          "value": 0.748,
+          "low": 0.555,
+          "high": 0.941
+        }
+      ]
+    }
+  ],
+  "moves": [
+    {
+      "rank": 1,
+      "title": "FIXED LIGHTS-OUT WINDOW",
+      "buys": "Pulls the sleep midpoint back inside the 1-hour flag. Brings the seven-night sleep balance back toward even.",
+      "costs": "Evening time, every night.",
+      "leverage": "4/5 · 2 INSTRUMENTS"
+    },
+    {
+      "rank": 2,
+      "title": "ONE LONG EASY DAY A WEEK",
+      "buys": "ACWR 0.57→0.85, into the band where fitness builds. Weekly volume 26.9→33.7 km, back on the twelve-week median. Keeps the easy share above 80%.",
+      "costs": "Two to three hours of calendar a week. Adding volume while the seven-night sleep balance is short can widen the nightly gap.",
+      "leverage": "4/5 · 2 INSTRUMENTS"
+    },
+    {
+      "rank": 3,
+      "title": "TIP THE MIX TO POLARISED",
+      "buys": "The strongest single stimulus for VO₂max there is. Doubles as segment PB attempts, so it is measurable.",
+      "costs": "The highest injury and HRV cost on this list. Should not start before the moves above it have run four weeks.",
+      "leverage": "3/5 · GATED ON 01+02"
+    },
+    {
+      "rank": 4,
+      "title": "BOOK ONE BIG DAY",
+      "buys": "Turns the long easy day from discipline into preparation. Fixes the horizon every other number is measured against.",
+      "costs": "A deadline can override the readiness gates. Commit to the date, not to going regardless of what the panel says.",
+      "leverage": "3/5 · BEHAVIOURAL"
+    },
+    {
+      "rank": 5,
+      "title": "DO NOTHING NEW · HOLD AND WATCH",
+      "buys": "Zero cost. Keeps the tripwires as the whole system until something actually trips.",
+      "costs": "Zero cost, and a slope: doing nothing is still a decision. ACWR is already at 0.57 and heading for the detraining edge.",
+      "leverage": "1/5 · BASELINE"
+    }
+  ],
+  "tripwires": [
+    {
+      "key": "sleep-balance",
+      "state": "tripped",
+      "signal": "Sleep balance",
+      "window": "7-night average",
+      "trigger": "< −30 min/night",
+      "now": "−43 min/night",
+      "meaning": "6 of 7 nights below fresh need: 7h27m actual against 8h10m needed. Protect the next few nights; there is no historical bill to repay."
+    },
+    {
+      "key": "weekly-volume",
+      "state": "clear",
+      "signal": "Weekly volume",
+      "window": "vs 12wk median",
+      "trigger": "< 50%",
+      "now": "26.9 km · 80%",
+      "meaning": "Week to 14 Sep at 80% of the 33.7 km median. Nothing to do."
+    },
+    {
+      "key": "acwr",
+      "state": "close",
+      "signal": "ACWR",
+      "window": "EWMA 7:28",
+      "trigger": "< 0.50",
+      "now": "0.57",
+      "meaning": "Below the 0.80 undertraining edge and heading for 0.50. The alert worth having is the forecast, not the value."
+    },
+    {
+      "key": "hrv-crossing",
+      "state": "clear",
+      "signal": "HRV 7d mean",
+      "window": "vs 28d baseline",
+      "trigger": "below 2 days",
+      "now": "50 vs 49",
+      "meaning": "At or above its own baseline."
+    },
+    {
+      "key": "resting-hr",
+      "state": "clear",
+      "signal": "Resting HR",
+      "window": "vs 28d baseline",
+      "trigger": "+4 bpm, 3 days",
+      "now": "64 · +3 bpm",
+      "meaning": "The earliest illness and overreach signal you have, and it is quiet. 3 days, not one."
+    },
+    {
+      "key": "recovery-reds",
+      "state": "clear",
+      "signal": "Recovery reds",
+      "window": "consecutive",
+      "trigger": "3 in a row",
+      "now": "1 · 28% today",
+      "meaning": "Three reds is a pattern; one is a Tuesday. Nothing running."
+    },
+    {
+      "key": "strain-balance",
+      "state": "clear",
+      "signal": "Strain vs recovery",
+      "window": "7d balance",
+      "trigger": "> 8.0",
+      "now": "6.4",
+      "meaning": "Comfortable. Expect this to climb as volume lands — it is the number that says \"too fast\"."
+    },
+    {
+      "key": "vo2-slope",
+      "state": "clear",
+      "signal": "VO₂max slope",
+      "window": "90d regression",
+      "trigger": "< −0.20/mo",
+      "now": "0.31/mo",
+      "meaning": "Slope, never value — the percentile is pinned to a fixed age profile, so the rank is noise and the direction is not. 3.7 a year at this rate."
+    },
+    {
+      "key": "segment-pb",
+      "state": "tripped",
+      "signal": "Segment PB in range",
+      "window": "gap to all-time",
+      "trigger": "gap < 3% & improving",
+      "now": "2 gettable",
+      "meaning": "The only positive tripwire here — a record is genuinely gettable rather than a fantasy. Closest is Woodland descent, 0.7% off it."
+    }
+  ],
+  "segments": {
+    "improving": 2,
+    "holding": 0,
+    "slipping": 4,
+    "noRead": 2,
+    "gettable": [
+      {
+        "name": "Woodland descent",
+        "gapPct": 0.7,
+        "detail": "pb 36d · 7 efforts"
+      },
+      {
+        "name": "Hill lane climb",
+        "gapPct": 0.7,
+        "detail": "pb 36d · 6 efforts"
+      }
+    ]
+  },
+  "plan": {
+    "sport": "Walk",
+    "headline": "Walk · 5.2 km",
+    "why": [
+      "Readiness 46 is under the steady-climb gate, so today stays easy.",
+      "Load has eased over three weeks; the distance is the recent median."
+    ],
+    "evidence": [
+      {
+        "label": "Readiness",
+        "display": "46 · recovery priority"
+      },
+      {
+        "label": "ACWR read",
+        "display": "0.57 · undertraining"
+      },
+      {
+        "label": "Week hours",
+        "display": "2.4 · vs 3.6 typical"
+      },
+      {
+        "label": "Days since hard",
+        "display": "6 · threshold or above"
+      }
+    ]
+  },
+  "experiments": [
+    {
+      "status": "live",
+      "title": "THE FIXED WINDOW",
+      "change": "Lights out inside one fixed 30-minute window, five nights in seven.",
+      "hold": "Training volume, wake time, caffeine. Nothing else moves for 21 days.",
+      "measure": "circadian drift +1.0h → under 1h, seven-night sleep balance −43 min/night → within 30 and HRV 7d mean.",
+      "stop": "Judge on 24 Sep 2026. If nothing has moved, the window is not the constraint — look at wake time.",
+      "counter": "DAY 21 OF 21"
+    },
+    {
+      "status": "queued",
+      "title": "THE DULL LONG DAY",
+      "change": "One 12–15 km outing a week at hike heart rate. Nothing added to the other days.",
+      "hold": "Session count and intensity distribution. The variable is duration, not effort.",
+      "measure": "ACWR 0.57 → 0.85, weekly volume 26.9 km → 33.7 km, beats-per-km against the 28-day baseline and monotony must stay under 2.",
+      "stop": "Abort if the strain-recovery balance passes 8.0 or three recovery reds land in a row. The sleep experiment wins ties.",
+      "counter": "WEEK 2 OF 6"
+    },
+    {
+      "status": "queued",
+      "title": "ONE HARD EFFORT",
+      "change": "One weekly Z4–5 effort on a gettable segment. Takes the hard share 2% → 10%.",
+      "hold": "The fixed sleep window and the long day, both proven by then.",
+      "measure": "The verdict flips from pyramid to polarised: hard share 2% → 10%. VO₂max slope. Segment gap closing.",
+      "stop": "Do not start before 25 Oct 2026, and not at all unless the seven-night sleep balance is within 30 minutes per night of fresh need.",
+      "counter": "GATED ON E1+E2"
+    }
+  ],
+  "verdict": {
+    "headline": [
+      "CAPABLE.",
+      "UNDER-SLEPT."
+    ],
+    "body": [
+      "The engine is in good order. Resting heart rate is on a 61 bpm baseline, cardio fitness reads excellent at the 71st percentile and the week has genuine hard/easy shape at a monotony of 0.7.",
+      "The inputs are the problem. Sleep is 43 minutes short of fresh need per night over the latest seven, the sleep midpoint has slid 1h01m later, weekly volume is 26.9 km against a 33.7 km median, acute load sits at 0.57 of its own chronic base and the nervous system reads 44 out of 100."
+    ],
+    "quote": "Go to bed at the same time. Then put one long, dull walk in the diary every week.",
+    "reviewOn": "2026-09-24"
+  }
+}
+"""#
+}

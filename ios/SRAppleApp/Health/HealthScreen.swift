@@ -5,12 +5,26 @@ import MapKit
 ///
 /// /health has nine sections and is read top to bottom at a desk. A phone is
 /// opened for one question — "how am I doing" — so the order here is the
-/// answer, then the evidence, then everything else: readiness, four figures,
-/// the week, the records, and then the things only this app knows, which are
-/// what the phone uploaded and where the family is.
+/// answer, then the evidence, then everything else:
+///
+/// 1. the hero: readiness and four figures (the summary, which answers fast);
+/// 2. the read: the one-line read, readiness's factors, what the planner
+///    would commission, and today's session;
+/// 3. heart rate over the last day, from this iPhone;
+/// 4. only the tripwires that are live, and the top three moves;
+/// 5. activities;
+/// 6. "The full picture": instruments, forecast, every tripwire and move,
+///    experiments, segments and the verdict, each one push away;
+/// 7. the week, the records, and the family.
+///
+/// Everything /health concludes is on the phone — but the tab shows what needs
+/// attention and pushes the rest, rather than stacking nine sections a thumb
+/// has to scroll past to reach the one that changed.
 struct HealthScreen: View {
     @ObservedObject var companion: Companion
     @StateObject private var store = HealthStore()
+    @StateObject private var hub = HealthHubStore()
+    @StateObject private var heart = HeartTimelineStore()
     /// The latest few activities. The full history is its own screen.
     @StateObject private var recent = ActivitiesStore(pageSize: 5)
     @EnvironmentObject private var router: Router
@@ -22,7 +36,18 @@ struct HealthScreen: View {
             if let summary = store.summary {
                 // The ink band: readiness and today's figures, /health's hero.
                 HealthHero(summary: summary).srInkRow()
+                if let digest = hub.hub { readSection(digest) }
+                heartSection
+                if let digest = hub.hub { attentionSections(digest) }
                 recentActivities
+                if let digest = hub.hub {
+                    fullPicture(digest)
+                } else if hub.failed {
+                    Text("The deeper read did not load. Pull to try again.")
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                        .srBareRow()
+                }
                 if let week = summary.week { weekSection(week) }
                 if !summary.records.isEmpty { records(summary.records) }
             } else if store.unavailable {
@@ -40,8 +65,10 @@ struct HealthScreen: View {
                     .srBareRow()
             }
 
-            if store.summary == nil { recentActivities }
-            uploaded
+            if store.summary == nil {
+                heartSection
+                recentActivities
+            }
             family
         }
         .listStyle(.insetGrouped)
@@ -54,7 +81,10 @@ struct HealthScreen: View {
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
-            await store.load(fresh: true)
+            async let summary: Void = store.load(fresh: true)
+            async let deep: Void = hub.load(fresh: true)
+            async let heartRate: Void = heart.load(companion: companion)
+            _ = await (summary, deep, heartRate)
             await recent.load()
             try? await companion.refresh()
         }
@@ -75,10 +105,21 @@ struct HealthScreen: View {
             switch route {
             case .activities: ActivitiesScreen()
             case .segments: SegmentsScreen()
+            case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
+            case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
+            case .tripwires: if let h = hub.hub { TripwiresScreen(hub: h) }
+            case .moves: if let h = hub.hub { MovesScreen(hub: h) }
+            case .experiments: if let h = hub.hub { ExperimentsScreen(hub: h) }
+            case .verdict: if let v = hub.hub?.verdict { VerdictScreen(verdict: v) }
             }
         }
         .task {
+            // The hero first — it is one small request — then the deep read and
+            // the heart-rate day together, filling in beneath it.
             await store.load()
+            async let deep: Void = hub.load()
+            async let heartRate: Void = heart.load(companion: companion)
+            _ = await (deep, heartRate)
             if recent.rows.isEmpty { await recent.load() }
         }
     }
@@ -122,11 +163,15 @@ struct HealthScreen: View {
                 }
                 .srGlassRow()
                 .accessibilityIdentifier("health-all-activities")
-                NavigationLink(value: HealthRoute.segments) {
-                    SRRow(title: "Segments", icon: "flag.checkered")
+                // Once the digest is here, Segments lives in "The full picture"
+                // with its form counts; two rows to one place is clutter.
+                if hub.hub?.segments == nil {
+                    NavigationLink(value: HealthRoute.segments) {
+                        SRRow(title: "Segments", icon: "flag.checkered")
+                    }
+                    .srGlassRow()
+                    .accessibilityIdentifier("health-segments")
                 }
-                .srGlassRow()
-                .accessibilityIdentifier("health-segments")
             } header: {
                 SRSectionLabel(text: "Recent activities")
             }
@@ -174,47 +219,167 @@ struct HealthScreen: View {
         }
     }
 
-    /// What this phone has sent up. Only the last few — the website holds the
-    /// archive and a phone scrolling a thousand rows is not reading any of them.
+    // MARK: - The read
+
     @ViewBuilder
-    private var uploaded: some View {
+    private func readSection(_ digest: HubDigest) -> some View {
+        if digest.lede != nil || digest.readiness != nil || digest.planner != nil || digest.plan != nil {
+            Section {
+                HubReadCard(hub: digest).srBareRow()
+                // The tiles the hero does not already carry — the week's volume
+                // and VO₂max — with /health's own footnote under each.
+                let extra = digest.tiles.filter { !HealthScreen.heroKeys.contains($0.key) }
+                if !extra.isEmpty {
+                    SRTileGrid {
+                        ForEach(extra) { tile in
+                            SRStatTile(value: tile.display, unit: tile.unit, label: tile.label, caption: tile.foot)
+                        }
+                    }
+                    .srBareRow()
+                }
+                if let plan = digest.plan { HubPlanCard(plan: plan).srBareRow() }
+            } header: {
+                SRSectionLabel(text: "The read")
+            }
+        }
+    }
+
+    // MARK: - Heart rate
+
+    /// What this iPhone sent up, as the line it is — it used to be the last
+    /// eight readings as rows, which is a list of numbers nobody can read a day
+    /// out of. The upload queue is one line under it now.
+    @ViewBuilder
+    private var heartSection: some View {
         Section {
-            if companion.records.isEmpty {
-                Text(companion.paired
-                     ? "Nothing uploaded yet. Choose categories under Settings → Apple Health."
-                     : "Connect the companion to upload from Apple Health.")
+            if !companion.paired && !SRDemo.isOn {
+                // A fresh install. The rows this section replaced used to say how
+                // to fill it, and the onboarding test is right that an empty tab
+                // must still say that.
+                Text("Connect the companion to upload from Apple Health, and your heart rate appears here as a day's line.")
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .srGlassRow()
                     .padding(.vertical, 10)
-            } else {
-                ForEach(companion.records.prefix(8)) { record in
-                    SRRow(
-                        title: HealthScreen.label(for: record.kind),
-                        subtitle: "\(record.source) · \(shortAgo(record.start))"
-                    ) {
-                        if let value = record.value {
-                            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                                Text(value.formatted())
-                                    .font(SR.Text.mono(15))
-                                    .foregroundStyle(SR.ink)
-                                if let unit = record.unit {
-                                    Text(unit).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
-                                }
-                            }
-                        }
-                    }
+            } else if let timeline = heart.timeline {
+                HeartRateCard(timeline: timeline).srBareRow()
+            } else if heart.failed {
+                Text("Heart rate did not load. Pull to try again.")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .srGlassRow()
-                }
+            } else {
+                HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                    .frame(height: 120)
+                    .srBareRow()
             }
         } header: {
-            SRSectionLabel(text: "From this iPhone", trailing: companion.queueCount > 0 ? "\(companion.queueCount) waiting" : nil)
+            SRSectionLabel(text: "Last 24 hours", trailing: uploadLine)
         } footer: {
-            Text("Only you can see these. Heart rate is not a live feed, and sleep records can overlap between sources.")
+            Text("From this iPhone via Apple Health. Only you can see it. Not a live feed: it moves when the phone syncs.")
                 .font(SR.Text.mono())
                 .foregroundStyle(SR.inkMuted)
                 .padding(.vertical, 4)
+        }
+    }
+
+    private var uploadLine: String? {
+        if companion.queueCount > 0 { return "\(companion.queueCount) waiting" }
+        if let latest = companion.records.first { return "latest \(shortAgo(latest.start))" }
+        return nil
+    }
+
+    // MARK: - What needs attention
+
+    @ViewBuilder
+    private func attentionSections(_ digest: HubDigest) -> some View {
+        let live = digest.tripwires.filter(\.live)
+        if !digest.tripwires.isEmpty {
+            Section {
+                if live.isEmpty {
+                    SRRow(title: "All \(digest.tripwires.count) clear", subtitle: "Nothing has crossed its line", icon: "checkmark.circle") { EmptyView() }
+                        .srGlassRow()
+                } else {
+                    ForEach(live) { TripwireRow(tripwire: $0).srGlassRow() }
+                }
+            } header: {
+                SRSectionLabel(text: "Tripwires", trailing: live.isEmpty ? nil : "\(live.count) of \(digest.tripwires.count)")
+            }
+        }
+        if !digest.moves.isEmpty {
+            Section {
+                ForEach(digest.moves.prefix(3)) { MoveRow(move: $0).srGlassRow() }
+                if digest.moves.count > 3 {
+                    NavigationLink(value: HealthRoute.moves) {
+                        SRRow(title: "All \(digest.moves.count) moves", icon: "list.number") { EmptyView() }
+                    }
+                    .srGlassRow()
+                }
+            } header: {
+                SRSectionLabel(text: "Ranked moves")
+            }
+        }
+    }
+
+    // MARK: - The full picture
+
+    @ViewBuilder
+    private func fullPicture(_ digest: HubDigest) -> some View {
+        Section {
+            if !digest.instruments.isEmpty {
+                let watching = digest.instruments.filter { $0.tone == .watch || $0.tone == .bad }.count
+                NavigationLink(value: HealthRoute.instruments) {
+                    SRRow(title: "Instruments",
+                          subtitle: watching == 0 ? "All \(digest.instruments.count) in range" : "\(watching) of \(digest.instruments.count) to watch",
+                          icon: "gauge.with.dots.needle.33percent") { EmptyView() }
+                }
+                .srGlassRow()
+            }
+            if !digest.forecasts.isEmpty {
+                NavigationLink(value: HealthRoute.forecast) {
+                    SRRow(title: "Forecast",
+                          subtitle: digest.forecasts.map(\.label).joined(separator: " · "),
+                          icon: "chart.line.uptrend.xyaxis") { EmptyView() }
+                }
+                .srGlassRow()
+            }
+            if !digest.tripwires.isEmpty {
+                NavigationLink(value: HealthRoute.tripwires) {
+                    SRRow(title: "Every tripwire", subtitle: "\(digest.tripwires.count) lines, and where each stands", icon: "exclamationmark.triangle") { EmptyView() }
+                }
+                .srGlassRow()
+            }
+            if !digest.experiments.isEmpty {
+                let live = digest.experiments.filter(\.live).count
+                NavigationLink(value: HealthRoute.experiments) {
+                    SRRow(title: "Experiments", subtitle: "\(live) live · \(digest.experiments.count - live) queued", icon: "testtube.2") { EmptyView() }
+                }
+                .srGlassRow()
+            }
+            if let segments = digest.segments {
+                NavigationLink(value: HealthRoute.segments) {
+                    SRRow(title: "Segments",
+                          subtitle: "\(segments.improving) improving · \(segments.holding) holding · \(segments.slipping) slipping",
+                          icon: "flag.checkered") { EmptyView() }
+                }
+                .srGlassRow()
+                .accessibilityIdentifier("health-segments")
+            }
+            if let verdict = digest.verdict {
+                NavigationLink(value: HealthRoute.verdict) {
+                    SRRow(title: "The verdict", subtitle: verdict.headline.joined(separator: " "), icon: "text.quote") { EmptyView() }
+                }
+                .srGlassRow()
+            }
+        } header: {
+            SRSectionLabel(text: "The full picture")
+        } footer: {
+            if digest.isMock {
+                Text("Demonstration data: no real measurement landed in this window.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.accent)
+            }
         }
     }
 
@@ -235,6 +400,9 @@ struct HealthScreen: View {
             }
         }
     }
+
+    /// The four figures the ink hero draws from the summary.
+    static let heroKeys: Set<String> = ["recovery", "hrv", "rhr", "sleep"]
 
     private func openActivities() {
         router.health.append(HealthRoute.activities)
