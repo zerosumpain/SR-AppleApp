@@ -93,7 +93,7 @@ final class ConnectionsStore: ObservableObject {
 
     // MARK: - Writing
 
-    static func snapshot(of feed: ConnectionsFeed, now: Date = Date()) -> ConnectionsSnapshot {
+    nonisolated static func snapshot(of feed: ConnectionsFeed, now: Date = Date()) -> ConnectionsSnapshot {
         ConnectionsSnapshot(
             items: feed.needsAttention,
             checkedAt: feed.checkedAt.flatMap(parseTimestamp) ?? now
