@@ -40,7 +40,14 @@ struct FlowDetailScreen: View {
         List {
             header.srBareRow()
             if let detail = store.detail {
-                if detail.building || detail.buildError != nil {
+                if let question = detail.question {
+                    Section {
+                        FlowQuestionCard(question: question, sending: store.answering) { reply in
+                            await store.answer(reply)
+                        }
+                    }
+                    .srGlassRow()
+                } else if detail.building || detail.buildError != nil {
                     buildingSection(detail)
                 }
                 ForEach(store.fixProposals) { proposal in
@@ -118,7 +125,7 @@ struct FlowDetailScreen: View {
                         }
                     }
                     .srButton(.prominent)
-                    .disabled(starting || store.detail?.building == true)
+                    .disabled(starting || store.detail?.building == true || store.detail?.question != nil)
                     .accessibilityIdentifier("flow-run")
 
                     Button { SRHaptic.tap(); sheet = .ask } label: {
@@ -360,6 +367,93 @@ struct FlowDetailScreen: View {
 }
 
 // MARK: - Pieces
+
+/// jkai stopped building to ask something only the owner knows. Answer it,
+/// or let it guess — either way the build carries on.
+///
+/// Used on the detail screen and in the list's Building row, so the owner can
+/// answer wherever they happen to be looking.
+struct FlowQuestionCard: View {
+    let question: String
+    let sending: Bool
+    let send: @MainActor (FlowAnswer) async -> FlowAnswerResult
+    @State private var draft = ""
+    @State private var busy = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .foregroundStyle(SR.accent)
+                Text("JKAI HAS A QUESTION")
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.accent)
+            }
+            Text(question)
+                .font(SR.Text.title(18))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("flow-question-text")
+            TextField("Your answer", text: $draft, axis: .vertical)
+                .font(SR.Text.body())
+                .lineLimit(2...6)
+                .focused($focused)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .srGlass(.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .accessibilityIdentifier("flow-question-field")
+            Text("The build is paused until you answer. Skipping lets jkai pick something sensible — you can change it after.")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            // Side by side when they fit; stacked at larger text sizes.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { sendButton; skipButton }
+                VStack(alignment: .leading, spacing: 10) { sendButton; skipButton }
+            }
+            .disabled(working)
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("flow-question")
+    }
+
+    private var working: Bool { busy || sending }
+
+    private var sendButton: some View {
+        Button { submit(FlowAnswer(typed: draft)) } label: {
+            if working {
+                ProgressView().tint(SR.paper)
+            } else {
+                SRButtonLabel(title: "Send", icon: "arrow.up")
+            }
+        }
+        .srButton(.prominent)
+        .disabled(FlowAnswer(typed: draft) == nil)
+        .accessibilityIdentifier("flow-question-send")
+    }
+
+    private var skipButton: some View {
+        Button { submit(.skip) } label: {
+            SRButtonLabel(title: "Skip — use your best guess")
+        }
+        .srButton(.regular)
+        .accessibilityIdentifier("flow-question-skip")
+    }
+
+    private func submit(_ reply: FlowAnswer?) {
+        guard let reply, !working else { return }
+        focused = false
+        busy = true
+        Task {
+            let result = await send(reply)
+            busy = false
+            if result == .sent { draft = "" }
+        }
+    }
+}
 
 struct FlowTriggerCard: View {
     let trigger: FlowTrigger

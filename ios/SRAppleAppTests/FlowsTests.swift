@@ -144,8 +144,16 @@ final class FlowsTests: XCTestCase {
             SRDemoFixtures.reply(method: "GET", url: URL(string: base + path)!, body: nil).body
         }
         let list = try JSONDecoder().decode(FlowList.self, from: get("api/native/workflows"))
-        XCTAssertEqual(list.workflows.count, 5)
+        XCTAssertEqual(list.workflows.count, 6)
         XCTAssertTrue(list.workflows.contains(where: \.needsAttention))
+        let asking = try XCTUnwrap(list.workflows.first { $0.slug == SRDemoFixtures.questionSlug })
+        XCTAssertTrue(asking.hasQuestion)
+        let jokes = try JSONDecoder().decode(FlowDetail.self, from: get("api/native/workflows/\(SRDemoFixtures.questionSlug)"))
+        XCTAssertEqual(jokes.buildState, .asking("What time should the jokes stop?"))
+        let answered = SRDemoFixtures.reply(
+            method: "POST", url: URL(string: base + "api/native/workflows/\(SRDemoFixtures.questionSlug)/answer")!, body: nil
+        )
+        XCTAssertEqual(answered.status, 200)
         let detail = try JSONDecoder().decode(FlowDetail.self, from: get("api/native/workflows/morning-brief"))
         XCTAssertEqual(detail.steps.count, 7)
         XCTAssertTrue(FlowLayout.rows(for: detail.steps).contains { if case .branch = $0.kind { return true }; return false })
@@ -157,6 +165,99 @@ final class FlowsTests: XCTestCase {
         XCTAssertFalse(run.steps.isEmpty)
         let catalogue = try JSONDecoder().decode(FlowCatalogue.self, from: get("api/native/workflows/node-types"))
         XCTAssertFalse(catalogue.categories.isEmpty)
+    }
+
+    // MARK: - A build that stops to ask
+
+    func testADetailWaitingOnTheOwnerCarriesItsQuestion() throws {
+        let detail = try decode(FlowDetail.self, """
+        {"slug": "jokes", "title": "Jokes", "building": false, "buildError": null,
+         "question": "What time should the jokes stop?", "steps": []}
+        """)
+        XCTAssertEqual(detail.question, "What time should the jokes stop?")
+        XCTAssertFalse(detail.building)
+        XCTAssertEqual(detail.buildState, .asking("What time should the jokes stop?"))
+        XCTAssertFalse(detail.buildState.isWorking, "a question waits on a person, not on polling")
+    }
+
+    func testAnOlderServerWithoutTheFieldHasNoQuestion() throws {
+        let building = try decode(FlowDetail.self, #"{"slug": "a", "title": "A", "building": true}"#)
+        XCTAssertNil(building.question)
+        XCTAssertEqual(building.buildState, .building)
+        XCTAssertTrue(building.buildState.isWorking)
+
+        let done = try decode(FlowDetail.self, #"{"slug": "a", "title": "A", "building": false, "question": null}"#)
+        XCTAssertNil(done.question)
+        XCTAssertEqual(done.buildState, .ready)
+
+        // A blank or wrongly typed question is no question — and does not
+        // fail the whole detail.
+        let blank = try decode(FlowDetail.self, #"{"slug": "a", "building": false, "question": "  "}"#)
+        XCTAssertNil(blank.question)
+        let wrong = try decode(FlowDetail.self, #"{"slug": "a", "building": false, "question": 7}"#)
+        XCTAssertNil(wrong.question)
+        XCTAssertEqual(wrong.buildState, .ready)
+    }
+
+    func testTheListSaysWhichWorkflowsHaveAQuestion() throws {
+        let list = try decode(FlowList.self, """
+        {"workflows": [
+          {"slug": "q", "title": "Q", "needsAttention": true, "attentionReason": "jkai has a question"},
+          {"slug": "f", "title": "F", "needsAttention": true, "attentionReason": "Failed three times"},
+          {"slug": "n", "title": "N", "needsAttention": false, "attentionReason": null}
+        ]}
+        """)
+        XCTAssertEqual(list.workflows.map(\.hasQuestion), [true, false, false])
+        XCTAssertEqual(list.workflows[0].attentionReason, FlowQuestion.attentionReason)
+    }
+
+    func testAnAnswerAndASkipAreDifferentBodies() throws {
+        XCTAssertEqual(FlowAnswer(typed: "  At ten tonight \n"), .answer("At ten tonight"))
+        XCTAssertNil(FlowAnswer(typed: "   \n "), "nothing typed, nothing to send")
+        XCTAssertEqual(FlowAnswer.answer("At ten").body, ["answer": .string("At ten")])
+        XCTAssertEqual(FlowAnswer.skip.body, ["skip": .bool(true)])
+
+        // On the wire: exactly one key each, never both.
+        let answerJSON = try JSONEncoder().encode(JSONValue.object(FlowAnswer.answer("At ten").body))
+        let answerObject = try XCTUnwrap(JSONSerialization.jsonObject(with: answerJSON) as? [String: Any])
+        XCTAssertEqual(answerObject.keys.sorted(), ["answer"])
+        XCTAssertEqual(answerObject["answer"] as? String, "At ten")
+        let skipJSON = try JSONEncoder().encode(JSONValue.object(FlowAnswer.skip.body))
+        let skipObject = try XCTUnwrap(JSONSerialization.jsonObject(with: skipJSON) as? [String: Any])
+        XCTAssertEqual(skipObject.keys.sorted(), ["skip"])
+        XCTAssertEqual(skipObject["skip"] as? Bool, true)
+    }
+
+    func testBuildStatesFollowTheThreeFields() {
+        XCTAssertEqual(FlowBuildState(building: true, buildError: nil, question: nil), .building)
+        XCTAssertEqual(FlowBuildState(building: false, buildError: nil, question: nil), .ready)
+        XCTAssertEqual(FlowBuildState(building: false, buildError: nil, question: "When?"), .asking("When?"))
+        XCTAssertEqual(FlowBuildState(building: false, buildError: "Gave up", question: nil), .failed("Gave up"))
+        // A failure outranks a stale question; an empty error is no error.
+        XCTAssertEqual(FlowBuildState(building: false, buildError: "Gave up", question: "When?"), .failed("Gave up"))
+        XCTAssertEqual(FlowBuildState(building: true, buildError: "", question: nil), .building)
+        XCTAssertEqual(FlowBuildState.asking("When?").question, "When?")
+        XCTAssertNil(FlowBuildState.building.question)
+    }
+
+    func testAnsweringGoesBackToBuildingAndCanBeAskedAgain() throws {
+        var detail = try decode(FlowDetail.self, #"{"slug": "a", "building": false, "question": "When?"}"#)
+        XCTAssertEqual(detail.buildState, .asking("When?"))
+
+        // 202: straight back to building, so the poll starts again.
+        detail.markAnswered()
+        XCTAssertNil(detail.question)
+        XCTAssertEqual(detail.buildState, .building)
+        XCTAssertTrue(detail.buildState.isWorking)
+
+        // The next poll can bring a second question; answered, it builds on,
+        // and then it finishes.
+        var again = try decode(FlowDetail.self, #"{"slug": "a", "building": false, "question": "Weekends too?"}"#)
+        XCTAssertEqual(again.buildState, .asking("Weekends too?"))
+        again.markAnswered()
+        XCTAssertEqual(again.buildState, .building)
+        let finished = try decode(FlowDetail.self, #"{"slug": "a", "building": false, "question": null}"#)
+        XCTAssertEqual(finished.buildState, .ready)
     }
 
     // MARK: - Schedules
