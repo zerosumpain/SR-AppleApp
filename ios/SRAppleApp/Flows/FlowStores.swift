@@ -18,6 +18,34 @@ private func encodeBody(_ object: [String: JSONValue]) throws -> Data {
     try flowEncoder.encode(JSONValue.object(object))
 }
 
+/// What happened to an answer.
+enum FlowAnswerResult: Equatable {
+    /// 202: the build resumed.
+    case sent
+    /// 409: the build was not waiting on a question any more — answered from
+    /// the web, or it gave up. The caller reloads.
+    case stale
+    case failed(String)
+}
+
+/// One request, shared by the list's building row and the detail screen.
+@MainActor
+private func sendFlowAnswer(_ client: SiteClient, slug: String, _ answer: FlowAnswer) async -> FlowAnswerResult {
+    do {
+        try await client.call(
+            "api/native/workflows/\(slug)/answer", method: "POST", body: try encodeBody(answer.body)
+        )
+        SRHaptic.ok()
+        return .sent
+    } catch SiteError.status(let code, _) where code == 409 {
+        SRHaptic.bad()
+        return .stale
+    } catch {
+        SRHaptic.bad()
+        return .failed(error.localizedDescription)
+    }
+}
+
 // MARK: - The list
 
 @MainActor
@@ -28,6 +56,9 @@ final class FlowListStore: ObservableObject {
         let slug: String
         let title: String
         var error: String?
+        /// jkai stopped to ask the owner this. Answered from the row or the
+        /// detail; the watch carries on either way.
+        var question: String?
         var id: String { slug }
     }
 
@@ -52,8 +83,14 @@ final class FlowListStore: ObservableObject {
         }
     }
 
-    var attention: [FlowSummary] { filtered.filter(\.needsAttention) }
-    var rest: [FlowSummary] { filtered.filter { !$0.needsAttention } }
+    /// A workflow shown under Building is not listed twice.
+    private var listed: [FlowSummary] {
+        let pending = Set(building.map(\.slug))
+        return filtered.filter { !pending.contains($0.slug) }
+    }
+
+    var attention: [FlowSummary] { listed.filter(\.needsAttention) }
+    var rest: [FlowSummary] { listed.filter { !$0.needsAttention } }
 
     func load() async {
         guard !loading else { return }
@@ -158,23 +195,53 @@ final class FlowListStore: ObservableObject {
         building.removeAll { $0.slug == slug }
     }
 
+    /// Answer from the Building row. After a 202 the row goes back to
+    /// "building" and the watch picks up whatever comes next — the model may
+    /// ask again.
+    func answer(_ slug: String, _ reply: FlowAnswer) async -> FlowAnswerResult {
+        let result = await sendFlowAnswer(client, slug: slug, reply)
+        switch result {
+        case .sent:
+            setQuestion(slug, nil)
+            watch(slug)
+        case .stale:
+            setQuestion(slug, nil)
+            message = "jkai was not waiting on that any more — checking again."
+            watch(slug, soon: true)
+        case .failed(let text):
+            message = text
+        }
+        return result
+    }
+
     /// Poll the detail until the model has finished. Three seconds is the
-    /// scale a build takes (tens of seconds); faster would be chatter.
-    private func watch(_ slug: String) {
+    /// scale a build takes (tens of seconds); faster would be chatter. While
+    /// it waits on a question the poll slows right down — that wait is a
+    /// person, and the answer may come from the web or the detail screen.
+    private func watch(_ slug: String, soon: Bool = false) {
         polls[slug]?.cancel()
         polls[slug] = Task { [weak self] in
             var attempts = 0
-            while !Task.isCancelled, attempts < 200 {
+            var first = true
+            while !Task.isCancelled, attempts < 400 {
                 attempts += 1
-                try? await Task.sleep(for: .seconds(3))
+                let asking = self?.building.first(where: { $0.slug == slug })?.question != nil
+                let pause: Duration = first && soon ? .milliseconds(300) : (asking ? .seconds(15) : .seconds(3))
+                first = false
+                try? await Task.sleep(for: pause)
                 guard let self, !Task.isCancelled else { return }
                 do {
                     let detail: FlowDetail = try await self.client.send("api/native/workflows/\(slug)")
-                    if let error = detail.buildError {
+                    switch detail.buildState {
+                    case .failed(let error):
                         self.markFailed(slug, error)
                         return
-                    }
-                    if !detail.building {
+                    case .asking(let question):
+                        if self.building.first(where: { $0.slug == slug })?.question == nil { SRHaptic.select() }
+                        self.setQuestion(slug, question)
+                    case .building:
+                        self.setQuestion(slug, nil)
+                    case .ready:
                         self.building.removeAll { $0.slug == slug }
                         self.message = "“\(detail.title)” is ready."
                         SRHaptic.ok()
@@ -190,6 +257,12 @@ final class FlowListStore: ObservableObject {
                 }
             }
         }
+    }
+
+    private func setQuestion(_ slug: String, _ question: String?) {
+        guard let index = building.firstIndex(where: { $0.slug == slug }),
+              building[index].question != question else { return }
+        building[index].question = question
     }
 
     private func markFailed(_ slug: String, _ error: String) {
@@ -217,6 +290,7 @@ final class FlowDetailStore: ObservableObject {
     /// shown with buttons that cannot work.
     @Published private(set) var fixesUnavailable = false
     @Published private(set) var catalogue: FlowCatalogue?
+    @Published private(set) var answering = false
 
     private let client = SiteClient.shared
     private var buildPoll: Task<Void, Never>?
@@ -233,7 +307,7 @@ final class FlowDetailStore: ObservableObject {
         do {
             let fetched: FlowDetail = try await client.send("api/native/workflows/\(slug)")
             detail = fetched
-            if fetched.building { pollWhileBuilding() }
+            if fetched.buildState.isWorking { pollWhileBuilding() }
         } catch SiteError.expired {
             message = "This iPhone needs pairing again."
         } catch {
@@ -250,13 +324,38 @@ final class FlowDetailStore: ObservableObject {
                 let fetched: FlowDetail? = try? await self.client.send("api/native/workflows/\(self.slug)")
                 if let fetched {
                     self.detail = fetched
-                    if !fetched.building {
+                    // Stops on done, failed, OR a (new) question — nothing
+                    // moves until it is answered.
+                    if !fetched.buildState.isWorking {
+                        if fetched.question != nil { SRHaptic.select() }
                         self.buildPoll = nil
                         return
                     }
                 }
             }
         }
+    }
+
+    /// Answer jkai's question, or tell it to guess. A 202 puts the screen
+    /// straight back to "building" and polls until the model is done — or
+    /// asks again. A 409 means it was not waiting any more: reload.
+    func answer(_ reply: FlowAnswer) async -> FlowAnswerResult {
+        guard !answering else { return .failed("Already sending.") }
+        answering = true
+        defer { answering = false }
+        let result = await sendFlowAnswer(client, slug: slug, reply)
+        switch result {
+        case .sent:
+            detail?.markAnswered()
+            message = reply == .skip ? "Left to jkai — building." : "Sent — jkai is building."
+            pollWhileBuilding()
+        case .stale:
+            await load()
+            message = "jkai was not waiting on that any more — reloaded."
+        case .failed(let text):
+            message = text
+        }
+        return result
     }
 
     /// Apply ops against the version on screen.

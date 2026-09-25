@@ -24,8 +24,13 @@ struct FlowsScreen: View {
             if !store.building.isEmpty {
                 Section {
                     ForEach(store.building) { build in
-                        FlowBuildingRow(build: build) { store.dismissBuild(build.slug) }
-                            .srGlassRow()
+                        FlowBuildingRow(
+                            build: build,
+                            dismiss: { store.dismissBuild(build.slug) },
+                            open: { router.flows.append(FlowRef(slug: build.slug, title: build.title)) },
+                            answer: { reply in await store.answer(build.slug, reply) }
+                        )
+                        .srGlassRow()
                     }
                 } header: {
                     SRSectionLabel(text: "Building")
@@ -172,7 +177,7 @@ struct FlowRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: flow.trigger.kind.icon)
+            Image(systemName: flow.hasQuestion ? "questionmark.bubble.fill" : flow.trigger.kind.icon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(tone)
                 .frame(width: 34, height: 34)
@@ -240,12 +245,41 @@ enum FlowTone {
     }
 }
 
-/// A workflow jkai is still putting together.
+/// A workflow jkai is still putting together — or has stopped to ask about.
 struct FlowBuildingRow: View {
     let build: FlowListStore.PendingBuild
     let dismiss: () -> Void
+    var open: (() -> Void)? = nil
+    var answer: (@MainActor (FlowAnswer) async -> FlowAnswerResult)? = nil
 
     var body: some View {
+        if let question = build.question, build.error == nil, let answer {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(build.title)
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                FlowQuestionCard(question: question, sending: false, send: answer)
+                if let open {
+                    Button {
+                        SRHaptic.tap()
+                        open()
+                    } label: {
+                        Label("See the workflow so far", systemImage: "arrow.right.circle")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.accent)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("flow-building-open-\(build.slug)")
+                }
+            }
+            .padding(.vertical, 6)
+            .accessibilityIdentifier("flow-building-\(build.slug)")
+        } else {
+            progress
+        }
+    }
+
+    private var progress: some View {
         HStack(alignment: .top, spacing: 12) {
             if build.error == nil {
                 ProgressView().tint(SR.accent).frame(width: 34, height: 34)

@@ -414,11 +414,20 @@ struct FlowSummary: Decodable, Hashable, Identifiable {
     var needsAttention: Bool
     var attentionReason: String?
     var updatedAt: String?
+    /// Not in the list contract today — the list says only "jkai has a
+    /// question" — but read if a later server sends it.
+    var question: String?
 
     var id: String { slug }
 
+    /// A Describe-it build stopped to ask the owner something. The list
+    /// carries no `question` field, only the reason, so the reason is matched.
+    var hasQuestion: Bool {
+        question != nil || (needsAttention && attentionReason == FlowQuestion.attentionReason)
+    }
+
     enum CodingKeys: String, CodingKey {
-        case slug, title, description, trigger, nodeCount, lastRun, needsAttention, attentionReason, updatedAt
+        case slug, title, description, trigger, nodeCount, lastRun, needsAttention, attentionReason, updatedAt, question
     }
 
     init(from decoder: Decoder) throws {
@@ -435,6 +444,7 @@ struct FlowSummary: Decodable, Hashable, Identifiable {
         needsAttention = c.lenient(Bool.self, .needsAttention) ?? false
         attentionReason = c.lenient(String.self, .attentionReason)
         updatedAt = c.lenient(String.self, .updatedAt)
+        question = FlowQuestion.clean(c.lenient(String.self, .question))
     }
 }
 
@@ -691,13 +701,17 @@ struct FlowDetail: Decodable {
     var trigger: FlowTrigger
     var building: Bool
     var buildError: String?
+    /// Non-nil while a Describe-it build waits on the owner: the model asked
+    /// something it could not guess. `building` is false and `buildError` nil
+    /// meanwhile. Older servers omit the key.
+    var question: String?
     var steps: [FlowStep]
     var edges: [FlowEdge]
     var recentRuns: [FlowRunSummary]
     var fixProposals: [FlowFixProposal]
 
     enum CodingKeys: String, CodingKey {
-        case slug, title, description, version, trigger, building, buildError, steps, edges, recentRuns, fixProposals
+        case slug, title, description, version, trigger, building, buildError, question, steps, edges, recentRuns, fixProposals
     }
 
     init(from decoder: Decoder) throws {
@@ -709,6 +723,7 @@ struct FlowDetail: Decodable {
         trigger = c.lenient(FlowTrigger.self, .trigger) ?? .manual
         building = c.lenient(Bool.self, .building) ?? false
         buildError = c.lenient(String.self, .buildError)
+        question = FlowQuestion.clean(c.lenient(String.self, .question))
         steps = c.lossy(FlowStep.self, .steps)
         edges = c.lossy(FlowEdge.self, .edges)
         recentRuns = c.lossy(FlowRunSummary.self, .recentRuns)
@@ -716,6 +731,82 @@ struct FlowDetail: Decodable {
     }
 
     func step(_ id: String) -> FlowStep? { steps.first { $0.id == id } }
+
+    var buildState: FlowBuildState {
+        FlowBuildState(building: building, buildError: buildError, question: question)
+    }
+
+    /// The answer was accepted (202): the model is back at work. Applied on
+    /// the phone at once so the card goes before the next poll says so.
+    mutating func markAnswered() {
+        question = nil
+        buildError = nil
+        building = true
+    }
+}
+
+// MARK: - A build that stopped to ask
+
+/// Where a Describe-it build is, from the detail's three fields.
+enum FlowBuildState: Equatable {
+    case ready
+    case building
+    /// Waiting on the owner. Not building: nothing moves until they answer.
+    case asking(String)
+    case failed(String)
+
+    init(building: Bool, buildError: String?, question: String?) {
+        if let buildError, !buildError.isEmpty {
+            self = .failed(buildError)
+        } else if let question {
+            self = .asking(question)
+        } else if building {
+            self = .building
+        } else {
+            self = .ready
+        }
+    }
+
+    var question: String? {
+        if case .asking(let text) = self { return text }
+        return nil
+    }
+
+    /// Worth polling for: the model is working. A question is not — it waits
+    /// on a person, and the phone is the person.
+    var isWorking: Bool { self == .building }
+}
+
+enum FlowQuestion {
+    /// The list's reason for a workflow waiting on an answer — the contract's
+    /// exact words.
+    static let attentionReason = "jkai has a question"
+
+    /// A blank question is no question.
+    static func clean(_ raw: String?) -> String? {
+        guard let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+}
+
+/// `POST /api/native/workflows/:slug/answer` — an answer, or leave it to jkai.
+enum FlowAnswer: Equatable {
+    case answer(String)
+    case skip
+
+    /// From what was typed. Nil when there is nothing to send.
+    init?(typed: String) {
+        let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        self = .answer(text)
+    }
+
+    var body: [String: JSONValue] {
+        switch self {
+        case .answer(let text): return ["answer": .string(text)]
+        case .skip: return ["skip": .bool(true)]
+        }
+    }
 }
 
 // MARK: - Catalogue

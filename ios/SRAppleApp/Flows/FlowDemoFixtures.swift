@@ -4,8 +4,9 @@ import Foundation
 // MARK: - Demo workflows
 //
 // `-SRDemo` answers for `/api/native/workflows/*`. Synthetic throughout — the
-// repository is public. Five workflows, one needing attention with a fix
-// proposal waiting; the morning brief has a condition with two arms that meet
+// repository is public. Six workflows: one needing attention with a fix
+// proposal waiting, one whose Describe-it build stopped to ask the owner a
+// question; the morning brief has a condition with two arms that meet
 // again, so the steps list shows a branch.
 
 extension SRDemoFixtures {
@@ -40,6 +41,10 @@ extension SRDemoFixtures {
             return #"{"version": 1739201155, "outcomes": [{"op": "update_node", "summary": "updated node \"Write the brief\""}]}"#
         case ("POST", 2) where rest[1] == "ask":
             return flowProposal
+        case ("POST", 2) where rest[1] == "answer":
+            // The real one is a 202; the demo protocol answers 200, which the
+            // app treats the same.
+            return #"{"building": true}"#
         case ("GET", 2) where rest[1] == "fix-proposals":
             return rest[0] == "inbox-triage" ? "{\"proposals\": [\(triageFix(clock))]}" : "{\"proposals\": []}"
         case ("POST", 3) where rest[1] == "fix-proposals":
@@ -70,6 +75,11 @@ extension SRDemoFixtures {
 
     static func demoFlows(_ clock: DemoClock) -> [DemoFlow] {
         [
+            DemoFlow(slug: questionSlug, title: "Hourly jokes",
+                     description: nil,
+                     trigger: cronTrigger("0 * * * *", "Every hour, on the hour (Europe/London)", enabled: true, clock: clock, firstIn: 38),
+                     nodeCount: 2, lastStatus: nil, lastMinutesAgo: 0,
+                     attention: "jkai has a question", updatedMinutesAgo: 3),
             DemoFlow(slug: "inbox-triage", title: "Inbox triage",
                      description: nil,
                      trigger: #"{"kind": "gmail", "cron": null, "timezone": null, "enabled": true, "description": "When a new email arrives in the inbox", "nextRuns": []}"#,
@@ -129,6 +139,9 @@ extension SRDemoFixtures {
         ]
     }
 
+    static let questionSlug = "hourly-jokes"
+    static let demoQuestion = "What time should the jokes stop?"
+
     static let wholeConfigForm = #"[{"key": "$config", "label": "Configuration", "kind": "json", "advanced": false}]"#
 
     static func triageFix(_ clock: DemoClock) -> String {
@@ -156,6 +169,20 @@ extension SRDemoFixtures {
             // A blank one, as "New → Blank" would make it.
             return """
             {"slug": \(s(slug)), "title": "New workflow", "description": null, "version": 20512877, "trigger": {"kind": "manual", "enabled": true, "description": "When you start it", "nextRuns": []}, "building": false, "buildError": null, "steps": [{"id": "start", "type": "manual-trigger", "label": "Start", "category": "trigger", "icon": null, "summary": "When you start it", "config": {}, "form": \(wholeConfigForm), "next": [], "legacy": false}], "edges": [], "recentRuns": [], "fixProposals": []}
+            """
+        }
+        if slug == questionSlug {
+            // Mid-build, waiting on the owner: building false, no error, a
+            // question — and the two steps jkai had made before it asked.
+            return """
+            {"slug": \(s(flow.slug)), "title": \(s(flow.title)), "description": null, "version": 77120394, "trigger": \(flow.trigger), "building": false, "buildError": null,
+             "question": \(s(demoQuestion)),
+             "steps": [
+               {"id": "t", "type": "cron-trigger", "label": "Every hour", "category": "trigger", "icon": null, "summary": "On the hour", "config": {}, "form": \(wholeConfigForm), "next": [{"handle": null, "targetId": "joke"}], "legacy": false},
+               {"id": "joke", "type": "llm", "label": "Write a joke", "category": "ai", "icon": null, "summary": "One clean joke, under 30 words", "config": {"prompt": "Tell me one short, clean joke."}, "form": \(wholeConfigForm), "next": [], "legacy": false}
+             ],
+             "edges": [{"id": "e1", "source": "t", "target": "joke", "sourceHandle": null}],
+             "recentRuns": [], "fixProposals": []}
             """
         }
         let runs = list(demoRuns(slug: slug, clock: clock))

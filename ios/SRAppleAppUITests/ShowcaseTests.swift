@@ -247,6 +247,36 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// A Describe-it build that stopped to ask. The row says so in the list;
+    /// the detail leads with the question card.
+    @MainActor func testShowcaseFlowQuestion() {
+        let app = launch()
+        openTab(app, "Flows")
+        let row = byId(app, "flow-row-hourly-jokes")
+        settle(app, on: row)
+        attach(app, "Showcase — Flows with a question")
+        if row.exists {
+            row.tap()
+        } else {
+            soft(false, "no hourly-jokes row")
+        }
+        let card = byId(app, "flow-question")
+        settle(app, on: card)
+        soft(app.staticTexts["What time should the jokes stop?"].exists, "the question text did not draw")
+        attach(app, "Showcase — Flow question")
+
+        let field = byId(app, "flow-question-field")
+        if field.waitForExistence(timeout: 5) {
+            field.tap()
+            field.typeText("At ten tonight, and not at all on Sundays")
+            settle(app)
+            soft(byId(app, "flow-question-send").isEnabled, "Send stayed disabled with an answer typed")
+            attach(app, "Showcase — Flow question, answer typed")
+        } else {
+            soft(false, "no answer field")
+        }
+    }
+
     // MARK: - A connection needs you
 
     /// The demo has one lapsed Gmail, so the banner sits at the top of every
