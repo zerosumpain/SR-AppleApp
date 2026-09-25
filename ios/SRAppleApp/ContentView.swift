@@ -10,12 +10,13 @@ import CoreSpotlight
 /// write, which is what every one of those entry points needs.
 @MainActor
 final class Router: ObservableObject {
-    enum Tab: String, Hashable { case today, chat, health, news }
+    enum Tab: String, Hashable { case today, chat, health, news, flows }
 
     @Published var tab: Tab = .today
     @Published var chat = NavigationPath()
     @Published var health = NavigationPath()
     @Published var news = NavigationPath()
+    @Published var flows = NavigationPath()
     /// The one modal, whichever it currently is.
     ///
     /// NOT two `.sheet(isPresented:)` modifiers on the same view. SwiftUI
@@ -52,6 +53,7 @@ final class Router: ObservableObject {
         case .chat: chat = NavigationPath()
         case .health: health = NavigationPath()
         case .news: news = NavigationPath()
+        case .flows: flows = NavigationPath()
         case .today: break
         }
         self.tab = tab
@@ -120,6 +122,14 @@ struct ContentView: View {
             }
             .tabItem { Label("News", systemImage: "newspaper") }
             .tag(Router.Tab.news)
+
+            // The site's workflows: list, run, pause, edit a step, ask jkai to
+            // change one. A place you go back to, which is what earns a tab.
+            NavigationStack(path: $router.flows) {
+                paired(what: "your workflows") { FlowsScreen() }
+            }
+            .tabItem { Label("Flows", systemImage: "point.3.connected.trianglepath.dotted") }
+            .tag(Router.Tab.flows)
         }
         .tint(SR.accent)
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
