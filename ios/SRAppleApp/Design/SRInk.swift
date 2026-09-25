@@ -322,26 +322,32 @@ struct SRInkDonut: View {
     /// 0...1.
     let fraction: Double
     let score: String
+    /// The ring and the numeral, scaled together. Today's strip draws the
+    /// donut at half the size /health does, and a 34pt numeral in a 56pt ring
+    /// is a numeral with a ring round it.
+    var lineWidth: CGFloat = 10
+    var scoreSize: CGFloat = 34
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(SR.onInk(.track), lineWidth: 10)
+                .stroke(SR.onInk(.track), lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: max(0, min(1, fraction)))
                 .stroke(
                     AngularGradient(colors: [SR.accent, SR.accentOnDark, Color(hex: 0xF2B27A)], center: .center),
-                    style: StrokeStyle(lineWidth: 10, lineCap: .round)
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
             Text(score)
-                .font(SR.Text.hero(34))
+                .font(SR.Text.hero(scoreSize))
                 .foregroundStyle(SR.onInk(.primary))
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         // The stroke straddles the path, so half of it would sit outside the
         // frame without this.
-        .padding(5)
+        .padding(lineWidth / 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Readiness \(score)")
     }

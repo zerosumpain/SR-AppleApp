@@ -25,6 +25,28 @@ struct TodayAlerts: Decodable {
     }
 }
 
+extension TodayAlerts {
+    /// What the Today card lists: the newest few that have not been cleared.
+    ///
+    /// The inbox the app already holds is preferred — it is 25 deep, so a
+    /// cleared row makes room for the next one down instead of leaving the card
+    /// short. Today's own three are the fallback for the first paint, before
+    /// the inbox has answered.
+    static func rows(
+        recent: [SiteAlert],
+        latest: [Latest],
+        cleared: Set<String>,
+        limit: Int = 3
+    ) -> [Latest] {
+        let source = recent.isEmpty
+            ? latest
+            : recent.map {
+                Latest(id: $0.id, category: $0.category, title: $0.title, severity: $0.severity, createdAt: $0.createdAt)
+            }
+        return Array(source.filter { !cleared.contains($0.id) }.prefix(limit))
+    }
+}
+
 struct TodayNews: Decodable {
     let updatedAt: String?
     let unseen: Int
@@ -234,46 +256,20 @@ struct TodayScreen: View {
         }
     }
 
-    /// Readiness and today's figures on the smoked slab, the way /health opens.
-    /// The whole slab is one tap into the Health tab.
+    /// Readiness and today's figures on one short smoked strip. The detail —
+    /// the verdict's sentence, the sparklines, the movement — is a tap away on
+    /// the Health tab; the first screen only has to say how the body is doing.
     @ViewBuilder
     private func healthHero(_ health: TodayHealth) -> some View {
         Button {
             SRHaptic.tap()
             router.show(.health)
         } label: {
-            SRInkBand(kicker: "Health · Today", meta: updatedLine(health.generatedAt)) {
-                if let readiness = health.readiness {
-                    SRInkReadiness(readiness: readiness, donut: 96)
-                } else {
-                    Text(health.strap)
-                        .font(SR.Text.body(15))
-                        .foregroundStyle(SR.onInk(.note))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                SRTileGrid {
-                    ForEach(health.figures) { figure in
-                        InkFigureTile(figure: figure)
-                    }
-                }
-
-                if health.isMock {
-                    SRInkMockNote()
-                }
-
-                HStack(spacing: 6) {
-                    Text("OPEN HEALTH")
-                        .font(SR.Text.label())
-                        .tracking(SR.inkLabelTracking)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 10, weight: .bold))
-                }
-                .foregroundStyle(SR.accentOnDark)
-            }
+            TodayHealthStrip(health: health, updated: updatedLine(health.generatedAt))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("today-health")
+        .accessibilityHint("Opens Health")
     }
 
     private func updatedLine(_ iso: String) -> String? {
@@ -313,40 +309,56 @@ struct TodayScreen: View {
         .accessibilityIdentifier("today-ask")
     }
 
+    private var alertRows: [TodayAlerts.Latest] {
+        TodayAlerts.rows(
+            recent: alerts.recent,
+            latest: store.payload?.alerts?.latest ?? [],
+            cleared: alerts.clearedFromToday
+        )
+    }
+
+    /// The newest few alerts, each one tap into the inbox and one tap off this
+    /// card. Clearing is Today's alone — the Alerts screen keeps everything.
     private var alertsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(
-                text: "Alerts",
-                trailing: alerts.unread > 0 ? "\(alerts.unread) unread" : nil
-            )
+        let rows = alertRows
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                SRSectionLabel(
+                    text: "Alerts",
+                    trailing: alerts.unread > 0 ? "\(alerts.unread) unread" : nil
+                )
+                if !rows.isEmpty {
+                    Button {
+                        SRHaptic.select()
+                        // Everything the phone knows of, not just the rows on
+                        // show — otherwise the next three slide up and the card
+                        // looks as if the clear did not take.
+                        let ids = (store.payload?.alerts?.latest.map(\.id) ?? []) + alerts.recent.map(\.id)
+                        withAnimation(.snappy) { alerts.clearFromToday(ids) }
+                        // And the bell with it: a clear that left the badge up
+                        // would be half a clear.
+                        Task { await alerts.markAllRead() }
+                    } label: {
+                        Text("CLEAR ALL")
+                            .font(SR.Text.label())
+                            .tracking(1.2)
+                            .foregroundStyle(SR.accent)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear all alerts from Today")
+                    .accessibilityIdentifier("today-alerts-clear-all")
+                }
+            }
             .padding(.horizontal, 4)
 
-            Button {
-                SRHaptic.tap()
-                router.openAlerts()
-            } label: {
-                SRCard(interactive: true) {
-                    if let latest = store.payload?.alerts?.latest, !latest.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(latest) { row in
-                                HStack(alignment: .top, spacing: 10) {
-                                    Circle()
-                                        .fill(row.severity == "alert" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
-                                        .frame(width: 7, height: 7)
-                                        .padding(.top, 6)
-                                    Text(row.title)
-                                        .font(SR.Text.secondary(15))
-                                        .foregroundStyle(SR.ink)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                    Spacer(minLength: 6)
-                                    Text(shortAgo(row.createdAt))
-                                        .font(SR.Text.mono())
-                                        .foregroundStyle(SR.inkMuted)
-                                }
-                            }
-                        }
-                    } else {
+            SRCard {
+                if rows.isEmpty {
+                    Button {
+                        SRHaptic.tap()
+                        router.openAlerts()
+                    } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "bell.slash")
                                 .foregroundStyle(SR.inkMuted)
@@ -354,12 +366,75 @@ struct TodayScreen: View {
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)
                             Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(SR.inkGhost)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("No alerts. Open the inbox")
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(rows) { row in
+                            alertRow(row)
+                                .transition(.asymmetric(
+                                    insertion: .opacity,
+                                    removal: .opacity.combined(with: .move(edge: .trailing))
+                                ))
                         }
                     }
                 }
             }
-            .buttonStyle(.plain)
         }
+    }
+
+    private func alertRow(_ row: TodayAlerts.Latest) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            Button {
+                SRHaptic.tap()
+                router.openAlerts()
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    Circle()
+                        .fill(row.severity == "alert" || row.severity == "high" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 6)
+                    Text(row.title)
+                        .font(SR.Text.secondary(15))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 6)
+                    Text(shortAgo(row.createdAt))
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .padding(.top, 2)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(shortAgo(row.createdAt).isEmpty ? row.title : "\(row.title), \(shortAgo(row.createdAt)) ago")
+            .accessibilityHint("Opens the inbox")
+
+            Button {
+                SRHaptic.select()
+                withAnimation(.snappy) { alerts.clearFromToday([row.id]) }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(SR.inkMuted)
+                    // The mark is small so the row stays a row; the target
+                    // round it is not.
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Clear \(row.title) from Today")
+            .accessibilityIdentifier("today-alert-clear-\(row.id)")
+        }
+        .accessibilityElement(children: .contain)
     }
 
     /// Workflows that failed or are stuck. One tap to the Flows tab, where
@@ -546,5 +621,143 @@ struct QuickAction: View {
             .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 6, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Today's health, as one short strip.
+///
+/// It used to be /health's opening band whole — the 96pt donut on its own
+/// panel, the verdict's full sentence, a two-by-two of tiles and an "open
+/// health" line — and on a phone that was the whole first screen before
+/// anything the site had to say. The strip keeps the answer (the score, the
+/// verdict, the four figures and which way each is going) and leaves the
+/// reasoning on the Health tab, a tap away. Still smoked ink, so it still
+/// reads as the body's part of the page.
+struct TodayHealthStrip: View {
+    let health: TodayHealth
+    var updated: String? = nil
+
+    /// Four, in the server's order. The strip is two lines of two; a fifth
+    /// would be a third line for the sake of one number.
+    private var figures: [HealthFigure] { Array(health.figures.prefix(4)) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
+                if let readiness = health.readiness {
+                    SRInkDonut(
+                        fraction: readiness.score / 100,
+                        score: "\(Int(readiness.score.rounded()))",
+                        lineWidth: 6,
+                        scoreSize: 19
+                    )
+                    .frame(width: 54, height: 54)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(health.readiness == nil ? "HEALTH · TODAY" : "HEALTH · READINESS")
+                        .font(SR.Text.label())
+                        .tracking(SR.inkLabelTracking)
+                        .foregroundStyle(SR.accentOnDark)
+                        .lineLimit(1)
+                    if let readiness = health.readiness {
+                        Text(readiness.label.uppercased())
+                            .font(SR.Text.display(17))
+                            .foregroundStyle(SR.onInk(.primary))
+                            .lineLimit(2)
+                    } else {
+                        Text(health.strap)
+                            .font(SR.Text.body(15))
+                            .foregroundStyle(SR.onInk(.note))
+                            .lineLimit(2)
+                    }
+                    if let updated {
+                        Text(updated.uppercased())
+                            .font(SR.Text.mono())
+                            .tracking(1)
+                            .foregroundStyle(SR.onInk(.unit))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(SR.accentOnDark)
+            }
+
+            if !figures.isEmpty {
+                Rectangle()
+                    .fill(SR.onInk(.hairline))
+                    .frame(height: 1)
+                SRTileGrid {
+                    ForEach(figures) { figure in
+                        figureCell(figure)
+                    }
+                }
+            }
+
+            if health.isMock {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(SR.accentOnDark)
+                    Text("Demonstration data, not a measurement.")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.onInk(.note))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background {
+            SRGrain(opacity: 0.05)
+                .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        }
+        .srGlassCard(.ink, radius: SR.Glass.radius)
+        .environment(\.colorScheme, .dark)
+        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        .padding(.horizontal, SR.Glass.bandInset)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Label on the left, value on the right, one line: a figure and its
+    /// direction, without the tile round it.
+    private func figureCell(_ figure: HealthFigure) -> some View {
+        let value = figure.inkValue
+        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(figure.label.uppercased())
+                .font(SR.Text.label())
+                .tracking(1)
+                .foregroundStyle(SR.onInk(.label))
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            Text(value.value)
+                .font(SR.Text.figure(17))
+                .foregroundStyle(SR.onInk(.primary))
+                .lineLimit(1)
+                .fixedSize()
+            if let unit = value.unit {
+                Text(unit)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.onInk(.unit))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            if figure.deltaDisplay != nil, let improving = figure.improving {
+                Image(systemName: figure.direction == "down" ? "arrow.down.right" : "arrow.up.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(improving ? SR.goodOnDark : SR.accentOnDark)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(figure.label): \(figure.displayWithUnit)"
+            + (figure.deltaDisplay.map { ", \($0)" } ?? "")
+            + (figure.improving == nil ? "" : figure.improving! ? ", improving" : ", worse")
+        )
     }
 }

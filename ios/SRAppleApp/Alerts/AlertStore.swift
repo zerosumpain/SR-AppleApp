@@ -38,8 +38,27 @@ final class AlertStore: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var permission: UNAuthorizationStatus = .notDetermined
     @Published var message: String?
+    /// Alerts swept off the Today card, by id.
+    ///
+    /// Kept on the phone, not the site: the site's inbox is a ledger — it can
+    /// mark things read, and there is nothing to delete — and the Alerts screen
+    /// stays the whole record. What this remembers is only that the owner has
+    /// seen these and does not want them on the first screen any more. A new
+    /// alert has a new id, so it arrives on Today whatever was cleared before.
+    @Published private(set) var clearedFromToday: Set<String>
 
     private let client = SiteClient.shared
+    private let defaults: UserDefaults
+
+    static let clearedKey = "today-cleared-alerts"
+    /// Enough to outlast the inbox the phone asks for (60), with room over; the
+    /// oldest ids fall off first, and by then their alerts have too.
+    static let clearedCap = 200
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        clearedFromToday = Set(defaults.stringArray(forKey: Self.clearedKey) ?? [])
+    }
 
     // MARK: - Reading
 
@@ -116,6 +135,26 @@ final class AlertStore: ObservableObject {
             "api/native/notifications",
             body: try JSONSerialization.data(withJSONObject: ["readAll": true])
         )
+    }
+
+    // MARK: - Clearing Today
+
+    /// Take alerts off the Today card. Local only — see `clearedFromToday`.
+    func clearFromToday(_ ids: [String]) {
+        var fresh: [String] = []
+        for id in ids where !clearedFromToday.contains(id) && !fresh.contains(id) {
+            fresh.append(id)
+        }
+        guard !fresh.isEmpty else { return }
+        clearedFromToday.formUnion(fresh)
+        // Stored oldest first so the cap trims from the front.
+        var order = defaults.stringArray(forKey: Self.clearedKey) ?? []
+        order.append(contentsOf: fresh)
+        if order.count > Self.clearedCap {
+            order.removeFirst(order.count - Self.clearedCap)
+            clearedFromToday = Set(order)
+        }
+        defaults.set(order, forKey: Self.clearedKey)
     }
 
     // MARK: - Raising
