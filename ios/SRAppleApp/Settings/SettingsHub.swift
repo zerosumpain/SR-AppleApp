@@ -20,6 +20,7 @@ struct SettingsScreen: View {
     @ObservedObject var battery: BatteryMonitor
     @ObservedObject var site: SitePairingModel
     @ObservedObject var alerts: AlertStore
+    @ObservedObject var connections: ConnectionsStore
     /// Where something else wanted this sheet to open. A "Connect" button three
     /// screens away should land on the pairing screen, not on the hub.
     let target: Router.SettingsTarget?
@@ -34,10 +35,7 @@ struct SettingsScreen: View {
             List {
                 Section {
                     link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
-                    link(.connections, "Connections", site.paired && companion.paired
-                         ? "Both connected"
-                         : site.paired ? "Website connected" : companion.paired ? "Companion connected" : "Not connected",
-                         "qrcode")
+                    link(.connections, "Connections", connectionsSubtitle, "qrcode")
                 } header: {
                     SRSectionLabel(text: "The app")
                 }
@@ -71,7 +69,7 @@ struct SettingsScreen: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .notifications: AlertRoutingScreen(alerts: alerts)
-                case .connections: ConnectionsScreen(companion: companion, site: site)
+                case .connections: ConnectionsScreen(companion: companion, site: site, connections: connections)
                 case .health: AppleHealthScreen(outbox: outbox, companion: companion, location: location)
                 case .location: LocationSettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
                 case .log: ActivityLogScreen(outbox: outbox)
@@ -91,6 +89,17 @@ struct SettingsScreen: View {
             case .none: break
             }
         }
+    }
+
+    /// A lapsed site connection outranks the pairing summary: it is the thing
+    /// the reader came here to fix.
+    private var connectionsSubtitle: String {
+        if connections.count > 0 {
+            return connections.count == 1 ? "A site connection needs you" : "\(connections.count) site connections need you"
+        }
+        return site.paired && companion.paired
+            ? "Both connected"
+            : site.paired ? "Website connected" : companion.paired ? "Companion connected" : "Not connected"
     }
 
     private var draft: String {
@@ -116,6 +125,7 @@ struct SettingsScreen: View {
 struct ConnectionsScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var site: SitePairingModel
+    @ObservedObject var connections: ConnectionsStore
 
     @State private var scanningSite = false
     @State private var scannedSite: SitePairing?
@@ -133,6 +143,14 @@ struct ConnectionsScreen: View {
 
     var body: some View {
         List {
+            // MARK: What the site holds
+            //
+            // First, because when it is not empty it is why the reader is here.
+            // Only once the site is paired: without that, the phone cannot know.
+            if site.paired {
+                SiteConnectionsSection(store: connections)
+            }
+
             // MARK: Website
             Section {
                 if site.paired {
@@ -234,7 +252,10 @@ struct ConnectionsScreen: View {
         .srPaper()
         .navigationTitle("Connections")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await site.check() }
+        .task {
+            await site.check()
+            await connections.refresh()
+        }
         .sheet(isPresented: $scanningSite, onDismiss: { confirmSite = scannedSite != nil }) {
             PairingScanner { value in
                 do { scannedSite = try SitePairing.parse(value) }

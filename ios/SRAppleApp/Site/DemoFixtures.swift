@@ -144,6 +144,8 @@ enum SRDemoFixtures {
             return #"{"ok":true,"favourite":true}"#
         case ("GET", "api/native/notifications"):
             return alertFeed(clock)
+        case ("GET", "api/native/connections"):
+            return connectionsFeed(clock)
         case ("POST", "api/native/notifications"):
             return #"{"ok":true}"#
         case ("GET", "api/native/notifications/routes"):
@@ -341,7 +343,8 @@ enum SRDemoFixtures {
           },
           "alerts": {"pending": 0, "unread": 2, "latest": \(list(alerts))},
           "news": {"updatedAt": \(s(clock.iso(minutesAgo: 6))), "unseen": 5, "stories": \(list(stories))},
-          "lastThread": {"id": \(s(thread.id)), "title": \(s(thread.title)), "updatedAt": \(s(clock.iso(minutesAgo: thread.minutesAgo)))}
+          "lastThread": {"id": \(s(thread.id)), "title": \(s(thread.title)), "updatedAt": \(s(clock.iso(minutesAgo: thread.minutesAgo)))},
+          "connections": \(todayConnections(clock))
         }
         """
     }

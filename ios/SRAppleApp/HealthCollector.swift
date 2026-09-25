@@ -145,6 +145,7 @@ private final class RouteGathering: @unchecked Sendable {
                     guard !self.alerting else { return }
                     self.alerting = true
                     await AlertStore.backgroundPass()
+                    await ConnectionsStore.backgroundPass(outbox: self.outbox)
                     self.alerting = false
                 }
             }

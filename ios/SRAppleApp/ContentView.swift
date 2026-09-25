@@ -33,7 +33,7 @@ final class Router: ObservableObject {
     /// Files handed in from another app — "Open in SR" on a Share sheet.
     @Published var pendingFiles: [URL] = []
 
-    enum Sheet: String, Identifiable { case settings, alerts; var id: String { rawValue } }
+    enum Sheet: String, Identifiable { case settings, alerts, connections; var id: String { rawValue } }
     enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
 
     func openSettings(_ target: SettingsTarget? = nil) {
@@ -42,6 +42,10 @@ final class Router: ObservableObject {
     }
 
     func openAlerts() { sheet = .alerts }
+
+    /// Every site connection that needs the owner — the banner's chevron, and
+    /// a tapped "connections" notification.
+    func openConnections() { sheet = .connections }
 
     /// Go to a tab and clear whatever was stacked on it.
     ///
@@ -95,31 +99,46 @@ struct ContentView: View {
     @StateObject private var site = SitePairingModel()
     @StateObject private var router = Router()
     @StateObject private var alerts = AlertStore()
+    @StateObject private var connections: ConnectionsStore
     @Environment(\.scenePhase) private var scenePhase
+
+    init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
+        self.companion = companion
+        self.outbox = outbox
+        self.location = location
+        self.battery = battery
+        // Seeded from the state file, so a lapsed connection is on screen from
+        // the first frame rather than after the first request.
+        _connections = StateObject(wrappedValue: ConnectionsStore(outbox: outbox))
+    }
 
     var body: some View {
         TabView(selection: tabBinding) {
             NavigationStack {
                 TodayScreen(companion: companion, alerts: alerts, site: site)
             }
+            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Today", systemImage: "square.grid.2x2") }
             .tag(Router.Tab.today)
 
             NavigationStack(path: $router.chat) {
                 paired(what: "your threads") { ThreadListScreen() }
             }
+            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
             .tag(Router.Tab.chat)
 
             NavigationStack(path: $router.health) {
                 HealthScreen(companion: companion)
             }
+            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Health", systemImage: "heart.text.square") }
             .tag(Router.Tab.health)
 
             NavigationStack(path: $router.news) {
                 paired(what: "the news desk") { NewsScreen() }
             }
+            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("News", systemImage: "newspaper") }
             .tag(Router.Tab.news)
 
@@ -128,6 +147,7 @@ struct ContentView: View {
             NavigationStack(path: $router.flows) {
                 paired(what: "your workflows") { FlowsScreen() }
             }
+            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Flows", systemImage: "point.3.connected.trianglepath.dotted") }
             .tag(Router.Tab.flows)
         }
@@ -138,19 +158,30 @@ struct ContentView: View {
         .preferredColorScheme(.light)
         .environmentObject(router)
         .environmentObject(alerts)
+        .environmentObject(connections)
         .task {
             // Anything a quick action, a notification tap or a Shortcut left
             // waiting before there was a router to receive it.
             drainPending()
             await site.check()
             await alerts.refresh()
+            await connections.refresh()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             // A quick action taken while the app was merely backgrounded never
             // goes through `task`, which runs once per view lifetime.
             drainPending()
-            Task { await alerts.refresh() }
+            Task {
+                await alerts.refresh()
+                // Back from Safari after pressing Fix is the commonest way in
+                // here, and the banner should go the moment the site agrees.
+                await connections.refresh()
+            }
+        }
+        // Disconnecting the site clears its connections; connecting fetches them.
+        .onChange(of: site.paired) { _, _ in
+            Task { await connections.refresh() }
         }
         // A thread opened from Spotlight. The index carries the conversation id
         // as the item identifier, so this is a push rather than a search.
@@ -181,10 +212,13 @@ struct ContentView: View {
                     battery: battery,
                     site: site,
                     alerts: alerts,
+                    connections: connections,
                     target: router.settingsTarget
                 )
             case .alerts:
                 NavigationStack { AlertsScreen(alerts: alerts) }
+            case .connections:
+                ConnectionsSheet(store: connections)
             }
         }
     }
@@ -194,6 +228,10 @@ struct ContentView: View {
         if AppDelegate.pending.openAlerts {
             AppDelegate.pending.openAlerts = false
             router.openAlerts()
+        }
+        if AppDelegate.pending.openConnections {
+            AppDelegate.pending.openConnections = false
+            router.openConnections()
         }
     }
 

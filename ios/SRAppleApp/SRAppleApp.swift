@@ -41,6 +41,9 @@ import UIKit
                     // the whole budget.
                     await companion.sync(collectingFor: 15)
                     await AlertStore.backgroundPass()
+                    // And whether a site connection has lapsed, for the badge
+                    // and the banner the next launch opens on.
+                    await ConnectionsStore.backgroundPass(outbox: companion.outbox)
                     task.setTaskCompleted(success: companion.queueCount == 0)
                 }
                 task.expirationHandler = { work.cancel() }
@@ -112,11 +115,20 @@ import UIKit
     }
 
     /// A tapped notification goes to the tab that owns its category.
+    ///
+    /// Except a lapsed connection, which opens the list of them with Fix on
+    /// each, over whichever tab was open: the inbox would be one tap further
+    /// from the only thing the reader can do about it.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        switch response.notification.request.content.categoryIdentifier {
+        let category = response.notification.request.content.categoryIdentifier
+        if category == "connections" {
+            Self.pending.openConnections = true
+            return
+        }
+        switch category {
         case "health": Self.pending.tab = .health
         case "chat": Self.pending.tab = .chat
         case "news": Self.pending.tab = .news
@@ -135,6 +147,7 @@ import UIKit
 @MainActor final class PendingEntry {
     var tab: Router.Tab?
     var openAlerts = false
+    var openConnections = false
     /// A question handed in by Siri or a Shortcut. Put in the composer, never
     /// sent: a turn sent from a locked phone is a turn you cannot see go wrong.
     var question: String?

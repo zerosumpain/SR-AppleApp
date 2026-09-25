@@ -16,7 +16,12 @@ struct SiteAlert: Decodable, Identifiable, Hashable {
     let createdAt: String
     var read: Bool
 
-    var isAlert: Bool { severity == "alert" }
+    /// `alert` is the notification ledger's loudest level; `high` is what the
+    /// connection monitor sends for a lapsed authorisation. Both are raised at
+    /// the loudest level this app is allowed.
+    var isAlert: Bool { severity == "alert" || severity == "high" }
+    /// A site connection (Gmail, a calendar…) that needs re-authorising.
+    var isConnections: Bool { category == "connections" }
     var isWarning: Bool { severity == "warn" }
 
     /// The SF Symbol for the category. A notification list where every row has
@@ -30,6 +35,7 @@ struct SiteAlert: Decodable, Identifiable, Hashable {
         case "uptime": return "wave.3.right"
         case "intel": return "sparkle.magnifyingglass"
         case "news": return "newspaper.fill"
+        case "connections": return "key.slash"
         default: return "bell.fill"
         }
     }

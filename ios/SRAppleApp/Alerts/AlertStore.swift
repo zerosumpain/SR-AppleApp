@@ -157,7 +157,9 @@ final class AlertStore: ObservableObject {
             content.title = alert.title
             content.body = alert.body
             content.sound = .default
-            content.threadIdentifier = alert.category
+            // Connections get a thread of their own, so a lapsed Gmail never
+            // stacks under a pile of health nudges in Notification Centre.
+            content.threadIdentifier = alert.isConnections ? "connections" : alert.category
             content.categoryIdentifier = alert.category
             // Graded, and deliberately not upward. `.timeSensitive` and
             // `.critical` both need entitlements this profile does not carry, so
@@ -165,8 +167,18 @@ final class AlertStore: ObservableObject {
             // something to find later, not something to break a Focus for. An
             // alert-severity row keeps the default level, which is as loud as
             // this app is allowed to be.
-            content.interruptionLevel = alert.isAlert ? .active : .passive
-            if let url = alert.url { content.userInfo = ["url": url, "id": alert.id] }
+            //
+            // A connection that needs re-authorising is always `.active`,
+            // whatever severity it arrived with: it is the one alert that stops
+            // something working until the owner acts. And it ranks first in a
+            // notification summary — the most this app can do short of
+            // `.timeSensitive`, which it cannot have.
+            let loud = alert.isAlert || alert.isConnections
+            content.interruptionLevel = loud ? .active : .passive
+            content.relevanceScore = alert.isConnections ? 1 : (loud ? 0.8 : 0.2)
+            var info: [String: String] = ["id": alert.id, "category": alert.category]
+            if let url = alert.url { info["url"] = url }
+            content.userInfo = info
             // nil trigger means "as soon as this returns". The alert is already
             // late by however long iOS sat on the refresh; scheduling it further
             // out would be adding to that.
@@ -192,8 +204,10 @@ final class AlertStore: ObservableObject {
     /// `setBadgeCount` rather than the deprecated `applicationIconBadgeNumber`,
     /// and it is allowed to fail silently — a badge is the least important thing
     /// on this screen and its permission is bundled with the alert permission.
+    ///
+    /// Through `AppBadge`, which adds the connections needing the owner.
     private func refreshBadge() async {
-        try? await UNUserNotificationCenter.current().setBadgeCount(max(unread, 0))
+        await AppBadge.update(unread: unread)
     }
 
     /// One background pass: collect, raise, acknowledge.
@@ -206,7 +220,7 @@ final class AlertStore: ObservableObject {
         do {
             let feed: AlertFeed = try await SiteClient.shared.send("api/native/notifications?limit=20&inbox=1")
             await AlertStore().raise(feed.pending)
-            try? await UNUserNotificationCenter.current().setBadgeCount(feed.unread)
+            await AppBadge.update(unread: feed.unread)
         } catch {
             return
         }
