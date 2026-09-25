@@ -116,6 +116,10 @@ struct PersistedState: Codable {
     /// only a bucket whose value moved is queued again. Holds exactly the
     /// buckets the last pass read, so it prunes itself to that window.
     var hourlySent: [String: [String: Double]] = [:]
+    /// The site's connections that last needed the owner (a lapsed Gmail and
+    /// the like), so the banner is up before the first request of a launch.
+    /// Belongs to the SITE pairing, not the companion one — see `clear()`.
+    var connections: ConnectionsSnapshot?
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -150,6 +154,9 @@ struct PersistedState: Codable {
         hourlyFrom = try c.decodeIfPresent([String: Date].self, forKey: .hourlyFrom) ?? [:]
         pendingRoutes = try c.decodeIfPresent([String: Date].self, forKey: .pendingRoutes) ?? [:]
         hourlySent = try c.decodeIfPresent([String: [String: Double]].self, forKey: .hourlySent) ?? [:]
+        // `try?` as well as `IfPresent`: this is a cache of a server answer,
+        // and a shape it cannot read must cost the cache, never the queue.
+        connections = (try? c.decodeIfPresent(ConnectionsSnapshot.self, forKey: .connections)) ?? nil
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`
@@ -205,7 +212,9 @@ let outboxFullMessage = "Offline queue is full. Connect and sync before collecti
         try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         dirty = false
     }
-    func clear() throws { try change { $0 = PersistedState() } }
+    /// Resets the COMPANION's state. The site's connection cache is kept: it
+    /// belongs to the other pairing, which disconnecting this one must not touch.
+    func clear() throws { try change { let kept = $0.connections; $0 = PersistedState(); $0.connections = kept } }
 }
 
 /// Upload cadence is separate from Core Location's sensor/update frequency.

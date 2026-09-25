@@ -247,6 +247,46 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    // MARK: - A connection needs you
+
+    /// The demo has one lapsed Gmail, so the banner sits at the top of every
+    /// tab. Today and Flows are photographed on purpose: one scrolls a page,
+    /// the other a searchable list, and the inline title must still paint
+    /// under the banner in both.
+    @MainActor func testShowcaseConnectionsBanner() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let banner = byId(app, "connections-banner")
+        settle(app, on: banner)
+        attach(app, "Showcase — Connection banner on Today")
+
+        openTab(app, "Flows")
+        settle(app, on: byId(app, "flow-row-morning-brief"))
+        soft(banner.exists, "no banner on Flows")
+        attach(app, "Showcase — Connection banner on Flows")
+
+        let details = byId(app, "connections-banner-details")
+        if details.waitForExistence(timeout: 5) {
+            details.tap()
+            settle(app, on: byId(app, "connection-gmail:2"))
+            attach(app, "Showcase — Connections needing you")
+            let done = byId(app, "connections-sheet-done")
+            if done.waitForExistence(timeout: 5) { done.tap() }
+            settle(app)
+        } else {
+            soft(false, "no banner details button")
+        }
+
+        let collapse = byId(app, "connections-banner-collapse")
+        if collapse.waitForExistence(timeout: 5) {
+            collapse.tap()
+            settle(app, on: byId(app, "connections-banner-expand"))
+            attach(app, "Showcase — Connection banner, made smaller")
+        } else {
+            soft(false, "no collapse button")
+        }
+    }
+
     // MARK: - Settings
 
     @MainActor func testShowcaseSettings() {
@@ -266,6 +306,18 @@ final class ShowcaseTests: XCTestCase {
             notifications.tap()
             settle(app)
             attach(app, "Showcase — Settings, where alerts go")
+            let back = app.navigationBars.buttons.element(boundBy: 0)
+            if back.exists { back.tap() }
+            settle(app)
+        }
+
+        let connections = app.buttons["settings-connections"]
+        if connections.waitForExistence(timeout: 5) {
+            connections.tap()
+            settle(app, on: byId(app, "connection-gmail:2"))
+            attach(app, "Showcase — Settings, site connections that need you")
+        } else {
+            soft(false, "no Connections row in Settings")
         }
     }
 

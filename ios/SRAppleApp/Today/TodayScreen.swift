@@ -53,6 +53,9 @@ struct TodayPayload: Decodable {
     let alerts: TodayAlerts?
     let news: TodayNews?
     let lastThread: TodayThread?
+    /// Site connections needing the owner. Absent on a server older than the
+    /// connection monitor, which decodes as nil and means nothing to show.
+    let connections: TodayConnections?
 }
 
 /// The first screen's data, in one request.
@@ -111,6 +114,7 @@ struct TodayScreen: View {
     /// nudge, and the first paint must not wait on the workflow list.
     @StateObject private var flows = FlowAttentionStore()
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var connections: ConnectionsStore
 
     var body: some View {
         ScrollView {
@@ -150,6 +154,7 @@ struct TodayScreen: View {
         .srRefreshable {
             await store.load(fresh: true)
             await alerts.refresh()
+            await connections.refresh()
             await flows.load()
             if companion.paired { await companion.sync() }
         }
@@ -169,6 +174,7 @@ struct TodayScreen: View {
         }
         .task {
             await store.load()
+            await connections.reconcile(with: store.payload?.connections)
             await flows.load()
         }
         .overlay(alignment: .bottom) {
