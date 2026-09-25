@@ -19,14 +19,15 @@ final class ConnectionsTests: XCTestCase {
     func testTheFeedDecodes() throws {
         let feed = try decode(ConnectionsFeed.self, """
         {"needsAttention": [
-          {"id": "google:gmail", "label": "Gmail", "group": "Google", "status": "expired",
+          {"id": "gmail:2", "label": "Gmail", "group": "Google", "status": "auth_expired",
            "detail": "Token expired", "fixHint": "Sign in again",
            "fixUrl": "https://strangeramblings.com/admin/connections", "since": "2026-09-24T08:00:00.000Z"},
-          {"id": "cal", "label": "Calendar", "group": "Google", "status": "error",
+          {"id": "cal", "label": "Calendar", "group": "Google", "status": "broken",
            "detail": "Failing", "fixHint": null, "fixUrl": "https://strangeramblings.com/x", "since": null}
         ], "checkedAt": "2026-09-25T08:00:00Z"}
         """)
-        XCTAssertEqual(feed.needsAttention.map(\.id), ["google:gmail", "cal"])
+        XCTAssertEqual(feed.needsAttention.map(\.id), ["gmail:2", "cal"])
+        XCTAssertEqual(feed.needsAttention[0].status, "auth_expired")
         let gmail = feed.needsAttention[0]
         XCTAssertEqual(gmail.state, .needsReauth)
         XCTAssertEqual(gmail.headline, "Gmail needs re-authorising")
@@ -80,6 +81,18 @@ final class ConnectionsTests: XCTestCase {
         XCTAssertNil(payload.connections)
     }
 
+    func testANullCheckedAtStillStampsTheSnapshot() throws {
+        let feed = try decode(ConnectionsFeed.self, #"{"needsAttention": [], "checkedAt": null}"#)
+        XCTAssertNil(feed.checkedAt)
+        XCTAssertNotNil(ConnectionsStore.snapshot(of: feed).checkedAt, "falls back to now")
+    }
+
+    func testTodayWithNullConnectionsIsUnknown() throws {
+        // The server's read failed: null, which must NOT read as "all fixed".
+        let payload = try decode(TodayPayload.self, #"{"generatedAt": "2026-09-25T08:00:00Z", "connections": null}"#)
+        XCTAssertNil(payload.connections)
+    }
+
     func testTodayWithConnectionsDecodes() throws {
         let payload = try decode(TodayPayload.self, """
         {"generatedAt": "2026-09-25T08:00:00Z",
@@ -127,6 +140,15 @@ final class ConnectionsTests: XCTestCase {
     }
 
     // MARK: - Notifications
+
+    func testAnAlertSeverityIsLoud() throws {
+        let alert = try decode(SiteAlert.self, """
+        {"id": "n2", "category": "connections", "title": "Gmail needs re-authorising", "body": "Tap to fix",
+         "url": null, "severity": "alert", "createdAt": "2026-09-25T08:00:00Z", "read": false}
+        """)
+        XCTAssertTrue(alert.isConnections)
+        XCTAssertTrue(alert.isAlert)
+    }
 
     func testAConnectionsAlertIsLoud() throws {
         let alert = try decode(SiteAlert.self, """

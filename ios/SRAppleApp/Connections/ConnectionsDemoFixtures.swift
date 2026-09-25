@@ -11,7 +11,7 @@ extension SRDemoFixtures {
 
     static func demoConnectionItem(_ clock: DemoClock) -> String {
         """
-        {"id": "google:gmail", "label": "Gmail", "group": "Google", "status": "expired",
+        {"id": "gmail:2", "label": "Gmail", "group": "Google", "status": "auth_expired",
          "detail": "Google stopped accepting the site's sign-in, so mail steps are paused.",
          "fixHint": "Sign in to Google again from the site. It takes about a minute.",
          "fixUrl": "https://strangeramblings.com/admin/connections",

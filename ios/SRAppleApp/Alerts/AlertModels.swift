@@ -16,9 +16,10 @@ struct SiteAlert: Decodable, Identifiable, Hashable {
     let createdAt: String
     var read: Bool
 
-    /// `alert` is the notification ledger's loudest level; `high` is what the
-    /// connection monitor sends for a lapsed authorisation. Both are raised at
-    /// the loudest level this app is allowed.
+    /// `alert` is the notification ledger's loudest level — and what SR-Main's
+    /// connection monitor sends for a lapsed authorisation. `high` is accepted
+    /// too, in case a producer ever uses it. Raised at the loudest level this
+    /// app is allowed.
     var isAlert: Bool { severity == "alert" || severity == "high" }
     /// A site connection (Gmail, a calendar…) that needs re-authorising.
     var isConnections: Bool { category == "connections" }

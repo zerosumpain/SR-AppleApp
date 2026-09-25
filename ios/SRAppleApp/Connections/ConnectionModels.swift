@@ -110,11 +110,13 @@ enum ConnectionStatus: Equatable {
     init(_ raw: String) {
         let key = raw.lowercased().replacingOccurrences(of: "-", with: "_")
         switch key {
-        case "expired", "revoked", "reauth", "needs_reauth", "reauthorise", "reauthorize",
+        // `auth_expired` and `broken` are what SR-Main's monitor sends (#947);
+        // the rest are tolerated so a vocabulary change degrades gracefully.
+        case "auth_expired", "expired", "revoked", "reauth", "needs_reauth", "reauthorise", "reauthorize",
              "needs_reauthorisation", "needs_reauthorization", "unauthorised", "unauthorized",
              "invalid_grant", "disconnected", "missing", "not_connected":
             self = .needsReauth
-        case "error", "failing", "failed", "degraded", "down":
+        case "broken", "error", "failing", "failed", "degraded", "down":
             self = .failing
         default:
             self = .other(raw)

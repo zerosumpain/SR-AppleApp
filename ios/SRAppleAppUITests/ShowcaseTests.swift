@@ -268,7 +268,7 @@ final class ShowcaseTests: XCTestCase {
         let details = byId(app, "connections-banner-details")
         if details.waitForExistence(timeout: 5) {
             details.tap()
-            settle(app, on: byId(app, "connection-google:gmail"))
+            settle(app, on: byId(app, "connection-gmail:2"))
             attach(app, "Showcase — Connections needing you")
             let done = byId(app, "connections-sheet-done")
             if done.waitForExistence(timeout: 5) { done.tap() }
@@ -314,7 +314,7 @@ final class ShowcaseTests: XCTestCase {
         let connections = app.buttons["settings-connections"]
         if connections.waitForExistence(timeout: 5) {
             connections.tap()
-            settle(app, on: byId(app, "connection-google:gmail"))
+            settle(app, on: byId(app, "connection-gmail:2"))
             attach(app, "Showcase — Settings, site connections that need you")
         } else {
             soft(false, "no Connections row in Settings")
