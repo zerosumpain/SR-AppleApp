@@ -30,6 +30,19 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Today, scrolled")
     }
 
+    /// The daydream loop's Noticed card, under the health slab.
+    @MainActor func testShowcaseTodayNoticed() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        settle(app, on: app.staticTexts["Primed"])
+        // The SECOND note's actions: scrolled to those, the whole card is up,
+        // not just the first row's.
+        let last = app.buttons.matching(identifier: "noticed-useful").element(boundBy: 1)
+        soft(scroll(app, to: last), "no Noticed card on Today")
+        settle(app)
+        attach(app, "Showcase — Today, noticed")
+    }
+
     // MARK: - Chat
 
     @MainActor func testShowcaseChatList() {
@@ -106,6 +119,17 @@ final class ShowcaseTests: XCTestCase {
         app.swipeUp()
         settle(app)
         attach(app, "Showcase — Health, scrolled further")
+    }
+
+    /// The health notes, under "The read".
+    @MainActor func testShowcaseHealthNoticed() {
+        let app = launch()
+        openTab(app, "Health")
+        settle(app, on: app.staticTexts["Primed"])
+        let useful = app.buttons.matching(identifier: "noticed-useful").firstMatch
+        soft(scroll(app, to: useful), "no Noticed section on Health")
+        settle(app)
+        attach(app, "Showcase — Health, noticed")
     }
 
     @MainActor func testShowcaseActivityDetail() {

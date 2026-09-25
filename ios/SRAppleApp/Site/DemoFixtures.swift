@@ -116,6 +116,10 @@ enum SRDemoFixtures {
             return nil
         case ("GET", "api/native/today"):
             return today(clock)
+        case ("GET", "api/native/daydream"):
+            return daydreamFeed(scope: query["scope"], limit: Int(query["limit"] ?? "") ?? 5, clock: clock)
+        case ("POST", "api/native/daydream/feedback"):
+            return #"{"ok":true}"#
         case ("GET", "api/native/health/summary"):
             return healthSummary(clock)
         case ("GET", "api/native/health/hub"):
@@ -344,7 +348,8 @@ enum SRDemoFixtures {
           "alerts": {"pending": 0, "unread": 2, "latest": \(list(alerts))},
           "news": {"updatedAt": \(s(clock.iso(minutesAgo: 6))), "unseen": 5, "stories": \(list(stories))},
           "lastThread": {"id": \(s(thread.id)), "title": \(s(thread.title)), "updatedAt": \(s(clock.iso(minutesAgo: thread.minutesAgo)))},
-          "connections": \(todayConnections(clock))
+          "connections": \(todayConnections(clock)),
+          "daydream": \(todayDaydream(clock))
         }
         """
     }

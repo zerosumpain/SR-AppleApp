@@ -27,6 +27,8 @@ struct HealthScreen: View {
     @StateObject private var heart = HeartTimelineStore()
     /// The latest few activities. The full history is its own screen.
     @StateObject private var recent = ActivitiesStore(pageSize: 5)
+    /// What the daydream loop noticed about health. Silent when it fails.
+    @StateObject private var noticed = HealthNoticedStore()
     @EnvironmentObject private var router: Router
 
     var body: some View {
@@ -37,6 +39,7 @@ struct HealthScreen: View {
                 // The ink band: readiness and today's figures, /health's hero.
                 HealthHero(summary: summary).srInkRow()
                 if let digest = hub.hub { readSection(digest) }
+                noticedSection
                 heartSection
                 if let digest = hub.hub { attentionSections(digest) }
                 recentActivities
@@ -84,7 +87,8 @@ struct HealthScreen: View {
             async let summary: Void = store.load(fresh: true)
             async let deep: Void = hub.load(fresh: true)
             async let heartRate: Void = heart.load(companion: companion)
-            _ = await (summary, deep, heartRate)
+            async let notes: Void = noticed.load()
+            _ = await (summary, deep, heartRate, notes)
             await recent.load()
             try? await companion.refresh()
         }
@@ -119,7 +123,8 @@ struct HealthScreen: View {
             await store.load()
             async let deep: Void = hub.load()
             async let heartRate: Void = heart.load(companion: companion)
-            _ = await (deep, heartRate)
+            async let notes: Void = noticed.load()
+            _ = await (deep, heartRate, notes)
             if recent.rows.isEmpty { await recent.load() }
         }
     }
@@ -240,6 +245,24 @@ struct HealthScreen: View {
                 if let plan = digest.plan { HubPlanCard(plan: plan).srBareRow() }
             } header: {
                 SRSectionLabel(text: "The read")
+            }
+        }
+    }
+
+    // MARK: - Noticed
+
+    /// The daydream loop's health notes, under the read: the read is what
+    /// /health concludes, these are what the loop noticed beside it. No
+    /// header over nothing, and never an error card — see `HealthNoticedStore`.
+    @ViewBuilder
+    private var noticedSection: some View {
+        if !noticed.notes.isEmpty {
+            Section {
+                ForEach(noticed.notes) { note in
+                    NoticedNoteRow(note: note).srGlassRow()
+                }
+            } header: {
+                SRSectionLabel(text: "Noticed")
             }
         }
     }

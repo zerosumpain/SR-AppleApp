@@ -56,6 +56,10 @@ struct TodayPayload: Decodable {
     /// Site connections needing the owner. Absent on a server older than the
     /// connection monitor, which decodes as nil and means nothing to show.
     let connections: TodayConnections?
+    /// The daydream loop's latest notes. Absent on a server older than the
+    /// loop — the synthesised decoder reads a missing key as nil, and
+    /// `DaydreamFeed` never throws, so a malformed block costs only the card.
+    let daydream: DaydreamFeed?
 }
 
 /// The first screen's data, in one request.
@@ -125,6 +129,13 @@ struct TodayScreen: View {
 
                 if site.paired, let health = store.payload?.health {
                     healthHero(health)
+                }
+
+                // What the daydream loop noticed, straight under the body's
+                // numbers: the notes are the part of Today that is an opinion.
+                if site.paired, let notes = store.payload?.daydream?.notes, !notes.isEmpty {
+                    NoticedCard(notes: notes)
+                        .padding(.horizontal, SR.gutter)
                 }
 
                 VStack(alignment: .leading, spacing: 22) {
