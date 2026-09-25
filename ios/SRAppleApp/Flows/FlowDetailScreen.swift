@@ -57,7 +57,10 @@ struct FlowDetailScreen: View {
         .navigationTitle(store.detail?.title ?? ref.title)
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable { await store.load() }
-        .task { if store.detail == nil { await store.load() } }
+        .task {
+            if store.detail == nil { await store.load() }
+            if store.detail?.trigger.kind == .event { await store.loadEventTypes() }
+        }
         .overlay {
             if store.loading && store.detail == nil { ProgressView().tint(SR.accent) }
         }
@@ -175,11 +178,18 @@ struct FlowDetailScreen: View {
     @ViewBuilder
     private func triggerSection(_ detail: FlowDetail) -> some View {
         Section {
-            Button { SRHaptic.tap(); sheet = .trigger } label: {
-                FlowTriggerCard(trigger: detail.trigger)
+            if detail.trigger.isEditableOnPhone {
+                Button { SRHaptic.tap(); sheet = .trigger } label: {
+                    FlowTriggerCard(trigger: detail.trigger, eventLabel: nil, editable: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("flow-trigger")
+            } else {
+                // Read-only: `PUT /trigger` takes manual or a schedule only,
+                // so an event, webhook or inbox trigger is set on the web.
+                FlowTriggerCard(trigger: detail.trigger, eventLabel: store.eventLabel(detail.trigger.eventType), editable: false)
+                    .accessibilityIdentifier("flow-trigger")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("flow-trigger")
 
             if detail.trigger.kind == .cron {
                 Toggle(isOn: Binding<Bool>(
@@ -353,6 +363,8 @@ struct FlowDetailScreen: View {
 
 struct FlowTriggerCard: View {
     let trigger: FlowTrigger
+    var eventLabel: String? = nil
+    var editable: Bool = true
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -366,10 +378,26 @@ struct FlowTriggerCard: View {
                     .font(SR.Text.label())
                     .tracking(1.2)
                     .foregroundStyle(SR.inkMuted)
-                Text(trigger.description.isEmpty ? "Runs when you start it." : trigger.description)
+                Text(trigger.headline(eventLabel: eventLabel))
                     .font(SR.Text.title(16))
                     .foregroundStyle(SR.ink)
                     .fixedSize(horizontal: false, vertical: true)
+                if !trigger.filter.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(trigger.filter, id: \.self) { clause in
+                            Text("ONLY IF " + clause.sentence)
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkSecondary)
+                        }
+                    }
+                }
+                if !editable {
+                    Text(trigger.kind == .event && !trigger.enabled
+                         ? "Off. Change what starts it on the web canvas."
+                         : "Change what starts it on the web canvas.")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
+                }
                 if trigger.kind == .cron && !trigger.enabled {
                     Text("Paused — nothing runs on schedule.")
                         .font(SR.Text.secondary(13))
@@ -386,10 +414,12 @@ struct FlowTriggerCard: View {
                 }
             }
             Spacer(minLength: 6)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(SR.inkGhost)
-                .padding(.top, 10)
+            if editable {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(SR.inkGhost)
+                    .padding(.top, 10)
+            }
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
@@ -474,7 +504,7 @@ struct FlowRunRow: View {
                 .foregroundStyle(FlowTone.color(run.state))
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
-                Text(run.status.capitalized + (run.trigger.map { " · \($0)" } ?? ""))
+                Text(flowStatusLabel(run.status) + (run.trigger.map { " · \($0)" } ?? ""))
                     .font(SR.Text.bodyMedium(15))
                     .foregroundStyle(SR.ink)
                 if let error = run.error {

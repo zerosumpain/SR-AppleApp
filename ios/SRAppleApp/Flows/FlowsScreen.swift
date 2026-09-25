@@ -224,10 +224,7 @@ struct FlowRow: View {
 
     private var tone: Color { flow.needsAttention ? SR.error : SR.accentInk }
 
-    private var triggerLine: String {
-        let text = flow.trigger.description.isEmpty ? flow.trigger.kind.label : flow.trigger.description
-        return text
-    }
+    private var triggerLine: String { flow.trigger.headline() }
 }
 
 enum FlowTone {
@@ -235,6 +232,7 @@ enum FlowTone {
         switch state {
         case .running: return SR.accentInk
         case .succeeded: return SR.good
+        case .partial: return SR.warn
         case .failed: return SR.error
         case .waiting: return SR.warn
         case .other: return SR.inkGhost

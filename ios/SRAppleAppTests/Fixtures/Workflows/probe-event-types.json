@@ -1,0 +1,188 @@
+{
+ "eventTypes": [
+  {
+   "type": "workflow.completed",
+   "label": "A workflow finished",
+   "description": "Another workflow completed (with or without node errors). Pin a source canvas to follow one workflow.",
+   "source": "run-finalise",
+   "payloadExample": {
+    "workflowId": "wf_…",
+    "runId": "run_…",
+    "status": "completed"
+   },
+   "filterKeys": [
+    "workflowId",
+    "runId",
+    "status"
+   ]
+  },
+  {
+   "type": "notification.raised",
+   "label": "A notification was raised",
+   "description": "The site raised an owner notification (after the ledger row is written). A workflow never re-triggers itself off its own notifications.",
+   "source": "notifyOwner",
+   "payloadExample": {
+    "id": "uuid",
+    "category": "build",
+    "title": "Build shipped",
+    "body": "PR #123 merged",
+    "severity": "info",
+    "url": "/jkai/builds",
+    "whatsapp": true,
+    "native": true
+   },
+   "filterKeys": [
+    "id",
+    "category",
+    "title",
+    "body",
+    "severity",
+    "url",
+    "whatsapp",
+    "native"
+   ]
+  },
+  {
+   "type": "whatsapp.inbound",
+   "label": "WhatsApp message from you",
+   "description": "You sent the site a WhatsApp message. Filter on text, e.g. text contains \"lights\".",
+   "source": "WhatsApp inbound",
+   "payloadExample": {
+    "from": "+44…",
+    "text": "lights off downstairs"
+   },
+   "filterKeys": [
+    "from",
+    "text"
+   ]
+  },
+  {
+   "type": "gmail.inbound",
+   "label": "Email arrived on a watch",
+   "description": "A Gmail watch saw a new message. Filter on from, subject or watchLabel.",
+   "source": "Gmail watcher",
+   "payloadExample": {
+    "accountEmail": "me@example.com",
+    "watchLabel": "Inbox",
+    "from": "someone@example.com",
+    "subject": "Invoice",
+    "snippet": "Please find attached…",
+    "messageId": "18f…",
+    "threadId": "18f…"
+   },
+   "filterKeys": [
+    "accountEmail",
+    "watchLabel",
+    "from",
+    "subject",
+    "snippet",
+    "messageId",
+    "threadId"
+   ]
+  },
+  {
+   "type": "news.item",
+   "label": "New stories on the news desk",
+   "description": "The desk stored stories it had never seen. One event per gather, carrying every new story, not one event per story.",
+   "source": "news desk",
+   "payloadExample": {
+    "count": 2,
+    "sources": [
+     "hn"
+    ],
+    "titles": "Story one | Story two",
+    "items": [
+     {
+      "key": "hn:1",
+      "source": "hn",
+      "title": "Story one",
+      "url": "https://…",
+      "domain": "example.com"
+     }
+    ]
+   },
+   "filterKeys": [
+    "count",
+    "sources",
+    "titles",
+    "items"
+   ]
+  },
+  {
+   "type": "intel.alert",
+   "label": "High-significance intel alert",
+   "description": "The intelligence engine raised a high-significance alert inside your scope.",
+   "source": "intel engine",
+   "payloadExample": {
+    "alertId": "uuid",
+    "noteId": "uuid",
+    "type": "risk_change",
+    "title": "Risk moved",
+    "content": "…"
+   },
+   "filterKeys": [
+    "alertId",
+    "noteId",
+    "type",
+    "title",
+    "content"
+   ]
+  },
+  {
+   "type": "health.summary_changed",
+   "label": "Health figures moved",
+   "description": "The health watcher saw your headline figures change (checked every 15 minutes).",
+   "source": "health watcher",
+   "payloadExample": {
+    "fingerprint": "a1b2…",
+    "title": "Readiness 72 · Good",
+    "body": "Recovery: 64% (was 58%) ↑",
+    "readiness": 72
+   },
+   "filterKeys": [
+    "fingerprint",
+    "title",
+    "body",
+    "readiness"
+   ]
+  },
+  {
+   "type": "alexa.utterance",
+   "label": "Something was said to Alexa",
+   "description": "A new utterance reached the voice log (synced every 5 minutes). Filter on command, device or room.",
+   "source": "Alexa voice log",
+   "payloadExample": {
+    "id": "event.kitchen_voice_event|…",
+    "device": "Kitchen Echo",
+    "room": "Kitchen",
+    "command": "turn on the lights",
+    "reply": "OK",
+    "person": "John",
+    "occurredAt": "2026-09-25T07:00:00.000Z"
+   },
+   "filterKeys": [
+    "id",
+    "device",
+    "room",
+    "command",
+    "reply",
+    "person",
+    "occurredAt"
+   ]
+  },
+  {
+   "type": "whoop_recovery_updated",
+   "label": "Whoop recovery synced",
+   "description": "A health sync stored new Whoop recovery records.",
+   "source": "health sync",
+   "payloadExample": {
+    "recordsSynced": 1,
+    "syncedAt": "2026-09-25T07:00:00.000Z"
+   },
+   "filterKeys": [
+    "recordsSynced",
+    "syncedAt"
+   ]
+  }
+ ]
+}

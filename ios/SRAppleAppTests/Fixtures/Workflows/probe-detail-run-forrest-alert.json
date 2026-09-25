@@ -1,0 +1,365 @@
+{
+ "slug": "run-forrest-alert",
+ "title": "Every 5 minutes, checks John's GPS speed via Life360. If speed exceeds 10 km/h (running), sends a WhatsApp message saying \"run forrest 🏃\".",
+ "description": null,
+ "version": 494437582,
+ "trigger": {
+  "kind": "manual",
+  "cron": null,
+  "timezone": null,
+  "enabled": true,
+  "description": "Runs when you start it",
+  "nextRuns": [],
+  "eventType": null,
+  "filter": []
+ },
+ "building": false,
+ "buildError": null,
+ "steps": [
+  {
+   "id": "30087a4c-a9c9-404c-b2f1-39acfa1467d3",
+   "type": "trigger",
+   "label": "Trigger",
+   "category": "trigger-flow",
+   "icon": null,
+   "summary": "Manual trigger",
+   "config": {
+    "kind": "manual"
+   },
+   "form": [
+    {
+     "key": "kind",
+     "label": "Kind",
+     "kind": "text",
+     "advanced": false,
+     "help": "manual | cron | webhook | event"
+    },
+    {
+     "key": "cron",
+     "label": "Cron",
+     "kind": "text",
+     "advanced": false,
+     "help": "Cron expression (5-field). Only used when kind=cron."
+    },
+    {
+     "key": "eventType",
+     "label": "Event type",
+     "kind": "text",
+     "advanced": false,
+     "help": "Platform event to listen for — a $lib/events/catalogue type, e.g. workflow.completed, whatsapp.inbound, news.item. The event payload arrives as {{input.event.<key>}}."
+    },
+    {
+     "key": "filter",
+     "label": "Filter",
+     "kind": "json",
+     "advanced": false,
+     "help": "Optional payload filter, all must match: [{ key: top-level payload field, op: \"equals\" | \"contains\", value }]."
+    },
+    {
+     "key": "sourceWorkflowId",
+     "label": "Source workflow id",
+     "kind": "text",
+     "advanced": false,
+     "help": "Only fire when this specific workflow emits the event (optional)."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "home-assistant-6148b755-1"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "home-assistant-6148b755-1",
+   "type": "home-assistant",
+   "label": "Get John's location & speed",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Read state of device_tracker.life360_john_home",
+   "config": {
+    "entityId": "device_tracker.life360_john_home",
+    "operation": "query_state",
+    "description": "Query Life360 device tracker to get GPS coordinates and speed attribute for John's phone."
+   },
+   "form": [
+    {
+     "key": "operation",
+     "label": "Operation",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "query_state",
+       "label": "Query State"
+      },
+      {
+       "value": "call_service",
+       "label": "Call Service"
+      },
+      {
+       "value": "fire_event",
+       "label": "Fire Event"
+      },
+      {
+       "value": "get_history",
+       "label": "Get History"
+      },
+      {
+       "value": "render_template",
+       "label": "Render Template"
+      }
+     ]
+    },
+    {
+     "key": "entityId",
+     "label": "Entity ID",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "light.living_room_ceiling"
+    },
+    {
+     "key": "domain",
+     "label": "Domain",
+     "kind": "text",
+     "advanced": true,
+     "placeholder": "light"
+    },
+    {
+     "key": "service",
+     "label": "Service",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "turn_on"
+    },
+    {
+     "key": "serviceData",
+     "label": "Service Data (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "placeholder": "{\"brightness\": 128}"
+    },
+    {
+     "key": "eventType",
+     "label": "Event Type",
+     "kind": "text",
+     "advanced": true,
+     "placeholder": "custom_event"
+    },
+    {
+     "key": "eventData",
+     "label": "Event Data (JSON)",
+     "kind": "textarea",
+     "advanced": true
+    },
+    {
+     "key": "historyStart",
+     "label": "History Start",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "2026-04-14T00:00:00Z"
+    },
+    {
+     "key": "historyEnd",
+     "label": "History End",
+     "kind": "template",
+     "advanced": true
+    },
+    {
+     "key": "template",
+     "label": "Template (Jinja2)",
+     "kind": "code",
+     "advanced": true,
+     "placeholder": "{{ states(\"light.living_room\") }}"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "conditional-6148b755-2"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "conditional-6148b755-2",
+   "type": "conditional",
+   "label": "Speed > 10 km/h?",
+   "category": "trigger-flow",
+   "icon": null,
+   "summary": "If: input.data && input.data.attributes && typeof input.data.attributes.s…",
+   "config": {
+    "expression": "input.data && input.data.attributes && typeof input.data.attributes.speed === 'number' && input.data.attributes.speed > 10",
+    "description": "Check if the speed attribute from Life360 exceeds 10 km/h, indicating John is running."
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Condition",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "input.value > 10",
+     "help": "A yes/no test. If it is true, the workflow goes down the \"true\" branch; otherwise the \"false\" branch. Access upstream data with input.field."
+    }
+   ],
+   "next": [
+    {
+     "handle": "true",
+     "targetId": "whatsapp-6148b755-3"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "whatsapp-6148b755-3",
+   "type": "whatsapp",
+   "label": "WhatsApp \"run forrest\"",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Send WhatsApp to +440000000000: run forrest 🏃",
+   "config": {
+    "to": "+440000000000",
+    "message": "run forrest 🏃",
+    "description": "Send the \"run forrest\" message to John's phone when his speed exceeds the running threshold."
+   },
+   "form": [
+    {
+     "key": "to",
+     "label": "Recipient Phone Number",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "+440000000000 or {{input.phone}}",
+     "help": "Phone number in E.164 format (include country code). Supports {{input.field}} templates."
+    },
+    {
+     "key": "message",
+     "label": "Message",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Hi {{input.name}}, your report is ready.",
+     "help": "Text to send. Supports {{input.field}} templates. Markdown is converted to WhatsApp formatting when enabled."
+    },
+    {
+     "key": "formatMarkdown",
+     "label": "Convert Markdown",
+     "kind": "toggle",
+     "advanced": false,
+     "help": "**bold** → *bold*, ## headings → bold lines, [links](url) → text (url), - bullets → •.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "maxChunks",
+     "label": "Max chunks",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "help": "Split long messages (>4096 chars) into at most this many sends. 0 = no cap.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "suppressDuplicateWindowMins",
+     "label": "Suppress duplicates (mins)",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "help": "Skip an identical message to the same recipient within this many minutes. 0 = off.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "category",
+     "label": "Category (owner only)",
+     "kind": "dropdown",
+     "advanced": true,
+     "options": [
+      {
+       "value": "health",
+       "label": "Health"
+      },
+      {
+       "value": "chat",
+       "label": "jkai"
+      },
+      {
+       "value": "build",
+       "label": "Builds"
+      },
+      {
+       "value": "deploy",
+       "label": "Deploys"
+      },
+      {
+       "value": "uptime",
+       "label": "Uptime"
+      },
+      {
+       "value": "intel",
+       "label": "Intel"
+      },
+      {
+       "value": "news",
+       "label": "News"
+      },
+      {
+       "value": "system",
+       "label": "Everything else"
+      }
+     ],
+     "help": "When the recipient is you, the message is routed by this notification category (WhatsApp and/or iPhone). Default: Everything else.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "mediaPath",
+     "label": "Media file path",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "/path/to/file.png or {{input.filePath}}",
+     "help": "Local file to send as an attachment. Requires the WhatsApp worker.",
+     "section": "MEDIA"
+    },
+    {
+     "key": "mediaUrl",
+     "label": "Media URL",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "https://…/image.png",
+     "help": "URL to download and send as an attachment.",
+     "section": "MEDIA"
+    },
+    {
+     "key": "caption",
+     "label": "Media caption",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "Optional caption",
+     "help": "Caption for the attachment. Falls back to the message text.",
+     "section": "MEDIA"
+    }
+   ],
+   "next": [],
+   "legacy": false
+  }
+ ],
+ "edges": [
+  {
+   "id": "edge-6148b755-4",
+   "source": "home-assistant-6148b755-1",
+   "target": "conditional-6148b755-2",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-6148b755-5",
+   "source": "conditional-6148b755-2",
+   "target": "whatsapp-6148b755-3",
+   "sourceHandle": "true"
+  },
+  {
+   "id": "ca934ff7-1859-4816-8ba8-2439bcd64d62",
+   "source": "30087a4c-a9c9-404c-b2f1-39acfa1467d3",
+   "target": "home-assistant-6148b755-1",
+   "sourceHandle": null
+  }
+ ],
+ "recentRuns": [],
+ "fixProposals": []
+}

@@ -20,6 +20,8 @@ extension SRDemoFixtures {
             return #"{"slug": "demo-new", "building": false}"#
         case ("GET", 1) where rest[0] == "node-types":
             return flowCatalogue
+        case ("GET", 1) where rest[0] == "event-types":
+            return #"{"eventTypes": [{"type": "alexa.utterance", "label": "Something was said to Alexa", "description": "A voice request heard by an Echo.", "source": "alexa", "payloadExample": {"text": "turn on the garden lights"}, "filterKeys": ["text", "device"]}]}"#
         case ("GET", 1):
             return flowDetail(slug: rest[0], clock: clock)
         case ("PATCH", 1):
@@ -83,7 +85,7 @@ extension SRDemoFixtures {
                      nodeCount: 4, lastStatus: "completed", lastMinutesAgo: 60 * 24 * 5, attention: nil, updatedMinutesAgo: 60 * 24 * 2),
             DemoFlow(slug: "garden-lights", title: "Garden lights at dusk",
                      description: nil,
-                     trigger: #"{"kind": "webhook", "cron": null, "timezone": null, "enabled": true, "description": "When the sunset webhook is called", "nextRuns": []}"#,
+                     trigger: #"{"kind": "event", "cron": null, "timezone": null, "enabled": true, "description": "Runs on: Something was said to Alexa, where text contains \"garden\"", "nextRuns": [], "eventType": "alexa.utterance", "filter": [{"key": "text", "op": "contains", "value": "garden"}]}"#,
                      nodeCount: 3, lastStatus: "completed", lastMinutesAgo: 60 * 20, attention: nil, updatedMinutesAgo: 60 * 24 * 9),
             DemoFlow(slug: "share-a-run", title: "Share a run",
                      description: nil,

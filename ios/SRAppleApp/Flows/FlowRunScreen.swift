@@ -61,7 +61,7 @@ struct FlowRunScreen: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(FlowTone.color(run.state))
                 }
-                Text(run.status.capitalized)
+                Text(flowStatusLabel(run.status))
                     .font(SR.Text.display(20))
                     .foregroundStyle(SR.ink)
                 Spacer()
@@ -153,7 +153,7 @@ struct FlowRunStepRow: View {
     }
 
     private var meta: String {
-        var parts = [step.status.uppercased()]
+        var parts = [flowStatusLabel(step.status).uppercased()]
         if !step.type.isEmpty { parts.append(step.type) }
         if let rows = step.rows { parts.append("\(rows) row\(rows == 1 ? "" : "s")") }
         return parts.joined(separator: " · ")

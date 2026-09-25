@@ -1,0 +1,11 @@
+{
+ "summary": "Rename the conditional node label from 'Speed > 10 km/h?' to 'Faster than 10 km/h?'.",
+ "ops": [
+  {
+   "op": "update_node",
+   "nodeId": "conditional-6148b755-2",
+   "label": "Faster than 10 km/h?"
+  }
+ ],
+ "warnings": []
+}

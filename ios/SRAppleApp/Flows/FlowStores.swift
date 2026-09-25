@@ -407,6 +407,21 @@ final class FlowDetailStore: ObservableObject {
         )
     }
 
+    @Published private(set) var eventTypes: [FlowEventType] = []
+
+    /// The catalogue's label for an event type, once `/event-types` has
+    /// answered. Only fetched for a workflow that has an event trigger.
+    func eventLabel(_ type: String?) -> String? {
+        guard let type else { return nil }
+        return eventTypes.first { $0.type == type }?.label
+    }
+
+    func loadEventTypes() async {
+        guard eventTypes.isEmpty else { return }
+        let fetched: FlowEventTypes? = try? await client.send("api/native/workflows/event-types")
+        eventTypes = fetched?.eventTypes ?? []
+    }
+
     func loadCatalogue() async {
         guard catalogue == nil else { return }
         do {

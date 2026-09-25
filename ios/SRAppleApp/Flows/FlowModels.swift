@@ -191,17 +191,23 @@ struct FlowTrigger: Decodable, Hashable {
     var enabled: Bool
     var description: String
     var nextRuns: [String]
+    /// `event` triggers only: the catalogue type (`/event-types`) it listens for.
+    var eventType: String?
+    /// `event` triggers only: every clause must hold for the run to start.
+    var filter: [FlowEventFilter]
 
-    enum CodingKeys: String, CodingKey { case kind, cron, timezone, enabled, description, nextRuns }
+    enum CodingKeys: String, CodingKey { case kind, cron, timezone, enabled, description, nextRuns, eventType, filter }
 
     init(kind: FlowTriggerKind, cron: String? = nil, timezone: String? = nil, enabled: Bool = true,
-         description: String = "", nextRuns: [String] = []) {
+         description: String = "", nextRuns: [String] = [], eventType: String? = nil, filter: [FlowEventFilter] = []) {
         self.kind = kind
         self.cron = cron
         self.timezone = timezone
         self.enabled = enabled
         self.description = description
         self.nextRuns = nextRuns
+        self.eventType = eventType
+        self.filter = filter
     }
 
     init(from decoder: Decoder) throws {
@@ -212,9 +218,98 @@ struct FlowTrigger: Decodable, Hashable {
         enabled = c.lenient(Bool.self, .enabled) ?? true
         description = c.lenient(String.self, .description) ?? ""
         nextRuns = c.lossy(String.self, .nextRuns)
+        eventType = c.lenient(String.self, .eventType)
+        filter = c.lossy(FlowEventFilter.self, .filter)
     }
 
     static let manual = FlowTrigger(kind: .manual)
+
+    /// The phone can only set manual or a schedule (`PUT /trigger` refuses
+    /// the rest), so anything else is shown and not offered for editing.
+    var isEditableOnPhone: Bool { kind == .manual || kind == .cron }
+
+    /// The line a list row or card leads with.
+    ///
+    /// An event trigger reads "When <what happened>", using the catalogue's
+    /// label when the caller has it, else the server's "Runs on: <label>".
+    func headline(eventLabel: String? = nil) -> String {
+        if kind == .event {
+            let prefix = "Runs on: "
+            let label = eventLabel
+                ?? (description.hasPrefix(prefix) ? String(description.dropFirst(prefix.count)).components(separatedBy: ", where ").first : nil)
+            if let label, !label.isEmpty { return "When " + Self.lowerFirst(label) }
+            if let eventType { return "When \(eventType) happens" }
+            return description.isEmpty ? "When an event arrives" : description
+        }
+        return description.isEmpty ? kind.label : description
+    }
+
+    /// "A workflow finished" → "a workflow finished", but "WhatsApp message
+    /// from you" and "Whoop recovery synced" keep their capital. A first word
+    /// with a second capital in it, or a known name, is a proper noun.
+    static func lowerFirst(_ text: String) -> String {
+        let firstWord = text.split(separator: " ").first.map(String.init) ?? text
+        let names: Set<String> = ["Whoop", "Gmail", "Alexa", "Google", "Strava", "Hue", "Tado", "John"]
+        guard let first = firstWord.first, first.isUppercase,
+              !firstWord.dropFirst().contains(where: \.isUppercase),
+              !names.contains(firstWord) else { return text }
+        return first.lowercased() + String(text.dropFirst())
+    }
+}
+
+/// One clause of an event trigger's filter: `key equals|contains value`.
+struct FlowEventFilter: Decodable, Hashable {
+    let key: String
+    let op: String
+    let value: String
+
+    enum CodingKeys: String, CodingKey { case key, op, value }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard let key = c.lenient(String.self, .key) else {
+            throw DecodingError.keyNotFound(CodingKeys.key, .init(codingPath: c.codingPath, debugDescription: "filter without a key"))
+        }
+        self.key = key
+        op = c.lenient(String.self, .op) ?? "equals"
+        value = c.lenient(String.self, .value) ?? ""
+    }
+
+    var sentence: String { "\(key) \(op == "contains" ? "contains" : "is") “\(value)”" }
+}
+
+/// `GET /api/native/workflows/event-types` — what an event trigger can listen for.
+struct FlowEventType: Decodable, Hashable, Identifiable {
+    let type: String
+    let label: String
+    let description: String
+    let filterKeys: [String]
+
+    var id: String { type }
+
+    enum CodingKeys: String, CodingKey { case type, label, description, filterKeys }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard let type = c.lenient(String.self, .type) else {
+            throw DecodingError.keyNotFound(CodingKeys.type, .init(codingPath: c.codingPath, debugDescription: "event type without a type"))
+        }
+        self.type = type
+        label = c.lenient(String.self, .label) ?? type
+        description = c.lenient(String.self, .description) ?? ""
+        filterKeys = c.lossy(String.self, .filterKeys)
+    }
+}
+
+struct FlowEventTypes: Decodable {
+    let eventTypes: [FlowEventType]
+
+    enum CodingKeys: String, CodingKey { case eventTypes }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        eventTypes = c.lossy(FlowEventType.self, .eventTypes)
+    }
 }
 
 // MARK: - Runs
@@ -260,12 +355,14 @@ struct FlowRunSummary: Decodable, Hashable, Identifiable {
 
 /// A run's (or a step's) status, folded into the four things a reader acts on.
 enum FlowRunState: Equatable {
-    case running, succeeded, failed, waiting, other
+    case running, succeeded, partial, failed, waiting, other
 
     init(_ raw: String) {
         switch raw.lowercased() {
         case "running", "pending", "queued", "started", "in_progress": self = .running
         case "completed", "complete", "success", "succeeded", "done", "ok": self = .succeeded
+        // Seen on the real server: the run finished, some steps did not.
+        case "completed_with_errors", "partial", "partial_success": self = .partial
         case "failed", "error", "errored", "cancelled", "canceled", "timeout", "timed_out": self = .failed
         case "paused", "waiting", "awaiting_approval", "approval": self = .waiting
         default: self = .other
@@ -278,11 +375,20 @@ enum FlowRunState: Equatable {
         switch self {
         case .running: return "arrow.triangle.2.circlepath"
         case .succeeded: return "checkmark.circle.fill"
+        case .partial: return "exclamationmark.circle.fill"
         case .failed: return "exclamationmark.triangle.fill"
         case .waiting: return "pause.circle.fill"
         case .other: return "circle.dotted"
         }
     }
+}
+
+/// "completed_with_errors" → "Completed with errors". Statuses are open-ended
+/// on the server; the phone words whatever arrives rather than mapping a list.
+func flowStatusLabel(_ raw: String) -> String {
+    let words = raw.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ").lowercased()
+    guard let first = words.first else { return "Unknown" }
+    return first.uppercased() + words.dropFirst()
 }
 
 /// "1.2s", "3m 04s" — a duration in the ledger's register.
@@ -1093,7 +1199,11 @@ enum FlowLayout {
                 current = nil
                 let outs = step.next.filter { byId[$0.targetId] != nil && $0.targetId != id }
                 if outs.isEmpty { break }
-                if outs.count == 1 {
+                // One unlabelled way out is the line going on. One LABELLED
+                // way out is a condition with only its "true" arm wired —
+                // real canvases do this, and drawing it as a plain line
+                // would hide that the step after it only sometimes runs.
+                if outs.count == 1 && outs[0].handle == nil {
                     let target = outs[0].targetId
                     if visited.contains(target) { break }
                     // A merge is never drawn from inside one of the lines
@@ -1109,7 +1219,8 @@ enum FlowLayout {
                 // A branch point: one indented group per arm.
                 var merges: [String] = []
                 for out in outs {
-                    emit(.branch(out.handle ?? "then"), depth + 1)
+                    // Unlabelled arms from one step all run: a fan-out.
+                    emit(.branch(out.handle ?? "in parallel"), depth + 1)
                     let target = out.targetId
                     if visited.contains(target) || inDegree(target) > 1 {
                         emit(.passthrough, depth + 1)

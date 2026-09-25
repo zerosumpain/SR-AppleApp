@@ -1,0 +1,43 @@
+[
+ {
+  "kind": "event",
+  "cron": null,
+  "timezone": null,
+  "enabled": true,
+  "description": "Runs on: A workflow finished, where status is \"failed\" and workflowId contains \"nightly\"",
+  "nextRuns": [],
+  "eventType": "workflow.completed",
+  "filter": [
+   {
+    "key": "status",
+    "op": "equals",
+    "value": "failed"
+   },
+   {
+    "key": "workflowId",
+    "op": "contains",
+    "value": "nightly"
+   }
+  ]
+ },
+ {
+  "kind": "event",
+  "cron": null,
+  "timezone": null,
+  "enabled": false,
+  "description": "Runs on: New stories on the news desk",
+  "nextRuns": [],
+  "eventType": "news.item",
+  "filter": []
+ },
+ {
+  "kind": "event",
+  "cron": null,
+  "timezone": null,
+  "enabled": false,
+  "description": "Runs on an event",
+  "nextRuns": [],
+  "eventType": null,
+  "filter": []
+ }
+]

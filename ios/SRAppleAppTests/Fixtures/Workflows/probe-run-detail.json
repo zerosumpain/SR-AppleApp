@@ -1,0 +1,266 @@
+{
+ "run": {
+  "id": "a9e1cd55-4dfd-432d-a7ab-3ac07304926b",
+  "status": "completed_with_errors",
+  "trigger": "manual",
+  "startedAt": "2026-07-29T07:59:01.726Z",
+  "completedAt": "2026-07-29T07:59:36.245Z",
+  "durationMs": 34519,
+  "error": null
+ },
+ "steps": [
+  {
+   "nodeId": "19b9bbc6-6787-596c-a418-05bf236a9d95",
+   "label": "Every morning at 07:00",
+   "type": "trigger",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:01.764Z",
+   "durationMs": 34484,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Every morning at 07:00\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "03642590-e47a-5d54-bc24-47fb6e518bf7",
+   "label": "Where am I?",
+   "type": "location-context",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:01.765Z",
+   "durationMs": 34495,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Where am I?\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "d707b28a-d73a-5cc3-9e6a-ec9fb43450b4",
+   "label": "Namespace: location",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.449Z",
+   "durationMs": 15821,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Namespace: location\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "978a7582-5949-5b6f-a8ed-d9118f31cb26",
+   "label": "What do I know about here?",
+   "type": "intel-query",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.670Z",
+   "durationMs": 15613,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"What do I know about here?\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "9b078d4d-b604-5713-85c8-06e041e49ee4",
+   "label": "Namespace: knowledge",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.952Z",
+   "durationMs": 15333,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Namespace: knowledge\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "d7d94b50-cd98-57b9-b7aa-4f817a7c5cc5",
+   "label": "Weather · home",
+   "type": "weather-brief",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.451Z",
+   "durationMs": 15826,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Weather \\u00b7 home\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "fde87007-4e31-5671-8e01-c5d6a8588389",
+   "label": "Namespace: weather home",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.670Z",
+   "durationMs": 15610,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Namespace: weather home\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "a2c263b1-f732-5520-a846-11d2448c1932",
+   "label": "Weather · where I am",
+   "type": "weather-brief",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.454Z",
+   "durationMs": 15825,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Weather \\u00b7 where I am\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "6fefb841-8ff4-59b1-a19a-9ea5c945a7a6",
+   "label": "Namespace: weather here",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.671Z",
+   "durationMs": 15611,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Namespace: weather here\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "c1558ef7-40c5-599e-b3ad-afba514969e0",
+   "label": "Sleep",
+   "type": "health-query",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:01.766Z",
+   "durationMs": 34492,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Sleep\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "064ecfc6-001f-5613-9420-c77c3b291a8a",
+   "label": "Namespace: sleep",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.456Z",
+   "durationMs": 15817,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Namespace: sleep\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "680d27d2-ea7a-5688-b460-ba36bec9714d",
+   "label": "Send summary",
+   "type": "whatsapp",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:01.764Z",
+   "durationMs": 34493,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Send summary\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "863b6681-723f-5b8c-89a7-f85a70616665",
+   "label": "Readiness",
+   "type": "health-query",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:01.766Z",
+   "durationMs": 34495,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Readiness\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "bc22fe0b-6e8d-577e-a68c-55d7fee3a261",
+   "label": "Namespace: readiness",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.457Z",
+   "durationMs": 15818,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Namespace: readiness\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "aa68ac7c-3795-5b3e-ac90-6dd3037744b5",
+   "label": "Home sensors",
+   "type": "home-assistant",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:01.765Z",
+   "durationMs": 34499,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Home sensors\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "08ed6b73-49a6-5f79-916c-05d91220ac3a",
+   "label": "Namespace: indoor",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.443Z",
+   "durationMs": 15824,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Namespace: indoor\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "9a298903-2cbf-5360-93e7-dcc62b2233f5",
+   "label": "Overnight email",
+   "type": "gmail-search",
+   "status": "failed",
+   "startedAt": "2026-07-29T07:59:01.765Z",
+   "durationMs": 34532,
+   "error": "Gmail account 2 not found",
+   "output": null,
+   "rows": null
+  },
+  {
+   "nodeId": "e6d6cc8a-0fdb-5c3d-8bbe-9d6b44237249",
+   "label": "Namespace: email",
+   "type": "transform",
+   "status": "pending",
+   "startedAt": null,
+   "durationMs": null,
+   "error": null,
+   "output": null,
+   "rows": null
+  },
+  {
+   "nodeId": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "label": "All signals",
+   "type": "merge",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.954Z",
+   "durationMs": 15332,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"All signals\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "5efde8cc-d689-5711-9be7-5929032b9a53",
+   "label": "Verify: facts, gaps, sources",
+   "type": "briefing-compose",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.955Z",
+   "durationMs": 15334,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Verify: facts, gaps, sources\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "dc7493f0-96f7-5c38-8358-d89e45f0be89",
+   "label": "Write the summary",
+   "type": "llm-call",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:20.958Z",
+   "durationMs": 15333,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Write the summary\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "037b85f4-3707-5c5a-8592-df2b8873ecdf",
+   "label": "Build record + message",
+   "type": "transform",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:36.193Z",
+   "durationMs": 100,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Build record + message\"\n}",
+   "rows": null
+  },
+  {
+   "nodeId": "0fffbaf6-7c63-542b-92ae-d9002c117e70",
+   "label": "Save briefing detail",
+   "type": "database",
+   "status": "completed",
+   "startedAt": "2026-07-29T07:59:36.204Z",
+   "durationMs": 91,
+   "error": null,
+   "output": "{\n  \"synthetic\": \"output replaced for the public repo\",\n  \"step\": \"Save briefing detail\"\n}",
+   "rows": null
+  }
+ ]
+}
