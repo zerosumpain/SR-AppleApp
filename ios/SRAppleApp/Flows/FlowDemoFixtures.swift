@@ -22,24 +22,26 @@ extension SRDemoFixtures {
             return flowCatalogue
         case ("GET", 1):
             return flowDetail(slug: rest[0], clock: clock)
-        case ("PATCH", 1), ("DELETE", 1):
-            return #"{"ok": true}"#
+        case ("PATCH", 1):
+            return "{\"slug\": \(s(rest[0])), \"title\": \"Renamed\"}"
+        case ("DELETE", 1):
+            return #"{"ok": true, "deleted": true}"#
         case ("GET", 2) where rest[0] == "runs":
             return flowRunDetail(runId: rest[1], clock: clock)
         case ("GET", 2) where rest[1] == "runs":
             return "{\"runs\": \(list(demoRuns(slug: rest[0], clock: clock)))}"
         case ("PUT", 2) where rest[1] == "trigger":
-            return #"{"ok": true}"#
+            return "{\"trigger\": \(cronTrigger("0 7 * * 1-5", "Weekdays at 07:00 (Europe/London)", enabled: true, clock: clock, firstIn: 60 * 14))}"
         case ("POST", 2) where rest[1] == "run":
             return #"{"runId": "demo-run-live"}"#
         case ("POST", 2) where rest[1] == "amend":
-            return #"{"version": 8, "outcomes": [{"op": "update_node", "summary": "updated node \"Write the brief\""}]}"#
+            return #"{"version": 1739201155, "outcomes": [{"op": "update_node", "summary": "updated node \"Write the brief\""}]}"#
         case ("POST", 2) where rest[1] == "ask":
             return flowProposal
         case ("GET", 2) where rest[1] == "fix-proposals":
-            return "{\"proposals\": []}"
+            return rest[0] == "inbox-triage" ? "{\"proposals\": [\(triageFix(clock))]}" : "{\"proposals\": []}"
         case ("POST", 3) where rest[1] == "fix-proposals":
-            return #"{"ok": true}"#
+            return "{\"proposal\": \(triageFix(clock)), \"status\": \"accepted\", \"version\": 482113977, \"outcomes\": []}"
         default:
             return nil
         }
@@ -67,16 +69,16 @@ extension SRDemoFixtures {
     static func demoFlows(_ clock: DemoClock) -> [DemoFlow] {
         [
             DemoFlow(slug: "inbox-triage", title: "Inbox triage",
-                     description: "Sort new mail into reply-today, read-later and receipts.",
+                     description: nil,
                      trigger: #"{"kind": "gmail", "cron": null, "timezone": null, "enabled": true, "description": "When a new email arrives in the inbox", "nextRuns": []}"#,
                      nodeCount: 5, lastStatus: "failed", lastMinutesAgo: 22,
-                     attention: "The last 3 runs failed at “Label the thread”.", updatedMinutesAgo: 60 * 26),
+                     attention: "A fix is waiting for you", updatedMinutesAgo: 60 * 26),
             DemoFlow(slug: "morning-brief", title: "Morning brief",
-                     description: "Calendar and weather, written up and sent before the day starts.",
+                     description: nil,
                      trigger: cronTrigger("0 7 * * 1-5", "Weekdays at 07:00 (Europe/London)", enabled: true, clock: clock, firstIn: 60 * 14),
                      nodeCount: 7, lastStatus: "completed", lastMinutesAgo: 60 * 9, attention: nil, updatedMinutesAgo: 60 * 3),
             DemoFlow(slug: "weekly-review", title: "Weekly review",
-                     description: "Training load, reading and open threads for the week, as one note.",
+                     description: nil,
                      trigger: cronTrigger("0 18 * * 0", "Sundays at 18:00 (Europe/London)", enabled: false, clock: clock, firstIn: 60 * 50),
                      nodeCount: 4, lastStatus: "completed", lastMinutesAgo: 60 * 24 * 5, attention: nil, updatedMinutesAgo: 60 * 24 * 2),
             DemoFlow(slug: "garden-lights", title: "Garden lights at dusk",
@@ -84,7 +86,7 @@ extension SRDemoFixtures {
                      trigger: #"{"kind": "webhook", "cron": null, "timezone": null, "enabled": true, "description": "When the sunset webhook is called", "nextRuns": []}"#,
                      nodeCount: 3, lastStatus: "completed", lastMinutesAgo: 60 * 20, attention: nil, updatedMinutesAgo: 60 * 24 * 9),
             DemoFlow(slug: "share-a-run", title: "Share a run",
-                     description: "Post the latest activity's map and splits to the family thread.",
+                     description: nil,
                      trigger: #"{"kind": "manual", "cron": null, "timezone": null, "enabled": true, "description": "When you start it", "nextRuns": []}"#,
                      nodeCount: 4, lastStatus: nil, lastMinutesAgo: 0, attention: nil, updatedMinutesAgo: 60 * 24 * 14),
         ]
@@ -125,6 +127,14 @@ extension SRDemoFixtures {
         ]
     }
 
+    static let wholeConfigForm = #"[{"key": "$config", "label": "Configuration", "kind": "json", "advanced": false}]"#
+
+    static func triageFix(_ clock: DemoClock) -> String {
+        """
+        {"id": "demo-fix-1", "nodeId": "label", "nodeLabel": "Label the thread", "description": "Create the label when it is missing instead of failing. The retry that did this succeeded.", "createdAt": \(s(clock.iso(minutesAgo: 21))), "runId": "demo-run-inbox-1", "changedKeys": ["createIfMissing"], "occurrences": 3}
+        """
+    }
+
     static let briefForm = """
     [
       {"key": "prompt", "label": "Instructions", "kind": "template", "placeholder": "What should the model write?", "help": "Plain English. The calendar and weather arrive as the input.", "advanced": false, "section": "Prompt"},
@@ -143,21 +153,21 @@ extension SRDemoFixtures {
         guard let flow = flows.first(where: { $0.slug == slug }) else {
             // A blank one, as "New → Blank" would make it.
             return """
-            {"slug": \(s(slug)), "title": "New workflow", "description": null, "version": 1, "trigger": {"kind": "manual", "enabled": true, "description": "When you start it", "nextRuns": []}, "building": false, "buildError": null, "steps": [{"id": "start", "type": "manual-trigger", "label": "Start", "category": "trigger", "icon": null, "summary": "When you start it", "config": {}, "form": [], "next": [], "legacy": false}], "edges": [], "recentRuns": [], "fixProposals": []}
+            {"slug": \(s(slug)), "title": "New workflow", "description": null, "version": 20512877, "trigger": {"kind": "manual", "enabled": true, "description": "When you start it", "nextRuns": []}, "building": false, "buildError": null, "steps": [{"id": "start", "type": "manual-trigger", "label": "Start", "category": "trigger", "icon": null, "summary": "When you start it", "config": {}, "form": \(wholeConfigForm), "next": [], "legacy": false}], "edges": [], "recentRuns": [], "fixProposals": []}
             """
         }
         let runs = list(demoRuns(slug: slug, clock: clock))
         if slug == "inbox-triage" {
             return """
-            {"slug": "inbox-triage", "title": \(s(flow.title)), "description": \(s(flow.description)), "version": 12, "trigger": \(flow.trigger), "building": false, "buildError": null,
+            {"slug": "inbox-triage", "title": \(s(flow.title)), "description": \(s(flow.description)), "version": 902771364, "trigger": \(flow.trigger), "building": false, "buildError": null,
              "steps": [
-               {"id": "mail", "type": "gmail-trigger", "label": "New email", "category": "trigger", "icon": "mail", "summary": "Inbox, not from me", "config": {"label": "INBOX"}, "form": [], "next": [{"handle": null, "targetId": "classify"}], "legacy": false},
-               {"id": "classify", "type": "llm", "label": "Classify it", "category": "ai", "icon": null, "summary": "reply-today / read-later / receipt", "config": {"prompt": "Classify this email."}, "form": [], "next": [{"handle": null, "targetId": "label"}], "legacy": false},
+               {"id": "mail", "type": "gmail-trigger", "label": "New email", "category": "trigger", "icon": null, "summary": "Inbox, not from me", "config": {"label": "INBOX"}, "form": \(wholeConfigForm), "next": [{"handle": null, "targetId": "classify"}], "legacy": false},
+               {"id": "classify", "type": "llm", "label": "Classify it", "category": "ai", "icon": null, "summary": "reply-today / read-later / receipt", "config": {"prompt": "Classify this email."}, "form": \(wholeConfigForm), "next": [{"handle": null, "targetId": "label"}], "legacy": false},
                {"id": "label", "type": "gmail-label", "label": "Label the thread", "category": "integration", "icon": null, "summary": "Adds the class as a Gmail label", "config": {"labelPrefix": "sr/"}, "form": [{"key": "labelPrefix", "label": "Label prefix", "kind": "text", "advanced": false}], "next": [], "legacy": true}
              ],
              "edges": [{"id": "e1", "source": "mail", "target": "classify", "sourceHandle": null}, {"id": "e2", "source": "classify", "target": "label", "sourceHandle": null}],
              "recentRuns": \(runs),
-             "fixProposals": [{"id": "demo-fix-1", "nodeId": "label", "nodeLabel": "Label the thread", "description": "Retry with the refreshed Gmail connection and create the label if it is missing. The retry succeeded.", "createdAt": \(s(clock.iso(minutesAgo: 21))), "runId": "demo-run-inbox-1"}]}
+             "fixProposals": [\(triageFix(clock))]}
             """
         }
         // The morning brief — and, for the other demo slugs, the same shape.
@@ -165,9 +175,9 @@ extension SRDemoFixtures {
         {"prompt": "Write me a short brief for the day from {{calendar.events}} and {{weather.summary}}. Lead with anything before nine.", "model": "auto", "temperature": 0.4, "includeWeather": true, "tags": ["brief", "morning"], "maxTokens": 600, "responseSchema": {"type": "object", "properties": {"text": {"type": "string"}}}}
         """
         return """
-        {"slug": \(s(flow.slug)), "title": \(s(flow.title)), "description": \(s(flow.description)), "version": 7, "trigger": \(flow.trigger), "building": false, "buildError": null,
+        {"slug": \(s(flow.slug)), "title": \(s(flow.title)), "description": \(s(flow.description)), "version": 1273550981, "trigger": \(flow.trigger), "building": false, "buildError": null,
          "steps": [
-           {"id": "t", "type": "cron-trigger", "label": "Weekday mornings", "category": "trigger", "icon": "clock", "summary": "07:00 Mon–Fri", "config": {}, "form": [], "next": [{"handle": null, "targetId": "calendar"}], "legacy": false},
+           {"id": "t", "type": "cron-trigger", "label": "Weekday mornings", "category": "trigger", "icon": null, "summary": "07:00 Mon–Fri", "config": {}, "form": \(wholeConfigForm), "next": [{"handle": null, "targetId": "calendar"}], "legacy": false},
            {"id": "calendar", "type": "google-calendar", "label": "Read today’s calendar", "category": "integration", "icon": null, "summary": "Primary calendar, today", "config": {"range": "today"}, "form": [{"key": "range", "label": "Range", "kind": "dropdown", "options": ["today", "tomorrow", "week"], "advanced": false}], "next": [{"handle": null, "targetId": "weather"}], "legacy": false},
            {"id": "weather", "type": "http-request", "label": "Fetch the weather", "category": "integration", "icon": null, "summary": "GET the forecast", "config": {"url": "https://example.test/forecast", "method": "GET"}, "form": [{"key": "url", "label": "URL", "kind": "text", "advanced": false}, {"key": "headers", "label": "Headers", "kind": "json", "advanced": true}], "next": [{"handle": null, "targetId": "check"}], "legacy": false},
            {"id": "check", "type": "condition", "label": "Anything before nine?", "category": "logic", "icon": null, "summary": "first event starts before 09:00", "config": {"expression": "calendar.first.start < '09:00'"}, "form": [{"key": "expression", "label": "Condition", "kind": "code", "advanced": false}], "next": [{"handle": "true", "targetId": "early"}, {"handle": "false", "targetId": "brief"}], "legacy": false},
@@ -218,7 +228,7 @@ extension SRDemoFixtures {
     static let flowCatalogue = """
     {"categories": [
       {"id": "ai", "label": "AI", "types": [
-        {"type": "llm", "label": "Ask a model", "description": "Write, summarise or classify with the workload's model.", "icon": "sparkles", "defaultConfig": {"prompt": ""}, "form": []},
+        {"type": "llm", "label": "Ask a model", "description": "Write, summarise or classify with the workload's model.", "icon": null, "defaultConfig": {"prompt": ""}, "form": []},
         {"type": "llm-agent", "label": "Agent with tools", "description": "A model that can call site tools until it is done.", "icon": null, "defaultConfig": {}, "form": []}
       ]},
       {"id": "logic", "label": "Logic", "types": [

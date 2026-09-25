@@ -70,7 +70,7 @@ struct FlowDetailScreen: View {
         .alert("Rename workflow", isPresented: $renaming) {
             TextField("Title", text: $renameDraft)
             Button("Cancel", role: .cancel) {}
-            Button("Save") { Task { await store.rename(to: renameDraft, description: nil) } }
+            Button("Save") { Task { await store.rename(to: renameDraft) } }
         }
         .confirmationDialog("Delete this workflow?", isPresented: $deletingWorkflow, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { deleteWorkflow() }
@@ -395,9 +395,15 @@ struct FlowTriggerCard: View {
         .contentShape(Rectangle())
     }
 
+    /// In the SCHEDULE's zone, not the phone's: "07:00" on a London
+    /// schedule must read 07:00 even from a phone set to New York.
     private func nextRunLine(_ iso: String) -> String {
         guard let date = isoDate(iso) else { return iso }
-        return "NEXT " + date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()).uppercased()
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_GB")
+        format.timeZone = trigger.timezone.flatMap(TimeZone.init(identifier:)) ?? TimeZone(identifier: FlowDefaults.timezone)
+        format.dateFormat = "EEE d MMM, HH:mm"
+        return "NEXT " + format.string(from: date).uppercased()
     }
 }
 
@@ -517,7 +523,13 @@ struct FlowFixBanner: View {
                 .font(SR.Text.body(15))
                 .foregroundStyle(SR.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("It worked on a retry. Apply it permanently?")
+            if !proposal.changedKeys.isEmpty {
+                Text("CHANGES " + proposal.changedKeys.joined(separator: ", ").uppercased())
+                    .font(SR.Text.mono())
+                    .tracking(0.8)
+                    .foregroundStyle(SR.accentInk)
+            }
+            Text(retryLine)
                 .font(SR.Text.secondary(13))
                 .foregroundStyle(SR.inkMuted)
             HStack(spacing: 10) {
@@ -531,6 +543,13 @@ struct FlowFixBanner: View {
         }
         .padding(.vertical, 6)
         .accessibilityIdentifier("flow-fix-\(proposal.id)")
+    }
+
+    private var retryLine: String {
+        if let times = proposal.occurrences, times > 1 {
+            return "It rescued \(times) failing runs on a retry. Apply it permanently?"
+        }
+        return "It worked on a retry. Apply it permanently?"
     }
 
     private func resolve(_ accept: Bool) {

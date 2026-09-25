@@ -112,6 +112,32 @@ final class FlowsTests: XCTestCase {
         XCTAssertEqual(catalogue.categories[0].types[0].form[0].kind, .template)
     }
 
+    func testAFormlessStepCarriesTheWholeConfigSentinel() throws {
+        let step = try decode(FlowStep.self, """
+        {"id": "s", "type": "x", "label": "S", "config": {"a": 1},
+         "form": [{"key": "$config", "label": "Configuration", "kind": "json", "advanced": false}]}
+        """)
+        XCTAssertEqual(step.form.map(\.key), [FlowOps.wholeConfigKey])
+        XCTAssertEqual(step.form[0].kind, .json)
+    }
+
+    func testTheVersionIsAnOpaqueHashAndFixProposalsCarryTheirExtras() throws {
+        let detail = try decode(FlowDetail.self, """
+        {"slug": "a", "title": "A", "description": null, "version": 1739201155,
+         "fixProposals": [
+           {"id": "f1", "nodeId": "n", "nodeLabel": "N", "description": "d", "createdAt": "2026-09-25T06:00:00Z",
+            "runId": "r", "changedKeys": ["x", "y"], "occurrences": 3},
+           {"id": "f2", "nodeId": "n", "nodeLabel": "N", "description": "d", "createdAt": null, "runId": null}
+         ]}
+        """)
+        XCTAssertEqual(detail.version, 1_739_201_155)
+        XCTAssertNil(detail.description)
+        XCTAssertEqual(detail.fixProposals[0].changedKeys, ["x", "y"])
+        XCTAssertEqual(detail.fixProposals[0].occurrences, 3)
+        XCTAssertEqual(detail.fixProposals[1].changedKeys, [])
+        XCTAssertNil(detail.fixProposals[1].occurrences)
+    }
+
     func testTheDemoFixturesDecodeAgainstTheRealModels() throws {
         let base = "https://strangeramblings.com/"
         func get(_ path: String) -> Data {
@@ -125,6 +151,8 @@ final class FlowsTests: XCTestCase {
         XCTAssertTrue(FlowLayout.rows(for: detail.steps).contains { if case .branch = $0.kind { return true }; return false })
         let triage = try JSONDecoder().decode(FlowDetail.self, from: get("api/native/workflows/inbox-triage"))
         XCTAssertEqual(triage.fixProposals.count, 1)
+        XCTAssertEqual(triage.fixProposals[0].occurrences, 3)
+        XCTAssertEqual(triage.steps[0].form.first?.key, FlowOps.wholeConfigKey)
         let run = try JSONDecoder().decode(FlowRunDetail.self, from: get("api/native/workflows/runs/demo-run-brief-1"))
         XCTAssertFalse(run.steps.isEmpty)
         let catalogue = try JSONDecoder().decode(FlowCatalogue.self, from: get("api/native/workflows/node-types"))
@@ -290,6 +318,16 @@ final class FlowsTests: XCTestCase {
         let op = FlowOps.updateNode("n", config: patch, removeKeys: removed, label: nil)
         XCTAssertEqual(op["removeConfigKeys"], .array([.string("c")]))
         XCTAssertNil(op["label"])
+    }
+
+    func testAWholeConfigEditGoesBackWholeAndNamesWhatWent() {
+        let op = FlowOps.replaceConfig(
+            "n", from: ["a": .number(1), "b": .number(2)], to: ["a": .number(3), "c": .number(4)], label: "New"
+        )
+        XCTAssertEqual(op["op"], .string("update_node"))
+        XCTAssertEqual(op["config"], .object(["a": .number(3), "c": .number(4)]))
+        XCTAssertEqual(op["removeConfigKeys"], .array([.string("b")]))
+        XCTAssertEqual(op["label"], .string("New"))
     }
 
     func testOpsReadAsPlainWords() {

@@ -39,7 +39,7 @@ struct FlowStepEditor: View {
         _label = State(initialValue: step.label)
         _values = State(initialValue: step.config)
         var texts: [String: String] = [:]
-        for field in step.form where Self.editsAsJSON(field, step.config[field.key]) {
+        for field in step.form where field.key != FlowOps.wholeConfigKey && Self.editsAsJSON(field, step.config[field.key]) {
             texts[field.key] = step.config[field.key].map { $0.isNull ? "" : $0.pretty } ?? ""
         }
         _jsonText = State(initialValue: texts)
@@ -74,18 +74,28 @@ struct FlowStepEditor: View {
                     .srGlassRow()
                 }
 
-                Section {
-                    DisclosureGroup(isExpanded: $showAdvanced) {
-                        ForEach(advancedFields) { fieldView($0) }
+                if editsWholeConfig {
+                    // No form for this type: the config IS the field.
+                    Section {
                         rawEditor
-                    } label: {
-                        Text(step.form.isEmpty ? "Configuration (JSON)" : "Advanced")
-                            .font(SR.Text.bodyMedium(15))
-                            .foregroundStyle(SR.ink)
+                    } header: {
+                        SRSectionLabel(text: "Configuration")
                     }
-                    .tint(SR.accent)
+                    .srGlassRow()
+                } else {
+                    Section {
+                        DisclosureGroup(isExpanded: $showAdvanced) {
+                            ForEach(advancedFields) { fieldView($0) }
+                            rawEditor
+                        } label: {
+                            Text("Advanced")
+                                .font(SR.Text.bodyMedium(15))
+                                .foregroundStyle(SR.ink)
+                        }
+                        .tint(SR.accent)
+                    }
+                    .srGlassRow()
                 }
-                .srGlassRow()
 
                 if let generalError {
                     Section {
@@ -126,7 +136,6 @@ struct FlowStepEditor: View {
                     }
                 }
             }
-            .onAppear { if step.form.isEmpty { showAdvanced = true } }
             .confirmationDialog("Delete this step?", isPresented: $confirmingDelete, titleVisibility: .visible) {
                 Button("Delete step", role: .destructive) { deleteStep() }
                 Button("Cancel", role: .cancel) {}
@@ -146,7 +155,7 @@ struct FlowStepEditor: View {
     /// Basic fields, grouped by their `section` in the order they arrive.
     private var basicGroups: [FieldGroup] {
         var groups: [FieldGroup] = []
-        for field in step.form where !field.advanced {
+        for field in formFields where !field.advanced {
             let title = field.section ?? "Settings"
             if let index = groups.firstIndex(where: { $0.title == title }) {
                 groups[index] = FieldGroup(title: title, fields: groups[index].fields + [field])
@@ -157,7 +166,15 @@ struct FlowStepEditor: View {
         return groups
     }
 
-    private var advancedFields: [FlowField] { step.form.filter(\.advanced) }
+    private var advancedFields: [FlowField] { formFields.filter(\.advanced) }
+
+    /// The form, minus the `$config` sentinel — that one is the raw editor.
+    private var formFields: [FlowField] { step.form.filter { $0.key != FlowOps.wholeConfigKey } }
+
+    /// A step whose type has no form: the server sends one `$config` field
+    /// (or, from an older site, nothing), and the whole config is edited as
+    /// one object and saved whole.
+    private var editsWholeConfig: Bool { formFields.isEmpty }
 
     private var canSave: Bool {
         jsonErrors.isEmpty && rawError == nil && !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -180,7 +197,8 @@ struct FlowStepEditor: View {
     @ViewBuilder
     private func fieldView(_ field: FlowField) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if field.kind != .toggle {
+            // A toggle and a menu picker carry their own label.
+            if field.kind != .toggle && !(field.kind == .dropdown && !field.options.isEmpty) {
                 Text(field.label)
                     .font(SR.Text.bodyMedium(14))
                     .foregroundStyle(SR.inkSecondary)
@@ -255,7 +273,7 @@ struct FlowStepEditor: View {
     private var templateHint: some View {
         let upstream = FlowLayout.upstream(of: step.id, in: detail.steps)
         if !upstream.isEmpty {
-            Text("Use {{…}} to insert from an earlier step: " + upstream.map(\.label).joined(separator: ", ") + ".")
+            Text("Use {{…}} to insert from an earlier step: " + upstream.map { "“\($0.label)”" }.joined(separator: ", "))
                 .font(SR.Text.secondary(13))
                 .foregroundStyle(SR.accentInk)
                 .fixedSize(horizontal: false, vertical: true)
@@ -390,7 +408,9 @@ struct FlowStepEditor: View {
             .accessibilityIdentifier("flow-step-raw")
             if let rawError {
                 Text(rawError).font(SR.Text.secondary(13)).foregroundStyle(SR.error)
-            } else if rawText != nil {
+            } else if let refused = fieldErrors[FlowOps.wholeConfigKey] {
+                Text(refused).font(SR.Text.secondary(13)).foregroundStyle(SR.error)
+            } else if rawText != nil && !editsWholeConfig {
                 Text("Editing the raw JSON replaces the form's values when you save.")
                     .font(SR.Text.secondary(13))
                     .foregroundStyle(SR.inkMuted)
@@ -464,14 +484,19 @@ struct FlowStepEditor: View {
     private func save() {
         generalError = nil
         fieldErrors = [:]
-        let (patch, removed) = FlowOps.diff(from: step.config, to: editedConfig())
+        let edited = editedConfig()
+        let (patch, removed) = FlowOps.diff(from: step.config, to: edited)
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let newLabel = trimmed != step.label ? trimmed : nil
         if patch.isEmpty && removed.isEmpty && newLabel == nil {
             dismiss()
             return
         }
-        let op = FlowOps.updateNode(step.id, config: patch, removeKeys: removed, label: newLabel)
+        // A whole-config step goes back whole; a form step as a patch.
+        let configChanged = !(patch.isEmpty && removed.isEmpty)
+        let op = editsWholeConfig && configChanged
+            ? FlowOps.replaceConfig(step.id, from: step.config, to: edited, label: newLabel)
+            : FlowOps.updateNode(step.id, config: patch, removeKeys: removed, label: newLabel)
         Task {
             let result = await store.amend([op])
             switch result {
@@ -480,7 +505,7 @@ struct FlowStepEditor: View {
             case .conflict:
                 generalError = "This workflow was changed somewhere else first and has been reloaded. Nothing was saved — check the step and save again."
             case .invalid(let field, let text):
-                if let field, step.form.contains(where: { $0.key == field }) {
+                if let field, field == FlowOps.wholeConfigKey || step.form.contains(where: { $0.key == field }) {
                     fieldErrors[field] = text
                     if step.form.first(where: { $0.key == field })?.advanced == true { showAdvanced = true }
                 } else {

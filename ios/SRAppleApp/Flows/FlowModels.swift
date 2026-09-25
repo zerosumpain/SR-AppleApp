@@ -552,8 +552,12 @@ struct FlowFixProposal: Decodable, Hashable, Identifiable {
     let description: String
     let createdAt: String?
     let runId: String?
+    /// The config keys the fix would change. Optional on the wire.
+    let changedKeys: [String]
+    /// How many failing runs the same fix rescued. Optional on the wire.
+    let occurrences: Int?
 
-    enum CodingKeys: String, CodingKey { case id, nodeId, nodeLabel, description, createdAt, runId }
+    enum CodingKeys: String, CodingKey { case id, nodeId, nodeLabel, description, createdAt, runId, changedKeys, occurrences }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -566,6 +570,8 @@ struct FlowFixProposal: Decodable, Hashable, Identifiable {
         description = c.lenient(String.self, .description) ?? ""
         createdAt = c.lenient(String.self, .createdAt)
         runId = c.flexString(.runId)
+        changedKeys = c.lossy(String.self, .changedKeys)
+        occurrences = c.lenient(Int.self, .occurrences)
     }
 }
 
@@ -573,6 +579,8 @@ struct FlowDetail: Decodable {
     let slug: String
     var title: String
     var description: String?
+    /// An OPAQUE hash of the graph, not a counter. Compared for equality and
+    /// sent back as `expectedVersion`; never ordered or incremented.
     var version: Int?
     var trigger: FlowTrigger
     var building: Bool
@@ -790,6 +798,22 @@ struct FlowRunRef: Hashable {
 // it never rebuilds it, so an op field the phone has not heard of survives.
 
 enum FlowOps {
+    /// The one field a step without a form carries: kind `json`, meaning
+    /// "the whole config". It is edited as a single object and sent back
+    /// whole, not as a patch of one key called `$config`.
+    static let wholeConfigKey = "$config"
+
+    /// A whole-config edit: every key of the new object, and the keys that
+    /// went. `update_node` merges, so a key deleted in the editor must be
+    /// named in `removeConfigKeys` or it would survive the save.
+    static func replaceConfig(_ nodeId: String, from original: [String: JSONValue], to edited: [String: JSONValue], label: String?) -> JSONValue {
+        let removed = original.keys.filter { edited[$0] == nil }.sorted()
+        var op: [String: JSONValue] = ["op": .string("update_node"), "nodeId": .string(nodeId), "config": .object(edited)]
+        if !removed.isEmpty { op["removeConfigKeys"] = .array(removed.map { .string($0) }) }
+        if let label { op["label"] = .string(label) }
+        return .object(op)
+    }
+
     static func updateNode(_ nodeId: String, config: [String: JSONValue]?, removeKeys: [String], label: String?) -> JSONValue {
         var op: [String: JSONValue] = ["op": .string("update_node"), "nodeId": .string(nodeId)]
         if let config, !config.isEmpty { op["config"] = .object(config) }

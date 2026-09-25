@@ -371,15 +371,15 @@ final class FlowDetailStore: ObservableObject {
         }
     }
 
-    func rename(to title: String, description: String?) async {
+    /// PATCH takes a title and nothing else.
+    func rename(to title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        var body: [String: JSONValue] = ["title": .string(trimmed)]
-        if let description { body["description"] = .string(description) }
         do {
-            try await client.call("api/native/workflows/\(slug)", method: "PATCH", body: try encodeBody(body))
+            try await client.call(
+                "api/native/workflows/\(slug)", method: "PATCH", body: try encodeBody(["title": .string(trimmed)])
+            )
             detail?.title = trimmed
-            if let description { detail?.description = description }
             SRHaptic.select()
         } catch {
             SRHaptic.bad()
