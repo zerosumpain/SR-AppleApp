@@ -1,0 +1,1644 @@
+{
+ "slug": "morning-briefing",
+ "title": "Verified-source morning briefing. Gathers location, weather at home and where John actually is, health, home sensors, email and knowledge-graph context; composes a fact sheet the LLM may only quote verbatim; sends a WhatsApp summary and writes the full detail to /jkai/briefing.",
+ "description": null,
+ "version": 1686408303,
+ "trigger": {
+  "kind": "cron",
+  "cron": "0 7 * * *",
+  "timezone": "Europe/London",
+  "enabled": false,
+  "description": "Paused — every day at 07:00",
+  "nextRuns": [],
+  "eventType": null,
+  "filter": []
+ },
+ "building": false,
+ "buildError": null,
+ "steps": [
+  {
+   "id": "19b9bbc6-6787-596c-a418-05bf236a9d95",
+   "type": "trigger",
+   "label": "Every morning at 07:00",
+   "category": "trigger-flow",
+   "icon": null,
+   "summary": "Cron: 0 7 * * *",
+   "config": {
+    "cron": "0 7 * * *",
+    "kind": "cron"
+   },
+   "form": [
+    {
+     "key": "kind",
+     "label": "Kind",
+     "kind": "text",
+     "advanced": false,
+     "help": "manual | cron | webhook | event"
+    },
+    {
+     "key": "cron",
+     "label": "Cron",
+     "kind": "text",
+     "advanced": false,
+     "help": "Cron expression (5-field). Only used when kind=cron."
+    },
+    {
+     "key": "eventType",
+     "label": "Event type",
+     "kind": "text",
+     "advanced": false,
+     "help": "Platform event to listen for — a $lib/events/catalogue type, e.g. workflow.completed, whatsapp.inbound, news.item. The event payload arrives as {{input.event.<key>}}."
+    },
+    {
+     "key": "filter",
+     "label": "Filter",
+     "kind": "json",
+     "advanced": false,
+     "help": "Optional payload filter, all must match: [{ key: top-level payload field, op: \"equals\" | \"contains\", value }]."
+    },
+    {
+     "key": "sourceWorkflowId",
+     "label": "Source workflow id",
+     "kind": "text",
+     "advanced": false,
+     "help": "Only fire when this specific workflow emits the event (optional)."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "03642590-e47a-5d54-bc24-47fb6e518bf7"
+    },
+    {
+     "handle": null,
+     "targetId": "c1558ef7-40c5-599e-b3ad-afba514969e0"
+    },
+    {
+     "handle": null,
+     "targetId": "863b6681-723f-5b8c-89a7-f85a70616665"
+    },
+    {
+     "handle": null,
+     "targetId": "aa68ac7c-3795-5b3e-ac90-6dd3037744b5"
+    },
+    {
+     "handle": null,
+     "targetId": "9a298903-2cbf-5360-93e7-dcc62b2233f5"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "03642590-e47a-5d54-bc24-47fb6e518bf7",
+   "type": "location-context",
+   "label": "Where am I?",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Resolve where home is and where the person actually is right now, from Home Assistant. Returns both coordinate pairs plus distance, place label and staleness — the input for location-aware weather and briefings.",
+   "config": {
+    "personEntity": "person.john",
+    "homeZoneEntity": "zone.home",
+    "staleAfterMins": 180
+   },
+   "form": [
+    {
+     "key": "personEntity",
+     "label": "Person / tracker entity",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "person.john",
+     "help": "The Home Assistant person or device_tracker whose position you want. Supports {{input.field}}."
+    },
+    {
+     "key": "homeZoneEntity",
+     "label": "Home zone entity",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "zone.home",
+     "help": "Zone that defines \"home\". Its coordinates are returned as the home position."
+    },
+    {
+     "key": "staleAfterMins",
+     "label": "Stale after (minutes)",
+     "kind": "number",
+     "advanced": false,
+     "min": 15,
+     "max": 1440,
+     "step": 15,
+     "help": "Mark the position stale when the tracker has not reported within this window."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "d707b28a-d73a-5cc3-9e6a-ec9fb43450b4"
+    },
+    {
+     "handle": null,
+     "targetId": "d7d94b50-cd98-57b9-b7aa-4f817a7c5cc5"
+    },
+    {
+     "handle": null,
+     "targetId": "a2c263b1-f732-5520-a846-11d2448c1932"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "d707b28a-d73a-5cc3-9e6a-ec9fb43450b4",
+   "type": "transform",
+   "label": "Namespace: location",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: const c = input.current || {};\nreturn {\n  location: { home:…",
+   "config": {
+    "expression": "const c = input.current || {};\nreturn {\n  location: { home: input.home || null, current: input.current || null,\n              success: input.success, error: input.error || null },\n  intelQuery: c.label || (input.home && input.home.label) || 'today'\n};"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "978a7582-5949-5b6f-a8ed-d9118f31cb26"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "978a7582-5949-5b6f-a8ed-d9118f31cb26",
+   "type": "intel-query",
+   "label": "What do I know about here?",
+   "category": "intel-web",
+   "icon": null,
+   "summary": "Search the intel knowledge graph; appends matching context as intelContext to downstream input.",
+   "config": {
+    "query": "{{input.intelQuery}}"
+   },
+   "form": [
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "{{input.message}}",
+     "help": "What to look up. {{input.field}} placeholders supported.",
+     "section": "QUERY"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "9b078d4d-b604-5713-85c8-06e041e49ee4"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "9b078d4d-b604-5713-85c8-06e041e49ee4",
+   "type": "transform",
+   "label": "Namespace: knowledge",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return {\n  location: input.location,\n  knowledge: { intelQu…",
+   "config": {
+    "expression": "return {\n  location: input.location,\n  knowledge: { intelQuery: input.intelQuery || null, intelContext: input.intelContext || '' }\n};"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "a953ebe6-261a-5060-8286-b7d17786cb72"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "d7d94b50-cd98-57b9-b7aa-4f817a7c5cc5",
+   "type": "weather-brief",
+   "label": "Weather · home",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Decoded weather for a coordinate pair (Open-Meteo). Returns named conditions, metric temperatures, rain/wind/UV and derived \"local factors\" — no raw WMO codes for a downstream LLM to guess at.",
+   "config": {
+    "label": "Home",
+    "latitude": "{{input.home.lat}}",
+    "timezone": "Europe/London",
+    "longitude": "{{input.home.lon}}"
+   },
+   "form": [
+    {
+     "key": "label",
+     "label": "Place name",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Home",
+     "help": "What to call this location in the output. Supports {{input.field}}."
+    },
+    {
+     "key": "latitude",
+     "label": "Latitude",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "40.78509  or  {{input.current.lat}}",
+     "help": "Decimal latitude. Feed from a location-context node for \"where I am right now\"."
+    },
+    {
+     "key": "longitude",
+     "label": "Longitude",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "-73.96828  or  {{input.current.lon}}",
+     "help": "Decimal longitude."
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "Europe/London",
+     "help": "IANA timezone used for the day window and sunrise/sunset."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "fde87007-4e31-5671-8e01-c5d6a8588389"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "fde87007-4e31-5671-8e01-c5d6a8588389",
+   "type": "transform",
+   "label": "Namespace: weather home",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { weatherHome: input.weather || null, weatherHomeErr…",
+   "config": {
+    "expression": "return { weatherHome: input.weather || null, weatherHomeError: input.error || null };"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "a953ebe6-261a-5060-8286-b7d17786cb72"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "a2c263b1-f732-5520-a846-11d2448c1932",
+   "type": "weather-brief",
+   "label": "Weather · where I am",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Decoded weather for a coordinate pair (Open-Meteo). Returns named conditions, metric temperatures, rain/wind/UV and derived \"local factors\" — no raw WMO codes for a downstream LLM to guess at.",
+   "config": {
+    "label": "{{input.current.label}}",
+    "latitude": "{{input.current.lat}}",
+    "timezone": "Europe/London",
+    "longitude": "{{input.current.lon}}"
+   },
+   "form": [
+    {
+     "key": "label",
+     "label": "Place name",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Home",
+     "help": "What to call this location in the output. Supports {{input.field}}."
+    },
+    {
+     "key": "latitude",
+     "label": "Latitude",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "40.78509  or  {{input.current.lat}}",
+     "help": "Decimal latitude. Feed from a location-context node for \"where I am right now\"."
+    },
+    {
+     "key": "longitude",
+     "label": "Longitude",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "-73.96828  or  {{input.current.lon}}",
+     "help": "Decimal longitude."
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "Europe/London",
+     "help": "IANA timezone used for the day window and sunrise/sunset."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "6fefb841-8ff4-59b1-a19a-9ea5c945a7a6"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "6fefb841-8ff4-59b1-a19a-9ea5c945a7a6",
+   "type": "transform",
+   "label": "Namespace: weather here",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { weatherHere: input.weather || null, weatherHereErr…",
+   "config": {
+    "expression": "return { weatherHere: input.weather || null, weatherHereError: input.error || null };"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "a953ebe6-261a-5060-8286-b7d17786cb72"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "c1558ef7-40c5-599e-b3ad-afba514969e0",
+   "type": "health-query",
+   "label": "Sleep",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Query health data from Apple Watch, Whoop and other fitness sources.",
+   "config": {
+    "operation": "sleep"
+   },
+   "form": [
+    {
+     "key": "operation",
+     "label": "Action",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "stats",
+       "label": "Fitness Stats"
+      },
+      {
+       "value": "readiness",
+       "label": "Readiness Score"
+      },
+      {
+       "value": "sleep",
+       "label": "Sleep Analysis"
+      },
+      {
+       "value": "training_load",
+       "label": "Training Load"
+      },
+      {
+       "value": "timeline",
+       "label": "Activity Timeline"
+      }
+     ],
+     "help": "Which health data summary to fetch"
+    },
+    {
+     "key": "page",
+     "label": "Page",
+     "kind": "number",
+     "advanced": false,
+     "min": 1,
+     "help": "Page number for paginated timeline results."
+    },
+    {
+     "key": "limit",
+     "label": "Items Per Page",
+     "kind": "number",
+     "advanced": false,
+     "min": 1,
+     "help": "How many activities to return per page."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "064ecfc6-001f-5613-9420-c77c3b291a8a"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "064ecfc6-001f-5613-9420-c77c3b291a8a",
+   "type": "transform",
+   "label": "Namespace: sleep",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { sleep: input };",
+   "config": {
+    "expression": "return { sleep: input };"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "a953ebe6-261a-5060-8286-b7d17786cb72"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "680d27d2-ea7a-5688-b460-ba36bec9714d",
+   "type": "whatsapp",
+   "label": "Send summary",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Send WhatsApp to +440000000000: {{input.whatsapp}}",
+   "config": {
+    "to": "+440000000000",
+    "message": "{{input.whatsapp}}",
+    "maxChunks": 3,
+    "formatMarkdown": true
+   },
+   "form": [
+    {
+     "key": "to",
+     "label": "Recipient Phone Number",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "+440000000000 or {{input.phone}}",
+     "help": "Phone number in E.164 format (include country code). Supports {{input.field}} templates."
+    },
+    {
+     "key": "message",
+     "label": "Message",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Hi {{input.name}}, your report is ready.",
+     "help": "Text to send. Supports {{input.field}} templates. Markdown is converted to WhatsApp formatting when enabled."
+    },
+    {
+     "key": "formatMarkdown",
+     "label": "Convert Markdown",
+     "kind": "toggle",
+     "advanced": false,
+     "help": "**bold** → *bold*, ## headings → bold lines, [links](url) → text (url), - bullets → •.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "maxChunks",
+     "label": "Max chunks",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "help": "Split long messages (>4096 chars) into at most this many sends. 0 = no cap.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "suppressDuplicateWindowMins",
+     "label": "Suppress duplicates (mins)",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "help": "Skip an identical message to the same recipient within this many minutes. 0 = off.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "category",
+     "label": "Category (owner only)",
+     "kind": "dropdown",
+     "advanced": true,
+     "options": [
+      {
+       "value": "health",
+       "label": "Health"
+      },
+      {
+       "value": "chat",
+       "label": "jkai"
+      },
+      {
+       "value": "build",
+       "label": "Builds"
+      },
+      {
+       "value": "deploy",
+       "label": "Deploys"
+      },
+      {
+       "value": "uptime",
+       "label": "Uptime"
+      },
+      {
+       "value": "intel",
+       "label": "Intel"
+      },
+      {
+       "value": "news",
+       "label": "News"
+      },
+      {
+       "value": "system",
+       "label": "Everything else"
+      }
+     ],
+     "help": "When the recipient is you, the message is routed by this notification category (WhatsApp and/or iPhone). Default: Everything else.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "mediaPath",
+     "label": "Media file path",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "/path/to/file.png or {{input.filePath}}",
+     "help": "Local file to send as an attachment. Requires the WhatsApp worker.",
+     "section": "MEDIA"
+    },
+    {
+     "key": "mediaUrl",
+     "label": "Media URL",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "https://…/image.png",
+     "help": "URL to download and send as an attachment.",
+     "section": "MEDIA"
+    },
+    {
+     "key": "caption",
+     "label": "Media caption",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "Optional caption",
+     "help": "Caption for the attachment. Falls back to the message text.",
+     "section": "MEDIA"
+    }
+   ],
+   "next": [],
+   "legacy": false
+  },
+  {
+   "id": "863b6681-723f-5b8c-89a7-f85a70616665",
+   "type": "health-query",
+   "label": "Readiness",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Query health data from Apple Watch, Whoop and other fitness sources.",
+   "config": {
+    "operation": "readiness"
+   },
+   "form": [
+    {
+     "key": "operation",
+     "label": "Action",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "stats",
+       "label": "Fitness Stats"
+      },
+      {
+       "value": "readiness",
+       "label": "Readiness Score"
+      },
+      {
+       "value": "sleep",
+       "label": "Sleep Analysis"
+      },
+      {
+       "value": "training_load",
+       "label": "Training Load"
+      },
+      {
+       "value": "timeline",
+       "label": "Activity Timeline"
+      }
+     ],
+     "help": "Which health data summary to fetch"
+    },
+    {
+     "key": "page",
+     "label": "Page",
+     "kind": "number",
+     "advanced": false,
+     "min": 1,
+     "help": "Page number for paginated timeline results."
+    },
+    {
+     "key": "limit",
+     "label": "Items Per Page",
+     "kind": "number",
+     "advanced": false,
+     "min": 1,
+     "help": "How many activities to return per page."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "bc22fe0b-6e8d-577e-a68c-55d7fee3a261"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "bc22fe0b-6e8d-577e-a68c-55d7fee3a261",
+   "type": "transform",
+   "label": "Namespace: readiness",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { readiness: input };",
+   "config": {
+    "expression": "return { readiness: input };"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "a953ebe6-261a-5060-8286-b7d17786cb72"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "aa68ac7c-3795-5b3e-ac90-6dd3037744b5",
+   "type": "home-assistant",
+   "label": "Home sensors",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Read state of sensor.echo_temperature",
+   "config": {
+    "entityId": "sensor.echo_temperature",
+    "entityIds": [
+     "sensor.echo_temperature",
+     "sensor.downstairs_hallway_temperature",
+     "sensor.downstairs_hallway_humidity",
+     "sensor.home_outdoor_temperature"
+    ],
+    "operation": "query_state"
+   },
+   "form": [
+    {
+     "key": "operation",
+     "label": "Operation",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "query_state",
+       "label": "Query State"
+      },
+      {
+       "value": "call_service",
+       "label": "Call Service"
+      },
+      {
+       "value": "fire_event",
+       "label": "Fire Event"
+      },
+      {
+       "value": "get_history",
+       "label": "Get History"
+      },
+      {
+       "value": "render_template",
+       "label": "Render Template"
+      }
+     ]
+    },
+    {
+     "key": "entityId",
+     "label": "Entity ID",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "light.living_room_ceiling"
+    },
+    {
+     "key": "domain",
+     "label": "Domain",
+     "kind": "text",
+     "advanced": true,
+     "placeholder": "light"
+    },
+    {
+     "key": "service",
+     "label": "Service",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "turn_on"
+    },
+    {
+     "key": "serviceData",
+     "label": "Service Data (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "placeholder": "{\"brightness\": 128}"
+    },
+    {
+     "key": "eventType",
+     "label": "Event Type",
+     "kind": "text",
+     "advanced": true,
+     "placeholder": "custom_event"
+    },
+    {
+     "key": "eventData",
+     "label": "Event Data (JSON)",
+     "kind": "textarea",
+     "advanced": true
+    },
+    {
+     "key": "historyStart",
+     "label": "History Start",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "2026-04-14T00:00:00Z"
+    },
+    {
+     "key": "historyEnd",
+     "label": "History End",
+     "kind": "template",
+     "advanced": true
+    },
+    {
+     "key": "template",
+     "label": "Template (Jinja2)",
+     "kind": "code",
+     "advanced": true,
+     "placeholder": "{{ states(\"light.living_room\") }}"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "08ed6b73-49a6-5f79-916c-05d91220ac3a"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "08ed6b73-49a6-5f79-916c-05d91220ac3a",
+   "type": "transform",
+   "label": "Namespace: indoor",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { indoor: input };",
+   "config": {
+    "expression": "return { indoor: input };"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "a953ebe6-261a-5060-8286-b7d17786cb72"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "9a298903-2cbf-5360-93e7-dcc62b2233f5",
+   "type": "gmail-search",
+   "label": "Overnight email",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Search Gmail for: is:unread newer_than:1d",
+   "config": {
+    "query": "is:unread newer_than:1d",
+    "accountId": 2,
+    "maxResults": 20,
+    "fetchFullMessages": false
+   },
+   "form": [
+    {
+     "key": "accountId",
+     "label": "Gmail Account",
+     "kind": "number",
+     "advanced": false,
+     "help": "The gmail_accounts row id to search in."
+    },
+    {
+     "key": "query",
+     "label": "Search Query",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "from:someone@example.com subject:report newer_than:7d",
+     "help": "Gmail search query. Supports Gmail advanced search operators and {{input.x}} templates."
+    },
+    {
+     "key": "maxResults",
+     "label": "Max Results",
+     "kind": "number",
+     "advanced": false,
+     "help": "Maximum number of messages to return (default 50)."
+    },
+    {
+     "key": "fetchFullMessages",
+     "label": "Fetch Full Messages",
+     "kind": "toggle",
+     "advanced": true,
+     "help": "If enabled, returns full body and attachments for each result. Slower for large sets.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "e6d6cc8a-0fdb-5c3d-8bbe-9d6b44237249"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "e6d6cc8a-0fdb-5c3d-8bbe-9d6b44237249",
+   "type": "transform",
+   "label": "Namespace: email",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { email: input };",
+   "config": {
+    "expression": "return { email: input };"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "a953ebe6-261a-5060-8286-b7d17786cb72"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "type": "merge",
+   "label": "All signals",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Combine the outputs of every upstream node into a single object. Use after parallel branches converge. Keys are merged flat — if two branches emit the same key, one overwrites the other.",
+   "config": {},
+   "form": [
+    {
+     "key": "$config",
+     "label": "Configuration",
+     "kind": "json",
+     "advanced": false
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "5efde8cc-d689-5711-9be7-5929032b9a53"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "5efde8cc-d689-5711-9be7-5929032b9a53",
+   "type": "briefing-compose",
+   "label": "Verify: facts, gaps, sources",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Turn gathered signals into a verified fact sheet, an explicit gap list, and a per-source status ledger. Everything a downstream LLM is allowed to say, and nothing it is not.",
+   "config": {
+    "auditRun": true,
+    "timezone": "Europe/London",
+    "titlePrefix": "Briefing"
+   },
+   "form": [
+    {
+     "key": "titlePrefix",
+     "label": "Title prefix",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "Briefing",
+     "help": "Used to build the briefing title, e.g. \"Briefing — Tue 29 Jul\"."
+    },
+    {
+     "key": "timezone",
+     "label": "Timezone",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "Europe/London",
+     "help": "Timezone for the date label."
+    },
+    {
+     "key": "auditRun",
+     "label": "Audit this run",
+     "kind": "toggle",
+     "advanced": false,
+     "help": "Read the run's node executions so failed sources appear in the ledger with their real error, instead of just going missing."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "dc7493f0-96f7-5c38-8358-d89e45f0be89"
+    },
+    {
+     "handle": null,
+     "targetId": "037b85f4-3707-5c5a-8592-df2b8873ecdf"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "dc7493f0-96f7-5c38-8358-d89e45f0be89",
+   "type": "llm-call",
+   "label": "Write the summary",
+   "category": "llm-ai",
+   "icon": null,
+   "summary": "Ask : Today is {{input.briefing.dateLabel}}.\n\nFACTS\n{{input.factS…",
+   "config": {
+    "model": "",
+    "maxTokens": 2000,
+    "userPrompt": "Today is {{input.briefing.dateLabel}}.\n\nFACTS\n{{input.factSheet}}\n\nGAPS\n{{input.gapSheet}}",
+    "temperature": 0.2,
+    "systemPrompt": "You write John's morning briefing from a pre-verified FACTS block.\n\nABSOLUTE RULES — these override every other instruction:\n1. Every number, place name, time, temperature and condition you write MUST appear verbatim in FACTS. Never compute, convert, round, estimate or infer a value.\n2. Units in FACTS are already correct (Celsius, km/h, km). NEVER convert them — do not output Fahrenheit or miles.\n3. Anything named in GAPS is unavailable. You may state it is unavailable, or omit it entirely. You must NEVER substitute a plausible-sounding value for it.\n4. If FACTS is empty, reply with exactly one line saying no data was available, and stop.\n5. Never invent an email subject, a meeting, an alert, or a health number.\n\nSTYLE: 3 to 6 bullet points, most important first, each under 25 words. Lead with anything under 'Local factors'. If he is not at home, say where he is and how the weather there differs from home. No preamble, no sign-off, no headings."
+   },
+   "form": [
+    {
+     "key": "userPrompt",
+     "label": "User Prompt",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Summarise this text: {{input.text}}",
+     "help": "What you want the AI to do. Use {{input.field}} to insert upstream data.",
+     "section": "PROMPT"
+    },
+    {
+     "key": "systemPrompt",
+     "label": "System Prompt",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "You are a helpful assistant that writes concise summaries.",
+     "help": "Optional instructions that set the AI's role or style.",
+     "section": "PROMPT"
+    },
+    {
+     "key": "model",
+     "label": "Model",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "",
+       "label": "Default (site setting)"
+      },
+      {
+       "value": "z-ai/glm-5-turbo",
+       "label": "GLM 5 Turbo"
+      },
+      {
+       "value": "z-ai/glm-5.2",
+       "label": "GLM 5.2"
+      },
+      {
+       "value": "z-ai/glm-5.1",
+       "label": "GLM 5.1"
+      }
+     ],
+     "help": "Leave as \"Default\" to use the site-wide admin default (recommended). The picker shows the full live OpenRouter catalogue."
+    },
+    {
+     "key": "temperature",
+     "label": "Temperature",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "max": 2,
+     "step": 0.1,
+     "help": "How creative the answers are. 0 is focused and deterministic, 2 is wild."
+    },
+    {
+     "key": "maxTokens",
+     "label": "Max Tokens",
+     "kind": "number",
+     "advanced": true,
+     "min": 1,
+     "help": "Maximum length of the AI response (roughly 4 characters per token).",
+     "section": "ADVANCED"
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output JSON schema (optional)",
+     "kind": "code",
+     "advanced": true,
+     "help": "Set to force a structured JSON response. The parsed object is returned under `data`; top-level `required` keys are validated with one retry.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "037b85f4-3707-5c5a-8592-df2b8873ecdf"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "037b85f4-3707-5c5a-8592-df2b8873ecdf",
+   "type": "transform",
+   "label": "Build record + message",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: const b = input.briefing || {};\nconst md = (input.response …",
+   "config": {
+    "expression": "const b = input.briefing || {};\nconst md = (input.response || '').trim();\nconst gaps = input.gaps || [];\nconst sources = input.sources || [];\nconst ok = sources.filter(function (s) { return s.status === 'ok'; });\nconst now = new Date().toISOString();\nconst record = {\n  id: b.date,\n  trigger: 'workflow',\n  status: 'complete',\n  startedAt: b.generatedAt || now,\n  finishedAt: now,\n  title: b.title || 'Briefing',\n  markdown: md,\n  sources: ok.map(function (s) { return s.key; }),\n  llmCalls: 1,\n  costUsd: 0,\n  detail: {\n    headline: b.headline || '',\n    dateLabel: b.dateLabel || '',\n    generatedAt: b.generatedAt || now,\n    timezone: b.timezone || 'Europe/London',\n    location: b.location || null,\n    weather: b.weather || null,\n    knowledge: b.knowledge || null,\n    facts: input.facts || [],\n    gaps: gaps,\n    sources: sources\n  }\n};\nconst lines = ['\\u2615 ' + record.title];\nif (b.headline) lines.push(b.headline);\nif (md) { lines.push(''); lines.push(md); }\nif (gaps.length) {\n  lines.push('');\n  lines.push('\\u26a0 No data: ' + gaps.map(function (g) { return g.section; }).join(', '));\n}\nlines.push('');\nlines.push('Full detail: https://strangeramblings.com/jkai/briefing');\nreturn { record: record, recordKey: record.id, whatsapp: lines.join('\\n') };"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "0fffbaf6-7c63-542b-92ae-d9002c117e70"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "0fffbaf6-7c63-542b-92ae-d9002c117e70",
+   "type": "database",
+   "label": "Save briefing detail",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Permanent, sitewide datastore. Full CRUD over jsonb records in named collections: insert / upsert / get / query (filter DSL) / update / patch / delete / count / aggregate. Shared across workflows (unlike the per-workflow Data store).",
+   "config": {
+    "key": "{{input.recordKey}}",
+    "data": "{{input.record}}",
+    "operation": "upsert",
+    "autoCreate": true,
+    "collection": "briefings"
+   },
+   "form": [
+    {
+     "key": "operation",
+     "label": "Operation",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "insert",
+       "label": "Insert (add a record)"
+      },
+      {
+       "value": "upsert",
+       "label": "Upsert (insert or overwrite by key)"
+      },
+      {
+       "value": "get",
+       "label": "Get (read one by key)"
+      },
+      {
+       "value": "query",
+       "label": "Query (filter DSL)"
+      },
+      {
+       "value": "update",
+       "label": "Update (replace data by key)"
+      },
+      {
+       "value": "patch",
+       "label": "Patch (merge fields by key)"
+      },
+      {
+       "value": "delete",
+       "label": "Delete (remove by key)"
+      },
+      {
+       "value": "count",
+       "label": "Count (matching records)"
+      },
+      {
+       "value": "aggregate",
+       "label": "Aggregate (sum/avg/…)"
+      }
+     ],
+     "help": "What to do against the datastore."
+    },
+    {
+     "key": "collection",
+     "label": "Collection",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "notes",
+     "help": "Collection slug. Supports {{input.field}} templates."
+    },
+    {
+     "key": "autoCreate",
+     "label": "Auto-create collection",
+     "kind": "toggle",
+     "advanced": false,
+     "help": "Create the collection on first write if it does not exist."
+    },
+    {
+     "key": "key",
+     "label": "Key",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "{{input.id}}",
+     "help": "Natural key of the record. Supports {{input.field}} templates."
+    },
+    {
+     "key": "data",
+     "label": "Data (JSON)",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "{ \"title\": \"{{input.title}}\", \"status\": \"open\" }",
+     "help": "JSON object of the record body. Supports {{input.field}} templates."
+    },
+    {
+     "key": "patch",
+     "label": "Patch (JSON)",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "{ \"status\": \"done\" }",
+     "help": "JSON object of fields to shallow-merge onto the existing record."
+    },
+    {
+     "key": "filters",
+     "label": "Filters (JSON)",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "[ { \"path\": \"status\", \"op\": \"eq\", \"value\": \"open\" } ]",
+     "help": "JSON array of { path, op, value }. op ∈ eq|ne|gt|gte|lt|lte|contains|exists|in."
+    },
+    {
+     "key": "sortField",
+     "label": "Sort field",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "updatedAt",
+       "label": "Updated at"
+      },
+      {
+       "value": "createdAt",
+       "label": "Created at"
+      },
+      {
+       "value": "key",
+       "label": "Key"
+      }
+     ],
+     "help": "Sort by a built-in column (ignored when Sort path is set)."
+    },
+    {
+     "key": "sortPath",
+     "label": "Sort path",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "meta.year",
+     "help": "Sort by a dot-path into the record data (overrides Sort field)."
+    },
+    {
+     "key": "sortDir",
+     "label": "Sort direction",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "desc",
+       "label": "Descending"
+      },
+      {
+       "value": "asc",
+       "label": "Ascending"
+      }
+     ]
+    },
+    {
+     "key": "limit",
+     "label": "Limit",
+     "kind": "number",
+     "advanced": false,
+     "placeholder": "100",
+     "help": "Max records to return (1–500, default 100)."
+    },
+    {
+     "key": "offset",
+     "label": "Offset",
+     "kind": "number",
+     "advanced": false,
+     "placeholder": "0",
+     "help": "Records to skip."
+    },
+    {
+     "key": "aggregateOp",
+     "label": "Aggregate function",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "count",
+       "label": "Count"
+      },
+      {
+       "value": "sum",
+       "label": "Sum"
+      },
+      {
+       "value": "avg",
+       "label": "Average"
+      },
+      {
+       "value": "min",
+       "label": "Min"
+      },
+      {
+       "value": "max",
+       "label": "Max"
+      }
+     ]
+    },
+    {
+     "key": "aggregatePath",
+     "label": "Aggregate path",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "amount",
+     "help": "Dot-path to the numeric field (required for sum/avg/min/max)."
+    },
+    {
+     "key": "groupBy",
+     "label": "Group by",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "status",
+     "help": "Optional dot-path to group aggregate results by."
+    },
+    {
+     "key": "permissions",
+     "label": "Row permissions (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "placeholder": "{ \"read\": [\"*\"], \"write\": [\"owner\", \"workflow:*\"] }",
+     "help": "Optional { read?, write?, delete? } actor lists on this record. Actors: owner, jkai, system, workflow:<id>, workflow:*, *."
+    },
+    {
+     "key": "expectedVersion",
+     "label": "Expected version",
+     "kind": "number",
+     "advanced": true,
+     "help": "Optimistic concurrency: fail if the stored version differs."
+    },
+    {
+     "key": "outputKey",
+     "label": "Output key",
+     "kind": "text",
+     "advanced": true,
+     "help": "Key the result is placed under (default records/record/result by operation)."
+    }
+   ],
+   "next": [],
+   "legacy": false
+  }
+ ],
+ "edges": [
+  {
+   "id": "3661aeba-ab72-4295-9403-1254c7407afc",
+   "source": "19b9bbc6-6787-596c-a418-05bf236a9d95",
+   "target": "03642590-e47a-5d54-bc24-47fb6e518bf7",
+   "sourceHandle": null
+  },
+  {
+   "id": "28a2735f-3dc1-4cce-a761-7e6e074b6168",
+   "source": "19b9bbc6-6787-596c-a418-05bf236a9d95",
+   "target": "c1558ef7-40c5-599e-b3ad-afba514969e0",
+   "sourceHandle": null
+  },
+  {
+   "id": "9010d609-7198-485b-8105-35b6e06c13f0",
+   "source": "19b9bbc6-6787-596c-a418-05bf236a9d95",
+   "target": "863b6681-723f-5b8c-89a7-f85a70616665",
+   "sourceHandle": null
+  },
+  {
+   "id": "cca520a3-a052-42e2-98c3-017b6cfef992",
+   "source": "19b9bbc6-6787-596c-a418-05bf236a9d95",
+   "target": "aa68ac7c-3795-5b3e-ac90-6dd3037744b5",
+   "sourceHandle": null
+  },
+  {
+   "id": "5b711023-0311-4cd6-a252-cd354c9a11ec",
+   "source": "19b9bbc6-6787-596c-a418-05bf236a9d95",
+   "target": "9a298903-2cbf-5360-93e7-dcc62b2233f5",
+   "sourceHandle": null
+  },
+  {
+   "id": "c21123e8-f258-4b4b-9b15-ad21c0c232f6",
+   "source": "03642590-e47a-5d54-bc24-47fb6e518bf7",
+   "target": "d707b28a-d73a-5cc3-9e6a-ec9fb43450b4",
+   "sourceHandle": null
+  },
+  {
+   "id": "46758860-19c0-43d6-beab-e09b296e9809",
+   "source": "d707b28a-d73a-5cc3-9e6a-ec9fb43450b4",
+   "target": "978a7582-5949-5b6f-a8ed-d9118f31cb26",
+   "sourceHandle": null
+  },
+  {
+   "id": "61c1e1bc-9fec-4bab-9df2-1f3376a8bd65",
+   "source": "978a7582-5949-5b6f-a8ed-d9118f31cb26",
+   "target": "9b078d4d-b604-5713-85c8-06e041e49ee4",
+   "sourceHandle": null
+  },
+  {
+   "id": "3f561663-4b7a-4fd1-935c-9ad7c36de669",
+   "source": "9b078d4d-b604-5713-85c8-06e041e49ee4",
+   "target": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "sourceHandle": null
+  },
+  {
+   "id": "e5b8faac-3502-4051-a706-44c7bfd7d87a",
+   "source": "03642590-e47a-5d54-bc24-47fb6e518bf7",
+   "target": "d7d94b50-cd98-57b9-b7aa-4f817a7c5cc5",
+   "sourceHandle": null
+  },
+  {
+   "id": "d9af3618-7050-45fa-b6c4-183ee97847da",
+   "source": "d7d94b50-cd98-57b9-b7aa-4f817a7c5cc5",
+   "target": "fde87007-4e31-5671-8e01-c5d6a8588389",
+   "sourceHandle": null
+  },
+  {
+   "id": "0a030345-7ebd-41cb-9da7-f1378664f4fd",
+   "source": "fde87007-4e31-5671-8e01-c5d6a8588389",
+   "target": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "sourceHandle": null
+  },
+  {
+   "id": "a3e6fef0-82a3-47e6-b821-acddbb2ed5f6",
+   "source": "03642590-e47a-5d54-bc24-47fb6e518bf7",
+   "target": "a2c263b1-f732-5520-a846-11d2448c1932",
+   "sourceHandle": null
+  },
+  {
+   "id": "f88e85fe-857a-4b18-a97c-e363c06e9f26",
+   "source": "a2c263b1-f732-5520-a846-11d2448c1932",
+   "target": "6fefb841-8ff4-59b1-a19a-9ea5c945a7a6",
+   "sourceHandle": null
+  },
+  {
+   "id": "cc706f14-0053-413c-957b-3e5c69460ec3",
+   "source": "6fefb841-8ff4-59b1-a19a-9ea5c945a7a6",
+   "target": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "sourceHandle": null
+  },
+  {
+   "id": "fe8c1845-3a73-4018-9056-fd5e51a6a45d",
+   "source": "c1558ef7-40c5-599e-b3ad-afba514969e0",
+   "target": "064ecfc6-001f-5613-9420-c77c3b291a8a",
+   "sourceHandle": null
+  },
+  {
+   "id": "6ad6399b-282d-438f-a22b-0761ed5f83ed",
+   "source": "064ecfc6-001f-5613-9420-c77c3b291a8a",
+   "target": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "sourceHandle": null
+  },
+  {
+   "id": "1d14e57f-2cb3-4bcd-aad8-9da71aeeee90",
+   "source": "863b6681-723f-5b8c-89a7-f85a70616665",
+   "target": "bc22fe0b-6e8d-577e-a68c-55d7fee3a261",
+   "sourceHandle": null
+  },
+  {
+   "id": "225dd725-4024-403f-9fc6-c5c2d8b1cfb5",
+   "source": "bc22fe0b-6e8d-577e-a68c-55d7fee3a261",
+   "target": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "sourceHandle": null
+  },
+  {
+   "id": "bc2bf057-3a34-4ce8-9108-c474aab21395",
+   "source": "aa68ac7c-3795-5b3e-ac90-6dd3037744b5",
+   "target": "08ed6b73-49a6-5f79-916c-05d91220ac3a",
+   "sourceHandle": null
+  },
+  {
+   "id": "c250a2a7-28f1-46b8-a29c-71d6e25418c8",
+   "source": "08ed6b73-49a6-5f79-916c-05d91220ac3a",
+   "target": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "sourceHandle": null
+  },
+  {
+   "id": "bdc5bff8-d3db-4e27-8dcc-a25a97f62627",
+   "source": "9a298903-2cbf-5360-93e7-dcc62b2233f5",
+   "target": "e6d6cc8a-0fdb-5c3d-8bbe-9d6b44237249",
+   "sourceHandle": null
+  },
+  {
+   "id": "98e538f7-ffa8-4e66-94bc-0ffd335eed58",
+   "source": "e6d6cc8a-0fdb-5c3d-8bbe-9d6b44237249",
+   "target": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "sourceHandle": null
+  },
+  {
+   "id": "6cd075f7-eec4-4ebe-aab5-fff4bb904a91",
+   "source": "a953ebe6-261a-5060-8286-b7d17786cb72",
+   "target": "5efde8cc-d689-5711-9be7-5929032b9a53",
+   "sourceHandle": null
+  },
+  {
+   "id": "26e736d8-8087-4b4d-8aa2-b1733e22efe5",
+   "source": "5efde8cc-d689-5711-9be7-5929032b9a53",
+   "target": "dc7493f0-96f7-5c38-8358-d89e45f0be89",
+   "sourceHandle": null
+  },
+  {
+   "id": "2b7dc0f3-a60c-47c9-9866-c8a1e4bb2bb2",
+   "source": "dc7493f0-96f7-5c38-8358-d89e45f0be89",
+   "target": "037b85f4-3707-5c5a-8592-df2b8873ecdf",
+   "sourceHandle": null
+  },
+  {
+   "id": "62db865e-b144-4175-8066-00b67ec5750d",
+   "source": "5efde8cc-d689-5711-9be7-5929032b9a53",
+   "target": "037b85f4-3707-5c5a-8592-df2b8873ecdf",
+   "sourceHandle": null
+  },
+  {
+   "id": "1cfd67a0-1570-41e9-8e0b-350e85bb271c",
+   "source": "037b85f4-3707-5c5a-8592-df2b8873ecdf",
+   "target": "0fffbaf6-7c63-542b-92ae-d9002c117e70",
+   "sourceHandle": null
+  }
+ ],
+ "recentRuns": [
+  {
+   "id": "a9e1cd55-4dfd-432d-a7ab-3ac07304926b",
+   "status": "completed_with_errors",
+   "trigger": "manual",
+   "startedAt": "2026-07-29T07:59:01.726Z",
+   "completedAt": "2026-07-29T07:59:36.245Z",
+   "durationMs": 34519,
+   "error": null
+  },
+  {
+   "id": "a2370aa5-8bfa-4472-89ac-dae3ae04500b",
+   "status": "completed_with_errors",
+   "trigger": "manual",
+   "startedAt": "2026-07-29T07:57:12.544Z",
+   "completedAt": "2026-07-29T07:58:07.742Z",
+   "durationMs": 55198,
+   "error": null
+  },
+  {
+   "id": "01d1be0f-6a37-4f04-80dd-3a693fda3d0b",
+   "status": "completed_with_errors",
+   "trigger": "manual",
+   "startedAt": "2026-07-29T07:54:00.596Z",
+   "completedAt": "2026-07-29T07:55:03.198Z",
+   "durationMs": 62602,
+   "error": null
+  }
+ ],
+ "fixProposals": []
+}

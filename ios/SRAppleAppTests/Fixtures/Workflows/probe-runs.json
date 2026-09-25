@@ -1,0 +1,31 @@
+{
+ "runs": [
+  {
+   "id": "a9e1cd55-4dfd-432d-a7ab-3ac07304926b",
+   "status": "completed_with_errors",
+   "trigger": "manual",
+   "startedAt": "2026-07-29T07:59:01.726Z",
+   "completedAt": "2026-07-29T07:59:36.245Z",
+   "durationMs": 34519,
+   "error": null
+  },
+  {
+   "id": "a2370aa5-8bfa-4472-89ac-dae3ae04500b",
+   "status": "completed_with_errors",
+   "trigger": "manual",
+   "startedAt": "2026-07-29T07:57:12.544Z",
+   "completedAt": "2026-07-29T07:58:07.742Z",
+   "durationMs": 55198,
+   "error": null
+  },
+  {
+   "id": "01d1be0f-6a37-4f04-80dd-3a693fda3d0b",
+   "status": "completed_with_errors",
+   "trigger": "manual",
+   "startedAt": "2026-07-29T07:54:00.596Z",
+   "completedAt": "2026-07-29T07:55:03.198Z",
+   "durationMs": 62602,
+   "error": null
+  }
+ ]
+}

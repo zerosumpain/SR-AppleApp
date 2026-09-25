@@ -1,0 +1,425 @@
+{
+ "slug": "test-slug",
+ "title": "self-healing json retry",
+ "description": null,
+ "version": 1572201105,
+ "trigger": {
+  "kind": "chat",
+  "cron": null,
+  "timezone": null,
+  "enabled": true,
+  "description": "Runs when you message its chat",
+  "nextRuns": [],
+  "eventType": null,
+  "filter": []
+ },
+ "building": false,
+ "buildError": null,
+ "steps": [
+  {
+   "id": "de657aa0-f698-48c6-b923-eebeb8397e7b",
+   "type": "trigger",
+   "label": "Trigger",
+   "category": "trigger-flow",
+   "icon": null,
+   "summary": "Manual trigger",
+   "config": {
+    "kind": "manual"
+   },
+   "form": [
+    {
+     "key": "kind",
+     "label": "Kind",
+     "kind": "text",
+     "advanced": false,
+     "help": "manual | cron | webhook | event"
+    },
+    {
+     "key": "cron",
+     "label": "Cron",
+     "kind": "text",
+     "advanced": false,
+     "help": "Cron expression (5-field). Only used when kind=cron."
+    },
+    {
+     "key": "eventType",
+     "label": "Event type",
+     "kind": "text",
+     "advanced": false,
+     "help": "Platform event to listen for — a $lib/events/catalogue type, e.g. workflow.completed, whatsapp.inbound, news.item. The event payload arrives as {{input.event.<key>}}."
+    },
+    {
+     "key": "filter",
+     "label": "Filter",
+     "kind": "json",
+     "advanced": false,
+     "help": "Optional payload filter, all must match: [{ key: top-level payload field, op: \"equals\" | \"contains\", value }]."
+    },
+    {
+     "key": "sourceWorkflowId",
+     "label": "Source workflow id",
+     "kind": "text",
+     "advanced": false,
+     "help": "Only fire when this specific workflow emits the event (optional)."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "734c1062-fbe9-4954-bc36-3f3e43fe0b28"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "734c1062-fbe9-4954-bc36-3f3e43fe0b28",
+   "type": "chat",
+   "label": "Chat",
+   "category": "trigger-flow",
+   "icon": null,
+   "summary": "Conversational chat node. Unwired → acts as the canvas orchestrator panel (no role in execution). Wiring it is not supported — use `llm-call` for a prompt→completion step.",
+   "config": {
+    "model": "",
+    "useIntelContext": true
+   },
+   "form": [
+    {
+     "key": "conversationId",
+     "label": "Conversation id",
+     "kind": "text",
+     "advanced": false,
+     "help": "Optional: pin an existing /jkai conversation to this chat node so the canvas thread \"follows\" the user from chat onto the canvas. Set by `pinConversationToCanvasChat` and `workflow_build_from_spec`."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "b33daa7e-d55b-4eed-b599-856f0227e6b3"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "b33daa7e-d55b-4eed-b599-856f0227e6b3",
+   "type": "llm-call",
+   "label": "glm-4-flash",
+   "category": "llm-ai",
+   "icon": null,
+   "summary": "Ask : Respond with VALID JSON only. Echo back the user message in…",
+   "config": {
+    "model": "",
+    "maxTokens": 256,
+    "userPrompt": "Respond with VALID JSON only. Echo back the user message inside a {\"echo\": <message>} object. User message: {{input.message}}",
+    "temperature": 0
+   },
+   "form": [
+    {
+     "key": "userPrompt",
+     "label": "User Prompt",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Summarise this text: {{input.text}}",
+     "help": "What you want the AI to do. Use {{input.field}} to insert upstream data.",
+     "section": "PROMPT"
+    },
+    {
+     "key": "systemPrompt",
+     "label": "System Prompt",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "You are a helpful assistant that writes concise summaries.",
+     "help": "Optional instructions that set the AI's role or style.",
+     "section": "PROMPT"
+    },
+    {
+     "key": "model",
+     "label": "Model",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "",
+       "label": "Default (site setting)"
+      },
+      {
+       "value": "z-ai/glm-5-turbo",
+       "label": "GLM 5 Turbo"
+      },
+      {
+       "value": "z-ai/glm-5.2",
+       "label": "GLM 5.2"
+      },
+      {
+       "value": "z-ai/glm-5.1",
+       "label": "GLM 5.1"
+      }
+     ],
+     "help": "Leave as \"Default\" to use the site-wide admin default (recommended). The picker shows the full live OpenRouter catalogue."
+    },
+    {
+     "key": "temperature",
+     "label": "Temperature",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "max": 2,
+     "step": 0.1,
+     "help": "How creative the answers are. 0 is focused and deterministic, 2 is wild."
+    },
+    {
+     "key": "maxTokens",
+     "label": "Max Tokens",
+     "kind": "number",
+     "advanced": true,
+     "min": 1,
+     "help": "Maximum length of the AI response (roughly 4 characters per token).",
+     "section": "ADVANCED"
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output JSON schema (optional)",
+     "kind": "code",
+     "advanced": true,
+     "help": "Set to force a structured JSON response. The parsed object is returned under `data`; top-level `required` keys are validated with one retry.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "e99fd685-5919-4024-a844-f70dd027bf7a"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "e99fd685-5919-4024-a844-f70dd027bf7a",
+   "type": "text-parser",
+   "label": "JSON.parse",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Extract structured data from text: JSON extraction, regex matching, or text splitting.",
+   "config": {
+    "mode": "json",
+    "inputField": "response"
+   },
+   "form": [
+    {
+     "key": "mode",
+     "label": "Mode",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "json",
+       "label": "Extract JSON"
+      },
+      {
+       "value": "regex",
+       "label": "Regex match"
+      },
+      {
+       "value": "split",
+       "label": "Split by delimiter"
+      }
+     ],
+     "help": "How to parse the text"
+    },
+    {
+     "key": "inputField",
+     "label": "Input Field",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "response",
+     "help": "Field name on the input object to parse"
+    },
+    {
+     "key": "pattern",
+     "label": "Pattern",
+     "kind": "text",
+     "advanced": false,
+     "help": "Regular expression to match against the text"
+    },
+    {
+     "key": "flags",
+     "label": "Flags",
+     "kind": "text",
+     "advanced": true,
+     "placeholder": "gi",
+     "help": "Regex flags (e.g. `g` for global, `i` for case-insensitive)"
+    },
+    {
+     "key": "delimiter",
+     "label": "Delimiter",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "\\n",
+     "help": "Use \\n for newline"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "63b1172b-c0cc-49c8-a958-7dc1dea7cf22"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "63b1172b-c0cc-49c8-a958-7dc1dea7cf22",
+   "type": "llm-call",
+   "label": "claude-haiku-4-5",
+   "category": "llm-ai",
+   "icon": null,
+   "summary": "Ask : You are a JSON repair engine. Return ONLY a valid JSON obje…",
+   "config": {
+    "model": "",
+    "maxTokens": 256,
+    "userPrompt": "You are a JSON repair engine. Return ONLY a valid JSON object. Upstream output: {{input.response}}",
+    "temperature": 0
+   },
+   "form": [
+    {
+     "key": "userPrompt",
+     "label": "User Prompt",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Summarise this text: {{input.text}}",
+     "help": "What you want the AI to do. Use {{input.field}} to insert upstream data.",
+     "section": "PROMPT"
+    },
+    {
+     "key": "systemPrompt",
+     "label": "System Prompt",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "You are a helpful assistant that writes concise summaries.",
+     "help": "Optional instructions that set the AI's role or style.",
+     "section": "PROMPT"
+    },
+    {
+     "key": "model",
+     "label": "Model",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "",
+       "label": "Default (site setting)"
+      },
+      {
+       "value": "z-ai/glm-5-turbo",
+       "label": "GLM 5 Turbo"
+      },
+      {
+       "value": "z-ai/glm-5.2",
+       "label": "GLM 5.2"
+      },
+      {
+       "value": "z-ai/glm-5.1",
+       "label": "GLM 5.1"
+      }
+     ],
+     "help": "Leave as \"Default\" to use the site-wide admin default (recommended). The picker shows the full live OpenRouter catalogue."
+    },
+    {
+     "key": "temperature",
+     "label": "Temperature",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "max": 2,
+     "step": 0.1,
+     "help": "How creative the answers are. 0 is focused and deterministic, 2 is wild."
+    },
+    {
+     "key": "maxTokens",
+     "label": "Max Tokens",
+     "kind": "number",
+     "advanced": true,
+     "min": 1,
+     "help": "Maximum length of the AI response (roughly 4 characters per token).",
+     "section": "ADVANCED"
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output JSON schema (optional)",
+     "kind": "code",
+     "advanced": true,
+     "help": "Set to force a structured JSON response. The parsed object is returned under `data`; top-level `required` keys are validated with one retry.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "26ce73b8-2732-459d-8e31-730ebf9101f7"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "26ce73b8-2732-459d-8e31-730ebf9101f7",
+   "type": "transform",
+   "label": "Reply",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: <expression>",
+   "config": {},
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [],
+   "legacy": false
+  }
+ ],
+ "edges": [
+  {
+   "id": "b465ae9c-e013-418d-8f0d-d3aa705e7d6b",
+   "source": "734c1062-fbe9-4954-bc36-3f3e43fe0b28",
+   "target": "b33daa7e-d55b-4eed-b599-856f0227e6b3",
+   "sourceHandle": null
+  },
+  {
+   "id": "b287462e-7227-4bd6-a283-fc77100dc2a7",
+   "source": "b33daa7e-d55b-4eed-b599-856f0227e6b3",
+   "target": "e99fd685-5919-4024-a844-f70dd027bf7a",
+   "sourceHandle": null
+  },
+  {
+   "id": "1cf91db6-2cc1-4e6e-88ac-4fe872c85b2c",
+   "source": "e99fd685-5919-4024-a844-f70dd027bf7a",
+   "target": "63b1172b-c0cc-49c8-a958-7dc1dea7cf22",
+   "sourceHandle": null
+  },
+  {
+   "id": "81cdf3fe-4bc8-4189-a3a2-77046c3f764c",
+   "source": "63b1172b-c0cc-49c8-a958-7dc1dea7cf22",
+   "target": "26ce73b8-2732-459d-8e31-730ebf9101f7",
+   "sourceHandle": null
+  },
+  {
+   "id": "532d72d4-cb9b-400d-aabf-8b05ec7f5c2d",
+   "source": "de657aa0-f698-48c6-b923-eebeb8397e7b",
+   "target": "734c1062-fbe9-4954-bc36-3f3e43fe0b28",
+   "sourceHandle": null
+  }
+ ],
+ "recentRuns": [],
+ "fixProposals": []
+}

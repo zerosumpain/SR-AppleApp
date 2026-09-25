@@ -21,6 +21,9 @@ enum SiteError: LocalizedError {
     /// activity does not exist" (404) from "Health is down" (503), and a flat
     /// message string threw the difference away.
     case status(Int, String)
+    /// A refusal that names the field it is about — `422 { error, field }` from
+    /// the workflows lane — so a form can put the message beside that field.
+    case invalid(String, field: String)
 
     var errorDescription: String? {
         switch self {
@@ -28,12 +31,14 @@ enum SiteError: LocalizedError {
         case .expired: return "This iPhone needs pairing again."
         case .message(let value): return value
         case .status(_, let value): return value
+        case .invalid(let value, _): return value
         }
     }
 
     /// The HTTP status, when the server answered with one.
     var status: Int? {
         if case .status(let code, _) = self { return code }
+        if case .invalid = self { return 422 }
         return nil
     }
 }
@@ -205,7 +210,7 @@ final class SiteClient {
         return req
     }
 
-    private struct APIError: Decodable { let error: String }
+    private struct APIError: Decodable { let error: String; var field: String? = nil }
 
     func send<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil) async throws -> T {
         let (data, response) = try await session.data(for: try request(path, method: method, body: body))
@@ -261,6 +266,16 @@ final class SiteClient {
         }
     }
 
+    /// Any method, reply read as raw bytes (or ignored). For writes whose
+    /// answer the caller does not need — a PATCH or DELETE that may answer
+    /// `{ ok: true }`, an empty 204, or anything in between.
+    @discardableResult
+    func call(_ path: String, method: String, body: Data? = nil) async throws -> Data {
+        let (data, response) = try await session.data(for: try request(path, method: method, body: body))
+        try check(response, data)
+        return data
+    }
+
     /// Raw bytes — an attachment's image, which is not JSON.
     func bytes(_ path: String) async throws -> Data {
         let (data, response) = try await session.data(for: try request(path))
@@ -282,6 +297,9 @@ final class SiteClient {
             // and say where it was pointed — that is what would have identified
             // this as a malformed URL rather than a server fault.
             if let detail = try? JSONDecoder().decode(APIError.self, from: data) {
+                if let field = detail.field, !field.isEmpty {
+                    throw SiteError.invalid(detail.error, field: field)
+                }
                 throw SiteError.status(http.statusCode, detail.error)
             }
             let where_ = response.url?.path ?? "the server"

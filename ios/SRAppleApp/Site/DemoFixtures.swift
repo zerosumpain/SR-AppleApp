@@ -172,6 +172,10 @@ enum SRDemoFixtures {
         if parts.count == 6, joined.hasPrefix("api/native/news/story/") {
             return method == "GET" ? article(source: parts[4], id: parts[5], clock: clock) : nil
         }
+        // Workflows — `FlowDemoFixtures.swift`.
+        if joined == "api/native/workflows" || joined.hasPrefix("api/native/workflows/") {
+            return flowRoute(method: method, parts: parts, body: body, clock: clock)
+        }
         // Everything else — the chat stream included — is a 404.
         return nil
     }

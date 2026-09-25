@@ -1,0 +1,4382 @@
+{
+ "categories": [
+  {
+   "id": "trigger-flow",
+   "label": "Trigger & Flow",
+   "types": [
+    {
+     "type": "chat",
+     "label": "Chat",
+     "description": "Conversational chat node. Unwired → acts as the canvas orchestrator panel (no role in execution). Wiring it is not supported — use `llm-call` for a prompt→completion step.",
+     "icon": null,
+     "defaultConfig": {
+      "model": "",
+      "useIntelContext": true
+     },
+     "form": [
+      {
+       "key": "conversationId",
+       "label": "Conversation id",
+       "kind": "text",
+       "advanced": false,
+       "help": "Optional: pin an existing /jkai conversation to this chat node so the canvas thread \"follows\" the user from chat onto the canvas. Set by `pinConversationToCanvasChat` and `workflow_build_from_spec`."
+      }
+     ]
+    },
+    {
+     "type": "conditional",
+     "label": "Conditional",
+     "description": "Evaluates a JS boolean expression and routes to the \"true\" or \"false\" output handle.",
+     "icon": null,
+     "defaultConfig": {
+      "expression": "false",
+      "condition": "input.ok"
+     },
+     "form": [
+      {
+       "key": "expression",
+       "label": "Condition",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "input.value > 10",
+       "help": "A yes/no test. If it is true, the workflow goes down the \"true\" branch; otherwise the \"false\" branch. Access upstream data with input.field."
+      }
+     ]
+    },
+    {
+     "type": "loop",
+     "label": "Map array",
+     "description": "Iterate an array from the input. 'map' mode applies a JS expression to each item and returns { results, count } once. 'subworkflow' mode fans each item out to a saved sub-workflow (bounded concurrency) and returns per-item results — use this when each item needs real side effects.",
+     "icon": null,
+     "defaultConfig": {
+      "mode": "map",
+      "arrayPath": "items",
+      "expression": "return item",
+      "concurrency": 1
+     },
+     "form": [
+      {
+       "key": "mode",
+       "label": "Mode",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "map",
+         "label": "Map — transform each item"
+        },
+        {
+         "value": "subworkflow",
+         "label": "Sub-workflow — run a workflow per item"
+        }
+       ],
+       "help": "map = transform each item; subworkflow = invoke a saved workflow per item."
+      },
+      {
+       "key": "arrayPath",
+       "label": "Array Path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "items",
+       "help": "Which field on the input holds the list. Use a dot-path like items or data.values."
+      },
+      {
+       "key": "expression",
+       "label": "Per-Item Expression",
+       "kind": "code",
+       "advanced": false,
+       "placeholder": "return { id: item.id, doubled: item.value * 2 }",
+       "help": "Runs once for each item. Variables: item, index, input. Return the transformed value."
+      },
+      {
+       "key": "subWorkflowId",
+       "label": "Sub-workflow ID",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "workflow id",
+       "help": "Saved workflow invoked per item with input { item, index }.",
+       "section": "SUB-WORKFLOW"
+      },
+      {
+       "key": "failurePolicy",
+       "label": "On item failure",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "continue",
+         "label": "Continue"
+        },
+        {
+         "value": "stop",
+         "label": "Stop"
+        }
+       ],
+       "help": "continue = record and keep going; stop = halt on the first failure."
+      },
+      {
+       "key": "maxItems",
+       "label": "Max items",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "help": "Hard cap on items processed (default 50). Extra items are truncated."
+      },
+      {
+       "key": "concurrency",
+       "label": "Concurrency",
+       "kind": "number",
+       "advanced": true,
+       "min": 1,
+       "help": "How many items to process in parallel (map default 1, subworkflow default 3, max 10).",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "delay",
+     "label": "Delay",
+     "description": "Wait a fixed duration, then pass input through unchanged.",
+     "icon": null,
+     "defaultConfig": {
+      "milliseconds": 1000,
+      "ms": 1000
+     },
+     "form": [
+      {
+       "key": "milliseconds",
+       "label": "Delay",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "placeholder": "1000",
+       "help": "Pause time in milliseconds (1000 = 1 second)."
+      }
+     ]
+    },
+    {
+     "type": "error-handler",
+     "label": "Error handler",
+     "description": "Routes to success or error output based on error detection: checks for an explicit error field OR HTTP status codes >= 400 from upstream http-request nodes.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "$config",
+       "label": "Configuration",
+       "kind": "json",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "interactive-step",
+     "label": "Interactive Step",
+     "description": "Pauses the workflow for a human to solve a CAPTCHA, log in, or confirm data. Resumes after the human completes it from the canvas.",
+     "icon": null,
+     "defaultConfig": {
+      "mode": "vnc",
+      "profile": "",
+      "url": "",
+      "prompt": "Please complete the required action",
+      "fields": [],
+      "timeoutMinutes": 60
+     },
+     "form": [
+      {
+       "key": "mode",
+       "label": "Mode",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "vnc",
+         "label": "VNC — live headed browser"
+        },
+        {
+         "value": "confirm",
+         "label": "Confirm — form fields only"
+        },
+        {
+         "value": "both",
+         "label": "Both — browser + form fields"
+        }
+       ],
+       "help": "What kind of human interaction to show."
+      },
+      {
+       "key": "prompt",
+       "label": "Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Please complete any CAPTCHA or log in, then click Continue.",
+       "help": "Instruction shown to the human in the modal."
+      },
+      {
+       "key": "profile",
+       "label": "Profile Name",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "example-com",
+       "help": "Must match the downstream stealth-scrape profile so the seeded cookies are shared."
+      },
+      {
+       "key": "url",
+       "label": "URL to Open",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "https://example.com",
+       "help": "URL to load in the headed browser. Use the target site's landing/search page."
+      },
+      {
+       "key": "fields",
+       "label": "Form Fields",
+       "kind": "code",
+       "advanced": false,
+       "help": "Array of {name, type, label, defaultValueTemplate?} for the confirm form."
+      }
+     ]
+    },
+    {
+     "type": "sub-workflow",
+     "label": "Sub-workflow",
+     "description": "Execute another saved workflow as a step. Passes input to the sub-workflow and returns its output.",
+     "icon": null,
+     "defaultConfig": {
+      "workflowId": ""
+     },
+     "form": [
+      {
+       "key": "workflowId",
+       "label": "Workflow ID",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "Paste workflow ID here",
+       "help": "The ID of the workflow to run. Find it in the URL of the workflow edit page."
+      }
+     ]
+    },
+    {
+     "type": "manual-trigger",
+     "label": "Manual Trigger",
+     "description": "Starts a workflow manually. Optionally accepts initial data.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "$config",
+       "label": "Configuration",
+       "kind": "json",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "approval",
+     "label": "Approval",
+     "description": "Pauses the workflow for a human to approve or reject. On approve, the input passes through (approved: true) down the \"approved\" handle; on reject it routes down the \"rejected\" handle (approved: false).",
+     "icon": null,
+     "defaultConfig": {
+      "prompt": "Approve to continue?",
+      "timeoutMinutes": 60
+     },
+     "form": [
+      {
+       "key": "prompt",
+       "label": "Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Approve sending this email?",
+       "help": "What the human is asked to approve or reject."
+      },
+      {
+       "key": "decisionPath",
+       "label": "Auto-decision path",
+       "kind": "text",
+       "advanced": true,
+       "placeholder": "input.autoApprove",
+       "help": "Optional. Dot-path into input holding a boolean; if set, the node decides without pausing.",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "timeoutMinutes",
+       "label": "Timeout (minutes)",
+       "kind": "number",
+       "advanced": true,
+       "min": 1,
+       "help": "Auto-cancel the approval after this many minutes.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "infrastructure-update",
+     "label": "Infrastructure update",
+     "description": "Approval-gated executor for a small server-side allowlist. Refuses arbitrary commands, packages and services.",
+     "icon": null,
+     "defaultConfig": {
+      "action": "verify_only"
+     },
+     "form": [
+      {
+       "key": "action",
+       "label": "Safe action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "verify_only",
+         "label": "Post-update verification only"
+        },
+        {
+         "value": "home_assistant_check",
+         "label": "Verify Home Assistant connectivity"
+        }
+       ],
+       "help": "The manifest must match this enumerable action and arrive from an approved upstream branch."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "llm-ai",
+   "label": "LLM & AI",
+   "types": [
+    {
+     "type": "llm-call",
+     "label": "LLM call",
+     "description": "Call an LLM. Leave the model empty to use the same default as jkai (configured in admin → model defaults). Set an OpenRouter model ID to override. System and user prompts support {{input.field}} templates.",
+     "icon": null,
+     "defaultConfig": {
+      "model": "",
+      "systemPrompt": "",
+      "userPrompt": "{{input.message}}",
+      "temperature": 0.7,
+      "maxTokens": 25000
+     },
+     "form": [
+      {
+       "key": "userPrompt",
+       "label": "User Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Summarise this text: {{input.text}}",
+       "help": "What you want the AI to do. Use {{input.field}} to insert upstream data.",
+       "section": "PROMPT"
+      },
+      {
+       "key": "systemPrompt",
+       "label": "System Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "You are a helpful assistant that writes concise summaries.",
+       "help": "Optional instructions that set the AI's role or style.",
+       "section": "PROMPT"
+      },
+      {
+       "key": "model",
+       "label": "Model",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "",
+         "label": "Default (site setting)"
+        },
+        {
+         "value": "z-ai/glm-5-turbo",
+         "label": "GLM 5 Turbo"
+        },
+        {
+         "value": "z-ai/glm-5.2",
+         "label": "GLM 5.2"
+        },
+        {
+         "value": "z-ai/glm-5.1",
+         "label": "GLM 5.1"
+        }
+       ],
+       "help": "Leave as \"Default\" to use the site-wide admin default (recommended). The picker shows the full live OpenRouter catalogue."
+      },
+      {
+       "key": "temperature",
+       "label": "Temperature",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "max": 2,
+       "step": 0.1,
+       "help": "How creative the answers are. 0 is focused and deterministic, 2 is wild."
+      },
+      {
+       "key": "maxTokens",
+       "label": "Max Tokens",
+       "kind": "number",
+       "advanced": true,
+       "min": 1,
+       "help": "Maximum length of the AI response (roughly 4 characters per token).",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "outputSchema",
+       "label": "Output JSON schema (optional)",
+       "kind": "code",
+       "advanced": true,
+       "help": "Set to force a structured JSON response. The parsed object is returned under `data`; top-level `required` keys are validated with one retry.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "llm-agent",
+     "label": "LLM agent (tool-calling)",
+     "description": "Multi-turn LLM agent that can use connected downstream nodes as tools. Loops until the LLM responds without tool calls, or hits iteration/token/timeout limits.",
+     "icon": null,
+     "defaultConfig": {
+      "model": "",
+      "systemPrompt": "",
+      "userPrompt": "{{input.message}}",
+      "temperature": 0.7,
+      "maxTokens": 25000,
+      "maxIterations": 10,
+      "maxTotalTokens": 0,
+      "toolSource": "edges",
+      "siteToolAllowlist": [],
+      "timeoutMs": 0,
+      "toolOverrides": "{}"
+     },
+     "form": [
+      {
+       "key": "userPrompt",
+       "label": "User Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.query}}",
+       "help": "The main instruction for the agent. Use {{input.field}} to reference incoming data."
+      },
+      {
+       "key": "systemPrompt",
+       "label": "System Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "You are a helpful assistant...",
+       "help": "Sets the agent's role and behaviour. Supports {{input.field}} templates."
+      },
+      {
+       "key": "model",
+       "label": "Model",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "",
+         "label": "Default (site setting)"
+        },
+        {
+         "value": "z-ai/glm-5-turbo",
+         "label": "GLM 5 Turbo"
+        },
+        {
+         "value": "z-ai/glm-5.2",
+         "label": "GLM 5.2"
+        },
+        {
+         "value": "z-ai/glm-5.1",
+         "label": "GLM 5.1"
+        },
+        {
+         "value": "openai/gpt-4o",
+         "label": "GPT-4o (balanced)"
+        },
+        {
+         "value": "anthropic/claude-sonnet-4",
+         "label": "Claude Sonnet 4 (smart)"
+        },
+        {
+         "value": "anthropic/claude-haiku-4",
+         "label": "Claude Haiku 4 (very fast)"
+        },
+        {
+         "value": "google/gemini-2.5-flash",
+         "label": "Gemini 2.5 Flash"
+        }
+       ],
+       "help": "Leave as \"Default\" to use the site-wide admin default (recommended). Only pick a specific model to override."
+      },
+      {
+       "key": "temperature",
+       "label": "Temperature",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "max": 2,
+       "step": 0.1,
+       "help": "Lower = more focused, higher = more creative"
+      },
+      {
+       "key": "maxTokens",
+       "label": "Max Tokens",
+       "kind": "number",
+       "advanced": true,
+       "help": "Maximum length of each LLM response",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "maxIterations",
+       "label": "Max Iterations",
+       "kind": "number",
+       "advanced": true,
+       "help": "Max tool-use loop iterations",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "maxTotalTokens",
+       "label": "Max Total Tokens",
+       "kind": "number",
+       "advanced": true,
+       "help": "Total token budget across all iterations (0 = unlimited)",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "timeoutMs",
+       "label": "Timeout (ms)",
+       "kind": "number",
+       "advanced": true,
+       "help": "Max execution time in milliseconds (0 = disabled)",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "toolSource",
+       "label": "Tool source",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "edges",
+         "label": "Connected nodes (edges)"
+        },
+        {
+         "value": "site-tools",
+         "label": "Site tools (allowlist)"
+        }
+       ],
+       "help": "Edges = every downstream connected node becomes a tool. Site tools = an allowlist of non-destructive registry tools (no wiring needed).",
+       "section": "TOOLS"
+      },
+      {
+       "key": "siteToolAllowlist",
+       "label": "Allowed site tools",
+       "kind": "chips",
+       "advanced": false,
+       "help": "Exact registry tool names the agent may call (e.g. file_search, research_search, render_chart). Destructive/denylisted tools are always excluded.",
+       "section": "TOOLS"
+      },
+      {
+       "key": "toolOverrides",
+       "label": "Tool Overrides",
+       "kind": "textarea",
+       "advanced": true,
+       "help": "JSON object mapping node IDs to { name?, description? } to override tool definitions.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "delegate-agent",
+     "label": "Delegate to agent",
+     "description": "Delegate a task to a named specialist agent from the persistent team (researcher, analyst, writer, reviewer, or any custom agent). The agent runs a full tool-using turn with its persona and tool whitelist; the node returns its response.",
+     "icon": null,
+     "defaultConfig": {
+      "agent": "researcher",
+      "task": ""
+     },
+     "form": [
+      {
+       "key": "agent",
+       "label": "Agent",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "researcher",
+       "help": "Team agent name/slug (see /jkai/agents). Supports {{input.field}} templates."
+      },
+      {
+       "key": "task",
+       "label": "Task",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Summarise the key findings in {{input.text}} and note anything surprising.",
+       "help": "What the agent should do. Supports {{input.field}} templates."
+      }
+     ]
+    },
+    {
+     "type": "llm-router",
+     "label": "LLM router",
+     "description": "LLM-powered semantic routing. Defines named output paths; the LLM picks which to follow.",
+     "icon": null,
+     "defaultConfig": {
+      "routes": "[\n  {\n    \"handle\": \"route_a\",\n    \"description\": \"First option\"\n  },\n  {\n    \"handle\": \"route_b\",\n    \"description\": \"Second option\"\n  }\n]",
+      "model": ""
+     },
+     "form": [
+      {
+       "key": "routes",
+       "label": "Routes",
+       "kind": "textarea",
+       "advanced": false,
+       "help": "List of possible routes as JSON. Each entry needs `handle` (matches source handle on this node) and `description` (when to pick it)."
+      },
+      {
+       "key": "model",
+       "label": "Model",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "",
+         "label": "Default (site setting)"
+        },
+        {
+         "value": "z-ai/glm-5-turbo",
+         "label": "GLM 5 Turbo"
+        },
+        {
+         "value": "z-ai/glm-5.2",
+         "label": "GLM 5.2"
+        },
+        {
+         "value": "z-ai/glm-5.1",
+         "label": "GLM 5.1"
+        },
+        {
+         "value": "openai/gpt-4o",
+         "label": "GPT-4o (balanced)"
+        },
+        {
+         "value": "anthropic/claude-sonnet-4",
+         "label": "Claude Sonnet 4 (smart)"
+        },
+        {
+         "value": "anthropic/claude-haiku-4",
+         "label": "Claude Haiku 4 (very fast)"
+        },
+        {
+         "value": "google/gemini-2.5-flash",
+         "label": "Gemini 2.5 Flash"
+        }
+       ],
+       "help": "Leave as \"Default\" to use the site-wide admin default (recommended). Only pick a specific model to override."
+      }
+     ]
+    },
+    {
+     "type": "think",
+     "label": "Think",
+     "description": "Chain-of-thought reasoning. LLM reasons step-by-step, outputs reasoning + conclusion.",
+     "icon": null,
+     "defaultConfig": {
+      "prompt": "",
+      "model": "",
+      "temperature": 0.3,
+      "maxTokens": 25000
+     },
+     "form": [
+      {
+       "key": "prompt",
+       "label": "Reasoning Task",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Analyze the data and determine the best course of action.",
+       "help": "What you want the LLM to think about. Use {{input.field}} to reference incoming data."
+      },
+      {
+       "key": "model",
+       "label": "Model",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "",
+         "label": "Default (site setting)"
+        },
+        {
+         "value": "z-ai/glm-5-turbo",
+         "label": "GLM 5 Turbo"
+        },
+        {
+         "value": "z-ai/glm-5.1",
+         "label": "GLM 5.1"
+        },
+        {
+         "value": "openai/gpt-4o",
+         "label": "GPT-4o (balanced)"
+        },
+        {
+         "value": "anthropic/claude-sonnet-4",
+         "label": "Claude Sonnet 4 (smart)"
+        },
+        {
+         "value": "anthropic/claude-haiku-4",
+         "label": "Claude Haiku 4 (very fast)"
+        },
+        {
+         "value": "google/gemini-2.5-flash",
+         "label": "Gemini 2.5 Flash"
+        }
+       ],
+       "help": "Leave as \"Default\" to use the site-wide admin default (recommended). Only pick a specific model to override — prefer full OpenRouter slugs (e.g. z-ai/glm-5.2, openai/gpt-4o)."
+      },
+      {
+       "key": "temperature",
+       "label": "Temperature",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "max": 2,
+       "step": 0.1,
+       "help": "Lower = more focused, higher = more creative"
+      },
+      {
+       "key": "maxTokens",
+       "label": "Max Tokens",
+       "kind": "number",
+       "advanced": true,
+       "help": "Maximum length of the LLM response"
+      }
+     ]
+    },
+    {
+     "type": "openrouter",
+     "label": "OpenRouter",
+     "description": "OpenRouter integration: chat completion with model picker, list available models, or get API usage stats.",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "chat_completion",
+      "model": "",
+      "systemPrompt": "",
+      "userPrompt": "",
+      "temperature": 0.7,
+      "maxTokens": 25000
+     },
+     "form": [
+      {
+       "key": "operation",
+       "label": "Action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "chat_completion",
+         "label": "Chat Completion"
+        },
+        {
+         "value": "list_models",
+         "label": "List Models"
+        },
+        {
+         "value": "get_usage",
+         "label": "Get API Usage"
+        }
+       ],
+       "help": "What to do with OpenRouter"
+      },
+      {
+       "key": "model",
+       "label": "Model",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "",
+         "label": "Default (site setting)"
+        }
+       ],
+       "help": "Which LLM runs this step. Leave as \"Default\" to use the site-wide admin default (recommended). Full live OpenRouter catalogue available in the picker."
+      },
+      {
+       "key": "systemPrompt",
+       "label": "System Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "You are a helpful assistant...",
+       "help": "Instructions that set behaviour/persona. Supports {{input.field}} templates.",
+       "section": "PROMPT"
+      },
+      {
+       "key": "userPrompt",
+       "label": "User Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Summarise {{input.text}} in 3 bullets.",
+       "help": "The user message. Supports {{input.field}} templates."
+      },
+      {
+       "key": "temperature",
+       "label": "Creativity (temperature)",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "max": 2,
+       "step": 0.1,
+       "help": "0 = deterministic, 1 = balanced, 2 = very creative"
+      },
+      {
+       "key": "maxTokens",
+       "label": "Max Tokens",
+       "kind": "number",
+       "advanced": true,
+       "min": 1,
+       "help": "Upper limit on response length"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "parse-transform",
+   "label": "Parse & Transform",
+   "types": [
+    {
+     "type": "text-parser",
+     "label": "Text parser (JSON / regex)",
+     "description": "Extract structured data from text: JSON extraction, regex matching, or text splitting.",
+     "icon": null,
+     "defaultConfig": {
+      "mode": "json",
+      "inputField": "response",
+      "pattern": "",
+      "flags": "",
+      "delimiter": "\n"
+     },
+     "form": [
+      {
+       "key": "mode",
+       "label": "Mode",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "json",
+         "label": "Extract JSON"
+        },
+        {
+         "value": "regex",
+         "label": "Regex match"
+        },
+        {
+         "value": "split",
+         "label": "Split by delimiter"
+        }
+       ],
+       "help": "How to parse the text"
+      },
+      {
+       "key": "inputField",
+       "label": "Input Field",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "response",
+       "help": "Field name on the input object to parse"
+      },
+      {
+       "key": "pattern",
+       "label": "Pattern",
+       "kind": "text",
+       "advanced": false,
+       "help": "Regular expression to match against the text"
+      },
+      {
+       "key": "flags",
+       "label": "Flags",
+       "kind": "text",
+       "advanced": true,
+       "placeholder": "gi",
+       "help": "Regex flags (e.g. `g` for global, `i` for case-insensitive)"
+      },
+      {
+       "key": "delimiter",
+       "label": "Delimiter",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "\\n",
+       "help": "Use \\n for newline"
+      }
+     ]
+    },
+    {
+     "type": "validator",
+     "label": "Validator (schema)",
+     "description": "Validate data against a JSON Schema or JS expression. Routes to pass/fail outputs.",
+     "icon": null,
+     "defaultConfig": {
+      "mode": "expression",
+      "expression": "true",
+      "schema": {}
+     },
+     "form": [
+      {
+       "key": "mode",
+       "label": "Mode",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "expression",
+         "label": "Expression (JS boolean)"
+        },
+        {
+         "value": "schema",
+         "label": "JSON Schema"
+        }
+       ],
+       "help": "How to validate the incoming data"
+      },
+      {
+       "key": "expression",
+       "label": "Expression",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "input.score >= 80",
+       "help": "JavaScript boolean expression. Use `input.field` to reference data."
+      },
+      {
+       "key": "schema",
+       "label": "Schema",
+       "kind": "json",
+       "advanced": false,
+       "help": "Define the expected fields, types, and which are required."
+      }
+     ]
+    },
+    {
+     "type": "transform",
+     "label": "Transform (JS)",
+     "description": "Reshape data with a JavaScript expression. The input object is available as `input`.",
+     "icon": null,
+     "defaultConfig": {
+      "expression": "return { ...input }"
+     },
+     "form": [
+      {
+       "key": "expression",
+       "label": "Transform Expression",
+       "kind": "code",
+       "advanced": false,
+       "placeholder": "return { ...input, newField: input.value * 2 }",
+       "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+      },
+      {
+       "key": "outputSchema",
+       "label": "Output Schema (JSON)",
+       "kind": "textarea",
+       "advanced": true,
+       "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "code-execute",
+     "label": "Code execute",
+     "description": "Run JavaScript, Python, or Bash code in a sandboxed environment.",
+     "icon": null,
+     "defaultConfig": {
+      "language": "javascript",
+      "code": "return { ...input };"
+     },
+     "form": [
+      {
+       "key": "language",
+       "label": "Language",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "javascript",
+         "label": "JavaScript (Node.js)"
+        },
+        {
+         "value": "python",
+         "label": "Python 3"
+        },
+        {
+         "value": "bash",
+         "label": "Bash"
+        }
+       ],
+       "help": "Which interpreter runs your code"
+      },
+      {
+       "key": "code",
+       "label": "Code",
+       "kind": "code",
+       "advanced": false,
+       "help": "Input from the previous node is available as `input`. Print or return JSON to pass data downstream."
+      },
+      {
+       "key": "outputSchema",
+       "label": "Output shape (optional)",
+       "kind": "textarea",
+       "advanced": true,
+       "help": "JSON schema describing what your code returns — enables autocomplete on downstream nodes."
+      }
+     ]
+    },
+    {
+     "type": "merge",
+     "label": "Merge",
+     "description": "Combine the outputs of every upstream node into a single object. Use after parallel branches converge. Keys are merged flat — if two branches emit the same key, one overwrites the other.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "$config",
+       "label": "Configuration",
+       "kind": "json",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "accumulator",
+     "label": "Accumulator",
+     "description": "Wrap the current input (or a chosen field) into an array within this run. Does NOT persist or accumulate across separate runs.",
+     "icon": null,
+     "defaultConfig": {
+      "collectField": "",
+      "key": "items"
+     },
+     "form": [
+      {
+       "key": "collectField",
+       "label": "Field to Collect",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "results",
+       "help": "Dot-path into input to collect. Leave empty to collect the entire input object."
+      }
+     ]
+    },
+    {
+     "type": "dedupe",
+     "label": "Dedupe",
+     "description": "Filter a list against a persistent seen-set so only genuinely new items continue downstream. Remembers ids across runs — the workflow never re-processes (or re-sends) the same item twice.",
+     "icon": null,
+     "defaultConfig": {
+      "itemsPath": "",
+      "idPath": "",
+      "storeKey": "seen_ids",
+      "maxRemembered": 500,
+      "recordMode": "immediate"
+     },
+     "form": [
+      {
+       "key": "itemsPath",
+       "label": "Items path",
+       "kind": "text",
+       "advanced": false,
+       "help": "Dot-path to the array in the input (e.g. \"results\"). Leave empty to auto-detect the first array value."
+      },
+      {
+       "key": "idPath",
+       "label": "Id path",
+       "kind": "text",
+       "advanced": false,
+       "help": "Dot-path to the unique id within each item (e.g. \"url\"). Empty → tries \"url\" then \"id\"; primitive items are their own id."
+      },
+      {
+       "key": "storeKey",
+       "label": "Store key",
+       "kind": "text",
+       "advanced": false,
+       "help": "data-store key holding the seen-id set (default \"seen_ids\")."
+      },
+      {
+       "key": "maxRemembered",
+       "label": "Max remembered",
+       "kind": "number",
+       "advanced": false,
+       "help": "Cap the seen-set to the most recent N ids (default 500)."
+      },
+      {
+       "key": "recordMode",
+       "label": "Record mode",
+       "kind": "dropdown",
+       "advanced": false,
+       "help": "'immediate' records new ids as they pass through (default). 'downstream-success' records only after the whole run completes successfully — so a failed send does not mark items as seen.",
+       "options": [
+        {
+         "value": "immediate",
+         "label": "immediate"
+        },
+        {
+         "value": "downstream-success",
+         "label": "downstream-success"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "briefing-compose",
+     "label": "Briefing compose",
+     "description": "Turn gathered signals into a verified fact sheet, an explicit gap list, and a per-source status ledger. Everything a downstream LLM is allowed to say, and nothing it is not.",
+     "icon": null,
+     "defaultConfig": {
+      "timezone": "Europe/London",
+      "titlePrefix": "Briefing",
+      "auditRun": true
+     },
+     "form": [
+      {
+       "key": "titlePrefix",
+       "label": "Title prefix",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "Briefing",
+       "help": "Used to build the briefing title, e.g. \"Briefing — Tue 29 Jul\"."
+      },
+      {
+       "key": "timezone",
+       "label": "Timezone",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "Europe/London",
+       "help": "Timezone for the date label."
+      },
+      {
+       "key": "auditRun",
+       "label": "Audit this run",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Read the run's node executions so failed sources appear in the ledger with their real error, instead of just going missing."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "intelligence",
+   "label": "Intelligence",
+   "types": [
+    {
+     "type": "intelligence",
+     "label": "Intelligence",
+     "description": "Filtered view onto the knowledge graph. Queryable; emits both prose context and a structured IntelItem[].",
+     "icon": null,
+     "defaultConfig": {
+      "query": "",
+      "facets": {
+       "entityTypes": [],
+       "tags": [],
+       "timeRange": null,
+       "limit": 20,
+       "ordering": "relevant"
+      },
+      "size": {
+       "w": 360,
+       "h": 440
+      }
+     },
+     "form": [
+      {
+       "key": "query",
+       "label": "Query",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "new projects",
+       "help": "What to look up. {{input.field}} placeholders supported.",
+       "section": "QUERY"
+      }
+     ]
+    },
+    {
+     "type": "research-result",
+     "label": "Research Result",
+     "description": "Display node for a commissioned deep/quick research session. Pulses while pending; populates when complete.",
+     "icon": null,
+     "defaultConfig": {
+      "engine": "deep",
+      "sessionId": "",
+      "topic": "",
+      "size": {
+       "w": 460,
+       "h": 520
+      }
+     },
+     "form": [
+      {
+       "key": "engine",
+       "label": "Engine",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "deep",
+         "label": "Deep research"
+        },
+        {
+         "value": "quick",
+         "label": "Quick research"
+        }
+       ],
+       "section": "SOURCE"
+      },
+      {
+       "key": "sessionId",
+       "label": "Session ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.researchSessionId}}",
+       "help": "Existing session ID. Supports {{input.*}} placeholders from an upstream connection.",
+       "section": "SOURCE"
+      }
+     ]
+    },
+    {
+     "type": "quick-answer",
+     "label": "Quick Answer",
+     "description": "Run a quick-answer session (Tavily + synthesis). Polls until complete; returns the answer and sources.",
+     "icon": null,
+     "defaultConfig": {
+      "topic": "{{item.title}}",
+      "goals": [],
+      "maxWaitMs": 180000,
+      "pollIntervalMs": 1500
+     },
+     "form": [
+      {
+       "key": "topic",
+       "label": "Topic",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "What is the impact of …",
+       "help": "Topic to research. Supports {{input.*}} / {{item.*}} placeholders.",
+       "section": "QUERY"
+      },
+      {
+       "key": "goals",
+       "label": "Goals",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Understand key players, risks, opportunities",
+       "help": "Optional: specific questions or angles. One per line.",
+       "section": "QUERY"
+      },
+      {
+       "key": "maxWaitMs",
+       "label": "Max wait (ms)",
+       "kind": "number",
+       "advanced": false,
+       "placeholder": "180000",
+       "help": "Polling deadline before giving up.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "deep-research",
+     "label": "Deep Research",
+     "description": "DAG-driven deep research (commission via pipeline). Emits researchReport + sources.",
+     "icon": null,
+     "defaultConfig": {
+      "topic": "{{item.title}}",
+      "goals": "",
+      "depth": "medium",
+      "pollIntervalMs": 5000,
+      "maxWaitMs": 900000
+     },
+     "form": [
+      {
+       "key": "topic",
+       "label": "Topic",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "What is the impact of …",
+       "help": "Topic to research deeply. Supports {{input.*}} / {{item.*}} placeholders.",
+       "section": "QUERY"
+      },
+      {
+       "key": "goals",
+       "label": "Goals",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Understand key players, risks, opportunities",
+       "help": "Optional: specific angles or questions. One per line.",
+       "section": "QUERY"
+      },
+      {
+       "key": "depth",
+       "label": "Depth",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "instant",
+         "label": "Instant — model knowledge, no sources"
+        },
+        {
+         "value": "scan",
+         "label": "Scan — one search round, cited (~90s)"
+        },
+        {
+         "value": "brief",
+         "label": "Brief — sources + facts (under 2 min)"
+        },
+        {
+         "value": "investigation",
+         "label": "Investigation — full engine (20 min+)"
+        }
+       ],
+       "section": "QUERY"
+      },
+      {
+       "key": "maxWaitMs",
+       "label": "Max wait (ms)",
+       "kind": "number",
+       "advanced": false,
+       "placeholder": "900000",
+       "help": "Polling deadline before giving up.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "file-search",
+     "label": "File search (RAG)",
+     "description": "Semantic search across the CONTENT of every file in the /drive store — text by meaning, images by visual content + OCR, audio by transcript. Returns ranked passages with the source file name and id.",
+     "icon": null,
+     "defaultConfig": {
+      "query": "{{input.query}}",
+      "topK": 5,
+      "fileTypes": ""
+     },
+     "form": [
+      {
+       "key": "query",
+       "label": "Search query",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "the invoice that mentions refunds",
+       "help": "What to find, by what the file contains or depicts. Supports {{input.field}} templates."
+      },
+      {
+       "key": "topK",
+       "label": "Max results",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "max": 30,
+       "step": 1,
+       "help": "Number of ranked passages to return (1–30)."
+      },
+      {
+       "key": "fileTypes",
+       "label": "Modality filter",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "text, image, audio",
+       "help": "Comma-separated modalities to keep (text / image / audio). Blank keeps all."
+      }
+     ]
+    },
+    {
+     "type": "research-search",
+     "label": "Research search (RAG)",
+     "description": "Semantic search across the MATERIALS of every deep-dive research session at once — distilled facts AND raw source passages — ranked by meaning. Cross-session research memory for grounding a workflow.",
+     "icon": null,
+     "defaultConfig": {
+      "query": "{{input.query}}",
+      "topK": 8
+     },
+     "form": [
+      {
+       "key": "query",
+       "label": "Search query",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "what has my research turned up about school funding",
+       "help": "What to find across all past deep-dive research. Supports {{input.field}} templates."
+      },
+      {
+       "key": "topK",
+       "label": "Max results",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "max": 30,
+       "step": 1,
+       "help": "Number of ranked passages to return (1–30)."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "intel-web",
+   "label": "Intel & Web",
+   "types": [
+    {
+     "type": "intel-query",
+     "label": "Intel · query",
+     "description": "Search the intel knowledge graph; appends matching context as intelContext to downstream input.",
+     "icon": null,
+     "defaultConfig": {
+      "query": "{{input.message}}"
+     },
+     "form": [
+      {
+       "key": "query",
+       "label": "Query",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.message}}",
+       "help": "What to look up. {{input.field}} placeholders supported.",
+       "section": "QUERY"
+      }
+     ]
+    },
+    {
+     "type": "intel-write",
+     "label": "Intel · write",
+     "description": "Add a note to the jkai/intel knowledge store. The note is extracted into entities + relationships, embedded for semantic search, and connected to the graph. Use for persisting findings (articles, summaries, observations) from a workflow so they contribute to future context and cross-reference alerts.",
+     "icon": null,
+     "defaultConfig": {
+      "title": "",
+      "content": "",
+      "format": "summary",
+      "sourceTag": "",
+      "sourceUrl": "",
+      "extraMetadata": ""
+     },
+     "form": [
+      {
+       "key": "title",
+       "label": "Title",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "e.g. {{input.headline}}",
+       "help": "Optional. Falls back to the derived summary."
+      },
+      {
+       "key": "content",
+       "label": "Content",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "e.g. {{input.summary}}\n\nSource: {{input.url}}",
+       "help": "The body of the note. This is what gets embedded and extracted."
+      },
+      {
+       "key": "format",
+       "label": "Format",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "summary",
+         "label": "Summary (LLM brief)"
+        },
+        {
+         "value": "text",
+         "label": "Text"
+        },
+        {
+         "value": "email",
+         "label": "Email"
+        },
+        {
+         "value": "meeting_transcript",
+         "label": "Meeting transcript"
+        }
+       ],
+       "help": "Hint to the intel extractor about what kind of content this is."
+      },
+      {
+       "key": "sourceTag",
+       "label": "Source tag",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "e.g. daily-briefing",
+       "help": "Stored in metadata for filtering later."
+      },
+      {
+       "key": "sourceUrl",
+       "label": "Source URL",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.url}}",
+       "help": "Canonical URL for provenance."
+      },
+      {
+       "key": "extraMetadata",
+       "label": "Extra metadata (JSON)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{ \"persona\": \"researcher\", \"score\": {{input.score}} }",
+       "help": "Optional JSON merged into the note metadata."
+      }
+     ]
+    },
+    {
+     "type": "tavily-search",
+     "label": "Tavily search",
+     "description": "Search the web via Tavily. Returns ranked results with URL, title, content snippet, and optional AI-generated answer.",
+     "icon": null,
+     "defaultConfig": {
+      "query": "{{input.query}}",
+      "searchDepth": "basic",
+      "maxResults": 5,
+      "includeAnswer": false,
+      "topic": "general",
+      "days": 0
+     },
+     "form": [
+      {
+       "key": "query",
+       "label": "Search Query",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "svelte 5 runes best practices",
+       "help": "What to search for. Supports {{input.field}} templates."
+      },
+      {
+       "key": "searchDepth",
+       "label": "Search Depth",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "basic",
+         "label": "Basic (fast, cheap)"
+        },
+        {
+         "value": "advanced",
+         "label": "Advanced (deeper, slower)"
+        }
+       ],
+       "help": "Trade-off between speed/cost and result quality"
+      },
+      {
+       "key": "maxResults",
+       "label": "Max Results",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "max": 20,
+       "step": 1,
+       "help": "Number of results to return (1–20)."
+      },
+      {
+       "key": "includeAnswer",
+       "label": "Include AI Summary Answer",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Return a Tavily-generated summary alongside the results."
+      },
+      {
+       "key": "topic",
+       "label": "Topic",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "general",
+         "label": "General"
+        },
+        {
+         "value": "news",
+         "label": "News"
+        }
+       ],
+       "help": "Use \"news\" to bias toward recent press coverage and unlock the recency filter."
+      },
+      {
+       "key": "days",
+       "label": "Recency (days)",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "max": 30,
+       "step": 1,
+       "help": "Only return results from the last N days. 0 disables. Only applied when topic = \"news\"."
+      },
+      {
+       "key": "excludeDomains",
+       "label": "Exclude Domains",
+       "kind": "text",
+       "advanced": false,
+       "help": "Comma-separated domains to block from results (e.g. \"example.com, spam.io\")"
+      }
+     ]
+    },
+    {
+     "type": "web-scrape",
+     "label": "Web scrape",
+     "description": "Fetch a URL and extract the readable article text using Mozilla Readability. Strips nav, ads, and chrome.",
+     "icon": null,
+     "defaultConfig": {
+      "url": "",
+      "maxChars": 0
+     },
+     "form": [
+      {
+       "key": "url",
+       "label": "URL",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "https://example.com/article",
+       "help": "Web page to fetch. Must start with http:// or https://. Supports {{input.field}} templates."
+      },
+      {
+       "key": "maxChars",
+       "label": "Max Characters",
+       "kind": "number",
+       "advanced": true,
+       "min": 0,
+       "help": "Truncate extracted text to this many characters. 0 = no limit.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "webpage",
+     "label": "Webpage",
+     "description": "Render a live webpage inside the canvas (falls back to a proxy for sites that block framing).",
+     "icon": null,
+     "defaultConfig": {
+      "url": "",
+      "mode": null,
+      "size": {
+       "w": 720,
+       "h": 480
+      }
+     },
+     "form": [
+      {
+       "key": "$config",
+       "label": "Configuration",
+       "kind": "json",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "http-request",
+     "label": "HTTP request",
+     "description": "Make an HTTP request. URL, headers, and body support {{input.field}} template variables. Optional pagination auto-follows pages.",
+     "icon": null,
+     "defaultConfig": {
+      "method": "GET",
+      "url": "",
+      "headers": "{}",
+      "body": "",
+      "auth": "none",
+      "authToken": "",
+      "authHeader": "X-API-Key"
+     },
+     "form": [
+      {
+       "key": "method",
+       "label": "Method",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "GET",
+         "label": "GET"
+        },
+        {
+         "value": "POST",
+         "label": "POST"
+        },
+        {
+         "value": "PUT",
+         "label": "PUT"
+        },
+        {
+         "value": "PATCH",
+         "label": "PATCH"
+        },
+        {
+         "value": "DELETE",
+         "label": "DELETE"
+        }
+       ]
+      },
+      {
+       "key": "url",
+       "label": "URL",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "https://api.example.com/{{input.path}}"
+      },
+      {
+       "key": "auth",
+       "label": "Authentication",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "none",
+         "label": "None"
+        },
+        {
+         "value": "bearer",
+         "label": "Bearer Token"
+        },
+        {
+         "value": "apiKey",
+         "label": "API Key"
+        }
+       ]
+      },
+      {
+       "key": "authToken",
+       "label": "Token",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "headers",
+       "label": "Headers (JSON)",
+       "kind": "textarea",
+       "advanced": true
+      },
+      {
+       "key": "body",
+       "label": "Body",
+       "kind": "template",
+       "advanced": true
+      },
+      {
+       "key": "authHeader",
+       "label": "API Key Header Name",
+       "kind": "text",
+       "advanced": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "integrations",
+   "label": "Integrations",
+   "types": [
+    {
+     "type": "stealth-scrape",
+     "label": "Stealth Scrape",
+     "description": "Scrape a web page (or paginated set) using a stealth headless browser with a persistent profile. Residential IP via homeserv.",
+     "icon": null,
+     "defaultConfig": {
+      "url": "",
+      "goal": "",
+      "searchQuery": "",
+      "profile": "",
+      "waitFor": {
+       "type": "networkidle"
+      },
+      "extract": []
+     },
+     "form": [
+      {
+       "key": "url",
+       "label": "URL",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "https://example.com/search?q=jobs",
+       "help": "Starting URL. Supports {{input.field}} templates."
+      },
+      {
+       "key": "profile",
+       "label": "Profile Name",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "example-com",
+       "help": "Stable per-domain identifier. Cookies and session data persist under this name. Must match the interactive-step profile if used."
+      },
+      {
+       "key": "extract",
+       "label": "Extract Fields",
+       "kind": "code",
+       "advanced": false,
+       "help": "Array of {field, selector, attr?, multi?, trim?} objects defining what to pull from each page."
+      },
+      {
+       "key": "waitFor",
+       "label": "Wait Condition",
+       "kind": "code",
+       "advanced": false,
+       "help": "{type: \"networkidle\"} | {type: \"selector\", selector: \".foo\"} | {type: \"timeout\", ms: 2000}"
+      },
+      {
+       "key": "pagination",
+       "label": "Pagination",
+       "kind": "code",
+       "advanced": true,
+       "help": "Optional. {type: \"next-link\", nextSelector: \"a.next\", maxPages: 5} or {type: \"url-template\", template: \"https://site?page={n}\", start: 1, maxPages: 10}",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "credentialId",
+       "label": "Login Credential",
+       "kind": "number",
+       "advanced": true,
+       "help": "Row id from scraper_credentials table if the site requires form login.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "stealth-scrape-llm",
+     "label": "Stealth Scrape (LLM Extract)",
+     "description": "Extracts structured fields from scraped HTML/text via an LLM. Use when CSS selectors are too brittle.",
+     "icon": null,
+     "defaultConfig": {
+      "sourcePath": "",
+      "schema": {
+       "type": "object",
+       "properties": {}
+      },
+      "model": "",
+      "itemTextPath": "",
+      "instructions": ""
+     },
+     "form": [
+      {
+       "key": "sourcePath",
+       "label": "Source Path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "input.scraped.pages",
+       "help": "Dot path to the string or array in the input to extract from (e.g. output from stealth-scrape)."
+      },
+      {
+       "key": "itemTextPath",
+       "label": "Item Text Path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "text",
+       "help": "When sourcePath is an array of objects, the property inside each to read as text (e.g. \"text\" or \"html\")."
+      },
+      {
+       "key": "schema",
+       "label": "Extraction Schema",
+       "kind": "code",
+       "advanced": false,
+       "help": "JSON Schema describing the fields to extract. The LLM will populate this shape from the source text."
+      },
+      {
+       "key": "instructions",
+       "label": "Extra Instructions",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "Return null for any field not clearly stated.",
+       "help": "Optional guidance appended to the extraction prompt.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "site-mapper",
+     "label": "Site Mapper (LLM)",
+     "description": "One-shot: an LLM inspects the target website and writes a deterministic scraper playbook (URL template + wait condition + extract rules) into scraper_target_knowledge. Every future stealth-scrape run against that domain follows the playbook without another LLM call, so unattended cron runs stay fast and cheap.",
+     "icon": null,
+     "defaultConfig": {
+      "seedUrl": "",
+      "goal": "",
+      "searchQuery": "",
+      "profile": "default",
+      "model": ""
+     },
+     "form": [
+      {
+       "key": "seedUrl",
+       "label": "Seed URL",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "https://example.com/search",
+       "help": "The page the mapper loads first. Usually the site's search or listing page."
+      },
+      {
+       "key": "goal",
+       "label": "Goal (what to extract)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "data engineer job listings with title, organisation, salary, closing date, link",
+       "help": "Plain-English description the LLM uses to decide selectors + URL pattern."
+      },
+      {
+       "key": "searchQuery",
+       "label": "Search query (optional)",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "data engineer",
+       "help": "Substituted into the playbook's {{keyword}} placeholder during validation."
+      },
+      {
+       "key": "profile",
+       "label": "Profile Name",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "default",
+       "help": "Shared with stealth-scrape so cookies (e.g. cookie-consent) carry over."
+      }
+     ]
+    },
+    {
+     "type": "gmail-trigger",
+     "label": "Gmail Trigger",
+     "description": "Fires when a new Gmail message matches a watched query",
+     "icon": null,
+     "defaultConfig": {
+      "accountId": 0,
+      "watchId": null
+     },
+     "form": [
+      {
+       "key": "accountId",
+       "label": "Gmail Account",
+       "kind": "number",
+       "advanced": false,
+       "help": "The gmail_accounts row id for the account to watch. Configure accounts at /admin/connections/gmail."
+      },
+      {
+       "key": "watchId",
+       "label": "Watch Filter (optional)",
+       "kind": "number",
+       "advanced": true,
+       "help": "Restrict to a specific gmail_watches row. If blank, the trigger fires for any matching message on the account.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "whatsapp-trigger",
+     "label": "WhatsApp Trigger",
+     "description": "Fires when an inbound WhatsApp message from the owner matches a keyword",
+     "icon": null,
+     "defaultConfig": {
+      "keyword": "",
+      "matchMode": "prefix",
+      "stripKeyword": true
+     },
+     "form": [
+      {
+       "key": "keyword",
+       "label": "Keyword",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "news",
+       "help": "The word that routes an inbound WhatsApp message to this workflow. Case-insensitive. Only ONE workflow should own a keyword. Reserved words (approve/deny/yes/no) can't be used — they belong to the approval flow."
+      },
+      {
+       "key": "matchMode",
+       "label": "Match Mode",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "prefix",
+         "label": "Prefix — message starts with the keyword"
+        },
+        {
+         "value": "exact",
+         "label": "Exact — message equals the keyword"
+        },
+        {
+         "value": "contains",
+         "label": "Contains — keyword appears anywhere"
+        }
+       ],
+       "help": "How the inbound message is matched against the keyword."
+      },
+      {
+       "key": "stripKeyword",
+       "label": "Strip keyword from message",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Remove the keyword before forwarding the rest of the text as {{input.message}}. Turn off to forward the full message."
+      }
+     ]
+    },
+    {
+     "type": "gmail-fetch",
+     "label": "Gmail · Fetch Message",
+     "description": "Fetch a Gmail message by id, returning full headers + text/html bodies + attachment refs.",
+     "icon": null,
+     "defaultConfig": {
+      "messageId": "{{input.messageId}}",
+      "accountId": 0
+     },
+     "form": [
+      {
+       "key": "messageId",
+       "label": "Message ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{trigger.output.messageId}}",
+       "help": "Gmail message id to fetch. Typically passed from gmail-trigger or gmail-search output."
+      },
+      {
+       "key": "accountId",
+       "label": "Gmail Account",
+       "kind": "number",
+       "advanced": false,
+       "help": "Account to fetch from. Use 0 to inherit from upstream trigger output (recommended)."
+      }
+     ]
+    },
+    {
+     "type": "gmail-send",
+     "label": "Gmail · Send Message",
+     "description": "Compose and send a new Gmail message. Supports template interpolation for recipient, subject, and body.",
+     "icon": null,
+     "defaultConfig": {
+      "accountId": 0,
+      "to": "",
+      "subject": "",
+      "bodyText": "",
+      "bodyHtml": "",
+      "cc": "",
+      "bcc": ""
+     },
+     "form": [
+      {
+       "key": "accountId",
+       "label": "Gmail Account",
+       "kind": "number",
+       "advanced": false,
+       "help": "The gmail_accounts row id for the sending account."
+      },
+      {
+       "key": "to",
+       "label": "To",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "alice@example.com",
+       "help": "Recipient address. Supports {{input.x}} templates."
+      },
+      {
+       "key": "subject",
+       "label": "Subject",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Daily digest for {{input.date}}",
+       "help": "Email subject line. Supports templates."
+      },
+      {
+       "key": "bodyText",
+       "label": "Body (plain text)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Hello,\n\n{{input.summary}}",
+       "help": "Plain-text email body. Supports templates."
+      },
+      {
+       "key": "bodyHtml",
+       "label": "Body (HTML)",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "<p>{{input.summary}}</p>",
+       "help": "HTML email body. If both bodyText and bodyHtml are set, both parts are sent.",
+       "section": "ADVANCED"
+      },
+      {
+       "key": "cc",
+       "label": "CC",
+       "kind": "text",
+       "advanced": true,
+       "placeholder": "other@example.com",
+       "help": "Optional CC address(es).",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "gmail-reply",
+     "label": "Gmail · Reply",
+     "description": "Send a reply to an existing Gmail thread, preserving In-Reply-To and References headers for proper threading.",
+     "icon": null,
+     "defaultConfig": {
+      "accountId": 0,
+      "to": "{{input.from}}",
+      "threadId": "{{input.threadId}}",
+      "inReplyTo": "{{input.rfc822MessageId}}",
+      "references": "",
+      "subject": "{{input.subject}}",
+      "bodyText": "",
+      "bodyHtml": ""
+     },
+     "form": [
+      {
+       "key": "accountId",
+       "label": "Gmail Account",
+       "kind": "number",
+       "advanced": false,
+       "help": "The gmail_accounts row id for the sending account."
+      },
+      {
+       "key": "to",
+       "label": "To",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{trigger.output.from}}",
+       "help": "Recipient address. Typically {{trigger.output.from}} to reply to the sender."
+      },
+      {
+       "key": "threadId",
+       "label": "Thread ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{trigger.output.threadId}}",
+       "help": "Gmail thread id to reply in. Taken from trigger or fetch output."
+      },
+      {
+       "key": "inReplyTo",
+       "label": "In-Reply-To",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{nodes.fetch.output.rfc822MessageId}}",
+       "help": "RFC 822 Message-ID of the message being replied to. Needed for proper threading."
+      },
+      {
+       "key": "subject",
+       "label": "Subject",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{trigger.output.subject}}",
+       "help": "Subject line. Usually the original subject (Re: is added automatically by mail clients)."
+      },
+      {
+       "key": "bodyText",
+       "label": "Body (plain text)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Thanks for getting in touch...",
+       "help": "Plain-text reply body. Supports templates."
+      }
+     ]
+    },
+    {
+     "type": "gmail-label",
+     "label": "Gmail · Modify Labels",
+     "description": "Add or remove Gmail labels on a message. Common uses: archive (remove INBOX), mark read (remove UNREAD), star (add STARRED).",
+     "icon": null,
+     "defaultConfig": {
+      "accountId": 0,
+      "messageId": "{{input.messageId}}",
+      "add": [],
+      "remove": []
+     },
+     "form": [
+      {
+       "key": "accountId",
+       "label": "Gmail Account",
+       "kind": "number",
+       "advanced": false,
+       "help": "The gmail_accounts row id."
+      },
+      {
+       "key": "messageId",
+       "label": "Message ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{trigger.output.messageId}}",
+       "help": "Gmail message id to label. Typically from trigger or search output."
+      },
+      {
+       "key": "add",
+       "label": "Labels to Add",
+       "kind": "code",
+       "advanced": false,
+       "help": "Array of label ids to apply. System labels: \"STARRED\", \"IMPORTANT\". Custom label ids visible in /admin/connections/gmail."
+      },
+      {
+       "key": "remove",
+       "label": "Labels to Remove",
+       "kind": "code",
+       "advanced": false,
+       "help": "Array of label ids to remove. Use [\"INBOX\"] to archive, [\"UNREAD\"] to mark as read."
+      }
+     ]
+    },
+    {
+     "type": "gmail-search",
+     "label": "Gmail · Search Messages",
+     "description": "Search Gmail using a query string. Returns matching message ids, and optionally fetches full message content.",
+     "icon": null,
+     "defaultConfig": {
+      "accountId": 0,
+      "query": "",
+      "maxResults": 50,
+      "fetchFullMessages": false
+     },
+     "form": [
+      {
+       "key": "accountId",
+       "label": "Gmail Account",
+       "kind": "number",
+       "advanced": false,
+       "help": "The gmail_accounts row id to search in."
+      },
+      {
+       "key": "query",
+       "label": "Search Query",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "from:someone@example.com subject:report newer_than:7d",
+       "help": "Gmail search query. Supports Gmail advanced search operators and {{input.x}} templates."
+      },
+      {
+       "key": "maxResults",
+       "label": "Max Results",
+       "kind": "number",
+       "advanced": false,
+       "help": "Maximum number of messages to return (default 50)."
+      },
+      {
+       "key": "fetchFullMessages",
+       "label": "Fetch Full Messages",
+       "kind": "toggle",
+       "advanced": true,
+       "help": "If enabled, returns full body and attachments for each result. Slower for large sets.",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "whatsapp",
+     "label": "WhatsApp · send",
+     "description": "Send a WhatsApp message (Markdown-aware, auto-chunked, optional media). To/message fields support {{input.field}} templates.",
+     "icon": null,
+     "defaultConfig": {
+      "to": "",
+      "message": "{{input.message}}",
+      "formatMarkdown": true,
+      "maxChunks": 3,
+      "suppressDuplicateWindowMins": 0
+     },
+     "form": [
+      {
+       "key": "to",
+       "label": "Recipient Phone Number",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "+440000000000 or {{input.phone}}",
+       "help": "Phone number in E.164 format (include country code). Supports {{input.field}} templates."
+      },
+      {
+       "key": "message",
+       "label": "Message",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Hi {{input.name}}, your report is ready.",
+       "help": "Text to send. Supports {{input.field}} templates. Markdown is converted to WhatsApp formatting when enabled."
+      },
+      {
+       "key": "formatMarkdown",
+       "label": "Convert Markdown",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "**bold** → *bold*, ## headings → bold lines, [links](url) → text (url), - bullets → •.",
+       "section": "OPTIONS"
+      },
+      {
+       "key": "maxChunks",
+       "label": "Max chunks",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "help": "Split long messages (>4096 chars) into at most this many sends. 0 = no cap.",
+       "section": "OPTIONS"
+      },
+      {
+       "key": "suppressDuplicateWindowMins",
+       "label": "Suppress duplicates (mins)",
+       "kind": "number",
+       "advanced": false,
+       "min": 0,
+       "help": "Skip an identical message to the same recipient within this many minutes. 0 = off.",
+       "section": "OPTIONS"
+      },
+      {
+       "key": "category",
+       "label": "Category (owner only)",
+       "kind": "dropdown",
+       "advanced": true,
+       "options": [
+        {
+         "value": "health",
+         "label": "Health"
+        },
+        {
+         "value": "chat",
+         "label": "jkai"
+        },
+        {
+         "value": "build",
+         "label": "Builds"
+        },
+        {
+         "value": "deploy",
+         "label": "Deploys"
+        },
+        {
+         "value": "uptime",
+         "label": "Uptime"
+        },
+        {
+         "value": "intel",
+         "label": "Intel"
+        },
+        {
+         "value": "news",
+         "label": "News"
+        },
+        {
+         "value": "system",
+         "label": "Everything else"
+        }
+       ],
+       "help": "When the recipient is you, the message is routed by this notification category (WhatsApp and/or iPhone). Default: Everything else.",
+       "section": "OPTIONS"
+      },
+      {
+       "key": "mediaPath",
+       "label": "Media file path",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "/path/to/file.png or {{input.filePath}}",
+       "help": "Local file to send as an attachment. Requires the WhatsApp worker.",
+       "section": "MEDIA"
+      },
+      {
+       "key": "mediaUrl",
+       "label": "Media URL",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "https://…/image.png",
+       "help": "URL to download and send as an attachment.",
+       "section": "MEDIA"
+      },
+      {
+       "key": "caption",
+       "label": "Media caption",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "Optional caption",
+       "help": "Caption for the attachment. Falls back to the message text.",
+       "section": "MEDIA"
+      }
+     ]
+    },
+    {
+     "type": "email",
+     "label": "Email · send",
+     "description": "Send an email via SMTP. To, subject, and body support {{input.field}} templates.",
+     "icon": null,
+     "defaultConfig": {
+      "to": "",
+      "subject": "",
+      "body": "{{input.body}}",
+      "from": ""
+     },
+     "form": [
+      {
+       "key": "to",
+       "label": "Recipient",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "alice@example.com",
+       "help": "Who the email goes to. Supports {{input.field}} templates."
+      },
+      {
+       "key": "subject",
+       "label": "Subject",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Daily report for {{input.date}}",
+       "help": "Subject line. Supports templates."
+      },
+      {
+       "key": "body",
+       "label": "Body",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Hi,\n\nHere is the update: {{input.summary}}",
+       "help": "Email body. If it starts with an HTML tag it is sent as HTML, otherwise as plain text."
+      },
+      {
+       "key": "from",
+       "label": "From Address",
+       "kind": "text",
+       "advanced": true,
+       "placeholder": "noreply@example.com",
+       "help": "Override the sender address. Leave blank to use the server default (SMTP_FROM).",
+       "section": "ADVANCED"
+      }
+     ]
+    },
+    {
+     "type": "jkai",
+     "label": "jkai · message",
+     "description": "Manage JKAI autonomous builds: start, check status, list, and control.",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "list"
+     },
+     "form": [
+      {
+       "key": "operation",
+       "label": "Action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "start",
+         "label": "Start Build"
+        },
+        {
+         "value": "status",
+         "label": "Check Status"
+        },
+        {
+         "value": "list",
+         "label": "List Builds"
+        },
+        {
+         "value": "control",
+         "label": "Control Build"
+        }
+       ],
+       "help": "What to do with JKAI autonomous builds"
+      },
+      {
+       "key": "prompt",
+       "label": "Prompt",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Build a landing page with...",
+       "help": "Description of what you want JKAI to build."
+      },
+      {
+       "key": "title",
+       "label": "Title",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "My Build",
+       "help": "Optional friendly name for this build."
+      },
+      {
+       "key": "buildId",
+       "label": "Build ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.buildId}}",
+       "help": "ID of the build to check or control."
+      },
+      {
+       "key": "action",
+       "label": "Control Action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "pause",
+         "label": "Pause"
+        },
+        {
+         "value": "resume",
+         "label": "Resume"
+        },
+        {
+         "value": "stop",
+         "label": "Stop"
+        },
+        {
+         "value": "publish",
+         "label": "Publish"
+        }
+       ],
+       "help": "What to do with the build"
+      }
+     ]
+    },
+    {
+     "type": "deck-build",
+     "label": "Deck build (presentation)",
+     "description": "Publish workflow results as an sr. decks presentation (/decks/<slug>) from a block-deck spec. Returns the deck url + share link so a downstream whatsapp/email node can send it.",
+     "icon": null,
+     "defaultConfig": {
+      "title": "",
+      "description": "",
+      "spec": "[]",
+      "share": true,
+      "isPublic": false
+     },
+     "form": [
+      {
+       "key": "title",
+       "label": "Title",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Weekly Briefing — {{today}}",
+       "help": "Deck title. Supports {{input.field}} / {{today}} templates."
+      },
+      {
+       "key": "description",
+       "label": "Description",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "One-line summary of the deck",
+       "help": "Optional one-line description. Template-supported."
+      },
+      {
+       "key": "spec",
+       "label": "Slides spec (JSON)",
+       "kind": "code",
+       "advanced": false,
+       "help": "A JSON array of slides (or { slides: [...] }). String leaves support {{input.*}} templates."
+      },
+      {
+       "key": "share",
+       "label": "Include share link",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Return a view-granting share URL in the output."
+      },
+      {
+       "key": "isPublic",
+       "label": "Publish publicly",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Make the deck public immediately (default private)."
+      }
+     ]
+    },
+    {
+     "type": "api-call",
+     "label": "API call (catalogue)",
+     "description": "Read / write / update / push / pull from a registered API in the catalogue. Pick an API by name, choose an operation (GET/POST/PUT/PATCH/DELETE), and give a path relative to its baseUrl. Auth is injected server-side; every request is SSRF-guarded and kept within the API's baseUrl.",
+     "icon": null,
+     "defaultConfig": {
+      "api": "",
+      "method": "GET",
+      "path": "",
+      "query": "",
+      "body": "",
+      "headers": ""
+     },
+     "form": [
+      {
+       "key": "api",
+       "label": "API",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "open-meteo",
+       "help": "Catalogue key or name of the registered API. Supports {{input.field}} templates."
+      },
+      {
+       "key": "method",
+       "label": "Operation",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "GET",
+         "label": "Read / pull (GET)"
+        },
+        {
+         "value": "POST",
+         "label": "Create / push (POST)"
+        },
+        {
+         "value": "PUT",
+         "label": "Replace / update (PUT)"
+        },
+        {
+         "value": "PATCH",
+         "label": "Update fields (PATCH)"
+        },
+        {
+         "value": "DELETE",
+         "label": "Delete (DELETE)"
+        }
+       ],
+       "help": "What to do against the API."
+      },
+      {
+       "key": "path",
+       "label": "Path",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "/v1/forecast?latitude={{input.lat}}&longitude={{input.lon}}",
+       "help": "Path relative to the API's baseUrl. May include a ?query. Supports {{input.field}} templates."
+      },
+      {
+       "key": "body",
+       "label": "Body (JSON)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{ \"name\": \"{{input.name}}\" }",
+       "help": "Request body for write/update methods. Ignored for GET. Supports templates."
+      },
+      {
+       "key": "query",
+       "label": "Query params (JSON)",
+       "kind": "textarea",
+       "advanced": true,
+       "placeholder": "{ \"limit\": 10 }",
+       "help": "Optional JSON object of query params merged into the URL."
+      },
+      {
+       "key": "headers",
+       "label": "Extra headers (JSON)",
+       "kind": "textarea",
+       "advanced": true,
+       "placeholder": "{ \"Accept\": \"application/json\" }",
+       "help": "Optional JSON object of extra request headers. Auth is added automatically."
+      }
+     ]
+    },
+    {
+     "type": "api-integration",
+     "label": "API integration",
+     "description": "Call a registered API integration by name. Pick one from the register — parameters become labelled fields and the response arrives as named values, so no JSON-path wiring is needed.",
+     "icon": null,
+     "defaultConfig": {
+      "integration": "",
+      "params": {},
+      "confirmWrite": false
+     },
+     "form": [
+      {
+       "key": "integration",
+       "label": "Integration",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "openrouter-credit-balance",
+       "help": "Key of the registered integration to call."
+      },
+      {
+       "key": "confirmWrite",
+       "label": "Allow write operation",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Required for POST/PUT/PATCH/DELETE integrations — they change data on the remote API."
+      }
+     ]
+    },
+    {
+     "type": "home-assistant",
+     "label": "Home Assistant",
+     "description": "Control Home Assistant: query state, call services, fire events, get history, render templates.",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "get_state",
+      "entityId": "",
+      "entityIds": []
+     },
+     "form": [
+      {
+       "key": "operation",
+       "label": "Operation",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "query_state",
+         "label": "Query State"
+        },
+        {
+         "value": "call_service",
+         "label": "Call Service"
+        },
+        {
+         "value": "fire_event",
+         "label": "Fire Event"
+        },
+        {
+         "value": "get_history",
+         "label": "Get History"
+        },
+        {
+         "value": "render_template",
+         "label": "Render Template"
+        }
+       ]
+      },
+      {
+       "key": "entityId",
+       "label": "Entity ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "light.living_room_ceiling"
+      },
+      {
+       "key": "domain",
+       "label": "Domain",
+       "kind": "text",
+       "advanced": true,
+       "placeholder": "light"
+      },
+      {
+       "key": "service",
+       "label": "Service",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "turn_on"
+      },
+      {
+       "key": "serviceData",
+       "label": "Service Data (JSON)",
+       "kind": "textarea",
+       "advanced": true,
+       "placeholder": "{\"brightness\": 128}"
+      },
+      {
+       "key": "eventType",
+       "label": "Event Type",
+       "kind": "text",
+       "advanced": true,
+       "placeholder": "custom_event"
+      },
+      {
+       "key": "eventData",
+       "label": "Event Data (JSON)",
+       "kind": "textarea",
+       "advanced": true
+      },
+      {
+       "key": "historyStart",
+       "label": "History Start",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "2026-04-14T00:00:00Z"
+      },
+      {
+       "key": "historyEnd",
+       "label": "History End",
+       "kind": "template",
+       "advanced": true
+      },
+      {
+       "key": "template",
+       "label": "Template (Jinja2)",
+       "kind": "code",
+       "advanced": true,
+       "placeholder": "{{ states(\"light.living_room\") }}"
+      }
+     ]
+    },
+    {
+     "type": "whoop",
+     "label": "Whoop",
+     "description": "Access Whoop health data. Requires Whoop connected in Health settings. Prefer DB-backed ops (get_summary, get_recent, query_recovery) — they are fast and free; *_api ops hit the Whoop API directly.",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "get_summary",
+      "days": 30,
+      "limit": 10,
+      "kind": "recovery"
+     },
+     "form": [
+      {
+       "key": "operation",
+       "label": "Action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "get_summary",
+         "label": "Summary (DB · last N days)"
+        },
+        {
+         "value": "get_recent",
+         "label": "Recent days (DB · per-day rows)"
+        },
+        {
+         "value": "query_recovery",
+         "label": "Query metric series (DB)"
+        },
+        {
+         "value": "get_cycles",
+         "label": "Cycles — API (daily strain)"
+        },
+        {
+         "value": "get_recovery",
+         "label": "Recovery Scores — API"
+        },
+        {
+         "value": "get_sleep",
+         "label": "Sleep Records — API"
+        },
+        {
+         "value": "get_workouts",
+         "label": "Workouts — API"
+        }
+       ],
+       "help": "What to do"
+      },
+      {
+       "key": "days",
+       "label": "Days",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "help": "Trailing window in days. Used by Summary / Recent."
+      },
+      {
+       "key": "metric",
+       "label": "Metric",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "hrv",
+         "label": "HRV (ms)"
+        },
+        {
+         "value": "recovery",
+         "label": "Recovery score (%)"
+        },
+        {
+         "value": "rhr",
+         "label": "Resting heart rate (bpm)"
+        },
+        {
+         "value": "sleep_performance",
+         "label": "Sleep performance (%)"
+        },
+        {
+         "value": "strain",
+         "label": "Strain (cycle)"
+        }
+       ],
+       "help": "Which metric series to return."
+      },
+      {
+       "key": "limit",
+       "label": "Limit",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "help": "Maximum number of records to return (API ops)."
+      },
+      {
+       "key": "start",
+       "label": "Start Date",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "2026-01-01T00:00:00Z",
+       "help": "ISO 8601 start date filter (optional).",
+       "section": "FILTERS"
+      },
+      {
+       "key": "end",
+       "label": "End Date",
+       "kind": "template",
+       "advanced": true,
+       "placeholder": "2026-04-18T00:00:00Z",
+       "help": "ISO 8601 end date filter (optional)."
+      }
+     ]
+    },
+    {
+     "type": "health-query",
+     "label": "Health query",
+     "description": "Query health data from Apple Watch, Whoop and other fitness sources.",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "stats",
+      "query": ""
+     },
+     "form": [
+      {
+       "key": "operation",
+       "label": "Action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "stats",
+         "label": "Fitness Stats"
+        },
+        {
+         "value": "readiness",
+         "label": "Readiness Score"
+        },
+        {
+         "value": "sleep",
+         "label": "Sleep Analysis"
+        },
+        {
+         "value": "training_load",
+         "label": "Training Load"
+        },
+        {
+         "value": "timeline",
+         "label": "Activity Timeline"
+        }
+       ],
+       "help": "Which health data summary to fetch"
+      },
+      {
+       "key": "page",
+       "label": "Page",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "help": "Page number for paginated timeline results."
+      },
+      {
+       "key": "limit",
+       "label": "Items Per Page",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "help": "How many activities to return per page."
+      }
+     ]
+    },
+    {
+     "type": "location-context",
+     "label": "Location context",
+     "description": "Resolve where home is and where the person actually is right now, from Home Assistant. Returns both coordinate pairs plus distance, place label and staleness — the input for location-aware weather and briefings.",
+     "icon": null,
+     "defaultConfig": {
+      "personEntity": "person.john",
+      "homeZoneEntity": "zone.home",
+      "staleAfterMins": 120
+     },
+     "form": [
+      {
+       "key": "personEntity",
+       "label": "Person / tracker entity",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "person.john",
+       "help": "The Home Assistant person or device_tracker whose position you want. Supports {{input.field}}."
+      },
+      {
+       "key": "homeZoneEntity",
+       "label": "Home zone entity",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "zone.home",
+       "help": "Zone that defines \"home\". Its coordinates are returned as the home position."
+      },
+      {
+       "key": "staleAfterMins",
+       "label": "Stale after (minutes)",
+       "kind": "number",
+       "advanced": false,
+       "min": 15,
+       "max": 1440,
+       "step": 15,
+       "help": "Mark the position stale when the tracker has not reported within this window."
+      }
+     ]
+    },
+    {
+     "type": "weather-brief",
+     "label": "Weather brief",
+     "description": "Decoded weather for a coordinate pair (Open-Meteo). Returns named conditions, metric temperatures, rain/wind/UV and derived \"local factors\" — no raw WMO codes for a downstream LLM to guess at.",
+     "icon": null,
+     "defaultConfig": {
+      "latitude": "",
+      "longitude": "",
+      "label": "",
+      "timezone": "Europe/London"
+     },
+     "form": [
+      {
+       "key": "label",
+       "label": "Place name",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Home",
+       "help": "What to call this location in the output. Supports {{input.field}}."
+      },
+      {
+       "key": "latitude",
+       "label": "Latitude",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "40.78509  or  {{input.current.lat}}",
+       "help": "Decimal latitude. Feed from a location-context node for \"where I am right now\"."
+      },
+      {
+       "key": "longitude",
+       "label": "Longitude",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "-73.96828  or  {{input.current.lon}}",
+       "help": "Decimal longitude."
+      },
+      {
+       "key": "timezone",
+       "label": "Timezone",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "Europe/London",
+       "help": "IANA timezone used for the day window and sunrise/sunset."
+      }
+     ]
+    },
+    {
+     "type": "data-store",
+     "label": "Data store (KV)",
+     "description": "Workflow-scoped key-value store. Persists across runs. Get/set plus atomic append, add-to-set (dedupe), has, increment, and delete.",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "get",
+      "key": ""
+     },
+     "form": [
+      {
+       "key": "operation",
+       "label": "Action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "get",
+         "label": "Get (read value)"
+        },
+        {
+         "value": "set",
+         "label": "Set (overwrite value)"
+        },
+        {
+         "value": "append",
+         "label": "Append (push onto list)"
+        },
+        {
+         "value": "add_to_set",
+         "label": "Add to set (dedupe)"
+        },
+        {
+         "value": "has",
+         "label": "Has (set membership)"
+        },
+        {
+         "value": "increment",
+         "label": "Increment (counter)"
+        },
+        {
+         "value": "delete",
+         "label": "Delete (remove key)"
+        }
+       ],
+       "help": "What to do with the stored value."
+      },
+      {
+       "key": "key",
+       "label": "Key",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "last_run_timestamp",
+       "help": "Name of the stored item. Supports {{input.field}} templates so keys can be dynamic."
+      },
+      {
+       "key": "valuePath",
+       "label": "Value Path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "data.count",
+       "help": "Dot-path into the input to pick the value (e.g. data.count). Leave empty to use input.value or the whole input."
+      },
+      {
+       "key": "amount",
+       "label": "Amount",
+       "kind": "number",
+       "advanced": false,
+       "help": "How much to add to the counter (default 1)."
+      },
+      {
+       "key": "maxItems",
+       "label": "Max items",
+       "kind": "number",
+       "advanced": false,
+       "placeholder": "500",
+       "help": "Cap the list/set to the most recent N elements (oldest trimmed)."
+      },
+      {
+       "key": "default",
+       "label": "Default",
+       "kind": "text",
+       "advanced": false,
+       "help": "Value returned when the key is not found (get only)."
+      },
+      {
+       "key": "passthrough",
+       "label": "Merge into input",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Output the whole input with the looked-up value merged in (get only)."
+      },
+      {
+       "key": "outputKey",
+       "label": "Output key",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "value",
+       "help": "Key the looked-up value is merged under when Merge-into-input is on."
+      }
+     ]
+    },
+    {
+     "type": "database",
+     "label": "Database",
+     "description": "Permanent, sitewide datastore. Full CRUD over jsonb records in named collections: insert / upsert / get / query (filter DSL) / update / patch / delete / count / aggregate. Shared across workflows (unlike the per-workflow Data store).",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "query",
+      "collection": "",
+      "autoCreate": true
+     },
+     "form": [
+      {
+       "key": "operation",
+       "label": "Operation",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "insert",
+         "label": "Insert (add a record)"
+        },
+        {
+         "value": "upsert",
+         "label": "Upsert (insert or overwrite by key)"
+        },
+        {
+         "value": "get",
+         "label": "Get (read one by key)"
+        },
+        {
+         "value": "query",
+         "label": "Query (filter DSL)"
+        },
+        {
+         "value": "update",
+         "label": "Update (replace data by key)"
+        },
+        {
+         "value": "patch",
+         "label": "Patch (merge fields by key)"
+        },
+        {
+         "value": "delete",
+         "label": "Delete (remove by key)"
+        },
+        {
+         "value": "count",
+         "label": "Count (matching records)"
+        },
+        {
+         "value": "aggregate",
+         "label": "Aggregate (sum/avg/…)"
+        }
+       ],
+       "help": "What to do against the datastore."
+      },
+      {
+       "key": "collection",
+       "label": "Collection",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "notes",
+       "help": "Collection slug. Supports {{input.field}} templates."
+      },
+      {
+       "key": "autoCreate",
+       "label": "Auto-create collection",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Create the collection on first write if it does not exist."
+      },
+      {
+       "key": "key",
+       "label": "Key",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.id}}",
+       "help": "Natural key of the record. Supports {{input.field}} templates."
+      },
+      {
+       "key": "data",
+       "label": "Data (JSON)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{ \"title\": \"{{input.title}}\", \"status\": \"open\" }",
+       "help": "JSON object of the record body. Supports {{input.field}} templates."
+      },
+      {
+       "key": "patch",
+       "label": "Patch (JSON)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{ \"status\": \"done\" }",
+       "help": "JSON object of fields to shallow-merge onto the existing record."
+      },
+      {
+       "key": "filters",
+       "label": "Filters (JSON)",
+       "kind": "code",
+       "advanced": false,
+       "placeholder": "[ { \"path\": \"status\", \"op\": \"eq\", \"value\": \"open\" } ]",
+       "help": "JSON array of { path, op, value }. op ∈ eq|ne|gt|gte|lt|lte|contains|exists|in."
+      },
+      {
+       "key": "sortField",
+       "label": "Sort field",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "updatedAt",
+         "label": "Updated at"
+        },
+        {
+         "value": "createdAt",
+         "label": "Created at"
+        },
+        {
+         "value": "key",
+         "label": "Key"
+        }
+       ],
+       "help": "Sort by a built-in column (ignored when Sort path is set)."
+      },
+      {
+       "key": "sortPath",
+       "label": "Sort path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "meta.year",
+       "help": "Sort by a dot-path into the record data (overrides Sort field)."
+      },
+      {
+       "key": "sortDir",
+       "label": "Sort direction",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "desc",
+         "label": "Descending"
+        },
+        {
+         "value": "asc",
+         "label": "Ascending"
+        }
+       ]
+      },
+      {
+       "key": "limit",
+       "label": "Limit",
+       "kind": "number",
+       "advanced": false,
+       "placeholder": "100",
+       "help": "Max records to return (1–500, default 100)."
+      },
+      {
+       "key": "offset",
+       "label": "Offset",
+       "kind": "number",
+       "advanced": false,
+       "placeholder": "0",
+       "help": "Records to skip."
+      },
+      {
+       "key": "aggregateOp",
+       "label": "Aggregate function",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "count",
+         "label": "Count"
+        },
+        {
+         "value": "sum",
+         "label": "Sum"
+        },
+        {
+         "value": "avg",
+         "label": "Average"
+        },
+        {
+         "value": "min",
+         "label": "Min"
+        },
+        {
+         "value": "max",
+         "label": "Max"
+        }
+       ]
+      },
+      {
+       "key": "aggregatePath",
+       "label": "Aggregate path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "amount",
+       "help": "Dot-path to the numeric field (required for sum/avg/min/max)."
+      },
+      {
+       "key": "groupBy",
+       "label": "Group by",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "status",
+       "help": "Optional dot-path to group aggregate results by."
+      },
+      {
+       "key": "permissions",
+       "label": "Row permissions (JSON)",
+       "kind": "textarea",
+       "advanced": true,
+       "placeholder": "{ \"read\": [\"*\"], \"write\": [\"owner\", \"workflow:*\"] }",
+       "help": "Optional { read?, write?, delete? } actor lists on this record. Actors: owner, jkai, system, workflow:<id>, workflow:*, *."
+      },
+      {
+       "key": "expectedVersion",
+       "label": "Expected version",
+       "kind": "number",
+       "advanced": true,
+       "help": "Optimistic concurrency: fail if the stored version differs."
+      },
+      {
+       "key": "outputKey",
+       "label": "Output key",
+       "kind": "text",
+       "advanced": true,
+       "help": "Key the result is placed under (default records/record/result by operation)."
+      }
+     ]
+    },
+    {
+     "type": "inspector",
+     "label": "Inspector · debug",
+     "description": "Runtime debug view. Captures the upstream node's output and renders it as JSON, tables, HTML, images, video, audio, or plain text.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "size",
+       "label": "Size",
+       "kind": "json",
+       "advanced": false,
+       "help": "Rendered width/height (user-resizable)."
+      }
+     ]
+    },
+    {
+     "type": "site-tool",
+     "label": "Site Tool",
+     "description": "Invoke any registered site capability (a \"site tool\") by name — presentations/decks, publish page, media generation, personal memory, diagnostics, RAG search, and more. Args are JSON with {{input.*}} templates. Destructive tools require an upstream approval node.",
+     "icon": null,
+     "defaultConfig": {
+      "toolName": "",
+      "args": {},
+      "allowDestructive": false
+     },
+     "form": [
+      {
+       "key": "toolName",
+       "label": "Tool name",
+       "kind": "text",
+       "advanced": false,
+       "help": "Exact registered tool name (e.g. \"presentation_build_from_spec\", \"save_memory\", \"render_chart\"). Must match the tool's registry name."
+      },
+      {
+       "key": "args",
+       "label": "Args",
+       "kind": "json",
+       "advanced": false,
+       "help": "Arguments object matching the tool's parameter schema. String leaves support {{input.*}} / {{state.*}} / {{today}} / {{now}} templates."
+      },
+      {
+       "key": "allowDestructive",
+       "label": "Allow destructive",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Required for destructive tools (send/publish/delete-class). When true you MUST also place an approval node upstream on this node's path — enforced at author time and at run time."
+      }
+     ]
+    },
+    {
+     "type": "notify",
+     "label": "Notify me",
+     "description": "Tell the owner something under a notification category. The category's route (set on the phone) decides WhatsApp, iPhone, both or neither, and every raise is written to the notification ledger.",
+     "icon": null,
+     "defaultConfig": {
+      "category": "system",
+      "title": "",
+      "body": "",
+      "severity": "info"
+     },
+     "form": [
+      {
+       "key": "category",
+       "label": "Category",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "health",
+         "label": "Health"
+        },
+        {
+         "value": "chat",
+         "label": "jkai"
+        },
+        {
+         "value": "build",
+         "label": "Builds"
+        },
+        {
+         "value": "deploy",
+         "label": "Deploys"
+        },
+        {
+         "value": "uptime",
+         "label": "Uptime"
+        },
+        {
+         "value": "intel",
+         "label": "Intel"
+        },
+        {
+         "value": "news",
+         "label": "News"
+        },
+        {
+         "value": "system",
+         "label": "Everything else"
+        }
+       ],
+       "help": "Routes to WhatsApp and/or the iPhone per the category's settings."
+      },
+      {
+       "key": "title",
+       "label": "Title",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Build shipped: {{input.title}}"
+      },
+      {
+       "key": "body",
+       "label": "Message",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.summary}}"
+      },
+      {
+       "key": "url",
+       "label": "Link",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "/jkai/builds",
+       "section": "OPTIONS"
+      },
+      {
+       "key": "severity",
+       "label": "Severity",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "info",
+         "label": "Info"
+        },
+        {
+         "value": "warn",
+         "label": "Warning"
+        },
+        {
+         "value": "alert",
+         "label": "Alert"
+        }
+       ],
+       "section": "OPTIONS"
+      },
+      {
+       "key": "dedupeKey",
+       "label": "Dedupe key",
+       "kind": "text",
+       "advanced": true,
+       "placeholder": "build:{{input.id}}",
+       "section": "OPTIONS"
+      },
+      {
+       "key": "minIntervalSeconds",
+       "label": "Min interval (s)",
+       "kind": "number",
+       "advanced": true,
+       "min": 0,
+       "section": "OPTIONS"
+      }
+     ]
+    },
+    {
+     "type": "file-read",
+     "label": "Read file",
+     "description": "Load a file from the workflow file store. Returns content as utf8 (default) or base64.",
+     "icon": null,
+     "defaultConfig": {
+      "encoding": "utf8"
+     },
+     "form": [
+      {
+       "key": "fileName",
+       "label": "File name",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "reports/daily.csv",
+       "help": "Supports {{input.field}}."
+      },
+      {
+       "key": "encoding",
+       "label": "Encoding",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "utf8",
+         "label": "utf8 (text)"
+        },
+        {
+         "value": "base64",
+         "label": "base64 (binary)"
+        }
+       ],
+       "help": "utf8 for text, base64 for binary."
+      }
+     ]
+    },
+    {
+     "type": "file-write",
+     "label": "Write file",
+     "description": "Create or overwrite a file in the workflow store. Set `append: true` to append to an existing file instead.",
+     "icon": null,
+     "defaultConfig": {
+      "append": false,
+      "encoding": "utf8"
+     },
+     "form": [
+      {
+       "key": "fileName",
+       "label": "File name",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "logs/{{input.id}}.txt",
+       "help": "Supports {{input.field}}."
+      },
+      {
+       "key": "append",
+       "label": "Append mode",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "When on, append to an existing file (does not create)."
+      },
+      {
+       "key": "encoding",
+       "label": "Encoding",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "utf8",
+         "label": "utf8 (text)"
+        },
+        {
+         "value": "base64",
+         "label": "base64 (binary)"
+        }
+       ],
+       "help": "utf8 for text, base64 for binary."
+      },
+      {
+       "key": "contentPath",
+       "label": "Content path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "data.body",
+       "help": "Dot-path into input."
+      }
+     ]
+    },
+    {
+     "type": "file-delete",
+     "label": "Delete file",
+     "description": "Remove a file from the workflow file store. Idempotent — silently succeeds if the file is already gone.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "fileName",
+       "label": "File name",
+       "kind": "template",
+       "advanced": false,
+       "help": "Supports {{input.field}}."
+      }
+     ]
+    },
+    {
+     "type": "file-list",
+     "label": "List files",
+     "description": "List every file in the workflow store, optionally filtered by name prefix.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "prefix",
+       "label": "Name prefix",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "logs/",
+       "help": "Optional. Empty lists all files."
+      }
+     ]
+    },
+    {
+     "type": "file-text-extract",
+     "label": "Extract text from file",
+     "description": "Pull plain text + structured metadata out of a PDF / DOCX / Markdown / audio / video file in the workflow file store.",
+     "icon": null,
+     "defaultConfig": {
+      "persist": false
+     },
+     "form": [
+      {
+       "key": "fileName",
+       "label": "Source file",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "docs/contract.pdf",
+       "help": "Name of the file in the store."
+      },
+      {
+       "key": "pageFrom",
+       "label": "First page (PDF)",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "1",
+       "help": "Optional. 1-indexed."
+      },
+      {
+       "key": "pageTo",
+       "label": "Last page (PDF)",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "5",
+       "help": "Optional. Inclusive."
+      },
+      {
+       "key": "language",
+       "label": "Language (audio/video)",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "en",
+       "help": "BCP-47 hint."
+      },
+      {
+       "key": "persist",
+       "label": "Save as new .txt",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "Persist the extracted text to the file store."
+      },
+      {
+       "key": "outputName",
+       "label": "Saved file name",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "reports/{{input.id}}.txt",
+       "help": "Required when \"Save as new .txt\" is on."
+      }
+     ]
+    },
+    {
+     "type": "file-build",
+     "label": "Build new file",
+     "description": "Synthesise a new file (docx / pdf / html / xlsx / csv) from text / markdown / json / csv / xlsx input.",
+     "icon": null,
+     "defaultConfig": {
+      "persist": false
+     },
+     "form": [
+      {
+       "key": "format",
+       "label": "Output format",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "docx",
+         "label": "DOCX (Word)"
+        },
+        {
+         "value": "pdf",
+         "label": "PDF"
+        },
+        {
+         "value": "html",
+         "label": "HTML"
+        },
+        {
+         "value": "xlsx",
+         "label": "XLSX (Excel)"
+        },
+        {
+         "value": "csv",
+         "label": "CSV"
+        }
+       ],
+       "help": "What kind of file to produce."
+      },
+      {
+       "key": "source",
+       "label": "Input format",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "markdown",
+         "label": "Markdown"
+        },
+        {
+         "value": "text",
+         "label": "Plain text"
+        },
+        {
+         "value": "json",
+         "label": "JSON (array of rows)"
+        },
+        {
+         "value": "csv",
+         "label": "CSV"
+        },
+        {
+         "value": "xlsx",
+         "label": "XLSX (binary, base64)"
+        }
+       ],
+       "help": "Format of the content you are providing."
+      },
+      {
+       "key": "contentPath",
+       "label": "Content path",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "data.body",
+       "help": "Dot-path into input. Default `input.content`."
+      },
+      {
+       "key": "title",
+       "label": "Title",
+       "kind": "text",
+       "advanced": false,
+       "help": "Optional title for docx/pdf."
+      },
+      {
+       "key": "persist",
+       "label": "Save to file store",
+       "kind": "toggle",
+       "advanced": false,
+       "help": "When on, the output becomes a new workflow file."
+      },
+      {
+       "key": "outputName",
+       "label": "Saved file name",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "reports/{{input.id}}.docx",
+       "help": "Required when \"Save to file store\" is on."
+      }
+     ]
+    },
+    {
+     "type": "blog-list",
+     "label": "Blog: list posts",
+     "description": "List the most recent blog posts (up to 50).",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "$config",
+       "label": "Configuration",
+       "kind": "json",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "blog-get",
+     "label": "Blog: get post",
+     "description": "Fetch a single blog post by ID.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "postId",
+       "label": "Post ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.id}}",
+       "help": "Supports {{input.field}}."
+      }
+     ]
+    },
+    {
+     "type": "blog-create",
+     "label": "Blog: create post",
+     "description": "Create a new blog post. Supports template interpolation in title and content.",
+     "icon": null,
+     "defaultConfig": {
+      "status": "draft"
+     },
+     "form": [
+      {
+       "key": "title",
+       "label": "Title",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Weekly Update",
+       "help": "Supports {{input.field}}."
+      },
+      {
+       "key": "content",
+       "label": "Content (HTML)",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "<p>This week…</p>",
+       "help": "Supports {{input.field}}."
+      },
+      {
+       "key": "status",
+       "label": "Status",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "draft",
+         "label": "Draft"
+        },
+        {
+         "value": "published",
+         "label": "Published"
+        }
+       ],
+       "help": "Defaults to draft."
+      },
+      {
+       "key": "tags",
+       "label": "Tags",
+       "kind": "text",
+       "advanced": false,
+       "placeholder": "tech, ai, personal",
+       "help": "Comma-separated."
+      }
+     ]
+    },
+    {
+     "type": "blog-update",
+     "label": "Blog: update post",
+     "description": "Update an existing blog post. Pass only the fields you want to change.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "postId",
+       "label": "Post ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.id}}",
+       "help": "Supports {{input.field}}."
+      },
+      {
+       "key": "title",
+       "label": "Title",
+       "kind": "template",
+       "advanced": false,
+       "help": "Optional. Supports {{input.field}}."
+      },
+      {
+       "key": "content",
+       "label": "Content (HTML)",
+       "kind": "template",
+       "advanced": false,
+       "help": "Optional. Supports {{input.field}}."
+      },
+      {
+       "key": "status",
+       "label": "Status",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "draft",
+         "label": "Draft"
+        },
+        {
+         "value": "published",
+         "label": "Published"
+        }
+       ],
+       "help": "Optional."
+      },
+      {
+       "key": "tags",
+       "label": "Tags",
+       "kind": "text",
+       "advanced": false,
+       "help": "Optional. Comma-separated."
+      }
+     ]
+    },
+    {
+     "type": "deep-dive-start",
+     "label": "Deep dive: start",
+     "description": "Kick off a new deep research session. Returns a session id you can poll with `deep-dive-status` or fetch the report with `deep-dive-report`.",
+     "icon": null,
+     "defaultConfig": {
+      "depth": "medium"
+     },
+     "form": [
+      {
+       "key": "topic",
+       "label": "Topic",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Impact of AI on software engineering",
+       "help": "Supports {{input.field}}."
+      },
+      {
+       "key": "goals",
+       "label": "Goals",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "Understand trends, key players, future outlook",
+       "help": "Optional."
+      },
+      {
+       "key": "depth",
+       "label": "Depth",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "shallow",
+         "label": "Shallow (quick skim)"
+        },
+        {
+         "value": "medium",
+         "label": "Medium (balanced)"
+        },
+        {
+         "value": "deep",
+         "label": "Deep (thorough)"
+        }
+       ],
+       "help": "How thorough."
+      }
+     ]
+    },
+    {
+     "type": "deep-dive-status",
+     "label": "Deep dive: check status",
+     "description": "Check progress of a running research session.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "sessionId",
+       "label": "Session ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.data.id}}",
+       "help": "Supports {{input.field}}."
+      }
+     ]
+    },
+    {
+     "type": "deep-dive-report",
+     "label": "Deep dive: get report",
+     "description": "Fetch the final report for a completed research session.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "sessionId",
+       "label": "Session ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.data.id}}",
+       "help": "Supports {{input.field}}."
+      }
+     ]
+    },
+    {
+     "type": "deep-dive-list",
+     "label": "Deep dive: list sessions",
+     "description": "List recent research sessions (most recent first).",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "$config",
+       "label": "Configuration",
+       "kind": "json",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "deep-dive-control",
+     "label": "Deep dive: control session",
+     "description": "Pause, resume, or cancel a running research session.",
+     "icon": null,
+     "defaultConfig": {},
+     "form": [
+      {
+       "key": "sessionId",
+       "label": "Session ID",
+       "kind": "template",
+       "advanced": false,
+       "placeholder": "{{input.data.id}}",
+       "help": "Supports {{input.field}}."
+      },
+      {
+       "key": "action",
+       "label": "Action",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "pause",
+         "label": "Pause"
+        },
+        {
+         "value": "resume",
+         "label": "Resume"
+        },
+        {
+         "value": "cancel",
+         "label": "Cancel"
+        }
+       ],
+       "help": "What to do."
+      }
+     ]
+    },
+    {
+     "type": "apple-calendar",
+     "label": "Apple Calendar",
+     "description": "Read and write events on iCloud calendars via CalDAV.",
+     "icon": null,
+     "defaultConfig": {
+      "operation": "list"
+     },
+     "form": [
+      {
+       "key": "credentialId",
+       "label": "iCloud account",
+       "kind": "text",
+       "advanced": false
+      },
+      {
+       "key": "calendar",
+       "label": "Calendar",
+       "kind": "text",
+       "advanced": false
+      },
+      {
+       "key": "operation",
+       "label": "What to do",
+       "kind": "text",
+       "advanced": false
+      },
+      {
+       "key": "dateRangeStart",
+       "label": "From",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "dateRangeEnd",
+       "label": "To",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "includeRawIcs",
+       "label": "Include raw ICS (diagnostics)",
+       "kind": "toggle",
+       "advanced": false
+      },
+      {
+       "key": "eventTitle",
+       "label": "Title",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "eventStart",
+       "label": "Start",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "eventEnd",
+       "label": "End",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "eventLocation",
+       "label": "Location",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "eventNotes",
+       "label": "Notes",
+       "kind": "template",
+       "advanced": false
+      },
+      {
+       "key": "eventId",
+       "label": "Event ID",
+       "kind": "text",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "infrastructure-status",
+     "label": "Infrastructure status",
+     "description": "Read-only current-to-latest infrastructure review. Uses bounded official publisher releases and explicitly labels unavailable evidence.",
+     "icon": null,
+     "defaultConfig": {
+      "scope": "all",
+      "historyLimit": 12
+     },
+     "form": [
+      {
+       "key": "scope",
+       "label": "Audit scope",
+       "kind": "dropdown",
+       "advanced": false,
+       "options": [
+        {
+         "value": "all",
+         "label": "All available sources"
+        },
+        {
+         "value": "home_assistant",
+         "label": "Home Assistant and integrations"
+        },
+        {
+         "value": "production_app",
+         "label": "Production app and scheduler"
+        },
+        {
+         "value": "homeserv",
+         "label": "Homeserv host"
+        },
+        {
+         "value": "pi_runner",
+         "label": "Pi runner"
+        }
+       ],
+       "help": "Unavailable server-side integrations remain explicitly unavailable; no inferred health is shown."
+      },
+      {
+       "key": "historyLimit",
+       "label": "History retained",
+       "kind": "number",
+       "advanced": false,
+       "min": 1,
+       "max": 52,
+       "help": "Durable audit records retained for this workflow."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "builder",
+   "label": "Builder",
+   "types": [
+    {
+     "type": "builder-chat",
+     "label": "Builder Chat",
+     "description": "Set the build outcome and config. Programmatic: starts a JKAI build with the configured prompt and emits the buildId.",
+     "icon": null,
+     "defaultConfig": {
+      "prompt": "",
+      "thinkingLevel": "medium",
+      "enforceDesignSystem": true,
+      "planFirst": false,
+      "modelProvider": "",
+      "modelId": "",
+      "minIterations": null,
+      "maxIterations": 25,
+      "maxTotalMinutes": 120,
+      "maxTokensPerHour": 3000000,
+      "activeMinutesPerHour": 15,
+      "buildId": "",
+      "size": {
+       "w": 380,
+       "h": 440
+      }
+     },
+     "form": [
+      {
+       "key": "prompt",
+       "label": "Prompt",
+       "kind": "textarea",
+       "advanced": false,
+       "help": "Build outcome prompt. Supports templates."
+      },
+      {
+       "key": "thinkingLevel",
+       "label": "Thinking level",
+       "kind": "text",
+       "advanced": false
+      },
+      {
+       "key": "enforceDesignSystem",
+       "label": "Enforce design system",
+       "kind": "toggle",
+       "advanced": false
+      },
+      {
+       "key": "planFirst",
+       "label": "Plan first",
+       "kind": "toggle",
+       "advanced": false
+      },
+      {
+       "key": "modelProvider",
+       "label": "Model provider",
+       "kind": "text",
+       "advanced": false
+      },
+      {
+       "key": "modelId",
+       "label": "Model id",
+       "kind": "text",
+       "advanced": false
+      },
+      {
+       "key": "minIterations",
+       "label": "Min iterations",
+       "kind": "number",
+       "advanced": false
+      },
+      {
+       "key": "maxIterations",
+       "label": "Max iterations",
+       "kind": "number",
+       "advanced": false
+      },
+      {
+       "key": "maxTotalMinutes",
+       "label": "Max total minutes",
+       "kind": "number",
+       "advanced": false
+      },
+      {
+       "key": "maxTokensPerHour",
+       "label": "Max tokens per hour",
+       "kind": "number",
+       "advanced": false
+      },
+      {
+       "key": "activeMinutesPerHour",
+       "label": "Active minutes per hour",
+       "kind": "number",
+       "advanced": false
+      }
+     ]
+    },
+    {
+     "type": "builder-pi",
+     "label": "Builder Pi",
+     "description": "Live terminal for an active build. Programmatic: waits for the build to reach a terminal state (completed/failed/paused) and emits its final snapshot.",
+     "icon": null,
+     "defaultConfig": {
+      "buildId": "",
+      "waitForCompletion": false,
+      "pollIntervalMs": 2000,
+      "maxWaitMs": 28800000,
+      "showThinking": true,
+      "showTools": true,
+      "showLint": true,
+      "autoScroll": true,
+      "size": {
+       "w": 520,
+       "h": 460
+      }
+     },
+     "form": [
+      {
+       "key": "buildId",
+       "label": "Build id",
+       "kind": "text",
+       "advanced": false,
+       "help": "Target build id (templates supported)."
+      },
+      {
+       "key": "pollIntervalMs",
+       "label": "Poll interval ms",
+       "kind": "number",
+       "advanced": false,
+       "help": "Poll interval while waiting for terminal state."
+      },
+      {
+       "key": "maxWaitMs",
+       "label": "Max wait ms",
+       "kind": "number",
+       "advanced": false,
+       "help": "Max wait before bailing out."
+      }
+     ]
+    },
+    {
+     "type": "build-view",
+     "label": "Build View",
+     "description": "Snapshot of an in-progress or finished JKAI build (status, preview URL, published slug).",
+     "icon": null,
+     "defaultConfig": {
+      "buildId": "",
+      "mode": "active",
+      "expandable": true,
+      "sendUpstream": false,
+      "exposeOutputs": true,
+      "size": {
+       "w": 540,
+       "h": 420
+      }
+     },
+     "form": [
+      {
+       "key": "buildId",
+       "label": "Build id",
+       "kind": "text",
+       "advanced": false,
+       "help": "Target build id (templates supported)."
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -192,6 +192,61 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Segments")
     }
 
+    // MARK: - Flows
+
+    @MainActor func testShowcaseFlows() {
+        let app = launch()
+        openTab(app, "Flows")
+        let brief = byId(app, "flow-row-morning-brief")
+        settle(app, on: brief)
+        attach(app, "Showcase — Flows")
+
+        if brief.exists {
+            brief.tap()
+        } else {
+            let byTitle = app.staticTexts["Morning brief"]
+            soft(byTitle.waitForExistence(timeout: 5), "no workflow row to open")
+            if byTitle.exists { byTitle.tap() }
+        }
+        settle(app, on: app.staticTexts["Anything before nine?"])
+        attach(app, "Showcase — Flow detail")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Flow detail, scrolled")
+
+        let step = byId(app, "flow-step-brief")
+        if scroll(app, to: step) {
+            step.tap()
+            settle(app, on: app.staticTexts["Instructions"])
+            attach(app, "Showcase — Flow step editor")
+        } else {
+            soft(false, "no step row to open")
+        }
+    }
+
+    @MainActor func testShowcaseFlowAttentionAndRun() {
+        let app = launch()
+        openTab(app, "Flows")
+        let triage = byId(app, "flow-row-inbox-triage")
+        if triage.waitForExistence(timeout: 15) {
+            triage.tap()
+        } else {
+            soft(false, "no inbox-triage row")
+        }
+        settle(app, on: byId(app, "flow-fix-demo-fix-1"))
+        attach(app, "Showcase — Flow needing attention")
+
+        let run = byId(app, "flow-run-demo-run-inbox-1")
+        if scroll(app, to: run) {
+            run.tap()
+            settle(app, on: byId(app, "flow-run-summary"))
+            attach(app, "Showcase — Flow run")
+        } else {
+            soft(false, "no run row to open")
+        }
+    }
+
     // MARK: - Settings
 
     @MainActor func testShowcaseSettings() {
@@ -234,6 +289,10 @@ final class ShowcaseTests: XCTestCase {
 
     @MainActor private func thread(_ app: XCUIApplication, _ id: String) -> XCUIElement {
         app.descendants(matching: .any)["thread-\(id)"].firstMatch
+    }
+
+    @MainActor private func byId(_ app: XCUIApplication, _ id: String) -> XCUIElement {
+        app.descendants(matching: .any)[id].firstMatch
     }
 
     @MainActor private func newsRow(_ app: XCUIApplication, _ key: String) -> XCUIElement {

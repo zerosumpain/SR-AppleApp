@@ -107,6 +107,9 @@ struct TodayScreen: View {
     @ObservedObject var alerts: AlertStore
     @ObservedObject var site: SitePairingModel
     @StateObject private var store = TodayStore()
+    /// Read AFTER Today's own request, never beside it — the card is a
+    /// nudge, and the first paint must not wait on the workflow list.
+    @StateObject private var flows = FlowAttentionStore()
     @EnvironmentObject private var router: Router
 
     var body: some View {
@@ -126,6 +129,7 @@ struct TodayScreen: View {
                     } else {
                         askField
                         alertsCard
+                        if !flows.flows.isEmpty { flowsCard }
                         if let thread = store.payload?.lastThread { threadCard(thread) }
                         if let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
                         quickActions
@@ -146,6 +150,7 @@ struct TodayScreen: View {
         .srRefreshable {
             await store.load(fresh: true)
             await alerts.refresh()
+            await flows.load()
             if companion.paired { await companion.sync() }
         }
         .toolbar {
@@ -162,7 +167,10 @@ struct TodayScreen: View {
                     .accessibilityIdentifier("open-settings")
             }
         }
-        .task { await store.load() }
+        .task {
+            await store.load()
+            await flows.load()
+        }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }
         }
@@ -334,6 +342,49 @@ struct TodayScreen: View {
                 }
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// Workflows that failed or are stuck. One tap to the Flows tab, where
+    /// they head the list.
+    private var flowsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SRSectionLabel(text: "Workflows need attention", trailing: "\(flows.flows.count)")
+                .padding(.horizontal, 4)
+            Button {
+                SRHaptic.tap()
+                router.show(.flows)
+            } label: {
+                SRCard(accented: true, interactive: true) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(flows.flows.prefix(3)) { flow in
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(SR.error)
+                                    .padding(.top, 3)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(flow.title)
+                                        .font(SR.Text.secondary(15))
+                                        .foregroundStyle(SR.ink)
+                                        .lineLimit(1)
+                                    if let reason = flow.attentionReason {
+                                        Text(reason)
+                                            .font(SR.Text.secondary(13))
+                                            .foregroundStyle(SR.inkMuted)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                }
+                                Spacer(minLength: 6)
+                            }
+                        }
+                    }
+                    .padding(.leading, 6)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("today-flows")
         }
     }
 

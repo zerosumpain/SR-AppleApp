@@ -1,0 +1,647 @@
+{
+ "slug": "indoor-outdoor-temp",
+ "title": "Hourly cron: fetches outdoor weather (wttr.in) and indoor temperature (Home Assistant climate.downstairs_hallway) in parallel, merges the values, and sends a WhatsApp alert when the absolute difference exceeds 8°C.",
+ "description": null,
+ "version": 1869067404,
+ "trigger": {
+  "kind": "manual",
+  "cron": null,
+  "timezone": null,
+  "enabled": true,
+  "description": "Runs when you start it",
+  "nextRuns": [],
+  "eventType": null,
+  "filter": []
+ },
+ "building": false,
+ "buildError": null,
+ "steps": [
+  {
+   "id": "trigger-7e20aad5-12",
+   "type": "trigger",
+   "label": "Hourly trigger",
+   "category": "trigger-flow",
+   "icon": null,
+   "summary": "Cron: 0 * * * *",
+   "config": {
+    "cron": "0 * * * *",
+    "kind": "cron",
+    "description": "Cron trigger to run the temperature check every hour"
+   },
+   "form": [
+    {
+     "key": "kind",
+     "label": "Kind",
+     "kind": "text",
+     "advanced": false,
+     "help": "manual | cron | webhook | event"
+    },
+    {
+     "key": "cron",
+     "label": "Cron",
+     "kind": "text",
+     "advanced": false,
+     "help": "Cron expression (5-field). Only used when kind=cron."
+    },
+    {
+     "key": "eventType",
+     "label": "Event type",
+     "kind": "text",
+     "advanced": false,
+     "help": "Platform event to listen for — a $lib/events/catalogue type, e.g. workflow.completed, whatsapp.inbound, news.item. The event payload arrives as {{input.event.<key>}}."
+    },
+    {
+     "key": "filter",
+     "label": "Filter",
+     "kind": "json",
+     "advanced": false,
+     "help": "Optional payload filter, all must match: [{ key: top-level payload field, op: \"equals\" | \"contains\", value }]."
+    },
+    {
+     "key": "sourceWorkflowId",
+     "label": "Source workflow id",
+     "kind": "text",
+     "advanced": false,
+     "help": "Only fire when this specific workflow emits the event (optional)."
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "http-request-7e20aad5-1"
+    },
+    {
+     "handle": null,
+     "targetId": "home-assistant-15f0be45-20"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "http-request-7e20aad5-1",
+   "type": "http-request",
+   "label": "Fetch outdoor weather",
+   "category": "intel-web",
+   "icon": null,
+   "summary": "GET https://wttr.in/?format=j1",
+   "config": {
+    "url": "https://wttr.in/?format=j1",
+    "auth": "none",
+    "method": "GET",
+    "headers": "{}",
+    "description": "Fetch current outdoor temperature from free wttr.in API (auto-detects location by IP)"
+   },
+   "form": [
+    {
+     "key": "method",
+     "label": "Method",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "GET",
+       "label": "GET"
+      },
+      {
+       "value": "POST",
+       "label": "POST"
+      },
+      {
+       "value": "PUT",
+       "label": "PUT"
+      },
+      {
+       "value": "PATCH",
+       "label": "PATCH"
+      },
+      {
+       "value": "DELETE",
+       "label": "DELETE"
+      }
+     ]
+    },
+    {
+     "key": "url",
+     "label": "URL",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "https://api.example.com/{{input.path}}"
+    },
+    {
+     "key": "auth",
+     "label": "Authentication",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "none",
+       "label": "None"
+      },
+      {
+       "value": "bearer",
+       "label": "Bearer Token"
+      },
+      {
+       "value": "apiKey",
+       "label": "API Key"
+      }
+     ]
+    },
+    {
+     "key": "authToken",
+     "label": "Token",
+     "kind": "template",
+     "advanced": false
+    },
+    {
+     "key": "headers",
+     "label": "Headers (JSON)",
+     "kind": "textarea",
+     "advanced": true
+    },
+    {
+     "key": "body",
+     "label": "Body",
+     "kind": "template",
+     "advanced": true
+    },
+    {
+     "key": "authHeader",
+     "label": "API Key Header Name",
+     "kind": "text",
+     "advanced": true
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "transform-15f0be45-19"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "transform-15f0be45-19",
+   "type": "transform",
+   "label": "Extract outdoor temp",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { outdoorC: parseFloat(input.body.current_condition[…",
+   "config": {
+    "expression": "return { outdoorC: parseFloat(input.body.current_condition[0].temp_C) };",
+    "description": "Namespace outdoor temp as { outdoorC } to avoid field collision in merge"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "merge-15f0be45-22"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "home-assistant-15f0be45-20",
+   "type": "home-assistant",
+   "label": "Fetch indoor temp",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Read state of climate.downstairs_hallway",
+   "config": {
+    "entityId": "climate.downstairs_hallway",
+    "operation": "query_state",
+    "description": "Parallel branch: query Home Assistant for indoor temperature via climate entity"
+   },
+   "form": [
+    {
+     "key": "operation",
+     "label": "Operation",
+     "kind": "dropdown",
+     "advanced": false,
+     "options": [
+      {
+       "value": "query_state",
+       "label": "Query State"
+      },
+      {
+       "value": "call_service",
+       "label": "Call Service"
+      },
+      {
+       "value": "fire_event",
+       "label": "Fire Event"
+      },
+      {
+       "value": "get_history",
+       "label": "Get History"
+      },
+      {
+       "value": "render_template",
+       "label": "Render Template"
+      }
+     ]
+    },
+    {
+     "key": "entityId",
+     "label": "Entity ID",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "light.living_room_ceiling"
+    },
+    {
+     "key": "domain",
+     "label": "Domain",
+     "kind": "text",
+     "advanced": true,
+     "placeholder": "light"
+    },
+    {
+     "key": "service",
+     "label": "Service",
+     "kind": "text",
+     "advanced": false,
+     "placeholder": "turn_on"
+    },
+    {
+     "key": "serviceData",
+     "label": "Service Data (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "placeholder": "{\"brightness\": 128}"
+    },
+    {
+     "key": "eventType",
+     "label": "Event Type",
+     "kind": "text",
+     "advanced": true,
+     "placeholder": "custom_event"
+    },
+    {
+     "key": "eventData",
+     "label": "Event Data (JSON)",
+     "kind": "textarea",
+     "advanced": true
+    },
+    {
+     "key": "historyStart",
+     "label": "History Start",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "2026-04-14T00:00:00Z"
+    },
+    {
+     "key": "historyEnd",
+     "label": "History End",
+     "kind": "template",
+     "advanced": true
+    },
+    {
+     "key": "template",
+     "label": "Template (Jinja2)",
+     "kind": "code",
+     "advanced": true,
+     "placeholder": "{{ states(\"light.living_room\") }}"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "transform-15f0be45-21"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "transform-15f0be45-21",
+   "type": "transform",
+   "label": "Extract indoor temp",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: return { indoorC: input.data.attributes.current_temperature…",
+   "config": {
+    "expression": "return { indoorC: input.data.attributes.current_temperature };",
+    "description": "Namespace indoor temp as { indoorC } to avoid field collision in merge"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "merge-15f0be45-22"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "merge-15f0be45-22",
+   "type": "merge",
+   "label": "Merge temps",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Combine the outputs of every upstream node into a single object. Use after parallel branches converge. Keys are merged flat — if two branches emit the same key, one overwrites the other.",
+   "config": {
+    "description": "Combine namespaced outdoor and indoor temp objects from parallel branches"
+   },
+   "form": [
+    {
+     "key": "$config",
+     "label": "Configuration",
+     "kind": "json",
+     "advanced": false
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "transform-15f0be45-23"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "transform-15f0be45-23",
+   "type": "transform",
+   "label": "Calculate temp diff",
+   "category": "parse-transform",
+   "icon": null,
+   "summary": "Transform: const diff = Math.abs(input.outdoorC - input.indoorC);\nretu…",
+   "config": {
+    "expression": "const diff = Math.abs(input.outdoorC - input.indoorC);\nreturn { outdoorC: input.outdoorC, indoorC: input.indoorC, diff, exceedsThreshold: diff > 8 };",
+    "description": "Compute absolute difference between outdoor and indoor temps and set threshold flag"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Transform Expression",
+     "kind": "code",
+     "advanced": false,
+     "placeholder": "return { ...input, newField: input.value * 2 }",
+     "help": "JavaScript function body. Use `input` to access upstream data and return a new object."
+    },
+    {
+     "key": "outputSchema",
+     "label": "Output Schema (JSON)",
+     "kind": "textarea",
+     "advanced": true,
+     "help": "Optional JSON schema describing the output shape. Helps downstream nodes show autocomplete.",
+     "section": "ADVANCED"
+    }
+   ],
+   "next": [
+    {
+     "handle": null,
+     "targetId": "conditional-7e20aad5-5"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "conditional-7e20aad5-5",
+   "type": "conditional",
+   "label": "Diff exceeds 8°C?",
+   "category": "trigger-flow",
+   "icon": null,
+   "summary": "If: input.exceedsThreshold === true",
+   "config": {
+    "expression": "input.exceedsThreshold === true",
+    "description": "Gate the WhatsApp alert on whether the absolute temperature difference exceeds 8°C"
+   },
+   "form": [
+    {
+     "key": "expression",
+     "label": "Condition",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "input.value > 10",
+     "help": "A yes/no test. If it is true, the workflow goes down the \"true\" branch; otherwise the \"false\" branch. Access upstream data with input.field."
+    }
+   ],
+   "next": [
+    {
+     "handle": "true",
+     "targetId": "whatsapp-7e20aad5-6"
+    }
+   ],
+   "legacy": false
+  },
+  {
+   "id": "whatsapp-7e20aad5-6",
+   "type": "whatsapp",
+   "label": "WhatsApp alert",
+   "category": "integrations",
+   "icon": null,
+   "summary": "Send WhatsApp to +440000000000: 🌡️ Temperature alert: Outdoor is {{input.outdoorC}}°C, Ind…",
+   "config": {
+    "to": "+440000000000",
+    "message": "🌡️ Temperature alert: Outdoor is {{input.outdoorC}}°C, Indoor is {{input.indoorC}}°C — that's a {{input.diff}}°C difference (threshold: 8°C).",
+    "description": "Send WhatsApp notification when the indoor-outdoor temperature gap exceeds the 8°C threshold"
+   },
+   "form": [
+    {
+     "key": "to",
+     "label": "Recipient Phone Number",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "+440000000000 or {{input.phone}}",
+     "help": "Phone number in E.164 format (include country code). Supports {{input.field}} templates."
+    },
+    {
+     "key": "message",
+     "label": "Message",
+     "kind": "template",
+     "advanced": false,
+     "placeholder": "Hi {{input.name}}, your report is ready.",
+     "help": "Text to send. Supports {{input.field}} templates. Markdown is converted to WhatsApp formatting when enabled."
+    },
+    {
+     "key": "formatMarkdown",
+     "label": "Convert Markdown",
+     "kind": "toggle",
+     "advanced": false,
+     "help": "**bold** → *bold*, ## headings → bold lines, [links](url) → text (url), - bullets → •.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "maxChunks",
+     "label": "Max chunks",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "help": "Split long messages (>4096 chars) into at most this many sends. 0 = no cap.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "suppressDuplicateWindowMins",
+     "label": "Suppress duplicates (mins)",
+     "kind": "number",
+     "advanced": false,
+     "min": 0,
+     "help": "Skip an identical message to the same recipient within this many minutes. 0 = off.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "category",
+     "label": "Category (owner only)",
+     "kind": "dropdown",
+     "advanced": true,
+     "options": [
+      {
+       "value": "health",
+       "label": "Health"
+      },
+      {
+       "value": "chat",
+       "label": "jkai"
+      },
+      {
+       "value": "build",
+       "label": "Builds"
+      },
+      {
+       "value": "deploy",
+       "label": "Deploys"
+      },
+      {
+       "value": "uptime",
+       "label": "Uptime"
+      },
+      {
+       "value": "intel",
+       "label": "Intel"
+      },
+      {
+       "value": "news",
+       "label": "News"
+      },
+      {
+       "value": "system",
+       "label": "Everything else"
+      }
+     ],
+     "help": "When the recipient is you, the message is routed by this notification category (WhatsApp and/or iPhone). Default: Everything else.",
+     "section": "OPTIONS"
+    },
+    {
+     "key": "mediaPath",
+     "label": "Media file path",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "/path/to/file.png or {{input.filePath}}",
+     "help": "Local file to send as an attachment. Requires the WhatsApp worker.",
+     "section": "MEDIA"
+    },
+    {
+     "key": "mediaUrl",
+     "label": "Media URL",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "https://…/image.png",
+     "help": "URL to download and send as an attachment.",
+     "section": "MEDIA"
+    },
+    {
+     "key": "caption",
+     "label": "Media caption",
+     "kind": "template",
+     "advanced": true,
+     "placeholder": "Optional caption",
+     "help": "Caption for the attachment. Falls back to the message text.",
+     "section": "MEDIA"
+    }
+   ],
+   "next": [],
+   "legacy": false
+  }
+ ],
+ "edges": [
+  {
+   "id": "edge-7e20aad5-11",
+   "source": "conditional-7e20aad5-5",
+   "target": "whatsapp-7e20aad5-6",
+   "sourceHandle": "true"
+  },
+  {
+   "id": "edge-7e20aad5-13",
+   "source": "trigger-7e20aad5-12",
+   "target": "http-request-7e20aad5-1",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-15f0be45-24",
+   "source": "http-request-7e20aad5-1",
+   "target": "transform-15f0be45-19",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-15f0be45-25",
+   "source": "transform-15f0be45-19",
+   "target": "merge-15f0be45-22",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-15f0be45-26",
+   "source": "trigger-7e20aad5-12",
+   "target": "home-assistant-15f0be45-20",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-15f0be45-27",
+   "source": "home-assistant-15f0be45-20",
+   "target": "transform-15f0be45-21",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-15f0be45-28",
+   "source": "transform-15f0be45-21",
+   "target": "merge-15f0be45-22",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-15f0be45-29",
+   "source": "merge-15f0be45-22",
+   "target": "transform-15f0be45-23",
+   "sourceHandle": null
+  },
+  {
+   "id": "edge-15f0be45-30",
+   "source": "transform-15f0be45-23",
+   "target": "conditional-7e20aad5-5",
+   "sourceHandle": null
+  }
+ ],
+ "recentRuns": [],
+ "fixProposals": []
+}

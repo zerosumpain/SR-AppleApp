@@ -1,0 +1,400 @@
+{
+ "workflows": [
+  {
+   "slug": "morning-briefing",
+   "title": "Verified-source morning briefing. Gathers location, weather at home and where John actually is, health, home sensors, email and knowledge-graph context; composes a fact sheet the LLM may only quote verbatim; sends a WhatsApp summary and writes the full detail to /jkai/briefing.",
+   "description": null,
+   "trigger": {
+    "kind": "cron",
+    "cron": "0 7 * * *",
+    "timezone": "Europe/London",
+    "enabled": false,
+    "description": "Paused — every day at 07:00",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 23,
+   "lastRun": {
+    "id": "a9e1cd55-4dfd-432d-a7ab-3ac07304926b",
+    "status": "completed_with_errors",
+    "trigger": "manual",
+    "startedAt": "2026-07-29T07:59:01.726Z",
+    "completedAt": "2026-07-29T07:59:36.245Z",
+    "durationMs": 34519,
+    "error": null
+   },
+   "needsAttention": true,
+   "attentionReason": "Last run finished with errors",
+   "updatedAt": "2026-07-29T07:59:01.650Z"
+  },
+  {
+   "slug": "policy-analysis-seed",
+   "title": "policy-analysis-seed",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 1,
+   "lastRun": {
+    "id": "fb424fa7-5518-4b01-b31e-69ffb3be9d79",
+    "status": "completed",
+    "trigger": "manual",
+    "startedAt": null,
+    "completedAt": null,
+    "durationMs": null,
+    "error": null
+   },
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-09-11T00:05:58.947Z"
+  },
+  {
+   "slug": "run-forrest-alert",
+   "title": "Every 5 minutes, checks John's GPS speed via Life360. If speed exceeds 10 km/h (running), sends a WhatsApp message saying \"run forrest 🏃\".",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 4,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-17T06:21:03.753Z"
+  },
+  {
+   "slug": "springfield-hourly",
+   "title": "Cron-triggered hourly workflow: fetches outdoor weather for Springfield from Open-Meteo (temperature + humidity) and indoor temperature from Home Assistant (climate.downstairs_hallway), merges both readings, formats a summary with temperature difference, and sends it via WhatsApp to +440000000000.",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 6,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-14T21:40:12.699Z"
+  },
+  {
+   "slug": "london-weather-hourly-2",
+   "title": "Fetches London weather from wttr.in every hour and logs the JSON response to console.",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 3,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-14T21:29:00.843Z"
+  },
+  {
+   "slug": "london-weather-hourly",
+   "title": "Cron every hour (0 * * * *): HTTP GET https://wttr.in/london?format=j1, logs the full JSON response body.",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 2,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-14T21:06:42.870Z"
+  },
+  {
+   "slug": "temp-gap-alert-3",
+   "title": "Cron-triggered (hourly) workflow that fetches outdoor temperature from weather.home and indoor temperature from climate.downstairs_hallway via a Home Assistant template, computes the absolute difference, and sends a WhatsApp alert when the gap exceeds 8°C.",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 5,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-14T20:51:20.387Z"
+  },
+  {
+   "slug": "temp-gap-alert-2",
+   "title": "Checks outdoor weather (wttr.in) and indoor temperature (Home Assistant climate.downstairs_hallway), calculates the absolute difference, and sends a WhatsApp alert if the gap exceeds 8°C.",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 7,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-14T20:49:18.915Z"
+  },
+  {
+   "slug": "indoor-outdoor-temp",
+   "title": "Hourly cron: fetches outdoor weather (wttr.in) and indoor temperature (Home Assistant climate.downstairs_hallway) in parallel, merges the values, and sends a WhatsApp alert when the absolute difference exceeds 8°C.",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 9,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-14T20:46:56.034Z"
+  },
+  {
+   "slug": "temp-gap-alert",
+   "title": "Hourly cron: fetches outdoor temperature (wttr.in) and indoor temperature (Home Assistant climate.downstairs_hallway), calculates |outdoor − indoor|, and sends a WhatsApp alert when the gap exceeds 8°C.",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 7,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-14T20:46:08.816Z"
+  },
+  {
+   "slug": "hermes-s5-3",
+   "title": "concurrency test 3",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 2,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-11T20:23:53.848Z"
+  },
+  {
+   "slug": "hermes-s5-2",
+   "title": "concurrency test 2",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 1,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-11T20:23:53.803Z"
+  },
+  {
+   "slug": "hermes-s5-1",
+   "title": "concurrency test 1",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 1,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-11T20:23:53.757Z"
+  },
+  {
+   "slug": "example-daily-scraper",
+   "title": "Scrapes example.com daily and emails a summary",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 4,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-11T20:22:40.988Z"
+  },
+  {
+   "slug": "hermes-s2",
+   "title": "Phase 1 scenario 2 — multi tool",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 3,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-11T20:20:06.516Z"
+  },
+  {
+   "slug": "hermes-s1",
+   "title": "Phase 1 scenario 1 — single tool",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 1,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-11T20:19:03.636Z"
+  },
+  {
+   "slug": "builder-example",
+   "title": "builder-example",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 7,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-05-07T10:13:47.168Z"
+  },
+  {
+   "slug": "test-slug",
+   "title": "self-healing json retry",
+   "description": null,
+   "trigger": {
+    "kind": "chat",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you message its chat",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 6,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-04-23T08:25:14.598Z"
+  },
+  {
+   "slug": "smoke-test",
+   "title": "Smoke test workflow",
+   "description": null,
+   "trigger": {
+    "kind": "manual",
+    "cron": null,
+    "timezone": null,
+    "enabled": true,
+    "description": "Runs when you start it",
+    "nextRuns": [],
+    "eventType": null,
+    "filter": []
+   },
+   "nodeCount": 1,
+   "lastRun": null,
+   "needsAttention": false,
+   "attentionReason": null,
+   "updatedAt": "2026-04-21T04:54:29.824Z"
+  }
+ ]
+}
