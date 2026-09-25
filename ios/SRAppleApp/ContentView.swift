@@ -116,29 +116,29 @@ struct ContentView: View {
         TabView(selection: tabBinding) {
             NavigationStack {
                 TodayScreen(companion: companion, alerts: alerts, site: site)
+                    .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Today", systemImage: "square.grid.2x2") }
             .tag(Router.Tab.today)
 
             NavigationStack(path: $router.chat) {
                 paired(what: "your threads") { ThreadListScreen() }
+                    .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
             .tag(Router.Tab.chat)
 
             NavigationStack(path: $router.health) {
                 HealthScreen(companion: companion)
+                    .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Health", systemImage: "heart.text.square") }
             .tag(Router.Tab.health)
 
             NavigationStack(path: $router.news) {
                 paired(what: "the news desk") { NewsScreen() }
+                    .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("News", systemImage: "newspaper") }
             .tag(Router.Tab.news)
 
@@ -146,8 +146,8 @@ struct ContentView: View {
             // change one. A place you go back to, which is what earns a tab.
             NavigationStack(path: $router.flows) {
                 paired(what: "your workflows") { FlowsScreen() }
+                    .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .srConnectionsBanner(connections) { router.openConnections() }
             .tabItem { Label("Flows", systemImage: "point.3.connected.trianglepath.dotted") }
             .tag(Router.Tab.flows)
         }

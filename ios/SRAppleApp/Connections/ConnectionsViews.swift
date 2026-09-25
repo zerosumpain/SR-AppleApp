@@ -7,11 +7,12 @@ extension View {
     /// The "a connection needs you" banner, docked above this tab's navigation
     /// bar for as long as anything needs the owner.
     ///
-    /// Applied ONCE per tab, at the `NavigationStack`, not per screen: a
-    /// `safeAreaInset` there moves the whole stack — bar, title and every
-    /// pushed screen — down by the banner's height, so no screen has to know it
-    /// exists and none can forget it. Inline titles stay where the bar puts
-    /// them.
+    /// Applied ONCE per tab, to the tab's ROOT view inside its
+    /// `NavigationStack`, so it docks under the navigation bar and the
+    /// content scrolls beneath it. NOT on the stack itself: there, iOS 26 laid
+    /// the inset OVER the bar — the `sr.` mark and every toolbar button (new
+    /// thread, thread actions, the settings cog) were hidden behind it and
+    /// untappable. CI's screenshots and three chat UI tests caught it.
     func srConnectionsBanner(_ store: ConnectionsStore, onDetails: @escaping () -> Void) -> some View {
         safeAreaInset(edge: .top, spacing: 0) {
             ConnectionsBanner(store: store, onDetails: onDetails)
@@ -251,9 +252,10 @@ struct ConnectionAttentionRow: View {
                         SRHaptic.tap()
                         ConnectionFix.open(url)
                     } label: {
-                        SRButtonLabel(title: "Fix in Safari", icon: "safari")
+                        SRButtonLabel(title: "Fix", icon: "safari")
                     }
                     .srButton(.prominent)
+                    .accessibilityLabel("Fix \(item.label) in Safari")
                     .accessibilityIdentifier("connection-fix-\(item.id)")
                 }
             }
