@@ -99,8 +99,11 @@ export function ensureUser(db, { email, name, family }) {
   const existing = db.prepare('SELECT id,email,name,family FROM users WHERE email=?').get(lower);
   if (existing) {
     if (existing.family !== family) return { conflict: true };
-    db.prepare('UPDATE users SET name=? WHERE id=?').run(name, existing.id);
-    return { id: existing.id, email: existing.email, name, created: false };
+    // A name already on file wins: the site sends whatever its sign-in holds,
+    // and that must not overwrite one the owner chose.
+    const kept = existing.name || name;
+    if (!existing.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(name, existing.id);
+    return { id: existing.id, email: existing.email, name: kept, created: false };
   }
   const id = randomUUID();
   createUser(db, { id, email: lower, name, family });

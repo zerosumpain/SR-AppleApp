@@ -14,7 +14,7 @@ struct PairingPayload: Decodable, Equatable {
               let value = try? JSONDecoder().decode(Self.self, from: data),
               value.type == "sr-companion-pair", value.version == 1,
               value.code.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else {
-            throw CompanionError.message("This is not the health & location code. If you scanned the Chat & news code, that one belongs on the Connect tab. Create the right one at strangeramblings.com/welcome.")
+            throw CompanionError.message("This is not the health & location code. If you scanned the Chat & news code, that one goes under Settings → Connections → Chat & news. Create the right one at strangeramblings.com/welcome.")
         }
         _ = try API.validateURL(value.server)
         return value

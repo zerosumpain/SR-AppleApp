@@ -863,7 +863,7 @@ test('adding a person puts them in the owner\'s family once, lower-cased, sharin
   assert.deepEqual({ ...row }, { family: 'one', sharing: 0 });
   const again = await household(request, 'household/users', { method: 'POST', body: { email: 'new.person@example.test', name: 'Renamed' } });
   assert.equal(again.status, 200);
-  assert.deepEqual(again.body, { id: first.body.id, email: 'new.person@example.test', name: 'Renamed', created: false });
+  assert.deepEqual(again.body, { id: first.body.id, email: 'new.person@example.test', name: 'New Person', created: false });
   // An existing member's sharing is theirs, and an upsert leaves it alone.
   db.prepare("UPDATE users SET sharing=1 WHERE id='sam'").run();
   assert.equal((await household(request, 'household/users', { method: 'POST', body: { email: 'sam@example.test', name: 'sam' } })).status, 200);
