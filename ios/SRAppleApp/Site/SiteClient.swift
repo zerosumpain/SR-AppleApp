@@ -399,6 +399,9 @@ final class SiteClient {
     struct StreamFrame {
         let id: Int?
         let json: [String: Any]
+        /// The frame's `data:` bytes as sent, for a caller that decodes a
+        /// `Decodable` rather than picking at a dictionary.
+        let data: Data
     }
 
     /// Frames from a chat job, resuming after `lastEventId` if one is given.
@@ -408,7 +411,18 @@ final class SiteClient {
     /// what silently doubled every bubble on reconnect, so the server publishes
     /// a sequence number on every frame and honours `Last-Event-ID`.
     func stream(jobId: String, after lastEventId: Int? = nil) throws -> AsyncThrowingStream<StreamFrame, Error> {
-        var req = try request("api/workflows/orchestrator/chat/stream?jobId=\(jobId)")
+        try stream(path: "api/workflows/orchestrator/chat/stream?jobId=\(jobId)", after: lastEventId)
+    }
+
+    /// Frames from any server-sent-events route on the site — a chat job, a
+    /// game room (`api/native/games/<id>/stream`).
+    ///
+    /// A non-2xx answer throws BEFORE any line is read. Without that a 404 —
+    /// an HTML error page — was read as a stream with no `data:` lines, which
+    /// finished cleanly, and the caller could not tell "the room has gone"
+    /// from "the room said nothing".
+    func stream(path: String, after lastEventId: Int? = nil) throws -> AsyncThrowingStream<StreamFrame, Error> {
+        var req = try request(path)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         if let lastEventId { req.setValue(String(lastEventId), forHTTPHeaderField: "Last-Event-ID") }
         let session = self.session
@@ -417,18 +431,21 @@ final class SiteClient {
             let task = Task {
                 do {
                     let (bytes, response) = try await session.bytes(for: req)
-                    if let http = response as? HTTPURLResponse, http.statusCode == 401 {
-                        throw SiteError.expired
+                    if let http = response as? HTTPURLResponse {
+                        if http.statusCode == 401 { throw SiteError.expired }
+                        guard (200..<300).contains(http.statusCode) else {
+                            throw SiteError.status(http.statusCode, "\(http.statusCode) from \(http.url?.path ?? "the server").")
+                        }
                     }
                     var pendingId: Int?
                     for try await line in bytes.lines {
                         if line.hasPrefix("id: ") {
                             pendingId = Int(line.dropFirst(4))
-                        } else if line.hasPrefix("data: ") {
-                            let payload = String(line.dropFirst(6))
-                            if let data = payload.data(using: .utf8),
-                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                continuation.yield(StreamFrame(id: pendingId, json: json))
+                        } else if line.hasPrefix("data: ") || line.hasPrefix("data:") {
+                            let payload = line.hasPrefix("data: ") ? String(line.dropFirst(6)) : String(line.dropFirst(5))
+                            let data = Data(payload.utf8)
+                            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                continuation.yield(StreamFrame(id: pendingId, json: json, data: data))
                             }
                             pendingId = nil
                         }

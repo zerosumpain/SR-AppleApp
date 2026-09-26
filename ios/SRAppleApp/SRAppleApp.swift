@@ -128,12 +128,25 @@ import UIKit
         // Today.
         if category == "connections" {
             Self.pending.openConnections = true
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
         // A household arrival is not in the site's inbox (a member has no site
         // pairing at all), so opening the inbox for it would show nothing.
         if category == "household" {
             Self.pending.tab = .today
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
+        // A game invite, raised by this phone's own foreground poll. Opens the
+        // room; `Router.openGame` refuses it for somebody without games.
+        if category == "game" {
+            if let room = response.notification.request.content.userInfo["roomId"] as? String {
+                Self.pending.gameRoom = room
+            } else {
+                Self.pending.tab = .games
+            }
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
         switch category {
@@ -143,6 +156,7 @@ import UIKit
         default: Self.pending.tab = .today
         }
         Self.pending.openAlerts = true
+        NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
     }
 }
 
@@ -153,7 +167,13 @@ import UIKit
 /// can fill and the first `task` can drain — deliberately not `ObservableObject`,
 /// because nothing should re-render when it changes; it is read once.
 @MainActor final class PendingEntry {
+    /// Posted when a notification tap filled the box while the app was
+    /// already in the foreground, so `ContentView` drains it at once.
+    nonisolated static let changed = Notification.Name("SRPendingEntryChanged")
+
     var tab: Router.Tab?
+    /// A game room to open, from a tapped invite.
+    var gameRoom: String?
     var openAlerts = false
     var openConnections = false
     /// A question handed in by Siri or a Shortcut. Put in the composer, never
@@ -165,6 +185,11 @@ import UIKit
         if let question {
             router.ask(question)
             self.question = nil
+            tab = nil
+        }
+        if let gameRoom {
+            router.openGame(gameRoom)
+            self.gameRoom = nil
             tab = nil
         }
         if let tab { router.show(tab) }

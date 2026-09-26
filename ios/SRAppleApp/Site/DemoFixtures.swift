@@ -28,14 +28,14 @@ enum SRDemo {
     /// The pretend credential. Held in memory only; never written anywhere.
     static let token = "demo"
 
-    /// `-SRDemoMember` as well: a family member the owner gave the Family tab
-    /// and nothing else — no chat, no news. The screenshot that proves a
-    /// feature somebody lacks is absent rather than disabled.
+    /// `-SRDemoMember` as well: a family member the owner gave the Family and
+    /// Games tabs and nothing else — no chat, no news. The screenshot that
+    /// proves a feature somebody lacks is absent rather than disabled.
     static var isMember: Bool { ProcessInfo.processInfo.arguments.contains("-SRDemoMember") }
 
     /// What demo mode may use: everything, as the owner, unless a member.
     static var access: AppAccess {
-        isMember ? AppAccess(family: true) : .everything
+        isMember ? AppAccess(family: true, games: true) : .everything
     }
 }
 
@@ -187,6 +187,10 @@ enum SRDemoFixtures {
         }
         if parts.count == 6, joined.hasPrefix("api/native/news/story/") {
             return method == "GET" ? article(source: parts[4], id: parts[5], clock: clock) : nil
+        }
+        // Family games — `Games/GamesDemoFixtures.swift`.
+        if joined == "api/native/games" || joined.hasPrefix("api/native/games/") {
+            return gamesRoute(method: method, parts: parts, body: body, clock: clock)
         }
         // Workflows — `FlowDemoFixtures.swift`.
         if joined == "api/native/workflows" || joined.hasPrefix("api/native/workflows/") {

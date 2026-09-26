@@ -22,6 +22,26 @@ final class AccessTests: XCTestCase {
         XCTAssertFalse(v.showsHousehold)
     }
 
+    func testTheGamesFlagDecodes() throws {
+        let v = try XCTUnwrap(try view(#"{"owner":false,"chat":false,"news":false,"family":true,"games":true,"sitePair":null}"#))
+        XCTAssertEqual(v.access?.flags, AppAccess(family: true, games: true))
+    }
+
+    func testAMissingGamesFlagIsFalse() throws {
+        // A site older than family games has not granted them.
+        let v = try XCTUnwrap(try view(#"{"owner":false,"chat":true,"family":true}"#))
+        XCTAssertEqual(v.access?.flags.games, false)
+        let odd = try XCTUnwrap(try view(#"{"family":true,"games":"yes"}"#))
+        XCTAssertEqual(odd.access?.flags, AppAccess(family: true))
+    }
+
+    func testTheGamesFlagRoundTripsThroughPersistedState() throws {
+        var state = PersistedState()
+        state.access = AppAccess(family: true, games: true, source: "view")
+        let back = try JSONDecoder().decode(PersistedState.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(back.access?.games, true)
+    }
+
     func testAMemberViewDecodesItsFlags() throws {
         let v = try XCTUnwrap(try view(#"{"owner":false,"chat":true,"news":false,"research":false,"notes":false,"intel":false,"family":true,"sitePair":null}"#))
         let access = try XCTUnwrap(v.access)
@@ -92,8 +112,20 @@ final class AccessTests: XCTestCase {
 
     // MARK: - Tabs
 
-    func testTheOwnerHasEverySixTabsInOrder() {
-        XCTAssertEqual(AccessPolicy.tabs(for: .everything), [.today, .chat, .health, .family, .news, .flows])
+    func testTheOwnerHasEverySevenTabsInOrder() {
+        XCTAssertEqual(AccessPolicy.tabs(for: .everything), [.today, .chat, .health, .family, .games, .news, .flows])
+    }
+
+    func testGamesSitsRightAfterFamilyForAMember() {
+        // Four tabs: on the bar, no More.
+        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(family: true, games: true)), [.today, .health, .family, .games])
+        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(games: true)), [.today, .health, .games])
+    }
+
+    func testGamesNeedsTheGamesFlag() {
+        XCTAssertFalse(AccessPolicy.allows(.games, AppAccess(chat: true, news: true, family: true)))
+        XCTAssertTrue(AccessPolicy.allows(.games, AppAccess(games: true)))
+        XCTAssertTrue(AccessPolicy.allows(.games, AppAccess(owner: true)))
     }
 
     func testNobodyKnownHasTodayAndHealthOnly() {
@@ -115,6 +147,14 @@ final class AccessTests: XCTestCase {
     func testAMemberWithChatOrNewsAndNoCredentialWantsOne() {
         XCTAssertTrue(AccessPolicy.wantsSitePair(known: AppAccess(chat: true), sitePaired: false))
         XCTAssertTrue(AccessPolicy.wantsSitePair(known: AppAccess(news: true), sitePaired: false))
+    }
+
+    func testAGamesOnlyMemberWantsASiteCredentialToo() {
+        // The rooms live on the site; without a credential the tab could only
+        // ever say "Connecting".
+        XCTAssertTrue(AccessPolicy.wantsSitePair(known: AppAccess(family: true, games: true), sitePaired: false))
+        XCTAssertFalse(AccessPolicy.signsOutSite(known: AppAccess(games: true), sitePaired: true, siteRole: "member"),
+                       "games alone keeps the credential")
     }
 
     func testNobodyElseAutoPairs() {

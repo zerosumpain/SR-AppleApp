@@ -406,17 +406,51 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    // MARK: - Games
+
+    /// The Games tab — one invitation from Sam, one room of John's — then the
+    /// new-game sheet, then the room's lobby.
+    @MainActor func testShowcaseGames() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+        soft(byId(app, "games-delivery-note").exists, "no line saying invites need the app open")
+        attach(app, "Showcase — Games")
+
+        let new = byId(app, "games-new")
+        if scroll(app, to: new) {
+            new.tap()
+            settle(app, on: byId(app, "games-difficulty-medium"))
+            attach(app, "Showcase — Games, new Tap Duel")
+            let cancel = byId(app, "games-new-cancel")
+            if cancel.waitForExistence(timeout: 5) { cancel.tap() }
+            settle(app)
+        } else {
+            soft(false, "no Tap Duel card")
+        }
+
+        let room = byId(app, "games-room-g_demo_lobby")
+        if scroll(app, to: room) {
+            room.tap()
+            settle(app, on: byId(app, "tapduel-start"), seconds: 2)
+            soft(byId(app, "tapduel-player-p_sam").exists, "Sam is not in the lobby")
+            attach(app, "Showcase — Tap Duel lobby")
+        } else {
+            soft(false, "no room to resume")
+        }
+    }
+
     // MARK: - A member
 
-    /// A family member given the Family tab and nothing else. Chat, News and
+    /// A family member given Family and Games and nothing else. Chat, News and
     /// Flows are not disabled or explained — they are not there, and with
-    /// four tabs nor is More.
+    /// four tabs nor is More: Games is on the bar.
     @MainActor func testShowcaseMemberWithoutChatOrNews() {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo", "-SRDemoMember"]
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        for tab in ["Today", "Health", "Family"] {
+        for tab in ["Today", "Health", "Family", "Games"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
         }
         for tab in ["Chat", "News", "Flows", "More"] {
@@ -424,7 +458,7 @@ final class ShowcaseTests: XCTestCase {
         }
         XCTAssertFalse(app.buttons["today-ask"].exists, "Ask jkai is on Today without chat")
         settle(app)
-        attach(app, "Showcase — a member: Today, Health, Family and nothing else")
+        attach(app, "Showcase — a member: Today, Health, Family, Games and nothing else")
     }
 
     // MARK: - Helpers
