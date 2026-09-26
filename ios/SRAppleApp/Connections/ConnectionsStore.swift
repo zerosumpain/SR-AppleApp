@@ -41,12 +41,20 @@ final class ConnectionsStore: ObservableObject {
     private let outbox: Outbox?
     private let client = SiteClient.shared
     private let defaults: UserDefaults
+    private let persistsDismissals: Bool
     static let dismissedKey = "connections-dismissed"
 
     init(outbox: Outbox?, defaults: UserDefaults = .standard) {
         self.outbox = outbox
         self.defaults = defaults
-        dismissed = Set(defaults.stringArray(forKey: Self.dismissedKey) ?? [])
+        var persists = true
+        #if DEBUG
+        // The demo's banner is the showcase: a dismissal in one UI test must
+        // not hide it from the next launch on the same simulator.
+        if SRDemo.isOn { persists = false }
+        #endif
+        self.persistsDismissals = persists
+        dismissed = persists ? Set(defaults.stringArray(forKey: Self.dismissedKey) ?? []) : []
         // Only while the site is paired, and paired as the owner: a cache left
         // by a credential since revoked — or read on a member's phone, which
         // has no business with the site's connections — would put up a banner
@@ -94,6 +102,7 @@ final class ConnectionsStore: ObservableObject {
     }
 
     private func saveDismissed() {
+        guard persistsDismissals else { return }
         defaults.set(Array(dismissed), forKey: Self.dismissedKey)
     }
 
