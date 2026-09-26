@@ -471,13 +471,21 @@ import UIKit
         }
     }
 
+    /// The level the family sees beside this phone's pin. `BatteryMonitor`
+    /// switches monitoring on at launch; without it iOS answers -1.
+    static func batteryPercent(level: Float = UIDevice.current.batteryLevel) -> Int? {
+        guard level >= 0 else { return nil }
+        return min(100, max(0, Int((level * 100).rounded())))
+    }
+
     private func record(_ location: CLLocation, moving: Bool) {
         let point = LocationRecord(recorded: timestamp(location.timestamp),
                                    latitude: location.coordinate.latitude,
                                    longitude: location.coordinate.longitude,
                                    accuracy: location.horizontalAccuracy,
                                    speed: max(0, location.speed),
-                                   moving: moving)
+                                   moving: moving,
+                                   battery: Self.batteryPercent())
         do {
             try outbox.change {
                 $0.batches.append(UploadBatch(locations: [point]))

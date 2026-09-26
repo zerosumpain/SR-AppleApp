@@ -772,3 +772,58 @@ test('with no service owner configured, deletions apply but no tombstone is kept
   assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='alex'").get().n, 0, 'the deletion itself still applies');
   assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 0, 'no owner configured means no tombstone');
 });
+
+// --- Household: each person's Family view ---------------------------------
+
+const postViews = (request, views, token = HOUSEHOLD_TOKEN) => request('household/views', { user: null, method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: { views } });
+const view = (label) => ({ generatedAt: new Date().toISOString(), people: [{ subject: label }] });
+
+test('household views do not exist until APPLE_HOUSEHOLD_TOKEN is configured, and refuse the wrong token', async t => {
+  const closed = await fixture(t);
+  assert.equal((await postViews(closed.request, [])).status, 404);
+  const open = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  assert.equal((await postViews(open.request, [], 'wrong')).status, 401);
+});
+
+test('each person reads only their own view, and nothing before one is pushed', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  assert.deepEqual((await request('household/view')).body, { view: null, updated: null });
+  const stored = await postViews(request, [{ email: 'ALEX@example.test', view: view('for-alex') }, { email: 'sam@example.test', view: view('for-sam') }]);
+  assert.equal(stored.status, 200);
+  assert.equal(stored.body.stored, 2);
+  assert.equal((await request('household/view')).body.view.people[0].subject, 'for-alex');
+  assert.equal((await request('household/view', { user: 'sam' })).body.view.people[0].subject, 'for-sam');
+  // The route takes no parameter naming anybody: there is no way to ask for another's.
+  assert.equal((await request('household/view?email=sam@example.test')).body.view.people[0].subject, 'for-alex');
+});
+
+test('a push replaces the family: a person left out loses their view, another family is never touched or written', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  db.prepare('INSERT INTO household_views (user_id,payload,updated) VALUES (?,?,?)').run('robin', JSON.stringify(view('robin-own')), stamp());
+  await postViews(request, [{ email: 'alex@example.test', view: view('a1') }, { email: 'sam@example.test', view: view('s1') }]);
+  const second = await postViews(request, [{ email: 'alex@example.test', view: view('a2') }, { email: 'robin@example.test', view: view('intruder') }]);
+  assert.equal(second.body.stored, 1);
+  assert.equal((await request('household/view')).body.view.people[0].subject, 'a2');
+  assert.equal((await request('household/view', { user: 'sam' })).body.view, null);
+  assert.equal((await request('household/view', { user: 'robin' })).body.view.people[0].subject, 'robin-own');
+});
+
+test('household views reject a malformed batch', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  assert.equal((await postViews(request, [{ email: 'alex@example.test', view: [] }])).status, 400);
+  assert.equal((await postViews(request, [{ email: 'alex@example.test', view: view('x'), extra: 1 }])).status, 400);
+  assert.equal((await postViews(request, Array.from({ length: 51 }, () => ({ email: 'alex@example.test', view: view('x') })))).status, 400);
+});
+
+test('a fix may carry a battery percentage, which the household lane passes on', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  const withBattery = { ...location(), id: 'charged', battery: 64 };
+  assert.equal((await request('sync', { method: 'POST', body: batch([], [withBattery, { ...location(), id: 'old-phone' }]) })).status, 200);
+  const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  assert.equal(body.fixes.find(f => f.id === 'charged').battery, 64);
+  assert.equal(body.fixes.find(f => f.id === 'old-phone').battery, null);
+  for (const bad of [101, -1, 50.5, '64']) {
+    assert.equal((await request('sync', { method: 'POST', body: batch([], [{ ...location(), id: `bad-${bad}`, battery: bad }]) })).status, 400);
+  }
+});

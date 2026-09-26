@@ -10,11 +10,12 @@ import CoreSpotlight
 /// write, which is what every one of those entry points needs.
 @MainActor
 final class Router: ObservableObject {
-    enum Tab: String, Hashable { case today, chat, health, news, flows }
+    enum Tab: String, Hashable { case today, chat, health, family, news, flows }
 
     @Published var tab: Tab = .today
     @Published var chat = NavigationPath()
     @Published var health = NavigationPath()
+    @Published var family = NavigationPath()
     @Published var news = NavigationPath()
     @Published var flows = NavigationPath()
     /// The one modal, whichever it currently is.
@@ -56,6 +57,7 @@ final class Router: ObservableObject {
         switch tab {
         case .chat: chat = NavigationPath()
         case .health: health = NavigationPath()
+        case .family: family = NavigationPath()
         case .news: news = NavigationPath()
         case .flows: flows = NavigationPath()
         case .today: break
@@ -100,6 +102,9 @@ struct ContentView: View {
     @StateObject private var router = Router()
     @StateObject private var alerts = AlertStore()
     @StateObject private var connections: ConnectionsStore
+    /// One household view for the Today mini-map and the Family tab, so the
+    /// tab opens on the picture it was opened from.
+    @StateObject private var family: FamilyStore
     @Environment(\.scenePhase) private var scenePhase
 
     init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
@@ -110,12 +115,13 @@ struct ContentView: View {
         // Seeded from the state file, so a lapsed connection is on screen from
         // the first frame rather than after the first request.
         _connections = StateObject(wrappedValue: ConnectionsStore(outbox: outbox))
+        _family = StateObject(wrappedValue: FamilyStore(companion: companion))
     }
 
     var body: some View {
         TabView(selection: tabBinding) {
             NavigationStack {
-                TodayScreen(companion: companion, alerts: alerts, site: site)
+                TodayScreen(companion: companion, alerts: alerts, site: site, family: family)
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
             .tabItem { Label("Today", systemImage: "square.grid.2x2") }
@@ -134,6 +140,17 @@ struct ContentView: View {
             }
             .tabItem { Label("Health", systemImage: "heart.text.square") }
             .tag(Router.Tab.health)
+
+            // Where everyone is. Over the COMPANION pairing, which every phone
+            // in the family has — so, unlike Chat or News, not behind `paired`.
+            // A sixth tab: iOS folds the fifth and sixth under "More", and
+            // that is the price John chose over giving a tab up.
+            NavigationStack(path: $router.family) {
+                FamilyScreen(store: family, companion: companion)
+                    .srConnectionsBanner(connections) { router.openConnections() }
+            }
+            .tabItem { Label("Family", systemImage: "person.2.wave.2") }
+            .tag(Router.Tab.family)
 
             NavigationStack(path: $router.news) {
                 paired(what: "the news desk") { NewsScreen() }

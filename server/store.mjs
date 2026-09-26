@@ -50,6 +50,13 @@ export function openStore(path) {
       payload TEXT NOT NULL, created TEXT NOT NULL, acked TEXT,
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS alerts_user_pending ON alerts(user_id, acked, created);
+    -- What each person's Family tab shows, built and scoped by SR-Main and
+    -- pushed whole every observe cycle (app.mjs POST
+    -- /api/apple/household/views). One row per person, replaced, never
+    -- appended: this is a view, not a history. The phone reads only its own.
+    CREATE TABLE IF NOT EXISTS household_views (
+      user_id TEXT PRIMARY KEY REFERENCES users(id),
+      payload TEXT NOT NULL, updated TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS health_workout_parts ON health(user_id, json_extract(payload, '$.workout'))
       WHERE kind IN ('workout_route', 'workout_series');
   `);

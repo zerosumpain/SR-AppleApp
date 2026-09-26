@@ -48,8 +48,11 @@ function exactKeys(obj, allowed) {
 }
 const healthRecord = validateHealthRecord;
 function locationRecord(r) {
-  exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving']);
+  // `battery` (whole percent) is optional: a phone older than the Family tab
+  // does not send it, and a simulator cannot read it at all.
+  exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving', 'battery']);
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
+  if (r.battery !== undefined && r.battery !== null && !(Number.isInteger(r.battery) && bounded(r.battery, 0, 100))) fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
 /** How long an alert is kept, whether or not it was ever acknowledged. */
@@ -260,7 +263,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const page = rows.slice(0, pageLimit);
         const fixes = page.map(r => {
           const p = JSON.parse(r.payload);
-          return { email: r.email, id: r.id, recorded: r.recorded, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving };
+          return { email: r.email, id: r.id, recorded: r.recorded, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving, battery: Number.isInteger(p.battery) ? p.battery : null };
         });
         const last = page.at(-1);
         const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;
@@ -302,6 +305,43 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
         return send(200, { accepted });
+      }
+      // Each person's Family tab, as SR-Main decided they may see it — the
+      // scoping (who is whose, what is live status and what is a day) is
+      // SR-Main's, next to the /home/people rules it mirrors, and this server
+      // only files each view under its person. Same token and same "the
+      // owner's family, never a caller-supplied one" as the two routes above.
+      //
+      // The batch REPLACES the family's views: somebody SR-Main no longer
+      // builds a view for (left the Family Circle, stopped being a household
+      // member) loses the one they had, rather than keeping a stale map of
+      // everyone. An email outside the family is skipped, like the events.
+      if (path === '/api/apple/household/views' && method === 'POST') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['views']);
+        if (!Array.isArray(body.views) || body.views.length > 50) fail(400, 'At most 50 views per batch');
+        const views = body.views.map(v => {
+          exactKeys(v, ['email', 'view']);
+          if (!string(v.email, 320) || !v.view || typeof v.view !== 'object' || Array.isArray(v.view)) fail(400, 'Invalid view');
+          return { email: v.email.toLowerCase(), payload: JSON.stringify(v.view) };
+        });
+        const updated = new Date().toISOString();
+        let stored = 0;
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          if (owner) {
+            db.prepare('DELETE FROM household_views WHERE user_id IN (SELECT id FROM users WHERE family=?)').run(owner.family);
+            const member = db.prepare('SELECT id FROM users WHERE email=? AND family=?');
+            const insert = db.prepare('INSERT OR REPLACE INTO household_views (user_id,payload,updated) VALUES (?,?,?)');
+            for (const view of views) {
+              const recipient = member.get(view.email, owner.family);
+              if (!recipient) continue;
+              stored += insert.run(recipient.id, view.payload, updated).changes;
+            }
+          }
+          db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
+        return send(200, { stored });
       }
       // Two ways in, and only two.
       //
@@ -358,6 +398,13 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // APPLE_SERVICE_OWNER at a different family member changes who the app
       // treats as owner on the next request, with nothing to migrate.
       if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo, owner: !!serviceOwner && auth.email === serviceOwner.toLowerCase() });
+      // The caller's own Family view, and nobody else's: there is no
+      // parameter, so there is no way to ask for another person's. `view` is
+      // null until SR-Main has pushed one (or after it stopped building one).
+      if (path === '/api/apple/household/view' && method === 'GET') {
+        const row = db.prepare('SELECT payload, updated FROM household_views WHERE user_id=?').get(auth.user_id);
+        return send(200, { view: row ? JSON.parse(row.payload) : null, updated: row?.updated ?? null });
+      }
       // The phone's drain of its own queue — same drain-by-acknowledgement
       // contract as /api/native/notifications, so a member never needs the
       // owner-only native lane just to hear about a household arrival.
