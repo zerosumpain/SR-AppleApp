@@ -13,12 +13,13 @@ import XCTest
 /// under Settings → Connections now, and `Today` took the slot.
 final class OnboardingTests: XCTestCase {
 
-    @MainActor func testTheTabBarIsTheFourPlacesYouGo() {
+    @MainActor func testTheTabBarIsThePlacesYouGo() {
         let app = XCUIApplication()
         app.launch()
 
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        for tab in ["Today", "Chat", "Health", "News"] {
+        // Six tabs on a bar that holds five: News and Flows sit under More.
+        for tab in ["Today", "Chat", "Health", "Family", "More"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
         }
         // The old Connect tab must be gone, not merely unused.
@@ -50,7 +51,7 @@ final class OnboardingTests: XCTestCase {
                       "chat does not explain why it is empty")
         attach(app, "Chat, not yet connected")
 
-        app.tabBars.buttons["News"].tap()
+        XCTAssertTrue(app.openTab("News"), "no way to News, on the bar or under More")
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10)
                       || app.staticTexts["Not connected yet"].waitForExistence(timeout: 5),
                       "news does not explain why it is empty")

@@ -138,6 +138,7 @@ struct TodayScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var alerts: AlertStore
     @ObservedObject var site: SitePairingModel
+    @ObservedObject var family: FamilyStore
     @StateObject private var store = TodayStore()
     /// Read AFTER Today's own request, never beside it — the card is a
     /// nudge, and the first paint must not wait on the workflow list.
@@ -165,6 +166,14 @@ struct TodayScreen: View {
                     vitalsCard
                         .padding(.horizontal, SR.gutter)
                 }
+
+                // Everyone, on a map, one tap from the Family tab. Over the
+                // companion pairing, so a family member without the site's
+                // sees it too. Draws nothing until there is somebody to pin.
+                FamilyMiniMap(store: family) {
+                    router.show(.family)
+                }
+                .padding(.horizontal, SR.gutter)
 
                 // What the daydream loop noticed, straight under the body's
                 // numbers: the notes are the part of Today that is an opinion.
@@ -199,6 +208,7 @@ struct TodayScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
             move.start()
+            await family.load()
             await store.load(fresh: true)
             await alerts.refresh()
             await connections.refresh()
@@ -221,6 +231,9 @@ struct TodayScreen: View {
         }
         .task {
             move.start()
+            // Not awaited before Today's own request: the map is a glance, and
+            // the first paint must not wait on a second server.
+            Task { await family.load() }
             await store.load()
             await connections.reconcile(with: store.payload?.connections)
             await flows.load()
@@ -233,6 +246,7 @@ struct TodayScreen: View {
                 move.start()
                 await store.load()
                 await flows.load()
+                await family.load()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -241,6 +255,7 @@ struct TodayScreen: View {
             Task {
                 await store.load()
                 await flows.load()
+                await family.load()
             }
         }
         // The companion just put new health data on the site: re-read, past

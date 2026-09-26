@@ -40,6 +40,11 @@ struct LocationRecord: Codable, Identifiable {
     var accuracy: Double
     var speed: Double
     var moving: Bool
+    /// Whole percent, for the family's view of this phone. Optional twice
+    /// over: a record queued before this field existed decodes without it
+    /// (an Optional is `decodeIfPresent` in the synthesised decoder), and a
+    /// device that cannot read its battery — the simulator — sends none.
+    var battery: Int? = nil
 }
 struct UploadBatch: Codable, Identifiable {
     var id = UUID()

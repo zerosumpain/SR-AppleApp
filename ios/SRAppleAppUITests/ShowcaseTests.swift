@@ -43,6 +43,36 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Today, noticed")
     }
 
+    // MARK: - Family
+
+    /// The mini-map on Today, then the tab it opens: pins, today's lines, and
+    /// the cards — a low battery in red, a day that is not yours left off.
+    @MainActor func testShowcaseFamily() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let mini = byId(app, "today-family")
+        soft(mini.waitForExistence(timeout: 15), "no family map on Today")
+        settle(app, seconds: 3)
+        attach(app, "Showcase — Today, family map")
+
+        if mini.exists && mini.isHittable {
+            mini.tap()
+        } else {
+            openTab(app, "Family")
+        }
+        settle(app, on: byId(app, "family-person-sam"), seconds: 3)
+        attach(app, "Showcase — Family")
+
+        let sam = byId(app, "family-person-sam")
+        if sam.exists && sam.isHittable { sam.tap() }
+        settle(app, seconds: 3)
+        attach(app, "Showcase — Family, one person")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Family, scrolled")
+    }
+
     // MARK: - Chat
 
     @MainActor func testShowcaseChatList() {
@@ -385,12 +415,7 @@ final class ShowcaseTests: XCTestCase {
     }
 
     @MainActor private func openTab(_ app: XCUIApplication, _ name: String) {
-        let tab = app.tabBars.buttons[name]
-        if tab.waitForExistence(timeout: 20) {
-            tab.tap()
-        } else {
-            soft(false, "no \(name) tab")
-        }
+        soft(app.openTab(name), "no \(name) tab")
     }
 
     @MainActor private func thread(_ app: XCUIApplication, _ id: String) -> XCUIElement {
