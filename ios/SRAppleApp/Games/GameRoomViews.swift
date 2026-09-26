@@ -32,6 +32,8 @@ struct GameRoomScreen: View {
                 TapDuelScreen(roomId: ref.id)
             case .wordleRace?:
                 WordleRaceScreen(roomId: ref.id)
+            case .quizNight?:
+                QuizNightScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",
@@ -98,9 +100,16 @@ struct GameEndedView: View {
 struct GameLobby<Store: GameRoomStoring>: View {
     let room: GameRoom
     @ObservedObject var store: Store
-    /// "tapduel", "wordle".
+    /// "tapduel", "wordle", "quiz".
     let prefix: String
     let done: () -> Void
+    /// A game's own panel between the header and the players — Quiz Night's
+    /// topic and "jkai is writing the questions…".
+    var panel: AnyView? = nil
+    /// Start is shown to the host but cannot be pressed yet.
+    var startBlocked: Bool = false
+    /// The host's Start is replaced by something in `panel`.
+    var hidesStart: Bool = false
 
     var body: some View {
         ScrollView {
@@ -110,6 +119,8 @@ struct GameLobby<Store: GameRoomStoring>: View {
                     title: room.isHost ? "Your game" : (room.host.map { "\($0.name)’s game" } ?? "A game"),
                     strap: strap
                 )
+
+                if let panel { panel }
 
                 VStack(alignment: .leading, spacing: SR.cardGap) {
                     SRSectionLabel(text: "Players", trailing: "\(room.playing.count) in")
@@ -147,7 +158,7 @@ struct GameLobby<Store: GameRoomStoring>: View {
                 }
 
                 VStack(spacing: 10) {
-                    if room.isHost {
+                    if room.isHost && !hidesStart {
                         Button {
                             SRHaptic.tap()
                             Task { _ = await store.act("start") }
@@ -156,7 +167,7 @@ struct GameLobby<Store: GameRoomStoring>: View {
                         }
                         .srButton(.prominent)
                         .controlSize(.large)
-                        .disabled(store.busy)
+                        .disabled(store.busy || startBlocked)
                         .accessibilityIdentifier("\(prefix)-start")
                     }
                     if room.me?.joined == true {

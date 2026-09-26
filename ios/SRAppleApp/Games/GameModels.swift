@@ -25,6 +25,7 @@ struct GameRoomRef: Hashable {
 enum GameKind: String, CaseIterable, Identifiable {
     case tapDuel = "tap-duel"
     case wordleRace = "wordle-race"
+    case quizNight = "quiz-night"
 
     var id: String { rawValue }
 
@@ -32,6 +33,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         switch self {
         case .tapDuel: return "Tap Duel"
         case .wordleRace: return "Wordle Race"
+        case .quizNight: return "Quiz Night"
         }
     }
 
@@ -42,6 +44,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Five rounds. Wait for green, then tap faster than everyone else. Tap early and the round is gone."
         case .wordleRace:
             return "Everyone gets the same five-letter word and six guesses. You see the others' colours, not their letters. Solve it first."
+        case .quizNight:
+            return "jkai writes ten questions on any topic you like. Four answers each; right scores, right and fast scores more."
         }
     }
 
@@ -49,6 +53,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         switch self {
         case .tapDuel: return "hand.tap.fill"
         case .wordleRace: return "character.textbox"
+        case .quizNight: return "questionmark.bubble.fill"
         }
     }
 }
@@ -79,6 +84,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.wordleRace, .easy): return "The 500 commonest words. 5 minutes."
         case (.wordleRace, .medium): return "The 1,000 commonest words. 4 minutes."
         case (.wordleRace, .hard): return "Any of 1,405 words. 3 minutes. Hard mode: greens stay put, found letters stay in."
+        case (.quizNight, .easy): return "20 seconds a question."
+        case (.quizNight, .medium): return "15 seconds a question."
+        case (.quizNight, .hard): return "10 seconds a question."
         }
     }
 
@@ -90,8 +98,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
 
 /// Where a room is in its life.
 enum GamePhase: String, Decodable {
-    /// `armed` and `result` are Tap Duel's; `playing` is Wordle Race's.
-    case lobby, countdown, armed, result, playing, finished, closed
+    /// `armed` and `result` are Tap Duel's; `playing` is Wordle Race's;
+    /// `question` and `reveal` are Quiz Night's.
+    case lobby, countdown, armed, result, playing, question, reveal, finished, closed
     /// A phase this version of the app has not heard of. Shown as "waiting",
     /// never a thrown decode — a newer site must not blank an open game.
     case unknown
@@ -116,14 +125,20 @@ struct GameInvite: Decodable, Equatable, Identifiable {
     let hostName: String
     let players: [String]
     let expiresAt: Double?
+    /// One line on what the game is, when it has something to say — Quiz
+    /// Night's "The Solar System · for kids". Null (or absent, from an older
+    /// site) for games with nothing to add.
+    let about: String?
 
     var id: String { roomId }
 
-    private enum CodingKeys: String, CodingKey { case roomId, game, difficulty, hostName, players, expiresAt }
+    private enum CodingKeys: String, CodingKey { case roomId, game, difficulty, hostName, players, expiresAt, about }
 
-    init(roomId: String, game: String, difficulty: String, hostName: String, players: [String], expiresAt: Double?) {
+    init(roomId: String, game: String, difficulty: String, hostName: String, players: [String], expiresAt: Double?,
+         about: String? = nil) {
         self.roomId = roomId; self.game = game; self.difficulty = difficulty
         self.hostName = hostName; self.players = players; self.expiresAt = expiresAt
+        self.about = about
     }
 
     init(from decoder: Decoder) throws {
@@ -134,10 +149,19 @@ struct GameInvite: Decodable, Equatable, Identifiable {
         hostName = (try? c.decodeIfPresent(String.self, forKey: .hostName)) ?? "Someone"
         players = (try? c.decodeIfPresent([String].self, forKey: .players)) ?? []
         expiresAt = (try? c.decodeIfPresent(Double.self, forKey: .expiresAt)) ?? nil
+        let line = ((try? c.decodeIfPresent(String.self, forKey: .about)) ?? nil)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        about = (line?.isEmpty ?? true) ? nil : line
     }
 
     /// The notification's title and body. Pure, so the copy is a test.
-    var notificationTitle: String { "\(hostName) invited you to \(GameNames.title(game))" }
+    /// "Sam invited you to Quiz Night — The Solar System · for kids" when the
+    /// invite says what the game is about.
+    var notificationTitle: String {
+        let base = "\(hostName) invited you to \(GameNames.title(game))"
+        guard let about else { return base }
+        return "\(base) — \(about)"
+    }
 
     var notificationBody: String {
         let level = GameDifficulty.label(for: difficulty)
@@ -287,8 +311,11 @@ struct GameStanding: Decodable, Equatable, Identifiable {
     let solved: Bool
     let guesses: Int?
     let solveMs: Int?
+    // Quiz Night: questions answered right (`score` is points, `avgMs` the
+    // average time of the right ones).
+    let correct: Int
 
-    private enum CodingKeys: String, CodingKey { case id, name, score, bestMs, avgMs, falseStarts, solved, guesses, solveMs }
+    private enum CodingKeys: String, CodingKey { case id, name, score, bestMs, avgMs, falseStarts, solved, guesses, solveMs, correct }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -304,6 +331,7 @@ struct GameStanding: Decodable, Equatable, Identifiable {
         solved = (try? c.decodeIfPresent(Bool.self, forKey: .solved)) ?? false
         guesses = (try? c.decodeIfPresent(Int.self, forKey: .guesses)) ?? nil
         solveMs = ms(.solveMs)
+        correct = (try? c.decodeIfPresent(Int.self, forKey: .correct)) ?? 0
     }
 }
 
@@ -336,9 +364,26 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// The word, once finished.
     let secret: String?
 
+    // Quiz Night. Nil (and `prep` ready) in the other games' rooms.
+    /// kids | family | adults.
+    let audience: String?
+    /// What the host asked for; nil when jkai picks.
+    let topic: String?
+    /// What jkai wrote about — the topic, or the one it picked. Nil while writing.
+    let title: String?
+    let prep: QuizPrep
+    /// Why the questions could not be written — a sentence for the players.
+    let prepError: String?
+    let questionCount: Int
+    /// Seconds a question, in ms.
+    let timeMs: Double?
+    /// The open (or revealed) question.
+    let question: QuizQuestion?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
+        case audience, topic, title, prep, prepError, questionCount, timeMs, question
     }
 
     init(from decoder: Decoder) throws {
@@ -363,6 +408,15 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         startedAt = (try? c.decodeIfPresent(Double.self, forKey: .startedAt)) ?? nil
         keyboard = (try? c.decodeIfPresent([String: WordleMark].self, forKey: .keyboard)) ?? [:]
         secret = (try? c.decodeIfPresent(String.self, forKey: .secret)) ?? nil
+        audience = (try? c.decodeIfPresent(String.self, forKey: .audience)) ?? nil
+        topic = (try? c.decodeIfPresent(String.self, forKey: .topic)) ?? nil
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil
+        // No `prep` is a room with nothing to prepare; the server decides Start.
+        prep = (try? c.decodeIfPresent(QuizPrep.self, forKey: .prep)) ?? .ready
+        prepError = (try? c.decodeIfPresent(String.self, forKey: .prepError)) ?? nil
+        questionCount = (try? c.decodeIfPresent(Int.self, forKey: .questionCount)) ?? 10
+        timeMs = (try? c.decodeIfPresent(Double.self, forKey: .timeMs)) ?? nil
+        question = (try? c.decodeIfPresent(QuizQuestion.self, forKey: .question)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -393,10 +447,14 @@ struct GameStreamFrame: Decodable {
 
 // MARK: - Request bodies
 
-struct CreateGameBody: Encodable {
+/// `POST /api/native/games`. Nil fields are left out of the JSON.
+struct CreateGameBody: Encodable, Equatable {
     var game: String = "tap-duel"
     let difficulty: String
     let invite: [String]
+    /// Quiz Night: what about (nil = jkai picks), and who for.
+    var topic: String? = nil
+    var audience: String? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -407,6 +465,9 @@ struct GameActionBody: Encodable {
     var early: Bool? = nil
     /// Wordle Race: `{action:"guess", word}`.
     var word: String? = nil
+    /// Quiz Night: `{action:"answer", question:<index>, choice:0-3}`.
+    var question: Int? = nil
+    var choice: Int? = nil
 }
 
 enum GameNames {

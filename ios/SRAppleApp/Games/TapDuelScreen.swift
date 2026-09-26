@@ -47,7 +47,7 @@ struct TapDuelScreen: View {
             GameEndedView(id: "tapduel-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown, .playing:
+            case .lobby, .unknown, .playing, .question, .reveal:
                 GameLobby(room: room, store: store, prefix: "tapduel", done: { dismiss() })
             case .countdown:
                 GameCountdownView(room: room, store: store,

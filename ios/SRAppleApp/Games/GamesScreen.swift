@@ -1,9 +1,10 @@
 import SwiftUI
+import UIKit
 
 /// The Games tab: invitations waiting, rooms I am in, and a game to start.
 ///
 /// A shelf of games rather than one game's front door — one card per game
-/// (Tap Duel, Wordle Race), and the rooms and invites above them say which
+/// (Tap Duel, Wordle Race, Quiz Night), and the rooms and invites above them say which
 /// game each is.
 struct GamesScreen: View {
     @ObservedObject var store: GamesStore
@@ -99,11 +100,15 @@ struct GamesScreen: View {
             if let message = store.message { SRBanner(text: message) }
         }
         .sheet(item: $starting) { kind in
-            NewGameSheet(game: kind, players: store.players, busy: store.busy == "new") { game, difficulty, invite in
-                guard let room = await store.create(game: game, difficulty: difficulty, invite: invite) else { return false }
-                starting = nil
-                router.games.append(GameRoomRef(id: room.id, game: room.game))
-                return true
+            NewGameSheet(game: kind, players: store.players, busy: store.busy == "new") { request in
+                switch await store.create(request) {
+                case .created(let room):
+                    starting = nil
+                    router.games.append(GameRoomRef(id: room.id, game: room.game))
+                    return nil
+                case .refused(let sentence):
+                    return sentence
+                }
             }
         }
     }
@@ -131,6 +136,13 @@ struct GameInviteCard: View {
                         .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let about = invite.about {
+                        Text(about)
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.accentInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("games-invite-about-\(invite.roomId)")
+                    }
                     Text("\(GameDifficulty.label(for: invite.difficulty)) · \(GameNames.list(invite.players))")
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkMuted)
@@ -191,7 +203,7 @@ struct GameRoomRow: View {
     private var phaseLabel: String {
         switch room.phase {
         case .lobby: return "Lobby"
-        case .countdown, .armed, .result, .playing: return "Playing"
+        case .countdown, .armed, .result, .playing, .question, .reveal: return "Playing"
         case .finished: return "Finished"
         case .closed: return "Closed"
         case .unknown: return "Open"
@@ -210,7 +222,7 @@ struct GameCard: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(SR.paper)
                     .frame(width: 48, height: 48)
-                    .background(Circle().fill(kind == .tapDuel ? SR.accent : SR.accentInk))
+                    .background(Circle().fill(fill))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind.title)
@@ -232,25 +244,38 @@ struct GameCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
     }
+
+    private var fill: Color {
+        switch kind {
+        case .tapDuel: return SR.accent
+        case .wordleRace: return SR.accentInk
+        case .quizNight: return SR.good
+        }
+    }
 }
 
 /// Which game, how hard, who to invite, Start.
 struct NewGameSheet: View {
     let players: [GamePerson]
     let busy: Bool
-    /// Creates the room; true when it did, and the sheet is then closed by
-    /// its owner.
-    let start: (GameKind, GameDifficulty, [String]) async -> Bool
+    /// Creates the room. Nil when it did (the sheet is then closed by its
+    /// owner); otherwise the server's sentence, shown above Start.
+    let start: (CreateGameBody) async -> String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var game: GameKind
     @State private var difficulty: GameDifficulty = .easy
     @State private var invited: Set<String> = []
     @State private var working = false
+    // Quiz Night.
+    @State private var topic = ""
+    @State private var audience: QuizAudience = .family
+    /// Why the last Start was refused.
+    @State private var refusal: String?
 
     /// Opens on the game whose card was tapped; the first section can change it.
     init(game: GameKind = .tapDuel, players: [GamePerson], busy: Bool,
-         start: @escaping (GameKind, GameDifficulty, [String]) async -> Bool) {
+         start: @escaping (CreateGameBody) async -> String?) {
         self.players = players
         self.busy = busy
         self.start = start
@@ -271,8 +296,15 @@ struct NewGameSheet: View {
                                 line: nil,
                                 selected: game == kind,
                                 id: "games-game-\(kind.rawValue)"
-                            ) { game = kind }
+                            ) {
+                                game = kind
+                                refusal = nil
+                            }
                         }
+                    }
+
+                    if game == .quizNight {
+                        quizSettings
                     }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -313,11 +345,25 @@ struct NewGameSheet: View {
                         }
                     }
 
+                    if let refusal {
+                        Label(refusal, systemImage: "exclamationmark.circle")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.error)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("games-new-refusal")
+                    }
+
                     Button {
                         SRHaptic.tap()
                         working = true
+                        refusal = nil
+                        let payload = request
                         Task {
-                            _ = await start(game, difficulty, players.filter { invited.contains($0.id) }.map(\.id))
+                            if let sentence = await start(payload) {
+                                refusal = sentence
+                                SRHaptic.bad()
+                                UIAccessibility.post(notification: .announcement, argument: sentence)
+                            }
                             working = false
                         }
                     } label: {
@@ -342,6 +388,57 @@ struct NewGameSheet: View {
             }
         }
         .presentationDetents([.large])
+    }
+
+    /// What Start sends.
+    private var request: CreateGameBody {
+        let invite = players.filter { invited.contains($0.id) }.map(\.id)
+        if game == .quizNight {
+            return QuizNightSettings(difficulty: difficulty, topic: topic, audience: audience).createBody(invite: invite)
+        }
+        return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// Topic and audience — Quiz Night's own questions.
+    private var quizSettings: some View {
+        VStack(alignment: .leading, spacing: SR.sectionGap) {
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                SRSectionLabel(text: "Topic", trailing: "\(topic.count)/\(QuizNightSettings.topicLimit)")
+                TextField("Leave blank and jkai picks", text: $topic)
+                    .font(SR.Text.body(17))
+                    .foregroundStyle(SR.ink)
+                    .textInputAutocapitalization(.sentences)
+                    .autocorrectionDisabled(false)
+                    .submitLabel(.done)
+                    .padding(.horizontal, SR.cardPadding)
+                    .frame(minHeight: SR.tapTarget + 8)
+                    .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+                    .onChange(of: topic) { _, typed in
+                        let capped = QuizNightSettings.limit(typed)
+                        if capped != typed { topic = capped }
+                        refusal = nil
+                    }
+                    .accessibilityLabel("Topic")
+                    .accessibilityHint("Optional. Leave blank and jkai picks.")
+                    .accessibilityIdentifier("games-quiz-topic")
+                Text("Anything: the solar system, 90s pop, dinosaurs. Leave it blank for a surprise.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                SRSectionLabel(text: "Audience")
+                ForEach(QuizAudience.allCases) { level in
+                    choice(
+                        title: level.label,
+                        line: level.line,
+                        selected: audience == level,
+                        id: "games-audience-\(level.rawValue)"
+                    ) { audience = level }
+                }
+            }
+        }
     }
 
     private func choice(title: String, line: String?, selected: Bool, multi: Bool = false, id: String,
