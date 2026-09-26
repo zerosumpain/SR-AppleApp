@@ -115,7 +115,9 @@ device-only; see [Device testing](DEVICE-TESTING.md#apple-watch).
 - **Ask jkai.** Dictate on the Watch; the question lands in the phone's
   composer as `pendingQuestion`, **unsent**. This keeps the rule in
   `AskJkaiIntent`: a turn sent where you cannot watch it go wrong is not sent for
-  you, and the Watch cannot answer any of chat's four gates.
+  you, and the Watch cannot answer any of chat's four gates. **Decided
+  (2026-09-26):** it stays unsent. Sending from the wrist and reading the reply
+  there was considered and turned down for that reason.
 - **Design.** `SRRegister.ink`: cream type on ink. watchOS is always dark,
   the phone is light-locked, and the ink register exists for exactly this. Bundle
   two faces only: JetBrains Mono for labels, Archivo Black for figures.
