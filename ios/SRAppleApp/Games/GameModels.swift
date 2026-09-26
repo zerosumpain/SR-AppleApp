@@ -26,6 +26,9 @@ enum GameKind: String, CaseIterable, Identifiable {
     case tapDuel = "tap-duel"
     case wordleRace = "wordle-race"
     case quizNight = "quiz-night"
+    case anagramBlitz = "anagram-blitz"
+    case mathsSprint = "maths-sprint"
+    case sequenceMemory = "sequence-memory"
 
     var id: String { rawValue }
 
@@ -34,6 +37,21 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .tapDuel: return "Tap Duel"
         case .wordleRace: return "Wordle Race"
         case .quizNight: return "Quiz Night"
+        case .anagramBlitz: return "Anagram Blitz"
+        case .mathsSprint: return "Quick Maths Sprint"
+        case .sequenceMemory: return "Sequence Memory"
+        }
+    }
+
+    /// One line for the new-game sheet's game picker.
+    var line: String {
+        switch self {
+        case .tapDuel: return "Reaction race: wait for green, tap first."
+        case .wordleRace: return "Same five-letter word, six guesses, race to solve."
+        case .quizNight: return "jkai writes a quiz on any topic."
+        case .anagramBlitz: return "Seven letters. Find as many words as you can."
+        case .mathsSprint: return "Sixty seconds of mental arithmetic."
+        case .sequenceMemory: return "Watch the tiles flash, then play them back."
         }
     }
 
@@ -46,6 +64,12 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone gets the same five-letter word and six guesses. You see the others' colours, not their letters. Solve it first."
         case .quizNight:
             return "jkai writes ten questions on any topic you like. Four answers each; right scores, right and fast scores more."
+        case .anagramBlitz:
+            return "Everyone gets the same seven letters. Longer words score more, and a word only you found scores double."
+        case .mathsSprint:
+            return "Sixty seconds, the same problems for everyone. Right moves you on; every fifth in a row is a bonus."
+        case .sequenceMemory:
+            return "The tiles flash a sequence; tap it back. One more step each round. Miss and you are out."
         }
     }
 
@@ -54,6 +78,9 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .tapDuel: return "hand.tap.fill"
         case .wordleRace: return "character.textbox"
         case .quizNight: return "questionmark.bubble.fill"
+        case .anagramBlitz: return "textformat.abc"
+        case .mathsSprint: return "plus.forwardslash.minus"
+        case .sequenceMemory: return "square.grid.3x3.fill"
         }
     }
 }
@@ -87,6 +114,15 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.quizNight, .easy): return "20 seconds a question."
         case (.quizNight, .medium): return "15 seconds a question."
         case (.quizNight, .hard): return "10 seconds a question."
+        case (.anagramBlitz, .easy): return "Common seed words. 2½ minutes. Words of 3 letters or more."
+        case (.anagramBlitz, .medium): return "Less common seed words. 2 minutes. 3 letters or more."
+        case (.anagramBlitz, .hard): return "Any seed word. 90 seconds. 4 letters or more."
+        case (.mathsSprint, .easy): return "Adding and taking away up to 20. 60 seconds."
+        case (.mathsSprint, .medium): return "+ and − up to 100, times tables to 10. 60 seconds."
+        case (.mathsSprint, .hard): return "Up to 1,000, times to 12, exact division, two-step sums. 60 seconds."
+        case (.sequenceMemory, .easy): return "4 tiles. Slow flashes."
+        case (.sequenceMemory, .medium): return "6 tiles. Quicker flashes."
+        case (.sequenceMemory, .hard): return "9 tiles. Fast flashes."
         }
     }
 
@@ -98,9 +134,11 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
 
 /// Where a room is in its life.
 enum GamePhase: String, Decodable {
-    /// `armed` and `result` are Tap Duel's; `playing` is Wordle Race's;
-    /// `question` and `reveal` are Quiz Night's.
-    case lobby, countdown, armed, result, playing, question, reveal, finished, closed
+    /// `armed` and `result` are Tap Duel's (`result` Sequence Memory's too);
+    /// `playing` is Wordle Race's, Anagram Blitz's and Quick Maths Sprint's;
+    /// `question` and `reveal` are Quiz Night's; `show` and `input` are
+    /// Sequence Memory's.
+    case lobby, countdown, armed, result, playing, question, reveal, show, input, finished, closed
     /// A phase this version of the app has not heard of. Shown as "waiting",
     /// never a thrown decode — a newer site must not blank an open game.
     case unknown
@@ -223,7 +261,29 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
     /// Letters for me always, for the others only once the game is finished.
     let rows: [WordleRow]
 
-    private enum CodingKeys: String, CodingKey { case id, name, status, score, isHost, guessCount, solved, done, solveMs, rows }
+    // Anagram Blitz. `score` is points.
+    let wordCount: Int
+    /// Mine always, everyone's once finished; nil for another player mid-game.
+    let words: [AnagramWord]?
+
+    // Quick Maths Sprint. `score` is points; `answered` is problems solved.
+    let answered: Int
+
+    // Sequence Memory.
+    /// Seated when round 1 was dealt (`playing` on the wire — `GameRoom`
+    /// already has a `playing`, the joined players).
+    let seated: Bool
+    let alive: Bool
+    /// Longest sequence repeated correctly.
+    let best: Int
+    let roundsSurvived: Int
+    let outRound: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, status, score, isHost, guessCount, solved, done, solveMs, rows
+        case wordCount, words, answered
+        case playing, alive, best, roundsSurvived, outRound
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -237,6 +297,14 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
         solved = (try? c.decodeIfPresent(Bool.self, forKey: .solved)) ?? false
         done = (try? c.decodeIfPresent(Bool.self, forKey: .done)) ?? false
         solveMs = ((try? c.decodeIfPresent(Double.self, forKey: .solveMs)) ?? nil).map { Int($0.rounded()) }
+        words = (try? c.decodeIfPresent([AnagramWord].self, forKey: .words)) ?? nil
+        wordCount = (try? c.decodeIfPresent(Int.self, forKey: .wordCount)) ?? words?.count ?? 0
+        answered = (try? c.decodeIfPresent(Int.self, forKey: .answered)) ?? 0
+        seated = (try? c.decodeIfPresent(Bool.self, forKey: .playing)) ?? false
+        alive = (try? c.decodeIfPresent(Bool.self, forKey: .alive)) ?? false
+        best = (try? c.decodeIfPresent(Int.self, forKey: .best)) ?? 0
+        roundsSurvived = (try? c.decodeIfPresent(Int.self, forKey: .roundsSurvived)) ?? 0
+        outRound = (try? c.decodeIfPresent(Int.self, forKey: .outRound)) ?? nil
     }
 
     var joined: Bool { status == "joined" }
@@ -312,10 +380,23 @@ struct GameStanding: Decodable, Equatable, Identifiable {
     let guesses: Int?
     let solveMs: Int?
     // Quiz Night: questions answered right (`score` is points, `avgMs` the
-    // average time of the right ones).
+    // average time of the right ones). Quick Maths Sprint: problems solved.
     let correct: Int
+    // Anagram Blitz: how many words, and the longest.
+    let words: Int
+    let longest: String?
+    // Quick Maths Sprint.
+    let misses: Int
+    let bestStreak: Int
+    // Sequence Memory.
+    let best: Int
+    let roundsSurvived: Int
+    let outRound: Int?
 
-    private enum CodingKeys: String, CodingKey { case id, name, score, bestMs, avgMs, falseStarts, solved, guesses, solveMs, correct }
+    private enum CodingKeys: String, CodingKey {
+        case id, name, score, bestMs, avgMs, falseStarts, solved, guesses, solveMs, correct
+        case words, longest, misses, bestStreak, best, roundsSurvived, outRound
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -332,6 +413,13 @@ struct GameStanding: Decodable, Equatable, Identifiable {
         guesses = (try? c.decodeIfPresent(Int.self, forKey: .guesses)) ?? nil
         solveMs = ms(.solveMs)
         correct = (try? c.decodeIfPresent(Int.self, forKey: .correct)) ?? 0
+        words = (try? c.decodeIfPresent(Int.self, forKey: .words)) ?? 0
+        longest = (try? c.decodeIfPresent(String.self, forKey: .longest)) ?? nil
+        misses = (try? c.decodeIfPresent(Int.self, forKey: .misses)) ?? 0
+        bestStreak = (try? c.decodeIfPresent(Int.self, forKey: .bestStreak)) ?? 0
+        best = (try? c.decodeIfPresent(Int.self, forKey: .best)) ?? 0
+        roundsSurvived = (try? c.decodeIfPresent(Int.self, forKey: .roundsSurvived)) ?? 0
+        outRound = (try? c.decodeIfPresent(Int.self, forKey: .outRound)) ?? nil
     }
 }
 
@@ -380,10 +468,44 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// The open (or revealed) question.
     let question: QuizQuestion?
 
+    // Anagram Blitz. `timeLimitMs`, `startedAt` as Wordle Race's.
+    let letterCount: Int
+    /// Shortest word accepted: 3, or 4 on hard.
+    let minLength: Int
+    /// Points by word length ("3" → 1 … "7" → 10).
+    let points: [String: Int]
+    /// The shuffled letters, lower-case. Nil before play.
+    let letters: [String]?
+    /// The word the letters came from, once finished.
+    let seed: String?
+    /// Every word anyone found, once finished.
+    let found: [AnagramFound]?
+    /// The longest words nobody found, once finished.
+    let missed: [String]?
+
+    // Quick Maths Sprint.
+    let problemCount: Int
+    let streakBonus: Int
+    /// My own side (`me` on the wire — `GameRoom.me` is already my player
+    /// row): my current problem, score, misses and streak.
+    let sprint: SprintMe?
+    /// Each player's last few problems with answers, once finished.
+    let recaps: [SprintRecap]?
+
+    // Sequence Memory.
+    let tiles: Int
+    let startLength: Int
+    let maxLength: Int
+    /// The round (`round` on the wire — Tap Duel's round is a different shape).
+    let memory: SequenceRound?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
         case audience, topic, title, prep, prepError, questionCount, timeMs, question
+        case letterCount, minLength, points, letters, seed, found, missed
+        case problemCount, streakBonus, me, recaps
+        case tiles, startLength, maxLength
     }
 
     init(from decoder: Decoder) throws {
@@ -417,6 +539,21 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         questionCount = (try? c.decodeIfPresent(Int.self, forKey: .questionCount)) ?? 10
         timeMs = (try? c.decodeIfPresent(Double.self, forKey: .timeMs)) ?? nil
         question = (try? c.decodeIfPresent(QuizQuestion.self, forKey: .question)) ?? nil
+        letterCount = (try? c.decodeIfPresent(Int.self, forKey: .letterCount)) ?? 7
+        minLength = (try? c.decodeIfPresent(Int.self, forKey: .minLength)) ?? 3
+        points = (try? c.decodeIfPresent([String: Int].self, forKey: .points)) ?? [:]
+        letters = ((try? c.decodeIfPresent([String].self, forKey: .letters)) ?? nil)?.map { $0.lowercased() }
+        seed = ((try? c.decodeIfPresent(String.self, forKey: .seed)) ?? nil)?.lowercased()
+        found = (try? c.decodeIfPresent([AnagramFound].self, forKey: .found)) ?? nil
+        missed = (try? c.decodeIfPresent([String].self, forKey: .missed)) ?? nil
+        problemCount = (try? c.decodeIfPresent(Int.self, forKey: .problemCount)) ?? 200
+        streakBonus = max(1, (try? c.decodeIfPresent(Int.self, forKey: .streakBonus)) ?? 5)
+        sprint = (try? c.decodeIfPresent(SprintMe.self, forKey: .me)) ?? nil
+        recaps = (try? c.decodeIfPresent([SprintRecap].self, forKey: .recaps)) ?? nil
+        tiles = max(1, (try? c.decodeIfPresent(Int.self, forKey: .tiles)) ?? 4)
+        startLength = (try? c.decodeIfPresent(Int.self, forKey: .startLength)) ?? 3
+        maxLength = (try? c.decodeIfPresent(Int.self, forKey: .maxLength)) ?? 20
+        memory = (try? c.decodeIfPresent(SequenceRound.self, forKey: .round)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -468,6 +605,11 @@ struct GameActionBody: Encodable {
     /// Quiz Night: `{action:"answer", question:<index>, choice:0-3}`.
     var question: Int? = nil
     var choice: Int? = nil
+    /// Quick Maths Sprint: `{action:"answer", index:<my current>, value:<int>}`.
+    var index: Int? = nil
+    var value: Int? = nil
+    /// Sequence Memory: `{action:"attempt", round, taps:[tile,…]}`.
+    var taps: [Int]? = nil
 }
 
 enum GameNames {
