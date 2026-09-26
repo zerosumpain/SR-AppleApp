@@ -34,6 +34,12 @@ struct GameRoomScreen: View {
                 WordleRaceScreen(roomId: ref.id)
             case .quizNight?:
                 QuizNightScreen(roomId: ref.id)
+            case .anagramBlitz?:
+                AnagramBlitzScreen(roomId: ref.id)
+            case .mathsSprint?:
+                MathsSprintScreen(roomId: ref.id)
+            case .sequenceMemory?:
+                SequenceMemoryScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",

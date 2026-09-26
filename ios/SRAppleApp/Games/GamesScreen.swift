@@ -4,8 +4,8 @@ import UIKit
 /// The Games tab: invitations waiting, rooms I am in, and a game to start.
 ///
 /// A shelf of games rather than one game's front door — one card per game
-/// (Tap Duel, Wordle Race, Quiz Night), and the rooms and invites above them say which
-/// game each is.
+/// (Tap Duel, Wordle Race, Quiz Night, Anagram Blitz, Quick Maths Sprint,
+/// Sequence Memory), and the rooms and invites above them say which game each is.
 struct GamesScreen: View {
     @ObservedObject var store: GamesStore
     @EnvironmentObject private var router: Router
@@ -203,7 +203,7 @@ struct GameRoomRow: View {
     private var phaseLabel: String {
         switch room.phase {
         case .lobby: return "Lobby"
-        case .countdown, .armed, .result, .playing, .question, .reveal: return "Playing"
+        case .countdown, .armed, .result, .playing, .question, .reveal, .show, .input: return "Playing"
         case .finished: return "Finished"
         case .closed: return "Closed"
         case .unknown: return "Open"
@@ -250,6 +250,9 @@ struct GameCard: View {
         case .tapDuel: return SR.accent
         case .wordleRace: return SR.accentInk
         case .quizNight: return SR.good
+        case .anagramBlitz: return SR.warn
+        case .mathsSprint: return SR.ink
+        case .sequenceMemory: return SR.error
         }
     }
 }
@@ -293,7 +296,7 @@ struct NewGameSheet: View {
                         ForEach(GameKind.allCases) { kind in
                             choice(
                                 title: kind.title,
-                                line: nil,
+                                line: kind.line,
                                 selected: game == kind,
                                 id: "games-game-\(kind.rawValue)"
                             ) {
