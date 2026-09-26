@@ -44,22 +44,15 @@ struct TapDuelScreen: View {
     @ViewBuilder
     private var content: some View {
         if store.ended {
-            SREmpty(
-                title: "This game has ended",
-                icon: "flag.checkered",
-                message: "Rooms last a few minutes. Start another from Games.",
-                actionLabel: "Done",
-                action: { dismiss() }
-            )
-            .frame(maxHeight: .infinity)
-            .srPaper()
-            .accessibilityIdentifier("tapduel-ended")
+            GameEndedView(id: "tapduel-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown:
-                TapDuelLobby(room: room, store: store, done: { dismiss() })
+            case .lobby, .unknown, .playing:
+                GameLobby(room: room, store: store, prefix: "tapduel", done: { dismiss() })
             case .countdown:
-                TapDuelCountdown(room: room, store: store)
+                GameCountdownView(room: room, store: store,
+                                  note: "Wait for green. Tap early and the round is gone.",
+                                  id: "tapduel-countdown")
             case .armed:
                 TapDuelArmed(room: room, store: store)
             case .result:
@@ -77,180 +70,6 @@ struct TapDuelScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .srPaper()
         }
-    }
-}
-
-// MARK: - Lobby
-
-struct TapDuelLobby: View {
-    let room: GameRoom
-    @ObservedObject var store: TapDuelStore
-    let done: () -> Void
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(
-                    kicker: "Tap Duel · \(GameDifficulty.label(for: room.difficulty))",
-                    title: room.isHost ? "Your game" : (room.host.map { "\($0.name)’s game" } ?? "A game"),
-                    strap: strap
-                )
-
-                VStack(alignment: .leading, spacing: SR.cardGap) {
-                    SRSectionLabel(text: "Players", trailing: "\(room.playing.count) in")
-                    VStack(spacing: 0) {
-                        ForEach(Array(room.players.enumerated()), id: \.element.id) { index, player in
-                            if index > 0 { Divider().overlay(SR.divider) }
-                            HStack(spacing: 12) {
-                                Text(player.name + (player.id == room.meId ? " (you)" : ""))
-                                    .font(SR.Text.title())
-                                    .foregroundStyle(player.joined ? SR.ink : SR.inkMuted)
-                                if player.isHost {
-                                    Text("HOST")
-                                        .font(SR.Text.label())
-                                        .tracking(1.2)
-                                        .foregroundStyle(SR.accent)
-                                }
-                                Spacer(minLength: 8)
-                                SRGlassChip(text: statusLabel(player.status), tone: statusTone(player.status))
-                            }
-                            .frame(minHeight: SR.tapTarget)
-                            .padding(.vertical, 4)
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("tapduel-player-\(player.id)")
-                        }
-                    }
-                    .padding(.horizontal, SR.cardPadding)
-                    .padding(.vertical, 6)
-                    .srGlassCard(.paper)
-                }
-
-                if let closes = closesText {
-                    Text(closes)
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                }
-
-                VStack(spacing: 10) {
-                    if room.isHost {
-                        Button {
-                            SRHaptic.tap()
-                            Task { await store.act("start") }
-                        } label: {
-                            SRButtonLabel(title: "Start", icon: "play.fill", fill: true)
-                        }
-                        .srButton(.prominent)
-                        .controlSize(.large)
-                        .disabled(store.busy)
-                        .accessibilityIdentifier("tapduel-start")
-                    }
-                    if room.me?.joined == true {
-                        Button {
-                            Task {
-                                await store.act("leave")
-                                done()
-                            }
-                        } label: {
-                            SRButtonLabel(title: "Leave", fill: true)
-                        }
-                        .srButton(.regular)
-                        .controlSize(.large)
-                        .disabled(store.busy)
-                        .accessibilityIdentifier("tapduel-leave")
-                    } else if room.me?.status == "invited" {
-                        HStack(spacing: 8) {
-                            ProgressView().tint(SR.accent)
-                            Text("Joining…").font(SR.Text.secondary()).foregroundStyle(SR.inkMuted)
-                        }
-                    } else {
-                        Button { done() } label: { SRButtonLabel(title: "Done", fill: true) }
-                            .srButton(.regular)
-                            .controlSize(.large)
-                    }
-                }
-            }
-            .padding(.horizontal, SR.gutter)
-            .padding(.top, 4)
-            .padding(.bottom, 28)
-        }
-        .srGround(.warm)
-        .accessibilityIdentifier("tapduel-lobby")
-    }
-
-    private var strap: String {
-        if room.me?.status == "declined" || room.me?.status == "left" { return "You are not playing in this one." }
-        if room.isHost {
-            return room.solo
-                ? "Just you. Start when you are ready."
-                : "Start when everyone you want is in. Anyone still invited is left out."
-        }
-        return "Waiting for \(room.host?.name ?? "the host") to start."
-    }
-
-    /// "Lobby closes at 14:03", from the server's deadline on this phone's clock.
-    private var closesText: String? {
-        guard let end = room.phaseEndsAt, let now = store.serverNow() else { return nil }
-        let at = Date().addingTimeInterval((end - now) / 1000)
-        return "Lobby closes at \(at.formatted(date: .omitted, time: .shortened))"
-    }
-
-    private func statusLabel(_ status: String) -> String {
-        switch status {
-        case "joined": return "In"
-        case "invited": return "Invited"
-        case "declined": return "Declined"
-        case "left": return "Left"
-        default: return status
-        }
-    }
-
-    private func statusTone(_ status: String) -> Color {
-        switch status {
-        case "joined": return SR.good
-        case "invited": return SR.accentInk
-        default: return SR.inkMuted
-        }
-    }
-}
-
-// MARK: - Countdown
-
-struct TapDuelCountdown: View {
-    let room: GameRoom
-    @ObservedObject var store: TapDuelStore
-
-    var body: some View {
-        ZStack {
-            SR.ink.ignoresSafeArea()
-            VStack(spacing: 18) {
-                Text("GET READY")
-                    .font(SR.Text.label(13))
-                    .tracking(SR.inkKickerTracking)
-                    .foregroundStyle(SR.onInk(.label))
-                TimelineView(.periodic(from: .now, by: 0.05)) { _ in
-                    Text(figure)
-                        .font(SR.Text.hero(150))
-                        .foregroundStyle(SR.paper)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                        .contentTransition(.numericText(countsDown: true))
-                        .accessibilityLabel(figure == "…" ? "Get ready" : "Starting in \(figure)")
-                }
-                Text("Wait for green. Tap early and the round is gone.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.onInk(.note))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, SR.gutter)
-            }
-        }
-        .accessibilityIdentifier("tapduel-countdown")
-    }
-
-    private var figure: String {
-        guard let end = room.phaseEndsAt, let now = store.serverNow() else { return "…" }
-        let left = GameCountdown.secondsLeft(until: end, atServer: now)
-        return left > 0 ? "\(min(left, 3))" : "…"
     }
 }
 
