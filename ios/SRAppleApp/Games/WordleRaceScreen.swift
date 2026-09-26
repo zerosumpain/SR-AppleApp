@@ -46,7 +46,7 @@ struct WordleRaceScreen: View {
             GameEndedView(id: "wordle-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown, .armed, .result, .question, .reveal:
+            case .lobby, .unknown, .armed, .result, .question, .reveal, .show, .input:
                 GameLobby(room: room, store: store, prefix: "wordle", done: { dismiss() })
             case .countdown:
                 GameCountdownView(room: room, store: store,
@@ -186,10 +186,12 @@ struct WordlePlaying: View {
     }
 }
 
-/// The time limit, counting down to `phaseEndsAt`.
-struct WordleTimer: View {
+/// The time limit, counting down to `phaseEndsAt`. Any game's store: Anagram
+/// Blitz and Quick Maths Sprint count down the same way, under their own id.
+struct WordleTimer<Store: GameRoomStoring>: View {
     let room: GameRoom
-    @ObservedObject var store: WordleRaceStore
+    @ObservedObject var store: Store
+    var id: String = "wordle-timer"
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
@@ -200,7 +202,7 @@ struct WordleTimer: View {
                 .foregroundStyle(tone(left))
                 .lineLimit(1)
                 .accessibilityLabel(left.map { "\(WordleClock.text(msLeft: $0)) left" } ?? "Time left unknown")
-                .accessibilityIdentifier("wordle-timer")
+                .accessibilityIdentifier(id)
         }
     }
 

@@ -48,7 +48,7 @@ struct QuizNightScreen: View {
             GameEndedView(id: "quiz-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown, .armed, .result, .playing:
+            case .lobby, .unknown, .armed, .result, .playing, .show, .input:
                 GameLobby(
                     room: room, store: store, prefix: "quiz", done: { dismiss() },
                     panel: AnyView(QuizLobbyPanel(room: room, store: store, newQuiz: newQuiz)),

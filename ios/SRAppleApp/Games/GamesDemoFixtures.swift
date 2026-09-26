@@ -9,7 +9,10 @@ import Foundation
 // Robin has not answered, and one Wordle Race of Sam's half played — John
 // three rows in, Sam two (colours only), Robin solved. Quiz Night: an invite
 // from Robin (with its `about` line), one quiz of John's on a question and one
-// of Sam's on a reveal, so both screens can be shot. The room stream has no
+// of Sam's on a reveal, so both screens can be shot. Anagram Blitz, Quick
+// Maths Sprint and Sequence Memory: one room each, mid-play — John's word list
+// and the tiles, John's problem and keypad on a bonus streak, and a Sequence
+// Memory round waiting on John's taps with Robin already out. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -21,6 +24,9 @@ extension SRDemoFixtures {
     static let demoQuizRoom = "g_demo_quiz"
     static let demoQuizRevealRoom = "g_demo_quiz_reveal"
     static let demoQuizInviteRoom = "g_demo_quiz_invite"
+    static let demoAnagramRoom = "g_demo_anagram"
+    static let demoSprintRoom = "g_demo_sprint"
+    static let demoMemoryRoom = "g_demo_memory"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -62,7 +68,10 @@ extension SRDemoFixtures {
          "rooms": [{"id": \(s(demoLobbyRoom)), "game": "tap-duel", "phase": "lobby", "hostName": "John"},
                    {"id": \(s(demoWordleRoom)), "game": "wordle-race", "phase": "playing", "hostName": "Sam"},
                    {"id": \(s(demoQuizRoom)), "game": "quiz-night", "phase": "question", "hostName": "John"},
-                   {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"}],
+                   {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"},
+                   {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "phase": "playing", "hostName": "John"},
+                   {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
+                   {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
          "serverNow": \(ms(now))}
         """
     }
@@ -71,6 +80,9 @@ extension SRDemoFixtures {
         if id == demoWordleRoom { return wordleRoom(clock) }
         if id == demoQuizRoom { return quizRoom(reveal: false, clock: clock) }
         if id == demoQuizRevealRoom { return quizRoom(reveal: true, clock: clock) }
+        if id == demoAnagramRoom { return anagramRoom(clock) }
+        if id == demoSprintRoom { return sprintRoom(clock) }
+        if id == demoMemoryRoom { return memoryRoom(clock) }
         if id == demoQuizInviteRoom {
             return quizLobby(id: id, fields: ["topic": "space", "audience": "kids", "difficulty": "easy"],
                              invited: [], hostIsMe: false, meJoined: meJoined, prep: "writing", clock: clock)
@@ -227,6 +239,82 @@ extension SRDemoFixtures {
          "players": \(list(players)),
          "phaseEndsAt": \(ms(now.addingTimeInterval(reveal ? 3 : 12))),
          "question": \(question),
+         "standings": null, "winnerIds": [],
+         "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Anagram Blitz, Quick Maths Sprint, Sequence Memory
+
+    /// Anagram Blitz, medium, 46 seconds in. The letters are PAINTER's,
+    /// shuffled; the room does not say so (`seed` is null until finished).
+    /// John has five words; Sam and Robin are a count and a score.
+    static func anagramRoom(_ clock: DemoClock) -> String {
+        let now = clock.now
+        func word(_ w: String, _ points: Int) -> String { "{\"word\": \(s(w)), \"points\": \(points), \"unique\": null}" }
+        let john = [word("paint", 4), word("rate", 2), word("pier", 2), word("train", 4), word("nip", 1)]
+        return """
+        {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "difficulty": "medium", "phase": "playing",
+         "hostId": "p_john", "meId": "p_john",
+         "letterCount": 7, "minLength": 3, "points": {"3": 1, "4": 2, "5": 4, "6": 6, "7": 10},
+         "timeLimitMs": 120000, "startedAt": \(ms(now.addingTimeInterval(-46))),
+         "phaseEndsAt": \(ms(now.addingTimeInterval(74))),
+         "letters": ["t", "r", "e", "n", "i", "a", "p"],
+         "players": [
+           {"id": "p_john", "name": "John", "status": "joined", "isHost": true, "wordCount": 5, "score": 13,
+            "words": \(list(john))},
+           {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": false, "wordCount": 3, "score": 7, "words": null},
+           {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "wordCount": 6, "score": 12, "words": null}
+         ],
+         "seed": null, "found": null, "missed": null, "standings": null, "winnerIds": [],
+         "serverNow": \(ms(now))}
+        """
+    }
+
+    /// Quick Maths Sprint, medium, 23 seconds in. John is on problem 9 with
+    /// five right in a row — the bonus cue — one miss behind him.
+    static func sprintRoom(_ clock: DemoClock) -> String {
+        let now = clock.now
+        return """
+        {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "difficulty": "medium", "phase": "playing",
+         "hostId": "p_robin", "meId": "p_john",
+         "timeLimitMs": 60000, "problemCount": 200, "streakBonus": 5,
+         "startedAt": \(ms(now.addingTimeInterval(-23))), "phaseEndsAt": \(ms(now.addingTimeInterval(37))),
+         "players": [
+           {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": true, "score": 6, "answered": 6},
+           {"id": "p_john", "name": "John", "status": "joined", "isHost": false, "score": 9, "answered": 8},
+           {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": false, "score": 11, "answered": 10}
+         ],
+         "me": {"problem": {"index": 8, "text": "7 × 8"}, "score": 9, "correct": 8, "misses": 1,
+                "streak": 5, "bestStreak": 5},
+         "standings": null, "winnerIds": [], "recaps": null,
+         "serverNow": \(ms(now))}
+        """
+    }
+
+    /// Sequence Memory, medium (six tiles), round 3 of five steps, the input
+    /// window a second old. Sam has sent; Robin went out in round 2.
+    static func memoryRoom(_ clock: DemoClock) -> String {
+        let now = clock.now
+        let inputAt = now.addingTimeInterval(-1)
+        let showAt = inputAt.addingTimeInterval(-3.35)
+        let inputEndsAt = inputAt.addingTimeInterval(6)
+        return """
+        {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "difficulty": "medium", "phase": "input",
+         "hostId": "p_sam", "meId": "p_john",
+         "tiles": 6, "startLength": 3, "maxLength": 20, "phaseEndsAt": \(ms(inputEndsAt)),
+         "players": [
+           {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": true, "playing": true, "alive": true,
+            "best": 4, "roundsSurvived": 2, "outRound": null},
+           {"id": "p_john", "name": "John", "status": "joined", "isHost": false, "playing": true, "alive": true,
+            "best": 4, "roundsSurvived": 2, "outRound": null},
+           {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "playing": true, "alive": false,
+            "best": 3, "roundsSurvived": 1, "outRound": 2}
+         ],
+         "round": {"number": 3, "length": 5, "showAt": \(ms(showAt)), "stepMs": 550, "gapMs": 150,
+                   "steps": null, "inputAt": \(ms(inputAt)), "windowMs": 6000,
+                   "inputEndsAt": \(ms(inputEndsAt)), "closesAt": \(ms(inputEndsAt.addingTimeInterval(1))),
+                   "answeredIds": ["p_sam"], "attempts": null, "survivorIds": null},
          "standings": null, "winnerIds": [],
          "serverNow": \(ms(now))}
         """
