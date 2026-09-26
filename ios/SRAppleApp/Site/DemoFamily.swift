@@ -26,6 +26,11 @@ extension SRDemoFixtures {
             "[\(String(format: "%.5f", 40.7812 - Double(i) * 0.0009)),\(String(format: "%.5f", -73.9665 - Double(i) * 0.0004)),\(epoch(Double(400 - i * 3)))]"
         }
 
+        // The same answer `AccessStore` holds in demo mode, so the view and
+        // the tab bar never disagree.
+        let access = SRDemo.access
+        let accessJSON = "{\"owner\":\(access.owner),\"chat\":\(access.chat),\"news\":\(access.news),\"research\":\(access.research),\"notes\":\(access.notes),\"intel\":\(access.intel),\"family\":\(access.family),\"sitePair\":null}"
+
         let json = """
         {"view":{"generatedAt":"\(at(1))","viewer":"owner","people":[
           {"subject":"alex","name":"Alex","self":true,"status":"out","line":"Bethesda Terrace · seen 2m ago",
@@ -41,7 +46,7 @@ extension SRDemoFixtures {
            "batteryPct":null,"lastSeenAt":"\(at(130))","position":{"lat":40.7851,"lon":-73.9626,"at":"\(at(130))"},"today":null},
           {"subject":"pat","name":"Pat","self":false,"status":"off","line":"Not sharing their location.",
            "batteryPct":null,"lastSeenAt":null,"position":null,"today":null}
-        ]},"updated":"\(at(1))"}
+        ],"access":\(accessJSON)},"updated":"\(at(1))"}
         """
         do {
             return try JSONDecoder().decode(HouseholdViewResponse.self, from: Data(json.utf8))

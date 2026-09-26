@@ -587,7 +587,7 @@ final class FlowAttentionStore: ObservableObject {
     func stats(now: Date) -> FlowStats { FlowStats(all, now: now) }
 
     func load() async {
-        guard client.isPaired else { return }
+        guard AccessStore.ownerSite else { return }
         do {
             let list: FlowList = try await client.send("api/native/workflows")
             all = list.workflows

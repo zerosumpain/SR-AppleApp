@@ -345,7 +345,7 @@ test('a family member with sharing off is listed but contributes no fixes', asyn
   await request('sync', { user: 'sam', method: 'POST', body: batch([], [householdFix('sam-1', new Date().toISOString())]) });
   await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: false } });
   const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
-  assert.deepEqual(body.users.find(u => u.email === 'sam@example.test'), { email: 'sam@example.test', name: 'sam', sharing: false });
+  assert.deepEqual(body.users.find(u => u.email === 'sam@example.test'), { email: 'sam@example.test', name: 'sam', sharing: false, sitePairWanted: null });
   assert.equal(body.fixes.some(f => f.email === 'sam@example.test'), false);
 });
 
@@ -428,6 +428,48 @@ test("deleting my data removes my alerts, not another user's", async t => {
   assert.equal((await request('data', { method: 'DELETE' })).status, 200);
   assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='alex'").get().n, 0);
   assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='sam'").get().n, 1);
+});
+
+// --- Site pairing request: POST /api/apple/site-pair --------------------
+
+test('site-pair needs a signed-in caller and a boolean, and nothing else', async t => {
+  const { request } = await fixture(t);
+  assert.equal((await request('site-pair', { user: null, method: 'POST', body: { wanted: true } })).status, 401);
+  assert.equal((await request('site-pair', { method: 'POST', body: { wanted: 'yes' } })).status, 400);
+  assert.equal((await request('site-pair', { method: 'POST', body: { wanted: true, email: 'sam@example.test' } })).status, 400);
+  const ok = await request('site-pair', { user: 'sam', method: 'POST', body: { wanted: true } });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(ok.body, { ok: true });
+});
+
+test("site-pair sets and clears only the caller's own row", async t => {
+  const { request, db } = await fixture(t);
+  const wanted = id => db.prepare('SELECT site_pair_wanted w FROM users WHERE id=?').get(id).w;
+  await request('site-pair', { user: 'sam', method: 'POST', body: { wanted: true } });
+  assert.ok(!Number.isNaN(Date.parse(wanted('sam'))), 'wanted is stamped with a time');
+  assert.equal(wanted('alex'), null);
+  assert.equal(wanted('robin'), null);
+  await request('site-pair', { user: 'sam', method: 'POST', body: { wanted: false } });
+  assert.equal(wanted('sam'), null);
+});
+
+test('the household lane lists who wants a site pairing', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('site-pair', { user: 'sam', method: 'POST', body: { wanted: true } });
+  const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  const byEmail = Object.fromEntries(body.users.map(u => [u.email, u]));
+  assert.equal(byEmail['alex@example.test'].sitePairWanted, null);
+  assert.ok(!Number.isNaN(Date.parse(byEmail['sam@example.test'].sitePairWanted)));
+  assert.equal(byEmail['robin@example.test'], undefined);
+});
+
+test('an existing database gains site_pair_wanted, and opening it twice is fine', async (t) => {
+  const path = `/tmp/sr-apple-sitepair-${Date.now()}.sqlite`;
+  openStore(path).close();
+  const db = openStore(path);
+  t.after(() => { db.close(); });
+  const columns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  assert.ok(columns.includes('site_pair_wanted'));
 });
 
 test('the stored password hashes are gone, not merely unused', async (t) => {

@@ -71,6 +71,16 @@ export function openStore(path) {
   if (columns.some((c) => c.name === 'password')) {
     db.exec('ALTER TABLE users DROP COLUMN password');
   }
+  // When a member's phone last asked for a SITE credential (app.mjs POST
+  // /api/apple/site-pair), or NULL once it has one. SR-Main reads it through
+  // the household lane and answers by putting a one-time site pairing code in
+  // that person's pushed view — the phone never talks to the site's owner-only
+  // device minting itself. Added by ALTER rather than in CREATE TABLE so an
+  // existing database gains it; guarded because ADD COLUMN on a column that
+  // already exists is an error, not a no-op.
+  if (!columns.some((c) => c.name === 'site_pair_wanted')) {
+    db.exec('ALTER TABLE users ADD COLUMN site_pair_wanted TEXT');
+  }
   return db;
 }
 /**

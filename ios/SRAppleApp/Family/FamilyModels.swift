@@ -16,6 +16,11 @@ struct HouseholdView: Codable, Equatable {
     let people: [FamilyPerson]
     /// Places whose leaving switches this phone to close tracking.
     var watch: [WatchedPlace]? = nil
+    /// What this person may use in the app, from the owner's access groups on
+    /// the site — and, for a member who asked, a one-time site pairing code.
+    /// Nil from a site older than access groups, which `AccessPolicy` reads as
+    /// "unknown". See `AccessStore`.
+    var access: ViewAccess? = nil
 
     /// Whether there is anybody to show — a "none" view is only a watch list.
     var showsHousehold: Bool { viewer != "none" }

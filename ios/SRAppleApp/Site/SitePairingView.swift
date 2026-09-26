@@ -14,12 +14,24 @@ final class SitePairingModel: ObservableObject {
     @Published var paired = SiteClient.shared.isPaired
     @Published var ownerEmail: String?
 
-    private struct Me: Decodable { let ownerEmail: String; let label: String?; let expiresAt: String }
+    /// `role` and the flags arrived with member access; a site older than
+    /// that sends neither, and `ownerEmail` may be absent for a member.
+    private struct Me: Decodable {
+        let ownerEmail: String?
+        let label: String?
+        let expiresAt: String?
+        let role: String?
+    }
 
     func check() async {
         guard SiteClient.shared.isPaired else { paired = false; return }
         do {
-            let me: Me = try await SiteClient.shared.send("api/native/me")
+            let data = try await SiteClient.shared.call("api/native/me", method: "GET")
+            let me = try JSONDecoder().decode(Me.self, from: data)
+            // The flags sit beside `role` at the top level, so the same
+            // lenient decoder reads them from the same bytes.
+            let flags = (try? JSONDecoder().decode(AppAccess.self, from: data)) ?? .nothing
+            AccessStore.shared.adopt(siteRole: me.role, flags: flags)
             ownerEmail = me.ownerEmail
             paired = true
             message = nil

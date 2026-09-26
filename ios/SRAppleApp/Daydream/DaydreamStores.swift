@@ -95,7 +95,7 @@ final class HealthNoticedStore: ObservableObject {
     private let client = SiteClient.shared
 
     func load() async {
-        guard client.isPaired, !loading else { return }
+        guard AccessStore.ownerSite, !loading else { return }
         loading = true
         defer { loading = false }
         do {

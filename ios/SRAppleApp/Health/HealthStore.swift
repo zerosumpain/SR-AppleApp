@@ -16,7 +16,7 @@ final class HealthStore: ObservableObject {
     private let client = SiteClient.shared
 
     func load(fresh: Bool = false) async {
-        guard client.isPaired else { return }
+        guard AccessStore.ownerSite else { return }
         guard !loading else { return }
         loading = true
         defer { loading = false }

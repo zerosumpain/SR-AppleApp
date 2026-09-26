@@ -49,6 +49,8 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     init(outbox: Outbox) {
         self.outbox = outbox; health = HealthCollector(outbox: outbox); location = LocationCollector(outbox: outbox)
         paired = api.token != nil
+        // What the site last said this person may use, before anything draws.
+        AccessStore.shared.attach(outbox)
         health.onUpdate = { [weak self] in Task { await self?.flush() } }
         location.onUpdate = { [weak self] in Task { await self?.flush() } }
         updateQueue()
@@ -68,6 +70,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         do {
             guard !paired else { throw CompanionError.message("Disconnect this device before pairing another account.") }
             try outbox.clear()
+            AccessStore.shared.attach(outbox)
             try await api.pair(server: server, code: code)
             paired = true
             message = "Connected. Choose health categories and location sharing below."
@@ -217,7 +220,11 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         // The watched places ride in the household view. Read on every sync
         // (including background wakes), so a place flagged on the site is
         // watched by the phone without anybody opening the Family tab.
-        if let v: HouseholdViewResponse = try? await api.request("household/view", timeout: 12) { adoptWatch(v.view?.watch) }
+        // And so does what this person may use in the app.
+        if let v: HouseholdViewResponse = try? await api.request("household/view", timeout: 12) {
+            adoptWatch(v.view?.watch)
+            await adoptAccess(v.view?.access)
+        }
         let h: HealthResponse = try await api.request("health"); records = h.records
     }
     /// Hand the site's watched places to the collector. Nil — an older site,
@@ -226,6 +233,21 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     func adoptWatch(_ places: [WatchedPlace]?) {
         guard let places else { return }
         location.setWatchedPlaces(places)
+    }
+    /// Hand the view's `access` to the one place it lives, then — for a member
+    /// entitled to chat or news with no site credential yet — ask SR-Main for
+    /// one. The answer arrives as `access.sitePair` in a later view, and
+    /// `ContentView` spends it. Throttled to once per five minutes; every
+    /// failure is silent, because this runs inside background wakes too.
+    func adoptAccess(_ access: ViewAccess?) async {
+        AccessStore.shared.adopt(view: access)
+        guard paired, AccessStore.shared.claimPairRequest() else { return }
+        let _: API.Acknowledgement? = try? await api.request("site-pair", method: "POST", data: JSONEncoder().encode(["wanted": true]), timeout: 12)
+    }
+    /// The code was spent: stop asking for another.
+    func confirmSitePaired() async {
+        guard paired else { return }
+        let _: API.Acknowledgement? = try? await api.request("site-pair", method: "POST", data: JSONEncoder().encode(["wanted": false]), timeout: 12)
     }
     func flush() async {
         updateQueue()
@@ -359,7 +381,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 // Already revoked or expired: it is safe to remove the local credential.
             }
             try Keychain.save(nil); api.token = nil; paired = false
-            try outbox.clear(); health.startObservers(); retryTask?.cancel()
+            try outbox.clear(); AccessStore.shared.attach(outbox); health.startObservers(); retryTask?.cancel()
             profile = nil; records = []; family = []; updateQueue(); message = "Disconnected. Uploaded health records remain in your private dashboard."
         } catch { message = "Disconnect pending: \(error.localizedDescription). You can revoke this device on the website." }
     }

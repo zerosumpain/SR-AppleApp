@@ -75,7 +75,7 @@ final class ActivitiesStore: ObservableObject {
     var hasMore: Bool { nextBefore != nil }
 
     func load() async {
-        guard client.isPaired, state != .loading else { return }
+        guard AccessStore.ownerSite, state != .loading else { return }
         state = .loading
         do {
             let page: ActivitiesPage = try await client.send(TrailPath.activities(limit: pageSize))
@@ -116,7 +116,7 @@ final class SegmentsStore: ObservableObject {
     private let client = SiteClient.shared
 
     func load() async {
-        guard client.isPaired, state != .loading else { return }
+        guard AccessStore.ownerSite, state != .loading else { return }
         state = .loading
         do {
             let page: SegmentsPage = try await client.send(TrailPath.segments())

@@ -51,6 +51,7 @@ final class FamilyStore: ObservableObject {
         do {
             let response: HouseholdViewResponse = try await companion.api.request("household/view", timeout: 12)
             companion.adoptWatch(response.view?.watch)
+            await companion.adoptAccess(response.view?.access)
             view = response.view?.showsHousehold == true ? response.view : nil
             updated = response.updated
             message = nil

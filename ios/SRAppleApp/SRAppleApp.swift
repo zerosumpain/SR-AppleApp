@@ -63,38 +63,27 @@ import UIKit
     /// Three verbs, chosen because each is something you want BEFORE the app
     /// has finished opening: ask a question, see the figures, push what is
     /// queued. Registered in code rather than `Info.plist` so the titles live
-    /// beside the routing that honours them.
+    /// beside the routing that honours them — and so they can follow what this
+    /// person may use: "Ask jkai" is only there with chat. `ContentView`
+    /// re-sets them whenever the site's answer changes.
     private func installQuickActions(_ application: UIApplication) {
-        application.shortcutItems = [
-            UIApplicationShortcutItem(
-                type: "com.strangeramblings.com.appleapp.ask",
-                localizedTitle: "Ask jkai",
-                localizedSubtitle: nil,
-                icon: UIApplicationShortcutIcon(systemImageName: "bubble.left.and.text.bubble.right")
-            ),
-            UIApplicationShortcutItem(
-                type: "com.strangeramblings.com.appleapp.health",
-                localizedTitle: "Health today",
-                localizedSubtitle: nil,
-                icon: UIApplicationShortcutIcon(systemImageName: "heart.text.square")
-            ),
-            UIApplicationShortcutItem(
-                type: "com.strangeramblings.com.appleapp.sync",
-                localizedTitle: "Sync now",
-                localizedSubtitle: nil,
-                icon: UIApplicationShortcutIcon(systemImageName: "arrow.triangle.2.circlepath")
-            ),
-        ]
+        application.shortcutItems = AccessPolicy.quickActions(for: AccessStore.shared.current).map { $0.item }
     }
 
     func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem) async -> Bool {
-        switch shortcutItem.type {
-        case "com.strangeramblings.com.appleapp.ask": Self.pending.tab = .chat
-        case "com.strangeramblings.com.appleapp.health": Self.pending.tab = .health
-        case "com.strangeramblings.com.appleapp.sync":
+        guard let kind = QuickActionKind(rawValue: shortcutItem.type) else { return false }
+        // iOS can hand back an item set before access changed. One for a
+        // feature this person no longer has opens the app on Today, nothing more.
+        guard AccessPolicy.quickActions(for: AccessStore.shared.current).contains(kind) else {
+            Self.pending.tab = .today
+            return true
+        }
+        switch kind {
+        case .ask: Self.pending.tab = .chat
+        case .health: Self.pending.tab = .health
+        case .sync:
             Self.pending.tab = .today
             await companion?.sync()
-        default: return false
         }
         return true
     }
@@ -129,6 +118,11 @@ import UIKit
         didReceive response: UNNotificationResponse
     ) async {
         let category = response.notification.request.content.categoryIdentifier
+        // The site's categories reach only the owner's phone (a member's never
+        // polls the owner's inbox), but a notification can outlive the access
+        // that raised it. The router refuses a tab, the inbox or the
+        // connections sheet this person may not reach, so a stale tap opens
+        // Today.
         if category == "connections" {
             Self.pending.openConnections = true
             return

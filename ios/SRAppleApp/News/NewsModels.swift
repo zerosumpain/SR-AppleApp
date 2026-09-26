@@ -93,6 +93,10 @@ struct NewsFeed: Decodable {
     let anchorCount: Int
     let sources: [NewsSourceState]
     let stories: [NewsStory]
+    /// What this reader may do with a story. Absent from a site older than
+    /// member access; `AccessPolicy.newsActions` falls back to the person's
+    /// own flags.
+    let can: NewsCan?
 }
 
 /// One story, opened.
@@ -108,6 +112,8 @@ struct NewsArticle: Decodable {
     let truncated: Bool
     let message: String?
     let favourite: Bool
+    /// As on the feed.
+    let can: NewsCan?
 
     struct Story: Decodable {
         let key: String

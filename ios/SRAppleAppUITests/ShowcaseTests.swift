@@ -405,6 +405,27 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    // MARK: - A member
+
+    /// A family member given the Family tab and nothing else. Chat, News and
+    /// Flows are not disabled or explained — they are not there, and with
+    /// four tabs nor is More.
+    @MainActor func testShowcaseMemberWithoutChatOrNews() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-SRDemo", "-SRDemoMember"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        for tab in ["Today", "Health", "Family"] {
+            XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
+        }
+        for tab in ["Chat", "News", "Flows", "More"] {
+            XCTAssertFalse(app.tabBars.buttons[tab].exists, "\(tab) is on a member's bar")
+        }
+        XCTAssertFalse(app.buttons["today-ask"].exists, "Ask jkai is on Today without chat")
+        settle(app)
+        attach(app, "Showcase — a member: Today, Health, Family and nothing else")
+    }
+
     // MARK: - Helpers
 
     @MainActor private func launch() -> XCUIApplication {

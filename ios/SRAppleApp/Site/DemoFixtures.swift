@@ -27,6 +27,16 @@ enum SRDemo {
 
     /// The pretend credential. Held in memory only; never written anywhere.
     static let token = "demo"
+
+    /// `-SRDemoMember` as well: a family member the owner gave the Family tab
+    /// and nothing else — no chat, no news. The screenshot that proves a
+    /// feature somebody lacks is absent rather than disabled.
+    static var isMember: Bool { ProcessInfo.processInfo.arguments.contains("-SRDemoMember") }
+
+    /// What demo mode may use: everything, as the owner, unless a member.
+    static var access: AppAccess {
+        isMember ? AppAccess(family: true) : .everything
+    }
 }
 
 /// Answers the site client's requests from `SRDemoFixtures`.

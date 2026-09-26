@@ -12,6 +12,17 @@ import Foundation
 /// already have. Widgets and Live Activities do not, which is why there are
 /// none yet.
 
+/// What an intent says when it belongs to a feature this person was not given.
+///
+/// App Shortcuts are declared statically — the phrases are compiled into the
+/// app and cannot be withdrawn per person on every iOS this runs on — so the
+/// gate is here, at `perform()`: a phrase for something hidden answers
+/// politely and opens nothing.
+struct AccessRefusal: Error, CustomLocalizedStringResourceConvertible {
+    let localizedStringResource: LocalizedStringResource
+    static let unavailable = AccessRefusal(localizedStringResource: "That isn't available on this iPhone.")
+}
+
 /// "How am I doing?"
 struct HealthTodayIntent: AppIntent {
     static var title: LocalizedStringResource = "Health today"
@@ -21,6 +32,8 @@ struct HealthTodayIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        // The site's /health figures are the owner's.
+        guard AccessStore.shared.current.owner else { throw AccessRefusal.unavailable }
         guard SiteClient.shared.isPaired else {
             return .result(dialog: IntentDialog(
                 LocalizedStringResource(stringLiteral: "Connect this iPhone to Strange Ramblings first.")
@@ -66,6 +79,13 @@ struct AskJkaiIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
+        // Without chat there is no tab to open and no composer to fill.
+        // `openAppWhenRun` has already brought the app forward; it stays on
+        // Today.
+        guard AccessStore.shared.allows(.chat) else {
+            AppDelegate.pending.tab = .today
+            throw AccessRefusal.unavailable
+        }
         AppDelegate.pending.question = question
         AppDelegate.pending.tab = .chat
         return .result()

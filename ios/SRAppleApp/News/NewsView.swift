@@ -14,6 +14,7 @@ import SwiftUI
 /// now the navigation bar's job.
 struct NewsScreen: View {
     @StateObject private var store = NewsStore()
+    @ObservedObject private var access = AccessStore.shared
 
     var body: some View {
         // A scroll of cards rather than a `List`: a NavigationLink inside a list
@@ -39,6 +40,7 @@ struct NewsScreen: View {
                             saved: store.isSaved(story),
                             kept: store.isKept(story),
                             busy: store.busyKey == story.key,
+                            actions: AccessPolicy.newsActions(can: store.feed?.can, access: access.current),
                             onAction: { action in Task { await store.act(action, on: story) } }
                         )
                     }
@@ -152,6 +154,9 @@ struct NewsLedgerRow: View {
     let saved: Bool
     let kept: Bool
     let busy: Bool
+    /// Only the verbs this reader may use — a member without research is
+    /// never offered "Commission research", rather than offered it and refused.
+    let actions: [NewsAction]
     let onAction: (NewsAction) -> Void
 
     var body: some View {
@@ -228,7 +233,7 @@ struct NewsLedgerRow: View {
         // the one iOS affordance that can carry four verbs without spending a
         // column of the ledger on them.
         .contextMenu {
-            ForEach([NewsAction.favourite, .graph, .note, .research], id: \.rawValue) { action in
+            ForEach(actions, id: \.rawValue) { action in
                 Button {
                     onAction(action)
                 } label: {

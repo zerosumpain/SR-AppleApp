@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CoreSpotlight
 
 /// Where the app goes, held outside the views that navigate.
@@ -38,22 +39,39 @@ final class Router: ObservableObject {
     enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
 
     func openSettings(_ target: SettingsTarget? = nil) {
-        settingsTarget = target
+        // Where alerts go is the owner's site inbox; nobody else has a
+        // Notifications screen to be sent to.
+        settingsTarget = target == .notifications && !AccessStore.shared.current.owner ? nil : target
         sheet = .settings
     }
 
-    func openAlerts() { sheet = .alerts }
+    /// The site's alert inbox — the owner's alone.
+    func openAlerts() {
+        guard AccessStore.shared.current.owner else { return }
+        sheet = .alerts
+    }
 
     /// Every site connection that needs the owner — the banner's chevron, and
     /// a tapped "connections" notification.
-    func openConnections() { sheet = .connections }
+    func openConnections() {
+        guard AccessStore.shared.current.owner else { return }
+        sheet = .connections
+    }
 
     /// Go to a tab and clear whatever was stacked on it.
     ///
     /// Clearing matters: an intent that opens Chat while a thread is already
     /// pushed would otherwise land on that thread, which is not what "open
     /// chat" means to the person who said it.
+    ///
+    /// A tab this person may not open does not exist, so whatever asked for it
+    /// — a stale quick action, an old notification, a Shortcut — lands on
+    /// Today instead.
     func show(_ tab: Tab) {
+        guard AccessStore.shared.allows(tab) else {
+            self.tab = .today
+            return
+        }
         switch tab {
         case .chat: chat = NavigationPath()
         case .health: health = NavigationPath()
@@ -66,11 +84,13 @@ final class Router: ObservableObject {
     }
 
     func ask(_ question: String) {
+        guard AccessStore.shared.allows(.chat) else { show(.today); return }
         pendingQuestion = question
         show(.chat)
     }
 
     func share(_ files: [URL]) {
+        guard AccessStore.shared.allows(.chat) else { show(.today); return }
         pendingFiles = files
         show(.chat)
     }
@@ -105,6 +125,9 @@ struct ContentView: View {
     /// One household view for the Today mini-map and the Family tab, so the
     /// tab opens on the picture it was opened from.
     @StateObject private var family: FamilyStore
+    /// What this person may use. Every tab below, and most of what is in them,
+    /// is built from it — see `AccessPolicy`.
+    @ObservedObject private var access = AccessStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
@@ -127,12 +150,16 @@ struct ContentView: View {
             .tabItem { Label("Today", systemImage: "square.grid.2x2") }
             .tag(Router.Tab.today)
 
-            NavigationStack(path: $router.chat) {
-                paired(what: "your threads") { ThreadListScreen() }
-                    .srConnectionsBanner(connections) { router.openConnections() }
+            // Only the tabs this person may open are BUILT: a feature somebody
+            // lacks is not a greyed-out tab or an explanation, it is not there.
+            if access.allows(.chat) {
+                NavigationStack(path: $router.chat) {
+                    paired(what: "your threads") { ThreadListScreen() }
+                        .srConnectionsBanner(connections) { router.openConnections() }
+                }
+                .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+                .tag(Router.Tab.chat)
             }
-            .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
-            .tag(Router.Tab.chat)
 
             NavigationStack(path: $router.health) {
                 HealthScreen(companion: companion)
@@ -145,28 +172,35 @@ struct ContentView: View {
             // in the family has — so, unlike Chat or News, not behind `paired`.
             // A sixth tab: iOS folds the fifth and sixth under "More", and
             // that is the price John chose over giving a tab up.
-            NavigationStack(path: $router.family) {
-                FamilyScreen(store: family, companion: companion)
-                    .srConnectionsBanner(connections) { router.openConnections() }
+            if access.allows(.family) {
+                NavigationStack(path: $router.family) {
+                    FamilyScreen(store: family, companion: companion)
+                        .srConnectionsBanner(connections) { router.openConnections() }
+                }
+                .tabItem { Label("Family", systemImage: "person.2.wave.2") }
+                .tag(Router.Tab.family)
             }
-            .tabItem { Label("Family", systemImage: "person.2.wave.2") }
-            .tag(Router.Tab.family)
 
-            NavigationStack(path: $router.news) {
-                paired(what: "the news desk") { NewsScreen() }
-                    .srConnectionsBanner(connections) { router.openConnections() }
+            if access.allows(.news) {
+                NavigationStack(path: $router.news) {
+                    paired(what: "the news desk") { NewsScreen() }
+                        .srConnectionsBanner(connections) { router.openConnections() }
+                }
+                .tabItem { Label("News", systemImage: "newspaper") }
+                .tag(Router.Tab.news)
             }
-            .tabItem { Label("News", systemImage: "newspaper") }
-            .tag(Router.Tab.news)
 
             // The site's workflows: list, run, pause, edit a step, ask jkai to
             // change one. A place you go back to, which is what earns a tab.
-            NavigationStack(path: $router.flows) {
-                paired(what: "your workflows") { FlowsScreen() }
-                    .srConnectionsBanner(connections) { router.openConnections() }
+            // The owner's alone.
+            if access.allows(.flows) {
+                NavigationStack(path: $router.flows) {
+                    paired(what: "your workflows") { FlowsScreen() }
+                        .srConnectionsBanner(connections) { router.openConnections() }
+                }
+                .tabItem { Label("Flows", systemImage: "point.3.connected.trianglepath.dotted") }
+                .tag(Router.Tab.flows)
             }
-            .tabItem { Label("Flows", systemImage: "point.3.connected.trianglepath.dotted") }
-            .tag(Router.Tab.flows)
         }
         .tint(SR.accent)
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
@@ -176,6 +210,7 @@ struct ContentView: View {
         .environmentObject(router)
         .environmentObject(alerts)
         .environmentObject(connections)
+        .environmentObject(access)
         // An install paired before the household question existed is asked
         // once, here. A phone pairing now is asked by the Connections screen.
         .srSharingQuestion(companion: companion, onPairing: false)
@@ -184,6 +219,7 @@ struct ContentView: View {
             // waiting before there was a router to receive it.
             drainPending()
             await site.check()
+            await reconcileSite()
             await alerts.refresh()
             await connections.refresh()
         }
@@ -201,7 +237,19 @@ struct ContentView: View {
         }
         // Disconnecting the site clears its connections; connecting fetches them.
         .onChange(of: site.paired) { _, _ in
-            Task { await connections.refresh() }
+            Task {
+                await reconcileSite()
+                await connections.refresh()
+            }
+        }
+        // The site changed its mind about this person, or sent the pairing
+        // code a member's phone asked for.
+        .onChange(of: access.current) { _, _ in
+            if !access.allows(router.tab) { router.tab = .today }
+            Task { await reconcileSite() }
+        }
+        .onChange(of: access.offer) { _, _ in
+            Task { await reconcileSite() }
         }
         // A thread opened from Spotlight. The index carries the conversation id
         // as the item identifier, so this is a push rather than a search.
@@ -213,12 +261,22 @@ struct ContentView: View {
         // a second target with its own bundle id and provisioning profile, and
         // this app has exactly one — see the signing notes. A document type
         // lives in the app target and needs nothing new from the portal.
+        //
+        // The document types are in Info.plist and cannot change per person,
+        // so "Open in SR" stays on the Share sheet for everyone; somebody
+        // without chat has nowhere for a file to go, and it is dropped —
+        // including the copy iOS put in Inbox.
         .onOpenURL { url in
             guard url.isFileURL else { return }
+            guard access.allows(.chat) else {
+                if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
+                return
+            }
             router.share([url])
         }
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
-            guard let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
+            guard access.allows(.chat),
+                  let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
             router.show(.chat)
             router.chat.append(ThreadReference(id: id))
         }
@@ -244,6 +302,9 @@ struct ContentView: View {
     }
 
     private func drainPending() {
+        // The router refuses anything this person may not reach — a question
+        // without chat, a hidden tab, the owner's inbox — so a stale entry
+        // lands on Today rather than on a screen that is not there.
         AppDelegate.pending.drain(into: router, companion: companion)
         if AppDelegate.pending.openAlerts {
             AppDelegate.pending.openAlerts = false
@@ -253,6 +314,34 @@ struct ContentView: View {
             AppDelegate.pending.openConnections = false
             router.openConnections()
         }
+    }
+
+    /// Bring the site credential into line with what this person may use.
+    ///
+    /// A member entitled to chat or news is paired automatically, with the
+    /// one-time code SR-Main put in their view after the phone asked
+    /// (`Companion.adoptAccess`); through `site` so `site.paired` — and every
+    /// tab watching it — updates. A member who has lost both is signed out so
+    /// nothing lingers, and without chat the thread titles leave Spotlight.
+    /// An owner is never touched: the QR flow is theirs.
+    private func reconcileSite() async {
+        UIApplication.shared.shortcutItems = AccessPolicy.quickActions(for: access.current).map { $0.item }
+        #if DEBUG
+        // Demo mode's credential is pretend and its access fixed.
+        if SRDemo.isOn { return }
+        #endif
+        access.siteChanged(paired: site.paired)
+        if !access.current.chat { ThreadIndex.clear() }
+        if AccessPolicy.signsOutSite(known: access.known, sitePaired: site.paired, siteRole: access.siteRole) {
+            site.signOut()
+            access.siteChanged(paired: false)
+            return
+        }
+        guard AccessPolicy.wantsSitePair(known: access.known, sitePaired: site.paired),
+              !site.busy, let offer = access.takeOffer() else { return }
+        await site.pair(offer.pairing)
+        access.siteChanged(paired: site.paired)
+        if site.paired { await companion.confirmSitePaired() }
     }
 
     /// `TabView`'s selection, with a haptic on the change.
@@ -272,10 +361,23 @@ struct ContentView: View {
 
     /// A tab that needs the site credential, or the one screen that explains
     /// why it does not have it.
+    ///
+    /// A member is never sent to the QR scanner — their phone pairs itself
+    /// (`reconcileSite`), so the screen says so and offers nothing to press.
     @ViewBuilder
     private func paired<Content: View>(what: String, @ViewBuilder content: () -> Content) -> some View {
         if site.paired {
             content()
+        } else if !access.current.owner {
+            SREmpty(
+                title: "Connecting",
+                icon: "arrow.triangle.2.circlepath",
+                message: "This iPhone is being connected to Strange Ramblings for \(what). It happens by itself — nothing to scan."
+            )
+            .frame(maxHeight: .infinity)
+            .srPaper()
+            .navigationTitle(what.capitalized)
+            .navigationBarTitleDisplayMode(.inline)
         } else {
             SREmpty(
                 title: "Not connected yet",
