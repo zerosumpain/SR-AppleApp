@@ -14,9 +14,9 @@ final class HealthHubTests: XCTestCase {
         // top of the tab. In full it takes ~270pt of the viewport, and a whole
         // swipe can then carry a row from below the fold to UNDER the banner
         // (not hittable) in one step. These tests are about the Health tab:
-        // make the banner the slim strip first.
-        let collapse = app.descendants(matching: .any)["connections-banner-collapse"].firstMatch
-        if collapse.waitForExistence(timeout: 5) { collapse.tap() }
+        // dismiss the banner first.
+        let dismiss = app.descendants(matching: .any)["connections-banner-dismiss"].firstMatch
+        if dismiss.waitForExistence(timeout: 5) { dismiss.tap() }
         return app
     }
 

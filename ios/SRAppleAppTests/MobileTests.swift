@@ -131,14 +131,55 @@ final class ThreadNavigationTests: XCTestCase {
 
     func testAPlaceholderThreadCarriesNothingItDoesNotKnow() {
         // Spotlight and a notification both hand back an id and nothing else.
-        // The placeholder must not invent a title — "Untitled thread" is the
-        // honest label until the fetch lands.
+        // The placeholder must not invent a title — "New thread" is the
+        // honest label until the fetch lands. Never "Untitled".
         let placeholder = Conversation.placeholder(id: "abc-123")
         XCTAssertEqual(placeholder.id, "abc-123")
         XCTAssertNil(placeholder.title)
-        XCTAssertEqual(placeholder.displayTitle, "Untitled thread")
+        XCTAssertEqual(placeholder.displayTitle, "New thread")
         XCTAssertFalse(placeholder.pinned)
         XCTAssertNil(placeholder.oneLinePreview)
+    }
+
+    private func thread(_ id: String, title: String? = nil, preview: String? = nil, messages: Int = 2,
+                        pinned: Bool = false, created: String? = nil, updated: String? = nil) -> Conversation {
+        Conversation(id: id, title: title, source: "web", pinned: pinned, messageCount: messages, modelProvider: nil,
+                     modelId: nil, preview: preview, createdAt: created, updatedAt: updated)
+    }
+
+    func testAThreadIsNeverUntitled() {
+        XCTAssertEqual(thread("a", title: "Hourly rate on 135k").displayTitle, "Hourly rate on 135k")
+        XCTAssertEqual(thread("b", title: "New thread", preview: "What is wrong with this fella").displayTitle,
+                       "What is wrong with this fella")
+        XCTAssertEqual(thread("c", preview: "A very long last line that goes on and on well past where a title should stop").displayTitle,
+                       "A very long last line that goes on and on well…")
+        XCTAssertEqual(thread("d", messages: 0).displayTitle, "New thread")
+    }
+
+    func testAnEmptyThreadIsListedOnlyWhileItIsNew() {
+        let now = parseTimestamp("2026-09-26T12:00:00Z")!
+        XCTAssertTrue(thread("a").isListable(now: now))
+        XCTAssertTrue(thread("b", messages: 0, created: "2026-09-26T11:50:00Z").isListable(now: now))
+        XCTAssertFalse(thread("c", messages: 0, created: "2026-09-26T09:00:00Z").isListable(now: now))
+        XCTAssertTrue(thread("d", messages: 0, pinned: true).isListable(now: now))
+    }
+
+    func testThreadsAreGroupedByWhenTheyWereLastTouched() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        let now = parseTimestamp("2026-09-26T12:00:00Z")!
+        let threads = [
+            thread("t1", updated: "2026-09-26T09:00:00Z"),
+            thread("t2", updated: "2026-09-26T07:00:00Z"),
+            thread("y", updated: "2026-09-25T20:00:00Z"),
+            thread("w", updated: "2026-09-22T10:00:00Z"),
+            thread("m", updated: "2026-09-10T10:00:00Z"),
+            thread("aug", updated: "2026-08-10T10:00:00Z"),
+            thread("old", updated: "2025-07-01T10:00:00Z"),
+        ]
+        let groups = ThreadSections.group(threads, now: now, calendar: calendar)
+        XCTAssertEqual(groups.map(\.title), ["Today", "Yesterday", "Previous 7 days", "Previous 30 days", "August", "July 2025"])
+        XCTAssertEqual(groups.first?.threads.map(\.id), ["t1", "t2"])
     }
 
     @MainActor func testAQuestionForTheDeskIsEncodedIntoTheURL() throws {

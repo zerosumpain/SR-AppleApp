@@ -104,4 +104,30 @@ final class FamilyTests: XCTestCase {
         let encoded = String(decoding: try JSONEncoder().encode(old), as: UTF8.self)
         XCTAssertFalse(encoded.contains("battery"), "no battery is sent as no key, which every pilot accepts")
     }
+
+    // MARK: - Who is moving
+
+    func testMovingDecodesAndIsOptional() throws {
+        let json = #"{"subject":"sam","name":"Sam","self":false,"status":"out","line":"x","batteryPct":null,"lastSeenAt":null,"position":{"lat":1,"lon":2,"at":"2026-09-26T09:00:00Z"},"moving":{"mode":"vehicle","speedKmh":48,"since":"2026-09-26T08:55:00Z"},"today":null}"#
+        let sam = try JSONDecoder().decode(FamilyPerson.self, from: Data(json.utf8))
+        XCTAssertEqual(sam.moving?.verb, "travelling")
+        XCTAssertEqual(sam.movingLead, "Sam is travelling")
+        let older = #"{"subject":"sam","name":"Sam","self":true,"status":"home","line":"x","batteryPct":null,"lastSeenAt":null,"position":null,"today":null}"#
+        XCTAssertNil(try JSONDecoder().decode(FamilyPerson.self, from: Data(older.utf8)).moving, "a site older than moving")
+    }
+
+    func testTheDemoHouseholdHasSomebodyMoving() {
+        let view = SRDemoFixtures.householdView(now: Date()).view
+        XCTAssertEqual(view?.moving.map(\.subject), ["alex"])
+        XCTAssertEqual(view?.moving.first?.movingLead, "You are walking", "your own card says you")
+    }
+
+    func testAPlaceIsPhrasedStreetThenTownWithoutRepeats() {
+        XCTAssertEqual(PlaceNamer.phrase(street: "Station Road", area: "Bank Top", town: "Darlington"), "Station Road, Darlington")
+        XCTAssertEqual(PlaceNamer.phrase(street: nil, area: "Bank Top", town: "Darlington"), "Bank Top, Darlington")
+        XCTAssertEqual(PlaceNamer.phrase(street: nil, area: nil, town: "Darlington"), "Darlington")
+        XCTAssertEqual(PlaceNamer.phrase(street: "Darlington", area: nil, town: "Darlington"), "Darlington")
+        XCTAssertNil(PlaceNamer.phrase(street: nil, area: " ", town: nil))
+        XCTAssertEqual(PlaceNamer.key(lat: 54.52345, lon: -1.55432), "54.523,-1.554")
+    }
 }

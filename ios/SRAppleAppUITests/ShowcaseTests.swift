@@ -361,13 +361,14 @@ final class ShowcaseTests: XCTestCase {
             soft(false, "no banner details button")
         }
 
-        let collapse = byId(app, "connections-banner-collapse")
-        if collapse.waitForExistence(timeout: 5) {
-            collapse.tap()
-            settle(app, on: byId(app, "connections-banner-expand"))
-            attach(app, "Showcase — Connection banner, made smaller")
+        let dismiss = byId(app, "connections-banner-dismiss")
+        if dismiss.waitForExistence(timeout: 5) {
+            dismiss.tap()
+            settle(app)
+            soft(!byId(app, "connections-banner").exists, "the banner did not go when dismissed")
+            attach(app, "Showcase — Connection banner, dismissed")
         } else {
-            soft(false, "no collapse button")
+            soft(false, "no dismiss button")
         }
     }
 

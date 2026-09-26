@@ -44,13 +44,41 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
     let batteryPct: Int?
     let lastSeenAt: String?
     let position: Position?
+    /// On the move right now, or nil. Absent from a site older than it.
+    var moving: Moving? = nil
     let today: Today?
 
     var id: String { subject }
 
     enum CodingKeys: String, CodingKey {
-        case subject, name, status, line, batteryPct, lastSeenAt, position, today
+        case subject, name, status, line, batteryPct, lastSeenAt, position, moving, today
         case isSelf = "self"
+    }
+
+    /// How somebody is moving, from their last ten minutes of fixes on the
+    /// site. A speed band, never a claim about the vehicle.
+    struct Moving: Codable, Equatable {
+        /// "walking", "active" (running or cycling — GPS cannot tell), "vehicle".
+        let mode: String
+        let speedKmh: Double
+        let since: String
+
+        /// "walking", "on the move", "travelling" — said, not asserted.
+        var verb: String {
+            switch mode {
+            case "walking": return "walking"
+            case "vehicle": return "travelling"
+            default: return "on the move"
+            }
+        }
+
+        var symbol: String {
+            switch mode {
+            case "walking": return "figure.walk"
+            case "vehicle": return "car.fill"
+            default: return "figure.run"
+            }
+        }
     }
 
     struct Position: Codable, Equatable {
@@ -72,6 +100,13 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
 
     var initial: String { String(name.prefix(1)).uppercased() }
     var sharing: Bool { status != "off" }
+
+    /// "Sam is walking" — the first half of the moving line. The place is the
+    /// phone's to add (`PlaceNamer`), so it is not in here.
+    var movingLead: String? {
+        guard let moving else { return nil }
+        return "\(isSelf ? "You are" : "\(name) is") \(moving.verb)"
+    }
 }
 
 extension FamilyPerson.Today {
@@ -124,6 +159,9 @@ enum BatteryReading {
 extension HouseholdView {
     /// Everyone with a pin, for the map.
     var placed: [FamilyPerson] { people.filter { $0.position != nil } }
+
+    /// Whoever is on the move now, the summary's first lines.
+    var moving: [FamilyPerson] { people.filter { $0.moving != nil && $0.position != nil } }
 
     /// "3 home · 1 out" — the counts under the mini-map. Only statuses somebody
     /// actually has are named.

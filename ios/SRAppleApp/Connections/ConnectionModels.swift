@@ -26,6 +26,11 @@ struct ConnectionItem: Codable, Identifiable, Hashable {
     let fixUrl: String?
     /// ISO-8601, when the site first saw it lapse. `sinceDate` parses it.
     let since: String?
+    /// Set on a problem with THIS phone's own health link (`PersonalHealthCheck`),
+    /// which the app fixes itself rather than in Safari. Never on the wire.
+    var localFix: PersonalFix? = nil
+    /// A headline written for the problem rather than built from the status.
+    var headlineOverride: String? = nil
 
     init(id: String, label: String, group: String = "", status: String, detail: String,
          fixHint: String? = nil, fixUrl: String? = nil, since: String? = nil) {
@@ -59,8 +64,16 @@ struct ConnectionItem: Codable, Identifiable, Hashable {
 
     var state: ConnectionStatus { ConnectionStatus(status) }
 
+    /// What a dismissal remembers: this connection in this state. Fixed and
+    /// lapsed again, or gone from expired to failing, is news again.
+    var dismissKey: String { "\(id)|\(status)" }
+
+    /// Whether this is the phone's own health link rather than the site's.
+    var isPersonal: Bool { id.hasPrefix(PersonalHealthCheck.prefix) }
+
     /// The one line the banner leads with.
     var headline: String {
+        if let headlineOverride { return headlineOverride }
         switch state {
         case .needsReauth: return "\(label) needs re-authorising"
         case .failing: return "\(label) is failing"
@@ -180,21 +193,20 @@ struct ConnectionsSnapshot: Codable, Equatable {
     }
 }
 
-// MARK: - The banner's three states
+// MARK: - The banner's two states
 
 /// What the banner at the top of every tab shows.
 ///
-/// It cannot be dismissed, only made smaller, and only for as long as the set
-/// of connections needing the owner stays the same: a NEW one re-opens it.
+/// It can be dismissed, and a dismissal holds for exactly the problems that
+/// were showing: a connection that newly lapses — or one that was fixed and
+/// lapsed again — brings it back. Settings → Connections lists everything,
+/// dismissed or not.
 enum ConnectionBannerMode: Equatable {
     case hidden
     case full
-    case slim
 
-    static func of(items: [ConnectionItem], collapsedFor: Set<String>?) -> ConnectionBannerMode {
-        guard !items.isEmpty else { return .hidden }
-        guard let collapsedFor else { return .full }
-        return Set(items.map(\.id)).isSubset(of: collapsedFor) ? .slim : .full
+    static func of(items: [ConnectionItem], dismissed: Set<String>) -> ConnectionBannerMode {
+        items.contains { !dismissed.contains($0.dismissKey) } ? .full : .hidden
     }
 }
 
