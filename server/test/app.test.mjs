@@ -252,6 +252,91 @@ test('/me reports owner false for everyone when APPLE_SERVICE_OWNER is unset', a
   assert.equal((await response.json()).owner, false);
 });
 
+// --- Household: GET /api/apple/household -------------------------------
+
+const HOUSEHOLD_TOKEN = 'household-secret-for-tests';
+const householdFix = (id, recorded, { lat = 51.0, lon = -1.0 } = {}) => ({ id, recorded, latitude: lat, longitude: lon, accuracy: 5, speed: 0, moving: false });
+
+test('the household lane does not exist until APPLE_HOUSEHOLD_TOKEN is configured', async t => {
+  const { request } = await fixture(t);
+  const response = await request('household', { user: null, headers: { Authorization: 'Bearer anything' } });
+  assert.equal(response.status, 404);
+});
+
+test('the household lane refuses the SR-Health service token, refuses any other wrong token, and accepts its own', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN, serviceToken: 'sr-health-service-token' });
+  assert.equal((await request('household', { user: null, headers: { Authorization: 'Bearer sr-health-service-token' } })).status, 401);
+  assert.equal((await request('household', { user: null, headers: { Authorization: 'Bearer wrong' } })).status, 401);
+  assert.equal((await request('household', { user: null })).status, 401);
+  assert.equal((await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } })).status, 200);
+});
+
+test('the household lane rejects unknown query parameters', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const response = await request('household?foo=1', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  assert.equal(response.status, 400);
+});
+
+test('the household lane replies empty, echoing the cursor, when no service owner is configured', async t => {
+  const db = openStore(':memory:');
+  createUser(db, { id: 'alex', family: 'one', email: 'alex@example.test', name: 'alex' });
+  const app = createApp(db, { origin: 'http://localhost', demo: true, householdToken: HOUSEHOLD_TOKEN });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/household?since=abc`, { headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { cursor: 'abc', users: [], fixes: [], more: false });
+});
+
+test('paging across the household lane returns every shared fix exactly once', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: true } });
+  const stamp = i => new Date(Date.now() - (20 - i) * 60000).toISOString();
+  const alexFixes = Array.from({ length: 5 }, (_, i) => householdFix(`alex-${i}`, stamp(i)));
+  const samFixes = Array.from({ length: 3 }, (_, i) => householdFix(`sam-${i}`, stamp(i + 5), { lat: 51.1, lon: -1.1 }));
+  assert.equal((await request('sync', { method: 'POST', body: batch([], alexFixes) })).status, 200);
+  assert.equal((await request('sync', { user: 'sam', method: 'POST', body: batch([], samFixes) })).status, 200);
+
+  const seen = new Set();
+  let cursor = '', pages = 0;
+  for (; ;) {
+    const { status, body } = await request(`household?since=${encodeURIComponent(cursor)}&limit=2`, { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+    assert.equal(status, 200);
+    assert.ok(body.fixes.length <= 2);
+    for (const fix of body.fixes) seen.add(`${fix.email}:${fix.id}`);
+    cursor = body.cursor;
+    pages++;
+    if (!body.more) break;
+    assert.ok(pages < 20, 'paging did not terminate');
+  }
+  assert.equal(seen.size, 8);
+  assert.ok(pages >= 4, 'a limit of 2 over 8 fixes should take at least 4 pages');
+  // Re-fetching from the final cursor finds nothing new and still terminates.
+  const tail = await request(`household?since=${encodeURIComponent(cursor)}&limit=2`, { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  assert.deepEqual(tail.body.fixes, []);
+  assert.equal(tail.body.more, false);
+});
+
+test('a family member with sharing off is listed but contributes no fixes', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: true } });
+  await request('sync', { user: 'sam', method: 'POST', body: batch([], [householdFix('sam-1', new Date().toISOString())]) });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: false } });
+  const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  assert.deepEqual(body.users.find(u => u.email === 'sam@example.test'), { email: 'sam@example.test', name: 'sam', sharing: false });
+  assert.equal(body.fixes.some(f => f.email === 'sam@example.test'), false);
+});
+
+test('a user in another family never appears in the household lane', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { user: 'robin', method: 'PUT', body: { enabled: true } });
+  await request('sync', { user: 'robin', method: 'POST', body: batch([], [householdFix('robin-1', new Date().toISOString())]) });
+  const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  assert.equal(body.users.some(u => u.email === 'robin@example.test'), false);
+  assert.equal(body.fixes.some(f => f.email === 'robin@example.test'), false);
+});
+
 test('the stored password hashes are gone, not merely unused', async (t) => {
   const { db } = await fixture(t);
   const columns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);

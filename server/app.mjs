@@ -52,7 +52,7 @@ function locationRecord(r) {
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, householdToken = process.env.APPLE_HOUSEHOLD_TOKEN, doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
   const rate = new Map();
   // Its OWN ring-only secret, never the service token — that token can READ
   // the owner's export, and this URL is not guaranteed to stay on loopback the
@@ -201,6 +201,57 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!Number.isInteger(after) || after < 0 || !Number.isInteger(limit) || limit < 1 || limit > 5000) fail(400, 'Invalid cursor');
         if (!ownerId) return send(200, { after, next: after, more: false, earliest: null, earliestByKind: {}, records: [], workouts: [], tombstones: [] });
         return send(200, exportPage(db, ownerId, { after, limit }));
+      }
+      // THE HOUSEHOLD LANE — SR-Main's companion ingest, reading fixes for
+      // every sharing member of the owner's family so /home/people can show
+      // live cards without this server holding a session for each of them.
+      //
+      // Its OWN token (APPLE_HOUSEHOLD_TOKEN), never the service token above:
+      // each can be revoked without touching the other (spec S3). "Family"
+      // is never a caller-supplied parameter — it is always the family of
+      // whoever APPLE_SERVICE_OWNER names, so there is no way to ask for a
+      // different one. Unset token = 404, same convention as the service
+      // lane; an unset or unmatched owner is a configuration gap, not an
+      // auth failure, so it 200s with nothing rather than 404 or 500.
+      const householdOwner = (allowedParams) => {
+        if (!householdToken) fail(404, 'Not found');
+        const presented = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1] ?? '';
+        if (!timingSafeEqual(Buffer.from(hash(presented), 'hex'), Buffer.from(hash(householdToken), 'hex'))) fail(401, 'Not authorised');
+        if ([...url.searchParams.keys()].some(k => !allowedParams.includes(k))) fail(400, 'Unexpected query parameter');
+        return serviceOwner ? db.prepare('SELECT family FROM users WHERE email=?').get(serviceOwner.toLowerCase()) : null;
+      };
+      if (path === '/api/apple/household' && method === 'GET') {
+        const owner = householdOwner(['since', 'limit']);
+        const since = url.searchParams.get('since') ?? '';
+        const rawLimit = url.searchParams.get('limit');
+        const pageLimit = rawLimit === null || rawLimit === '' ? 2000 : Number(rawLimit);
+        if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > 5000) fail(400, 'Invalid limit');
+        if (!owner) return send(200, { cursor: since, users: [], fixes: [], more: false });
+        const members = db.prepare('SELECT email, name, sharing FROM users WHERE family=? ORDER BY email').all(owner.family);
+        // The cursor is opaque to callers but is really a tuple: (received,
+        // user_id, location id). It is split on the first two '|'s so a
+        // location id containing one — unlikely, but ids are caller-chosen —
+        // still round-trips, and fixes strictly after it are found by
+        // comparing that tuple, not the joined string (a straight string
+        // compare would misorder as soon as two users' ids differ in length).
+        let cursorParts = null;
+        if (since) {
+          const first = since.indexOf('|'), second = since.indexOf('|', first + 1);
+          if (first < 0 || second < 0) fail(400, 'Invalid cursor');
+          cursorParts = [since.slice(0, first), since.slice(first + 1, second), since.slice(second + 1)];
+        }
+        const cursorClause = cursorParts ? 'AND (l.received > ? OR (l.received = ? AND (l.user_id > ? OR (l.user_id = ? AND l.id > ?))))' : '';
+        const cursorArgs = cursorParts ? [cursorParts[0], cursorParts[0], cursorParts[1], cursorParts[1], cursorParts[2]] : [];
+        const rows = db.prepare(`SELECT l.user_id, l.id, l.recorded, l.payload, l.received, u.email FROM locations l JOIN users u ON u.id=l.user_id WHERE u.family=? AND u.sharing=1 ${cursorClause} ORDER BY l.received, l.user_id, l.id LIMIT ?`)
+          .all(owner.family, ...cursorArgs, pageLimit + 1);
+        const page = rows.slice(0, pageLimit);
+        const fixes = page.map(r => {
+          const p = JSON.parse(r.payload);
+          return { email: r.email, id: r.id, recorded: r.recorded, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving };
+        });
+        const last = page.at(-1);
+        const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;
+        return send(200, { cursor, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing })), fixes });
       }
       // Two ways in, and only two.
       //
