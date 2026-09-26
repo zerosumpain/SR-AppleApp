@@ -138,6 +138,7 @@ socket. Its host, paths and volume name are deliberately not published here.
 | `AUTH_SECRET` | yes on https | verifies the main site's Auth.js session cookie; copied from the site's own environment. Only enforced when `APP_ORIGIN` is https — a non-https `APP_ORIGIN` (e.g. the local preview) can start without it |
 | `APPLE_SERVICE_TOKEN` | no | shared bearer token for /health's service lane; empty = both service-lane reads 404 |
 | `APPLE_SERVICE_OWNER` | no | the fixed owner (an email already in `users`) those reads are scoped to |
+| `APPLE_HOUSEHOLD_TOKEN` | no | SR-Main's household lane (`/api/apple/household`, `/api/apple/household/events`), scoped to the owner's family; empty = both 404; must differ from `APPLE_SERVICE_TOKEN` |
 | `APPLE_DOORBELL_URL` | no | POSTed (empty body, `Authorization: Bearer $APPLE_DOORBELL_TOKEN`) after each owner upload so /health pulls the export at once; empty = no ring, and /health still catches up on its own page-load backstop |
 | `APPLE_DOORBELL_TOKEN` | no | the doorbell's own ring-only secret — distinct from `APPLE_SERVICE_TOKEN`, can only trigger a pull, and grants no read access |
 

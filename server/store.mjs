@@ -24,6 +24,12 @@ export function openStore(path) {
       recorded TEXT NOT NULL, payload TEXT NOT NULL, received TEXT NOT NULL,
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS locations_user_time ON locations(user_id, recorded);
+    -- The household lane (app.mjs GET /api/apple/household) pages ACROSS
+    -- users by (received, user_id, id) — locations_user_time above is led by
+    -- user_id, so it cannot answer that ORDER BY without a scan + temp sort.
+    -- id trails so the ORDER BY needs no temp b-tree, same trick as
+    -- health_user_received below.
+    CREATE INDEX IF NOT EXISTS locations_received ON locations(received, user_id, id);
     CREATE INDEX IF NOT EXISTS health_user_kind_time ON health(user_id, kind, start);
     -- The export cursor pages by received (id trailing so its ORDER BY needs no
     -- temp sort) and earliest by start, neither led by kind.
@@ -34,6 +40,16 @@ export function openStore(path) {
       kind TEXT NOT NULL, start TEXT NOT NULL, deleted TEXT NOT NULL,
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS health_deleted_time ON health_deleted(user_id, deleted);
+    -- Household alerts (arrivals/departures forwarded from SR-Main). One row
+    -- per (recipient, event id) so a retried events POST is INSERT OR IGNORE
+    -- idempotent; 'acked' is NULL until the recipient's own device/browser
+    -- acknowledges it, and the pending-first index below is what the alerts
+    -- GET and the 7-day prune both walk.
+    CREATE TABLE IF NOT EXISTS alerts (
+      user_id TEXT NOT NULL REFERENCES users(id), id TEXT NOT NULL,
+      payload TEXT NOT NULL, created TEXT NOT NULL, acked TEXT,
+      PRIMARY KEY(user_id, id));
+    CREATE INDEX IF NOT EXISTS alerts_user_pending ON alerts(user_id, acked, created);
     CREATE INDEX IF NOT EXISTS health_workout_parts ON health(user_id, json_extract(payload, '$.workout'))
       WHERE kind IN ('workout_route', 'workout_series');
   `);
