@@ -41,6 +41,11 @@ import UIKit
                     // the whole budget.
                     await companion.sync(collectingFor: 15)
                     await AlertStore.backgroundPass()
+                    // The household's arrivals and departures, from the
+                    // companion server (members have no site lane). `sync`
+                    // already asked if it ran; this covers a sync skipped
+                    // because another was in flight, and is throttled.
+                    await companion.drainHouseholdAlerts()
                     // And whether a site connection has lapsed, for the badge
                     // and the banner the next launch opens on.
                     await ConnectionsStore.backgroundPass(outbox: companion.outbox)
@@ -126,6 +131,12 @@ import UIKit
         let category = response.notification.request.content.categoryIdentifier
         if category == "connections" {
             Self.pending.openConnections = true
+            return
+        }
+        // A household arrival is not in the site's inbox (a member has no site
+        // pairing at all), so opening the inbox for it would show nothing.
+        if category == "household" {
+            Self.pending.tab = .today
             return
         }
         switch category {

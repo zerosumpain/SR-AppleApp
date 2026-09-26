@@ -48,7 +48,9 @@ struct UploadBatch: Codable, Identifiable {
     var deleted: [String] = []
     enum CodingKeys: String, CodingKey { case health, locations, deleted }
 }
-struct Profile: Codable { var id: String; var name: String; var sharing: Bool }
+/// `owner` is optional so a pilot that predates it still decodes; nil means
+/// "not told", which nothing treats as either answer.
+struct Profile: Codable { var id: String; var name: String; var sharing: Bool; var owner: Bool? }
 struct FamilyMember: Codable, Identifiable {
     var id: String
     var name: String
@@ -120,6 +122,10 @@ struct PersistedState: Codable {
     /// the like), so the banner is up before the first request of a launch.
     /// Belongs to the SITE pairing, not the companion one — see `clear()`.
     var connections: ConnectionsSnapshot?
+    /// Whether "Share your location with the household?" has been answered
+    /// since this pairing. In the state file rather than `UserDefaults` so a
+    /// re-pair (which calls `clear()`) asks again — possibly a different person.
+    var sharingAsked = false
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -157,6 +163,7 @@ struct PersistedState: Codable {
         // `try?` as well as `IfPresent`: this is a cache of a server answer,
         // and a shape it cannot read must cost the cache, never the queue.
         connections = (try? c.decodeIfPresent(ConnectionsSnapshot.self, forKey: .connections)) ?? nil
+        sharingAsked = try c.decodeIfPresent(Bool.self, forKey: .sharingAsked) ?? false
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`

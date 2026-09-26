@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import BackgroundTasks
+import UserNotifications
 import os
 
 private let syncLog = Logger(subsystem: "com.strangeramblings.com.appleapp", category: "sync")
@@ -43,6 +44,8 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     @Published private(set) var healthReviewNeeded = false
     private var sending = false
     private var retryTask: Task<Void, Never>?
+    private var drainingAlerts = false
+    private var lastAlertDrain: Date?
     init(outbox: Outbox) {
         self.outbox = outbox; health = HealthCollector(outbox: outbox); location = LocationCollector(outbox: outbox)
         paired = api.token != nil
@@ -126,6 +129,48 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             try await refresh()
         } catch { message = "Saved on this phone. Server update pending: \(error.localizedDescription)" }
         updateQueue()
+    }
+    /// Whether to ask "Share your location with the household?" now. An install
+    /// already sharing has answered it by switching sharing on: that is
+    /// recorded here, silently, so it is never asked.
+    func sharingQuestionDue() -> Bool {
+        if paired && !outbox.state.sharingAsked && outbox.state.sharing {
+            try? outbox.change { $0.sharingAsked = true }
+        }
+        return SharingQuestion.shouldAsk(paired: paired, asked: outbox.state.sharingAsked, sharing: outbox.state.sharing)
+    }
+    /// The question's answer. Unlike the Settings toggle it is never dropped
+    /// because a sync happens to be running (the question appears straight
+    /// after pairing, when one usually is): it is recorded the way an offline
+    /// toggle is, and the next flush sends it.
+    func answerSharingQuestion(_ share: Bool) async {
+        try? outbox.change { $0.sharingAsked = true }
+        guard busy else { await setSharing(share); return }
+        do {
+            try outbox.change { $0.sharing = share; $0.pendingSharing = share; if !share { for i in $0.batches.indices { $0.batches[i].locations = [] } } }
+        } catch { message = error.localizedDescription; return }
+        if share { location.requestPermission(); location.start() } else { location.stop() }
+        updateQueue()
+        await flush()
+    }
+    /// Household arrivals and departures queued for this person on the
+    /// companion server, raised as local notifications and then acknowledged —
+    /// only the ones iOS accepted. Runs inside wakes that have other work to
+    /// do, so every failure is silent and nothing here throws.
+    ///
+    /// Like `AlertStore.raise`, it waits for notification permission rather
+    /// than acknowledging alerts nobody could have seen.
+    func drainHouseholdAlerts(now: Date = Date()) async {
+        guard paired, !drainingAlerts, HouseholdAlerts.due(last: lastAlertDrain, now: now) else { return }
+        drainingAlerts = true; defer { drainingAlerts = false }
+        lastAlertDrain = now
+        let centre = UNUserNotificationCenter.current()
+        let permission = await centre.notificationSettings().authorizationStatus
+        guard permission == .authorized || permission == .provisional else { return }
+        guard let queue: HouseholdAlertsResponse = try? await api.request("alerts"), !queue.alerts.isEmpty else { return }
+        let delivered = await HouseholdAlerts.post(queue.alerts) { try await centre.add($0) }
+        guard !delivered.isEmpty, let body = try? JSONEncoder().encode(["ids": delivered]) else { return }
+        let _: API.Acknowledgement? = try? await api.request("alerts/ack", method: "POST", data: body)
     }
     /// `collectingFor`: 120 s in the foreground; a background refresh passes
     /// 15 s so the upload and the notification pass still fit its budget.
@@ -230,6 +275,11 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 await self?.flush()
             }
         }
+        // Every flush is a wake — a location fix, a HealthKit delivery, a
+        // background refresh, the app coming forward — and with no push
+        // certificate a wake is the only time a household alert can arrive.
+        // Throttled inside, so a backfill's many flushes ask once a minute.
+        await drainHouseholdAlerts()
     }
     /// Removes refused batches (each a lone record) and logs what went — kind
     /// and id, never values. Returns how many records that was.

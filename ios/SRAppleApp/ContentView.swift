@@ -159,6 +159,9 @@ struct ContentView: View {
         .environmentObject(router)
         .environmentObject(alerts)
         .environmentObject(connections)
+        // An install paired before the household question existed is asked
+        // once, here. A phone pairing now is asked by the Connections screen.
+        .srSharingQuestion(companion: companion, onPairing: false)
         .task {
             // Anything a quick action, a notification tap or a Shortcut left
             // waiting before there was a router to receive it.
