@@ -298,7 +298,8 @@ enum SRDemoFixtures {
     }
 
     static let readiness = """
-    {"score": 72, "label": "Primed", "recommendation": "Sleep and HRV are both back above baseline. A quality session is on the cards today."}
+    {"score": 72, "label": "Primed", "recommendation": "Sleep and HRV are both back above baseline. A quality session is on the cards today.",
+     "factors": [{"key": "recovery", "label": "Recovery", "score": 68, "weight": 0.4}, {"key": "sleepQuality", "label": "Sleep quality", "score": 81, "weight": 0.2}]}
     """
 
     static func healthSummary(_ clock: DemoClock) -> String {

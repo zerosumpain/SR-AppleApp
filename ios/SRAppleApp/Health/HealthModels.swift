@@ -49,9 +49,38 @@ struct HealthFigure: Decodable, Identifiable, Hashable {
 }
 
 struct HealthReadiness: Decodable, Hashable {
+    /// One part of the composite, as /health's hub sends it. Optional on the
+    /// summary and on Today — where it is present, Today reads Recovery from it
+    /// when the figures do not carry one.
+    struct Factor: Decodable, Hashable {
+        let key: String
+        let label: String
+        let score: Double
+    }
+
     let score: Double
     let label: String
     let recommendation: String
+    let factors: [Factor]
+
+    enum CodingKeys: String, CodingKey { case score, label, recommendation, factors }
+
+    init(score: Double, label: String, recommendation: String, factors: [Factor] = []) {
+        self.score = score
+        self.label = label
+        self.recommendation = recommendation
+        self.factors = factors
+    }
+
+    /// The three fields as strictly as before; `factors` lossily, because a
+    /// Today payload that throws is a blank first screen.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        score = try c.decode(Double.self, forKey: .score)
+        label = try c.decode(String.self, forKey: .label)
+        recommendation = try c.decode(String.self, forKey: .recommendation)
+        factors = c.lossy(Factor.self, .factors)
+    }
 }
 
 struct HealthWeek: Decodable, Hashable {

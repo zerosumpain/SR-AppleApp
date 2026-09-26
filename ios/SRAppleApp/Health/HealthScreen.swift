@@ -29,6 +29,8 @@ struct HealthScreen: View {
     @StateObject private var recent = ActivitiesStore(pageSize: 5)
     /// What the daydream loop noticed about health. Silent when it fails.
     @StateObject private var noticed = HealthNoticedStore()
+    /// So a note rated here, or on Today, leaves this list too.
+    @ObservedObject private var feedback = NoticedFeedback.shared
     @EnvironmentObject private var router: Router
 
     var body: some View {
@@ -256,9 +258,10 @@ struct HealthScreen: View {
     /// header over nothing, and never an error card — see `HealthNoticedStore`.
     @ViewBuilder
     private var noticedSection: some View {
-        if !noticed.notes.isEmpty {
+        let notes = noticed.notes.filter(feedback.isShowing)
+        if !notes.isEmpty {
             Section {
-                ForEach(noticed.notes) { note in
+                ForEach(notes) { note in
                     NoticedNoteRow(note: note).srGlassRow()
                 }
             } header: {

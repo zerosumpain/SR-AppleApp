@@ -127,10 +127,13 @@ final class TodayStore: ObservableObject {
 /// tell you, and where the conversation got to.
 ///
 /// Under glass the screen is a stack of lifted sheets on a warm ground: the
-/// date and the headline in the page, the smoked readiness slab, an "Ask jkai"
-/// field that is one tap from a fresh thread, then the alerts, the last thread
-/// and the wire. Every card is a summary that goes somewhere. Nothing here is
-/// the only place to read anything.
+/// date and the headline in the page, three rings for the body (Move,
+/// Recovery, Readiness), what the daydream loop noticed, an "Ask jkai" field
+/// that is one tap from a fresh thread, then the alerts, the workflows and the
+/// wire. Nothing here is the only place to read anything.
+///
+/// No "carry on" card for the last thread: the Chat tab is one tap away on the
+/// bar and opens on that list.
 struct TodayScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var alerts: AlertStore
@@ -139,8 +142,17 @@ struct TodayScreen: View {
     /// Read AFTER Today's own request, never beside it — the card is a
     /// nudge, and the first paint must not wait on the workflow list.
     @StateObject private var flows = FlowAttentionStore()
+    /// Today's Move ring, live from Apple Health on this phone.
+    @StateObject private var move = MoveRingStore()
+    @ObservedObject private var noticed = NoticedFeedback.shared
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var connections: ConnectionsStore
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// How often the numbers are re-read while Today is on screen. Readiness
+    /// and recovery move when a sync lands on the site; five minutes is often
+    /// enough to catch that and rare enough to cost nothing.
+    static let refreshInterval: Duration = .seconds(300)
 
     var body: some View {
         ScrollView {
@@ -149,14 +161,16 @@ struct TodayScreen: View {
                     .padding(.horizontal, SR.gutter)
                     .padding(.top, 4)
 
-                if site.paired, let health = store.payload?.health {
-                    healthHero(health)
+                if site.paired {
+                    vitalsCard
+                        .padding(.horizontal, SR.gutter)
                 }
 
                 // What the daydream loop noticed, straight under the body's
                 // numbers: the notes are the part of Today that is an opinion.
-                if site.paired, let notes = store.payload?.daydream?.notes, !notes.isEmpty {
-                    NoticedCard(notes: notes)
+                // A rated note leaves a few seconds after the rating saves.
+                if site.paired, !visibleNotes.isEmpty {
+                    NoticedCard(notes: visibleNotes)
                         .padding(.horizontal, SR.gutter)
                 }
 
@@ -166,8 +180,7 @@ struct TodayScreen: View {
                     } else {
                         askField
                         alertsCard
-                        if !flows.flows.isEmpty { flowsCard }
-                        if let thread = store.payload?.lastThread { threadCard(thread) }
+                        if flows.loaded { flowsCard }
                         if let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
                         quickActions
                     }
@@ -185,6 +198,7 @@ struct TodayScreen: View {
         // an option on this OS with a custom face).
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
+            move.start()
             await store.load(fresh: true)
             await alerts.refresh()
             await connections.refresh()
@@ -206,9 +220,33 @@ struct TodayScreen: View {
             }
         }
         .task {
+            move.start()
             await store.load()
             await connections.reconcile(with: store.payload?.connections)
             await flows.load()
+            // Then keep the day's numbers moving for as long as Today is on
+            // screen. The task is cancelled when the tab goes away and starts
+            // again, with a fresh read, when it comes back.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.refreshInterval)
+                guard !Task.isCancelled else { break }
+                move.start()
+                await store.load()
+                await flows.load()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            move.start()
+            Task {
+                await store.load()
+                await flows.load()
+            }
+        }
+        // The companion just put new health data on the site: re-read, past
+        // the site's cache, so recovery and readiness reflect it.
+        .onChange(of: companion.lastUpload) { _, _ in
+            Task { await store.load(fresh: true) }
         }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }
@@ -256,25 +294,32 @@ struct TodayScreen: View {
         }
     }
 
-    /// Readiness and today's figures on one short smoked strip. The detail —
-    /// the verdict's sentence, the sparklines, the movement — is a tap away on
-    /// the Health tab; the first screen only has to say how the body is doing.
-    @ViewBuilder
-    private func healthHero(_ health: TodayHealth) -> some View {
-        Button {
+    /// Move, Recovery and Readiness as three small rings. The whole card is
+    /// one tap into the Health tab, which has the reasoning behind them.
+    private var vitalsCard: some View {
+        let health = store.payload?.health
+        return Button {
             SRHaptic.tap()
             router.show(.health)
         } label: {
-            TodayHealthStrip(health: health, updated: updatedLine(health.generatedAt))
+            TodayVitalsCard(
+                vitals: TodayVital.make(health: health, move: move.reading),
+                updated: health.flatMap { updatedLine($0.generatedAt) },
+                isMock: health?.isMock ?? false
+            )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("today-health")
         .accessibilityHint("Opens Health")
     }
 
+    private var visibleNotes: [DaydreamNote] {
+        (store.payload?.daydream?.notes ?? []).filter(noticed.isShowing)
+    }
+
     private func updatedLine(_ iso: String) -> String? {
         let ago = shortAgo(iso)
-        return ago.isEmpty ? nil : "Updated \(ago) ago"
+        return ago.isEmpty ? nil : "\(ago) ago"
     }
 
     /// A field that is really a button: tap it and a new thread opens with the
@@ -317,8 +362,9 @@ struct TodayScreen: View {
         )
     }
 
-    /// The newest few alerts, each one tap into the inbox and one tap off this
-    /// card. Clearing is Today's alone — the Alerts screen keeps everything.
+    /// The newest few alerts, each one tap off this card. The bell in the bar
+    /// is the way into the inbox, so a row here does not duplicate it.
+    /// Clearing is Today's alone — the Alerts screen keeps everything.
     private var alertsCard: some View {
         let rows = alertRows
         return VStack(alignment: .leading, spacing: 10) {
@@ -355,25 +401,15 @@ struct TodayScreen: View {
 
             SRCard {
                 if rows.isEmpty {
-                    Button {
-                        SRHaptic.tap()
-                        router.openAlerts()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "bell.slash")
-                                .foregroundStyle(SR.inkMuted)
-                            Text("Nothing to report.")
-                                .font(SR.Text.secondary())
-                                .foregroundStyle(SR.inkMuted)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(SR.inkGhost)
-                        }
-                        .contentShape(Rectangle())
+                    HStack(spacing: 10) {
+                        Image(systemName: "bell.slash")
+                            .foregroundStyle(SR.inkMuted)
+                        Text("Nothing to report.")
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
+                        Spacer()
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("No alerts. Open the inbox")
+                    .accessibilityElement(children: .combine)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(rows) { row in
@@ -391,32 +427,25 @@ struct TodayScreen: View {
 
     private func alertRow(_ row: TodayAlerts.Latest) -> some View {
         HStack(alignment: .top, spacing: 4) {
-            Button {
-                SRHaptic.tap()
-                router.openAlerts()
-            } label: {
-                HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(row.severity == "alert" || row.severity == "high" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
-                        .frame(width: 7, height: 7)
-                        .padding(.top, 6)
-                    Text(row.title)
-                        .font(SR.Text.secondary(15))
-                        .foregroundStyle(SR.ink)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Spacer(minLength: 6)
-                    Text(shortAgo(row.createdAt))
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                        .padding(.top, 2)
-                }
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+            HStack(alignment: .top, spacing: 10) {
+                Circle()
+                    .fill(row.severity == "alert" || row.severity == "high" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
+                    .frame(width: 7, height: 7)
+                    .padding(.top, 6)
+                Text(row.title)
+                    .font(SR.Text.secondary(15))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 6)
+                Text(shortAgo(row.createdAt))
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .padding(.top, 2)
             }
-            .buttonStyle(.plain)
+            .padding(.vertical, 6)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(shortAgo(row.createdAt).isEmpty ? row.title : "\(row.title), \(shortAgo(row.createdAt)) ago")
-            .accessibilityHint("Opens the inbox")
 
             Button {
                 SRHaptic.select()
@@ -427,91 +456,76 @@ struct TodayScreen: View {
                     .foregroundStyle(SR.inkMuted)
                     // The mark is small so the row stays a row; the target
                     // round it is not.
-                    .frame(width: 40, height: 40)
+                    .frame(width: 40, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Clear \(row.title) from Today")
+            .accessibilityLabel("Dismiss \(row.title)")
             .accessibilityIdentifier("today-alert-clear-\(row.id)")
         }
         .accessibilityElement(children: .contain)
     }
 
-    /// Workflows that failed or are stuck. One tap to the Flows tab, where
-    /// they head the list.
+    /// The workflows as three numbers: how many are working, how many are
+    /// not, and which one runs next and when. One tap to the Flows tab.
     private var flowsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "Workflows need attention", trailing: "\(flows.flows.count)")
+        let stats = flows.stats(now: Date())
+        return VStack(alignment: .leading, spacing: 10) {
+            SRSectionLabel(text: "Workflows")
                 .padding(.horizontal, 4)
             Button {
                 SRHaptic.tap()
                 router.show(.flows)
             } label: {
-                SRCard(accented: true, interactive: true) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(flows.flows.prefix(3)) { flow in
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(SR.error)
-                                    .padding(.top, 3)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(flow.title)
-                                        .font(SR.Text.secondary(15))
-                                        .foregroundStyle(SR.ink)
-                                        .lineLimit(1)
-                                    if let reason = flow.attentionReason {
-                                        Text(reason)
-                                            .font(SR.Text.secondary(13))
-                                            .foregroundStyle(SR.inkMuted)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.leading)
-                                    }
-                                }
+                SRCard(interactive: true) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 12) {
+                            flowNumber(stats.working, label: "Working", tone: SR.good)
+                            flowNumber(stats.failing, label: "Not working", tone: stats.failing > 0 ? SR.error : SR.inkMuted)
+                        }
+                        Rectangle().fill(SR.divider).frame(height: 1)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(SR.accent)
+                            if let next = stats.next {
+                                Text("Next: \(next.title)")
+                                    .font(SR.Text.secondary(15))
+                                    .foregroundStyle(SR.ink)
+                                    .lineLimit(1)
                                 Spacer(minLength: 6)
+                                Text("@ \(FlowStats.when(next.at, now: Date()))")
+                                    .font(SR.Text.mono())
+                                    .foregroundStyle(SR.inkMuted)
+                                    .fixedSize()
+                            } else {
+                                Text("Nothing scheduled")
+                                    .font(SR.Text.secondary(15))
+                                    .foregroundStyle(SR.inkMuted)
+                                Spacer(minLength: 0)
                             }
                         }
                     }
-                    .padding(.leading, 6)
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
             .accessibilityIdentifier("today-flows")
         }
     }
 
-    @ViewBuilder
-    private func threadCard(_ thread: TodayThread) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "Carry on", trailing: shortAgo(thread.updatedAt))
-                .padding(.horizontal, 4)
-            Button {
-                SRHaptic.tap()
-                router.show(.chat)
-                router.chat.append(ThreadReference(id: thread.id))
-            } label: {
-                SRCard(accented: true, interactive: true) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.text.bubble.right")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(SR.accent)
-                            .frame(width: 36, height: 36)
-                            .background(SR.accent.opacity(0.12), in: Circle())
-                        Text(thread.title?.isEmpty == false ? thread.title! : "Untitled thread")
-                            .font(SR.Text.title())
-                            .foregroundStyle(SR.ink)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 6)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(SR.inkMuted)
-                    }
-                    .padding(.leading, 6)
-                }
-            }
-            .buttonStyle(.plain)
+    private func flowNumber(_ count: Int, label: String, tone: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(count)")
+                .font(SR.Text.figure(28))
+                .foregroundStyle(tone)
+            Text(label.uppercased())
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(SR.inkMuted)
+                .lineLimit(1)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -621,143 +635,5 @@ struct QuickAction: View {
             .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 6, style: .continuous))
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// Today's health, as one short strip.
-///
-/// It used to be /health's opening band whole — the 96pt donut on its own
-/// panel, the verdict's full sentence, a two-by-two of tiles and an "open
-/// health" line — and on a phone that was the whole first screen before
-/// anything the site had to say. The strip keeps the answer (the score, the
-/// verdict, the four figures and which way each is going) and leaves the
-/// reasoning on the Health tab, a tap away. Still smoked ink, so it still
-/// reads as the body's part of the page.
-struct TodayHealthStrip: View {
-    let health: TodayHealth
-    var updated: String? = nil
-
-    /// Four, in the server's order. The strip is two lines of two; a fifth
-    /// would be a third line for the sake of one number.
-    private var figures: [HealthFigure] { Array(health.figures.prefix(4)) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 14) {
-                if let readiness = health.readiness {
-                    SRInkDonut(
-                        fraction: readiness.score / 100,
-                        score: "\(Int(readiness.score.rounded()))",
-                        lineWidth: 6,
-                        scoreSize: 19
-                    )
-                    .frame(width: 54, height: 54)
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(health.readiness == nil ? "HEALTH · TODAY" : "HEALTH · READINESS")
-                        .font(SR.Text.label())
-                        .tracking(SR.inkLabelTracking)
-                        .foregroundStyle(SR.accentOnDark)
-                        .lineLimit(1)
-                    if let readiness = health.readiness {
-                        Text(readiness.label.uppercased())
-                            .font(SR.Text.display(17))
-                            .foregroundStyle(SR.onInk(.primary))
-                            .lineLimit(2)
-                    } else {
-                        Text(health.strap)
-                            .font(SR.Text.body(15))
-                            .foregroundStyle(SR.onInk(.note))
-                            .lineLimit(2)
-                    }
-                    if let updated {
-                        Text(updated.uppercased())
-                            .font(SR.Text.mono())
-                            .tracking(1)
-                            .foregroundStyle(SR.onInk(.unit))
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer(minLength: 4)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(SR.accentOnDark)
-            }
-
-            if !figures.isEmpty {
-                Rectangle()
-                    .fill(SR.onInk(.hairline))
-                    .frame(height: 1)
-                SRTileGrid {
-                    ForEach(figures) { figure in
-                        figureCell(figure)
-                    }
-                }
-            }
-
-            if health.isMock {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(SR.accentOnDark)
-                    Text("Demonstration data, not a measurement.")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.onInk(.note))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background {
-            SRGrain(opacity: 0.05)
-                .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-        }
-        .srGlassCard(.ink, radius: SR.Glass.radius)
-        .environment(\.colorScheme, .dark)
-        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-        .padding(.horizontal, SR.Glass.bandInset)
-        .accessibilityElement(children: .combine)
-    }
-
-    /// Label on the left, value on the right, one line: a figure and its
-    /// direction, without the tile round it.
-    private func figureCell(_ figure: HealthFigure) -> some View {
-        let value = figure.inkValue
-        return HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(figure.label.uppercased())
-                .font(SR.Text.label())
-                .tracking(1)
-                .foregroundStyle(SR.onInk(.label))
-                .lineLimit(1)
-            Spacer(minLength: 6)
-            Text(value.value)
-                .font(SR.Text.figure(17))
-                .foregroundStyle(SR.onInk(.primary))
-                .lineLimit(1)
-                .fixedSize()
-            if let unit = value.unit {
-                Text(unit)
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.onInk(.unit))
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            if figure.deltaDisplay != nil, let improving = figure.improving {
-                Image(systemName: figure.direction == "down" ? "arrow.down.right" : "arrow.up.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(improving ? SR.goodOnDark : SR.accentOnDark)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "\(figure.label): \(figure.displayWithUnit)"
-            + (figure.deltaDisplay.map { ", \($0)" } ?? "")
-            + (figure.improving == nil ? "" : figure.improving! ? ", improving" : ", worse")
-        )
     }
 }
