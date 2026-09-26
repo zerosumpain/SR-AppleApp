@@ -277,6 +277,27 @@ test('the household lane rejects unknown query parameters', async t => {
   assert.equal(response.status, 400);
 });
 
+test('a household token equal to the service token disables the household lane (R9-style guard, mirrors the doorbell/service check)', async t => {
+  const SAME = 'shared-token-value-for-tests';
+  const { request } = await fixture(t, { householdToken: SAME, serviceToken: SAME });
+  const response = await request('household', { user: null, headers: { Authorization: `Bearer ${SAME}` } });
+  assert.equal(response.status, 404, 'a household token identical to the service token must be treated as unconfigured');
+});
+
+test('the household lane is answered from the received index, not a scan of every location', t => {
+  const db = openStore(':memory:');
+  t.after(() => db.close());
+  createUser(db, { id: 'alex', family: 'one', email: 'alex@example.test', name: 'alex' });
+  // The exact SQL app.mjs's household GET runs on a paged (cursor-bearing)
+  // request — the branch most likely to fall back to a scan + temp sort if
+  // the index doesn't cover both the WHERE and the ORDER BY.
+  const sql = `SELECT l.user_id, l.id, l.recorded, l.payload, l.received, u.email FROM locations l JOIN users u ON u.id=l.user_id WHERE u.family=? AND u.sharing=1 AND (l.received > ? OR (l.received = ? AND (l.user_id > ? OR (l.user_id = ? AND l.id > ?)))) ORDER BY l.received, l.user_id, l.id LIMIT ?`;
+  const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('one', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 'alex', 'alex', 'a', 10);
+  const detail = plan.map(r => r.detail).join('\n');
+  assert.match(detail, /locations_received/, 'the household page query should use the received index, not scan locations by user_id alone');
+  assert.doesNotMatch(detail, /USE TEMP B-TREE/, 'the ORDER BY should be satisfied by the index, not a temp sort');
+});
+
 test('the household lane replies empty, echoing the cursor, when no service owner is configured', async t => {
   const db = openStore(':memory:');
   createUser(db, { id: 'alex', family: 'one', email: 'alex@example.test', name: 'alex' });

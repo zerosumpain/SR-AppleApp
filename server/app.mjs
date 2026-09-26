@@ -69,6 +69,12 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
   // must never travel over the ring, whatever the operator's env file says.
   const ringToken = doorbellToken && serviceToken && doorbellToken === serviceToken ? undefined : doorbellToken;
   const ring = createDoorbell({ url: doorbellUrl, token: ringToken, fetchImpl });
+  // Same guard, same reasoning, for the household lane: a misconfiguration
+  // that sets APPLE_HOUSEHOLD_TOKEN to the SAME value as the SR-Health
+  // service token is treated as unset (household 404s) rather than silently
+  // opening the family's live locations on a token that was meant only to
+  // let /health read the owner's own export.
+  const householdLaneToken = householdToken && serviceToken && householdToken === serviceToken ? undefined : householdToken;
   const csrfOrigin = new URL(origin).origin;
   const secure = csrfOrigin.startsWith('https:');
   function limit(key) {
@@ -221,9 +227,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // lane; an unset or unmatched owner is a configuration gap, not an
       // auth failure, so it 200s with nothing rather than 404 or 500.
       const householdOwner = (allowedParams) => {
-        if (!householdToken) fail(404, 'Not found');
+        if (!householdLaneToken) fail(404, 'Not found');
         const presented = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1] ?? '';
-        if (!timingSafeEqual(Buffer.from(hash(presented), 'hex'), Buffer.from(hash(householdToken), 'hex'))) fail(401, 'Not authorised');
+        if (!timingSafeEqual(Buffer.from(hash(presented), 'hex'), Buffer.from(hash(householdLaneToken), 'hex'))) fail(401, 'Not authorised');
         if ([...url.searchParams.keys()].some(k => !allowedParams.includes(k))) fail(400, 'Unexpected query parameter');
         return serviceOwner ? db.prepare('SELECT family FROM users WHERE email=?').get(serviceOwner.toLowerCase()) : null;
       };

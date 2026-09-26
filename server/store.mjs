@@ -24,6 +24,12 @@ export function openStore(path) {
       recorded TEXT NOT NULL, payload TEXT NOT NULL, received TEXT NOT NULL,
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS locations_user_time ON locations(user_id, recorded);
+    -- The household lane (app.mjs GET /api/apple/household) pages ACROSS
+    -- users by (received, user_id, id) — locations_user_time above is led by
+    -- user_id, so it cannot answer that ORDER BY without a scan + temp sort.
+    -- id trails so the ORDER BY needs no temp b-tree, same trick as
+    -- health_user_received below.
+    CREATE INDEX IF NOT EXISTS locations_received ON locations(received, user_id, id);
     CREATE INDEX IF NOT EXISTS health_user_kind_time ON health(user_id, kind, start);
     -- The export cursor pages by received (id trailing so its ORDER BY needs no
     -- temp sort) and earliest by start, neither led by kind.
