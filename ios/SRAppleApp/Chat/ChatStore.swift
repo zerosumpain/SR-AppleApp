@@ -172,6 +172,8 @@ final class ChatStore: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var hasOlder = false
     @Published private(set) var sending = false
+    /// A voice note being read on the phone before it is sent.
+    @Published private(set) var transcribing = false
     @Published private(set) var activity = TurnActivity()
     @Published private(set) var blocked: BlockedTurn?
     /// A plan or a question the phone CAN answer. See `ChatGates.swift`.
@@ -623,20 +625,28 @@ final class ChatStore: ObservableObject {
 
     /// Upload a recording and send it as its own turn.
     ///
-    /// The chat endpoint will not take a turn with no words, and the web does
-    /// not send one either, so a voice note goes out as "Voice note" with the
-    /// audio attached. The site transcribes it before the model reads it.
+    /// Transcribed on the phone first (`VoiceTranscriber`): the words are the
+    /// turn, so the model reads what was said and the thread is titled by it.
+    /// The transcript also rides the upload, where the site files it as the
+    /// audio's reading — without that, the site would try to transcribe the
+    /// file itself and tell the model it "could not be read". With no words
+    /// (no permission, silence), the note goes as "Voice note" and audio.
     func sendVoiceNote(_ data: Data) async {
         guard !sending else { return }
+        transcribing = true
+        let transcript = await VoiceTranscriber.transcribe(data)
+        transcribing = false
+        var fields = ["conversationId": conversationId]
+        if let transcript { fields["transcript"] = transcript }
         do {
             let row: ChatAttachment = try await client.upload(
                 "api/native/chat/attachments",
                 file: data,
                 filename: "Voice note \(Self.photoStamp.string(from: Date())).m4a",
                 mimeType: "audio/mp4",
-                fields: ["conversationId": conversationId]
+                fields: fields
             )
-            await send("Voice note", extra: [row])
+            await send(transcript ?? "Voice note", extra: [row])
         } catch {
             message = error.localizedDescription
             SRHaptic.bad()

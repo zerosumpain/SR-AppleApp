@@ -1,12 +1,13 @@
 import SwiftUI
 import AVFoundation
+import Speech
 
 /// Hold to talk.
 ///
 /// AAC in an MP4 box (`.m4a`), mono, 22 kHz: a minute is about 350 KB, which
-/// uploads on a train, and speech loses nothing at that rate. The site
-/// transcribes it before the model sees it — `audio/mp4` is on its list, and
-/// the `audio/x-m4a` that sniffing produces is folded into it on arrival.
+/// uploads on a train, and speech loses nothing at that rate. The PHONE
+/// transcribes it (`VoiceTranscriber`) and the words are what the model reads;
+/// the audio goes up alongside for playback and /drive.
 @MainActor
 final class VoiceRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published private(set) var recording = false
@@ -124,5 +125,82 @@ final class VoiceNotePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in self.playing = false }
+    }
+}
+
+/// Speech to text on this iPhone.
+///
+/// The site's own transcription rode an OpenRouter model that was retired, and
+/// no Codex model takes audio, so a voice note reached the chat model as a file
+/// it could not open. iOS already has a recogniser; on any recent iPhone it
+/// runs ON THE DEVICE, so the recording goes nowhere to be read. (Where the
+/// language has no on-device model, iOS uses Apple's own server instead.)
+///
+/// Nil on any failure — no permission, no recogniser, no words — and the note
+/// then goes as audio alone, as it always did.
+enum VoiceTranscriber {
+    /// A voice note that takes longer than this to read is sent without words.
+    static let timeout: Duration = .seconds(30)
+
+    @MainActor
+    static func transcribe(_ data: Data, locale: Locale = Locale(identifier: "en-GB")) async -> String? {
+        guard await authorised() else { return nil }
+        guard let recognizer = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer(),
+              recognizer.isAvailable else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("transcribe-\(UUID().uuidString).m4a")
+        guard (try? data.write(to: url)) != nil else { return nil }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let request = SFSpeechURLRecognitionRequest(url: url)
+        request.shouldReportPartialResults = false
+        request.addsPunctuation = true
+        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
+
+        let once = Once()
+        let text: String? = await withCheckedContinuation { continuation in
+            let task = recognizer.recognitionTask(with: request) { result, error in
+                if let result, result.isFinal {
+                    once.run { continuation.resume(returning: result.bestTranscription.formattedString) }
+                } else if error != nil {
+                    once.run { continuation.resume(returning: nil) }
+                }
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                once.run {
+                    task.cancel()
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Asked the first time a voice note is sent, never at launch.
+    static func authorised() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized: return true
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+            }
+        default: return false
+        }
+    }
+
+    /// The recogniser can call back more than once, and the timeout races it:
+    /// the continuation must be resumed exactly once.
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+
+        func run(_ body: () -> Void) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !done else { return }
+            done = true
+            body()
+        }
     }
 }
