@@ -337,6 +337,78 @@ test('a user in another family never appears in the household lane', async t => 
   assert.equal(body.fixes.some(f => f.email === 'robin@example.test'), false);
 });
 
+// --- Household: events in, alerts out ------------------------------------
+
+const householdEvent = (id, recipients, overrides = {}) => ({ id, recipients, title: 'Arrived', body: 'sam arrived home', at: new Date().toISOString(), ...overrides });
+const postEvents = (request, events) => request('household/events', { user: null, method: 'POST', headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` }, body: { events } });
+
+test('household events does not exist until APPLE_HOUSEHOLD_TOKEN is configured, and refuses the wrong token', async t => {
+  const closed = await fixture(t);
+  assert.equal((await postEvents(closed.request, [])).status, 404);
+  const open = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const wrong = await open.request('household/events', { user: null, method: 'POST', headers: { Authorization: 'Bearer wrong' }, body: { events: [] } });
+  assert.equal(wrong.status, 401);
+});
+
+test('household events are idempotent on a repeated id', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const event = householdEvent('evt-1', ['alex@example.test']);
+  const first = await postEvents(request, [event]);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.accepted, 1);
+  const second = await postEvents(request, [event]);
+  assert.equal(second.status, 200);
+  assert.equal(second.body.accepted, 0);
+  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='alex'").get().n, 1);
+});
+
+test('a recipient only sees their own alerts', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await postEvents(request, [householdEvent('evt-2', ['alex@example.test'])]);
+  assert.deepEqual((await request('alerts', { user: 'sam' })).body.alerts, []);
+  const mine = (await request('alerts')).body.alerts;
+  assert.equal(mine.length, 1);
+  assert.deepEqual(mine[0], { id: 'evt-2', title: 'Arrived', body: 'sam arrived home', at: mine[0].at });
+});
+
+test('unknown recipients and a recipient outside the family are skipped, not errors', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const result = await postEvents(request, [householdEvent('evt-3', ['alex@example.test', 'ghost@example.test', 'robin@example.test'])]);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.accepted, 1);
+  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='robin'").get().n, 0);
+});
+
+test("ack of another user's alert id acks nothing", async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await postEvents(request, [householdEvent('evt-4', ['alex@example.test'])]);
+  const stolen = await request('alerts/ack', { user: 'sam', method: 'POST', body: { ids: ['evt-4'] } });
+  assert.equal(stolen.status, 200);
+  assert.equal(stolen.body.acked, 0);
+  assert.equal(db.prepare("SELECT acked FROM alerts WHERE user_id='alex' AND id='evt-4'").get().acked, null);
+  const real = await request('alerts/ack', { method: 'POST', body: { ids: ['evt-4'] } });
+  assert.equal(real.body.acked, 1);
+  assert.deepEqual((await request('alerts')).body.alerts, []);
+});
+
+test('alerts older than 7 days are pruned on every events POST', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const stale = new Date(Date.now() - 8 * 86400000).toISOString();
+  db.prepare('INSERT INTO alerts (user_id, id, payload, created) VALUES (?,?,?,?)').run('alex', 'old', JSON.stringify({ id: 'old', title: 'Stale', body: 'x', at: stale }), stale);
+  assert.equal(db.prepare('SELECT count(*) n FROM alerts').get().n, 1);
+  await postEvents(request, [householdEvent('evt-5', ['sam@example.test'])]);
+  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE id='old'").get().n, 0);
+  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE id='evt-5'").get().n, 1);
+});
+
+test("deleting my data removes my alerts, not another user's", async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await postEvents(request, [householdEvent('evt-6', ['alex@example.test', 'sam@example.test'])]);
+  assert.equal((await request('data', { method: 'DELETE' })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='alex'").get().n, 0);
+  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='sam'").get().n, 1);
+});
+
 test('the stored password hashes are gone, not merely unused', async (t) => {
   const { db } = await fixture(t);
   const columns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);

@@ -52,6 +52,13 @@ function locationRecord(r) {
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
+/** How long an alert is kept, whether or not it was ever acknowledged. */
+const ALERT_RETENTION_DAYS = 7;
+function alertEvent(e) {
+  exactKeys(e, ['id', 'recipients', 'title', 'body', 'at']);
+  if (!string(e.id, 100) || !Array.isArray(e.recipients) || !e.recipients.every(r => string(r, 320)) || !string(e.title, 120) || !string(e.body, 300) || !iso(e.at)) fail(400, 'Invalid event');
+  return e;
+}
 export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, householdToken = process.env.APPLE_HOUSEHOLD_TOKEN, doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
   const rate = new Map();
   // Its OWN ring-only secret, never the service token — that token can READ
@@ -253,6 +260,43 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;
         return send(200, { cursor, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing })), fixes });
       }
+      // Arrivals/departures forwarded from SR-Main, same token as the read
+      // side above. Fanned out to `alerts` rows keyed (recipient, event id)
+      // so a retried POST is INSERT OR IGNORE idempotent rather than
+      // double-queuing a notification. "The owner's family" is resolved the
+      // same way as the GET above — never a caller-supplied id — so an
+      // unconfigured or unmatched owner accepts nothing rather than erroring;
+      // the token gate above still has to pass first either way. A recipient
+      // who is not a member of that family (unknown email, or a real account
+      // in a different family) is silently skipped, not rejected: one bad
+      // address in a batch must not sink every other recipient's alert.
+      if (path === '/api/apple/household/events' && method === 'POST') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['events']);
+        if (!Array.isArray(body.events) || body.events.length > 200) fail(400, 'At most 200 events per batch');
+        const events = body.events.map(alertEvent);
+        const cutoff = new Date(Date.now() - ALERT_RETENTION_DAYS * 86400000).toISOString();
+        const created = new Date().toISOString();
+        let accepted = 0;
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          db.prepare('DELETE FROM alerts WHERE created<?').run(cutoff);
+          if (owner) {
+            const member = db.prepare('SELECT id FROM users WHERE email=? AND family=?');
+            const insert = db.prepare('INSERT OR IGNORE INTO alerts (user_id,id,payload,created) VALUES (?,?,?,?)');
+            for (const event of events) {
+              const payload = JSON.stringify({ id: event.id, title: event.title, body: event.body, at: event.at });
+              for (const email of event.recipients) {
+                const recipient = member.get(email.toLowerCase(), owner.family);
+                if (!recipient) continue;
+                accepted += insert.run(recipient.id, event.id, payload, created).changes;
+              }
+            }
+          }
+          db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
+        return send(200, { accepted });
+      }
       // Two ways in, and only two.
       //
       //  * A PAIRED IPHONE presents a device token it got from a pairing code.
@@ -308,6 +352,25 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // APPLE_SERVICE_OWNER at a different family member changes who the app
       // treats as owner on the next request, with nothing to migrate.
       if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo, owner: !!serviceOwner && auth.email === serviceOwner.toLowerCase() });
+      // The phone's drain of its own queue — same drain-by-acknowledgement
+      // contract as /api/native/notifications, so a member never needs the
+      // owner-only native lane just to hear about a household arrival.
+      if (path === '/api/apple/alerts' && method === 'GET') {
+        const rows = db.prepare('SELECT payload FROM alerts WHERE user_id=? AND acked IS NULL ORDER BY created LIMIT 50').all(auth.user_id);
+        return send(200, { alerts: rows.map(r => JSON.parse(r.payload)) });
+      }
+      if (path === '/api/apple/alerts/ack' && method === 'POST') {
+        const body = await readJSON(); exactKeys(body, ['ids']);
+        if (!Array.isArray(body.ids) || body.ids.length > 100 || !body.ids.every(id => string(id, 100))) fail(400, 'Invalid ids');
+        // Scoped to `user_id=?` in the same statement as the id match, not
+        // filtered afterwards — there is no way for one caller's ack list to
+        // touch another user's row even if it guesses a real alert id.
+        const ack = db.prepare('UPDATE alerts SET acked=? WHERE user_id=? AND id=?');
+        const ackedAt = new Date().toISOString();
+        let acked = 0;
+        for (const id of body.ids) acked += ack.run(ackedAt, auth.user_id, id).changes;
+        return send(200, { acked });
+      }
       if (path === '/api/apple/pair-code' && method === 'POST' && auth.kind === 'session') {
         db.prepare("DELETE FROM credentials WHERE user_id=? AND kind='pair'").run(auth.user_id);
         const code = issue(db, auth.user_id, 'pair', 'One-time pairing', 600000);
@@ -483,6 +546,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           db.prepare('DELETE FROM health WHERE user_id=?').run(auth.user_id);
           db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(auth.user_id);
           db.prepare('DELETE FROM locations WHERE user_id=?').run(auth.user_id);
+          db.prepare('DELETE FROM alerts WHERE user_id=?').run(auth.user_id);
           db.prepare("DELETE FROM credentials WHERE user_id=? AND kind IN ('device','pair')").run(auth.user_id);
           db.prepare('UPDATE users SET sharing=0 WHERE id=?').run(auth.user_id);
           db.exec('COMMIT');
