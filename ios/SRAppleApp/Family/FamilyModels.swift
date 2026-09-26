@@ -10,9 +10,15 @@ import CoreLocation
 /// yours to see, and a person not sharing has no position, battery or time.
 struct HouseholdView: Codable, Equatable {
     let generatedAt: String
-    /// "owner" or "household".
+    /// "owner", "household", or "none" — a household member outside the
+    /// Family Circle, who gets no people, only the places to watch.
     let viewer: String
     let people: [FamilyPerson]
+    /// Places whose leaving switches this phone to close tracking.
+    var watch: [WatchedPlace]? = nil
+
+    /// Whether there is anybody to show — a "none" view is only a watch list.
+    var showsHousehold: Bool { viewer != "none" }
 }
 
 struct HouseholdViewResponse: Codable {

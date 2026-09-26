@@ -51,6 +51,11 @@ struct GateEvent: Codable, Identifiable, Equatable {
         /// The gate WANTED to sleep and could not. Always the interesting row:
         /// it means the app is still paying, and says why.
         case blocked
+        /// Left a watched place: a fix a second until still for five minutes.
+        case closeOn
+        /// Close tracking ended — still, back at a watched place, the ceiling
+        /// or a low battery. The reason says which.
+        case closeOff
 
         var label: String {
             switch self {
@@ -61,11 +66,13 @@ struct GateEvent: Codable, Identifiable, Equatable {
             case .resumed: return "GPS on"
             case .slept: return "Back to sleep"
             case .blocked: return "Stayed on"
+            case .closeOn: return "Close tracking"
+            case .closeOff: return "Close tracking off"
             }
         }
 
         /// Whether this row represents the app starting to spend.
-        var spends: Bool { self == .started || self == .resumed || self == .blocked }
+        var spends: Bool { self == .started || self == .resumed || self == .blocked || self == .closeOn }
     }
 
     var id = UUID()

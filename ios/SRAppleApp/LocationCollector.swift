@@ -74,6 +74,11 @@ import UIKit
     /// Whether anything is actually running, so `stop()` only writes a line to
     /// the log when there was something to stop.
     private var running = false
+    /// Close-tracking fixes held in memory and committed as one batch every
+    /// `Outing.commitEvery` — see `commitOuting()`.
+    private var outingBuffer: [LocationRecord] = []
+    private var lastOutingCommit = Date()
+    private var outingTimer: Timer?
 
     /// The live settings. Read on every apply rather than cached, so a change
     /// on the settings screen takes effect on the next fix instead of at the
@@ -99,6 +104,9 @@ import UIKit
     func applySettings() {
         let s = settings
         policy.settings = s
+        // Close tracking owns the radio until it ends; the settings screen
+        // saving mid-walk must not drop it back to the preset.
+        if outbox.state.outing != nil { return }
         // Turning the gate off while it has GPS asleep must wake it here, or the
         // switch appears to do nothing until something happens to move the phone.
         if !s.motion.enabled, gate == .armed {
@@ -158,6 +166,16 @@ import UIKit
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
             manager.allowsBackgroundLocationUpdates = true
+            registerWatched()
+            // A relaunch in the middle of a walk carries on with it — iOS
+            // killing the app must not quietly end close tracking.
+            if let outing = outbox.state.outing {
+                if outbox.state.closeTracking, Date().timeIntervalSince(outing.startedAt) < Outing.maxDuration {
+                    beginOutingRadio(label: outing.placeLabel)
+                    return
+                }
+                try? outbox.change { $0.outing = nil }
+            }
             // Come back asleep if that is how we went away. Without this every
             // launch — including the background relaunch a geofence exit itself
             // causes — would start continuous GPS again, which is the entire
@@ -173,6 +191,10 @@ import UIKit
     }
 
     func stop() {
+        commitOuting()
+        outingTimer?.invalidate(); outingTimer = nil
+        try? outbox.change { $0.outing = nil }
+        unregisterWatched()
         heartbeat?.invalidate(); heartbeat = nil
         anchorTimeoutTask?.cancel(); anchorTimeoutTask = nil
         awaitingAnchor = nil
@@ -390,6 +412,160 @@ import UIKit
             : "Sharing · enable Always for background recovery"
     }
 
+    // MARK: - Close tracking
+
+    /// The site's watched places. Re-registered only when they changed:
+    /// every sync hands the list over, and churning twenty geofences on each
+    /// one would throw away iOS's own state about which side we are on.
+    func setWatchedPlaces(_ places: [WatchedPlace]) {
+        guard places != outbox.state.watchedPlaces else { return }
+        try? outbox.change { $0.watchedPlaces = places }
+        unregisterWatched()
+        registerWatched()
+    }
+
+    /// The settings switch. Off ends any stretch in progress at once.
+    func setCloseTracking(_ on: Bool) {
+        try? outbox.change { $0.closeTracking = on }
+        if on {
+            registerWatched()
+        } else {
+            unregisterWatched()
+            if outbox.state.outing != nil { endOuting(reason: "Switched off") }
+        }
+    }
+
+    /// Whether close tracking is running now, for the settings screen.
+    var outingLabel: String? { outbox.state.outing?.placeLabel }
+
+    private func registerWatched() {
+        guard outbox.state.sharing, outbox.state.closeTracking,
+              CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else { return }
+        let have = Set(manager.monitoredRegions.map(\.identifier))
+        for place in Outing.toRegister(outbox.state.watchedPlaces, near: manager.location) where !have.contains(place.regionID) {
+            manager.startMonitoring(for: place.region)
+        }
+    }
+
+    private func unregisterWatched() {
+        for region in manager.monitoredRegions where region.identifier.hasPrefix(Outing.regionPrefix) {
+            manager.stopMonitoring(for: region)
+        }
+    }
+
+    private func startOuting(leaving place: WatchedPlace) {
+        guard outbox.state.sharing, outbox.state.closeTracking, outbox.state.outing == nil else { return }
+        let now = Date()
+        try? outbox.change {
+            $0.outing = OutingState(placeID: place.id, placeLabel: place.label, startedAt: now, lastMovedAt: now)
+        }
+        note(.closeOn, reason: "Left \(place.label)")
+        beginOutingRadio(label: place.label)
+    }
+
+    /// Every fix the GPS has, whatever the phone is doing, with nothing
+    /// allowed to pause it. The motion gate's anchor is dropped: close
+    /// tracking ends by its own rule and hands back to the gate after.
+    private func beginOutingRadio(label: String) {
+        anchorTimeoutTask?.cancel(); anchorTimeoutTask = nil
+        awaitingAnchor = nil
+        stopWakeRoutes()
+        heartbeat?.invalidate(); heartbeat = nil
+        gate = .tracking
+        armedAt = nil
+        stillSince = nil
+        running = true
+        try? outbox.change { $0.gateState = .tracking; $0.anchor = nil }
+        manager.allowsBackgroundLocationUpdates = true
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.activityType = .otherNavigation
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = kCLDistanceFilterNone
+        manager.startUpdatingLocation()
+        // Kept on underneath: if iOS kills the app mid-walk, a significant
+        // change relaunches it and `start()` resumes the stretch.
+        if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+            manager.startMonitoringSignificantLocationChanges()
+        }
+        lastOutingCommit = Date()
+        outingTimer?.invalidate()
+        // The fixes do the work while they arrive; this covers the case where
+        // they stop (a tunnel, a lift) — stillness must still end the stretch.
+        outingTimer = Timer.scheduledTimer(withTimeInterval: Outing.commitEvery, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.outingTick() }
+        }
+        status = "Close tracking · left \(label)"
+    }
+
+    private func handleOutingFixes(_ locations: [CLLocation]) {
+        guard var state = outbox.state.outing else { return }
+        for location in locations {
+            guard abs(location.timestamp.timeIntervalSinceNow) < 120,
+                  location.horizontalAccuracy >= 0,
+                  location.horizontalAccuracy <= Outing.accuracyCeiling else { continue }
+            let before = state.lastMovedAt
+            state = Outing.moved(state, lat: location.coordinate.latitude, lon: location.coordinate.longitude, at: location.timestamp)
+            outingBuffer.append(LocationRecord(recorded: timestamp(location.timestamp),
+                                               latitude: location.coordinate.latitude,
+                                               longitude: location.coordinate.longitude,
+                                               accuracy: location.horizontalAccuracy,
+                                               speed: max(0, location.speed),
+                                               moving: location.speed >= settings.movingSpeed || state.lastMovedAt != before,
+                                               battery: Self.batteryPercent()))
+            reference = location
+        }
+        // Not written through on every fix: the state file is the whole
+        // upload queue, and rewriting it once a second is the cost this
+        // batching exists to avoid. The commit below persists it.
+        try? outbox.change(persist: false) { $0.outing = state }
+        outingTick()
+    }
+
+    /// Commit what has built up, and end the stretch if it is time.
+    private func outingTick() {
+        guard let state = outbox.state.outing else { return }
+        if Date().timeIntervalSince(lastOutingCommit) >= Outing.commitEvery { commitOuting() }
+        let device = UIDevice.current
+        let level = device.batteryLevel
+        let charging = device.batteryState == .charging || device.batteryState == .full
+        if let end = Outing.shouldEnd(state, now: Date(), battery: level >= 0 ? Double(level) : nil, charging: charging) {
+            endOuting(reason: end.reason)
+        } else {
+            status = "Close tracking · left \(state.placeLabel)"
+        }
+    }
+
+    /// One batch, one write, one upload — for every point since the last.
+    private func commitOuting() {
+        lastOutingCommit = Date()
+        guard !outingBuffer.isEmpty else { return }
+        let points = outingBuffer
+        outingBuffer = []
+        do {
+            try outbox.change {
+                $0.batches.append(UploadBatch(locations: points))
+                $0.pointsRecorded += points.count
+                $0.accuracySum += points.reduce(0) { $0 + $1.accuracy }
+                if $0.countingSince == nil { $0.countingSince = Date() }
+            }
+            onUpdate?()
+        } catch { status = "Could not save location. Open the app and retry." }
+    }
+
+    private func endOuting(reason: String) {
+        commitOuting()
+        outingTimer?.invalidate(); outingTimer = nil
+        try? outbox.change { $0.outing = nil }
+        note(.closeOff, reason: reason)
+        // Back to the preset. When the gate is on and the stretch ended because
+        // the phone is still, it may go straight to sleep where it is.
+        manager.stopUpdatingLocation()
+        resumeTracking(reason: "After close tracking", kind: .resumed)
+        if settings.motion.enabled, reason.hasPrefix("Still"), let here = reference {
+            arm(at: here)
+        }
+    }
+
     // MARK: - The log
 
     private func note(_ kind: GateEvent.Kind, reason: String, detail: String? = nil, state: GateState? = nil) {
@@ -429,6 +605,11 @@ import UIKit
                                     radius: anchorRadius(for: location),
                                     at: Date())
             rearm(anchor: anchor, reason: reason, kind: .slept)
+            return
+        }
+
+        if outbox.state.outing != nil {
+            handleOutingFixes(locations)
             return
         }
 
@@ -505,8 +686,20 @@ import UIKit
     }
 
     func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+        if region.identifier.hasPrefix(Outing.regionPrefix) {
+            let id = String(region.identifier.dropFirst(Outing.regionPrefix.count))
+            if let place = outbox.state.watchedPlaces.first(where: { $0.id == id }) { startOuting(leaving: place) }
+            return
+        }
         guard region.identifier == Self.anchorID else { return }
         wake(reason: "Left the anchor")
+    }
+
+    func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+        guard region.identifier.hasPrefix(Outing.regionPrefix), outbox.state.outing != nil else { return }
+        let id = String(region.identifier.dropFirst(Outing.regionPrefix.count))
+        let label = outbox.state.watchedPlaces.first { $0.id == id }?.label ?? "a watched place"
+        endOuting(reason: "Back at \(label)")
     }
 
     func locationManager(_ manager: CLLocationManager, didDetermineState state: CLRegionState, for region: CLRegion) {
@@ -524,6 +717,10 @@ import UIKit
     }
 
     func locationManager(_ manager: CLLocationManager, monitoringDidFailFor region: CLRegion?, withError error: Error) {
+        if let region, region.identifier.hasPrefix(Outing.regionPrefix) {
+            note(.blocked, reason: "Could not watch a place · \(error.localizedDescription)")
+            return
+        }
         guard gate == .armed else { return }
         // The anchor did not take. Staying asleep now would mean staying asleep
         // for good, so come back up and say why.

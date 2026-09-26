@@ -131,6 +131,16 @@ struct PersistedState: Codable {
     /// since this pairing. In the state file rather than `UserDefaults` so a
     /// re-pair (which calls `clear()`) asks again — possibly a different person.
     var sharingAsked = false
+    /// Close tracking after leaving a watched place. On for everyone sharing
+    /// (John's call, 2026-09-26); each phone can switch it off.
+    var closeTracking = true
+    /// The places the site flagged "track closely after leaving", from the
+    /// last household view. Kept here so a relaunch can re-register them
+    /// before the network answers.
+    var watchedPlaces: [WatchedPlace] = []
+    /// The close-tracking stretch in progress, if any. Persisted so a
+    /// relaunch mid-walk carries on rather than dropping back to the gate.
+    var outing: OutingState?
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -169,6 +179,10 @@ struct PersistedState: Codable {
         // and a shape it cannot read must cost the cache, never the queue.
         connections = (try? c.decodeIfPresent(ConnectionsSnapshot.self, forKey: .connections)) ?? nil
         sharingAsked = try c.decodeIfPresent(Bool.self, forKey: .sharingAsked) ?? false
+        closeTracking = try c.decodeIfPresent(Bool.self, forKey: .closeTracking) ?? true
+        // `try?`: a cache of a server answer, like `connections`.
+        watchedPlaces = (try? c.decodeIfPresent([WatchedPlace].self, forKey: .watchedPlaces)) ?? []
+        outing = (try? c.decodeIfPresent(OutingState.self, forKey: .outing)) ?? nil
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`

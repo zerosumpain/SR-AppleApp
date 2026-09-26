@@ -270,8 +270,8 @@ struct ActivityLogScreen: View {
     /// on a chart — here they are on separate rows, which is fine.
     private func tone(_ kind: GateEvent.Kind) -> Color {
         switch kind {
-        case .resumed, .started: return SR.accent
-        case .armed, .slept: return SR.good
+        case .resumed, .started, .closeOn: return SR.accent
+        case .armed, .slept, .closeOff: return SR.good
         case .blocked: return SR.error
         case .woke: return SR.accentInk
         case .stopped: return SR.inkMuted

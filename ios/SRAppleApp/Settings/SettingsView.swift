@@ -63,6 +63,15 @@ struct LocationSettingsScreen: View {
                 motionGate
             }
 
+            SRSection {
+                SectionHead(
+                    kicker: "D / Leaving",
+                    title: ["Track closely", "once out"],
+                    strap: "Leave a place the household has flagged — home, by default — and the app records a position every second, on foot, on a bike or in a car, until you have been still for five minutes or come back."
+                )
+                closeTracking
+            }
+
                 SRSection(isLast: true) {
                     Text("Battery figures are device-wide — iOS does not report per-app use. Changes apply at the next fix, not the next launch.")
                         .font(SR.Text.mono())
@@ -253,6 +262,43 @@ struct LocationSettingsScreen: View {
     }
 
     // MARK: - C. The motion gate
+
+    /// Applied the moment it is flipped, not through the save bar: it is a
+    /// yes or no about this phone, not one of the nine numbers being tuned.
+    private var closeTracking: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Toggle(isOn: Binding(
+                get: { outbox.state.closeTracking },
+                set: { location.setCloseTracking($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Close tracking after leaving")
+                        .font(SR.body(15)).foregroundStyle(SR.ink)
+                    Text("About 5–10% of battery an hour while it runs. It stops by itself after five still minutes, four hours, or at 15% battery.")
+                        .font(SR.body(13)).foregroundStyle(SR.inkMuted)
+                }
+            }
+            .tint(SR.accent)
+            .accessibilityIdentifier("close-tracking")
+
+            HStack(alignment: .top, spacing: 22) {
+                Figure(value: location.outingLabel.map { "Left \($0)" } ?? "Off", label: "Right now")
+                Figure(value: "\(outbox.state.watchedPlaces.count)", label: "Places watched")
+            }
+
+            if !outbox.state.watchedPlaces.isEmpty {
+                Text(outbox.state.watchedPlaces.map(\.label).joined(separator: " · "))
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("No places yet — they arrive with the household view once this phone is paired and sharing.")
+                    .font(SR.body(14))
+                    .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
 
     private var motionGate: some View {
         VStack(alignment: .leading, spacing: 18) {
