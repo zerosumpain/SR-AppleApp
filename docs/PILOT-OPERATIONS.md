@@ -2,10 +2,10 @@
 
 Activated 21 September 2026 after the TestFlight 0.1.0 (2) upload.
 
-- Browser dashboard: https://strangeramblings.com/apple-app/
+- Browser dashboard: **retired 2026-09-26.** https://strangeramblings.com/apple-app/ now 308s to https://strangeramblings.com/welcome; its views live on the main site (see below).
 - Native server origin: https://strangeramblings.com (no path suffix).
-- The browser dashboard uses the **main website login** (Google). There is no separate companion password.
-- Generate a one-time, ten-minute pairing QR code in Connect & privacy; manual copy remains available.
+- The browser API lane uses the **main website login** (Google). There is no separate companion password.
+- Generate a one-time, ten-minute pairing QR code at strangeramblings.com/welcome (or Admin → Access → Devices); manual copy remains available.
 - Location sharing starts off; each person opts in. Health endpoints stay owner-scoped.
 
 ## Deployment
@@ -53,6 +53,10 @@ it), and `users.password` is dropped on open. There is no password to reset. A p
 QR update: that release preserved the existing volume and routes. Ten API tests pass, including decoding the generated QR pixels and checking replacement/replay rejection. Desktop/mobile rendered QR and expiry checks pass. The live HTTPS QR decoded to the canonical origin and successfully paired a temporary verification device, which was then revoked. Physical camera scanning still requires the updated TestFlight build on an iPhone.
 
 TestFlight 0.1.0 (3), from the same release, uploaded successfully on 21 September 2026. Native unit/UI checks passed with the simulator set to dark appearance, including QR payload validation, manual-code visibility, and camera-unavailable fallback. The physical-camera acceptance check remains for the device tester.
+
+## Dashboard retired (26 September 2026)
+
+The `/apple-app/` dashboard is gone. Its four tabs moved to the main site: health to `/health`, family to `/home/people`, movement to the person's own `/home/people` page (reading `GET /api/apple/household/day`), and Connect & privacy to `/welcome` + `/admin/access/devices` (pairing, devices, sharing, delete my data via `POST /api/apple/household/data/delete`). This server now serves JSON only: `/apple-app`, `/apple-app/*` and `/` 308 to `${APPLE_PUBLIC_ORIGIN}/welcome`, and the CSP is `default-src 'none'`. The history below describes the dashboard as it was.
 
 ## Movement map (22 September 2026)
 

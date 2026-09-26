@@ -133,6 +133,32 @@ export function mintPairCode(db, user) {
   db.prepare("DELETE FROM credentials WHERE user_id=? AND kind='pair'").run(user);
   return issue(db, user, 'pair', 'One-time pairing', PAIR_CODE_TTL);
 }
+/**
+ * Wipe everything a person's phone uploaded, and unpair it.
+ *
+ * One definition for the two ways in: the person's own "delete my data"
+ * (`DELETE /api/apple/data`) and SR-Main's /welcome asking on their behalf over
+ * the household lane. Health, its tombstones, location history, queued alerts,
+ * device tokens and any live pairing code go; sharing is switched off so a
+ * phone that re-pairs starts from "ask first". The account row stays — family
+ * membership is the owner's decision, not the uploader's. Returns what was
+ * removed, per table, so a caller can say it honestly.
+ */
+export function deleteUserData(db, user) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const deleted = {
+      health: db.prepare('DELETE FROM health WHERE user_id=?').run(user).changes,
+      tombstones: db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(user).changes,
+      locations: db.prepare('DELETE FROM locations WHERE user_id=?').run(user).changes,
+      alerts: db.prepare('DELETE FROM alerts WHERE user_id=?').run(user).changes,
+      credentials: db.prepare("DELETE FROM credentials WHERE user_id=? AND kind IN ('device','pair')").run(user).changes,
+    };
+    db.prepare('UPDATE users SET sharing=0 WHERE id=?').run(user);
+    db.exec('COMMIT');
+    return deleted;
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
 export function issue(db, user, kind, label, ttl) {
   const token = secret();
   db.prepare('INSERT INTO credentials VALUES (?,?,?,?,?)').run(hash(token), user, kind, label, Date.now() + ttl);

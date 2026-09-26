@@ -1,10 +1,12 @@
 # SR-AppleApp
 
-Native iPhone companion and private web/API pilot for Strange Ramblings.
+Native iPhone companion and private API pilot for Strange Ramblings. Its browser
+views live on the main site: pairing and sharing on `/welcome`, phones on
+`/admin/access/devices`, health on `/health`, movement on `/home/people`.
 
 - **Private health:** steps, heart rate, resting heart rate, sleep stages and workouts.
 - **Family locations:** latest shared position, accuracy, recorded time and received time.
-- **Your own movement, on a map:** a day listed as journeys and the stops between them, each drawn with the gaps left as gaps, and that day's heart rate, workouts, sleep and steps on one timeline under it. Scrubbing the timeline moves a dot along the track; picking an activity lights it and dims the rest of the day. Owner-only — the family tab shares a latest position, this shares a history.
+- **Your own movement, as data for a map:** a day listed as journeys and the stops between them, with the gaps left as gaps, and that day's heart rate, workouts, sleep and steps for one timeline under it. The main site's `/home/people` draws it (`GET /api/apple/household/day`), for that person's own page only — the family tab shares a latest position, this shares a history.
 - **Adaptive location recording:** targets 10 minutes stationary and 30 seconds moving, with a 3-minute stop threshold. These are best-effort recording intervals, not guaranteed GPS or upload schedules.
 - **Motion-gated GPS (optional, off by default):** when the phone has been still long enough the app drops a geofence, switches GPS off and lets iOS suspend it. A geofence exit, significant change or visit departure wakes it; it then reads the movement the motion coprocessor recorded while it slept and decides whether to start GPS at all. Motion cannot wake a suspended app — the hardware log is what makes this work. Everything ambiguous fails towards running GPS rather than going quiet.
 - **A history of that:** every time the gate opened or closed, with the cause, the duty cycle it adds up to, and what share of wakes found real movement. An app that switches its own sensor off has to be watchable.
@@ -12,11 +14,20 @@ Native iPhone companion and private web/API pilot for Strange Ramblings.
 
 Health is always scoped to the authenticated person. Family membership grants access to shared locations only. No public health projection, family health endpoint, or administrator health-view bypass exists. Server operators with filesystem/database access still technically control the stored data; this is not end-to-end encryption.
 
-## Test the running local preview
+## The retired dashboard
 
-Run it locally (below) and open `/apple-app/` on the host you started it on.
-There is also a long-running preview on the LAN; its address is in the private
-ops notes rather than here, because this repository is public.
+Until 2026-09-26 this server also served a browser dashboard at `/apple-app/`
+(My health, Family locations, Movement, Connect & privacy). Every one of those
+now has a home on the main site, so the dashboard is gone: `/apple-app`,
+`/apple-app/*` and `/` answer **308 → `${APPLE_PUBLIC_ORIGIN}/welcome`**, and
+this server serves JSON and nothing else (its CSP is `default-src 'none'`).
+Every `/api/apple/*` route is unchanged, including the session-authenticated
+ones.
+
+## Local preview
+
+Run it locally (below) and exercise the API with `npm test` or curl. The
+synthetic accounts the seed writes:
 
 | Synthetic account | Family |
 | --- | --- |
@@ -26,12 +37,11 @@ ops notes rather than here, because this repository is public.
 
 **There is no password.** Signing in uses the main site's Google session, and a
 laptop on loopback has no main site to get one from, so the preview names an
-account instead. That lane needs `DEMO_MODE=1` **and** a non-https origin, so it
-cannot exist on production — see `server/session.mjs`.
+account instead (`POST /api/apple/demo-signin`). That lane needs `DEMO_MODE=1`
+**and** a non-https origin, so it cannot exist on production — see
+`server/session.mjs`.
 
-Sign in as Alex, inspect My health, open Movement and pick a day from the strip — the seed writes six days of walks with real gaps between them, so the dashed hops and the "the phone was asleep" readout are the point, not a defect. The preview has no main site to fetch a Mapbox token from, so the track draws on a plain ground and the frame says so. Then switch to Family locations, and pause sharing under Connect & privacy. Sign in as Sam in a second browser/private window: Sam sees only Sam's health, and Alex's location disappears while paused. Robin cannot see either member of the demo family. Refresh the family tab after changing sharing in another window.
-
-This HTTP preview contains synthetic data only. It is **not connected to production**, does not read Apple Health in the browser, and is not the iPhone app. Real-device pairing requires trusted HTTPS and an installed signed build.
+This HTTP preview contains synthetic data only. It is **not connected to production**, does not read Apple Health, and is not the iPhone app. Real-device pairing requires trusted HTTPS and an installed signed build.
 
 ## Signing in
 
@@ -60,23 +70,16 @@ The container refuses to start on an https origin without `AUTH_SECRET`. Without
 that check a missing secret would 401 every browser while the phone kept syncing
 on its device token, hiding the fault for days.
 
-### One page, both credentials
+### Where a phone is paired
 
-A phone can hold two, and both are minted from **Connect & privacy** on this
-dashboard:
+A phone can hold two credentials, and both are minted on the main site:
 
-| Credential | Minted by | Grants |
-| --- | --- | --- |
-| Companion device token | this server | health upload, family location |
-| Site device token | **the main site**, `/api/admin/native-devices` | jkai threads, the news desk |
+| Credential | Minted by | Where | Grants |
+| --- | --- | --- | --- |
+| Companion device token | this server, asked over the household lane | `/welcome` (anyone in the family), `/admin/access/devices` | health upload, family location |
+| Site device token | **the main site**, `/api/admin/native-devices` | `/admin/access/devices`, the owner's `/welcome` | jkai threads, the news desk |
 
-Only the UI is shared. The site token is minted, listed and revoked by SR-Main
-behind its own owner gate, and its QR arrives already rendered as a data URL —
-this server never mints, stores or sees it. Drawing the QR here would have meant
-vendoring a QR library to handle a credential that is none of its business.
-
-`/admin/access/devices` on the main site 308s here; it existed for about an hour
-on 2026-09-22.
+This server never mints, stores or sees the site token.
 
 ### Why not the SR-Infra gateway
 
@@ -98,10 +101,10 @@ unchanged so the part that matters cannot drift.
 
 ```
 ios/                 SwiftUI app, HealthKit/Core Location collectors, XCTest
-server/              Node HTTP API, SQLite, private browser dashboard
+server/              Node HTTP API, SQLite
 server/test/         API integration and privacy tests
 .github/workflows/   Mac simulator checks and manual signed TestFlight upload
-scripts/             Signing setup and repeatable browser verification
+scripts/             Signing setup and iOS source checks
 deploy/              Container configuration
 ```
 
@@ -125,7 +128,7 @@ APP_ORIGIN=http://127.0.0.1:5295 docker compose -f deploy/compose.yaml up -d --b
 
 The long-running LAN preview is a separate Compose project with its **own
 volume**, bound to loopback and reached through the existing preview gateway,
-which forwards `/apple-app/` and `/api/apple/` without injecting the site's
+which forwards `/api/apple/` without injecting the site's
 owner session. It never touches production data, credentials or the Docker
 socket. Its host, paths and volume name are deliberately not published here.
 
@@ -138,8 +141,8 @@ socket. Its host, paths and volume name are deliberately not published here.
 | `AUTH_SECRET` | yes on https | verifies the main site's Auth.js session cookie; copied from the site's own environment. Only enforced when `APP_ORIGIN` is https — a non-https `APP_ORIGIN` (e.g. the local preview) can start without it |
 | `APPLE_SERVICE_TOKEN` | no | shared bearer token for /health's service lane; empty = both service-lane reads 404 |
 | `APPLE_SERVICE_OWNER` | no | the fixed owner (an email already in `users`) those reads are scoped to |
-| `APPLE_HOUSEHOLD_TOKEN` | no | SR-Main's household lane (`/api/apple/household`, `/api/apple/household/events`, `/api/apple/household/views`, and the onboarding routes `/api/apple/household/users`, `/pair-code`, `/devices`, `/sharing` — see docs/INTEGRATION.md), scoped to the owner's family; empty = all 404; must differ from `APPLE_SERVICE_TOKEN` |
-| `APPLE_PUBLIC_ORIGIN` | no | the origin a phone reaches this server on from outside, written into pairing QRs minted over the household lane (SR-Main asks over loopback, so `APP_ORIGIN` is not it); defaults to `https://strangeramblings.com` |
+| `APPLE_HOUSEHOLD_TOKEN` | no | SR-Main's household lane (`/api/apple/household`, `/api/apple/household/events`, `/api/apple/household/views`, the onboarding routes `/api/apple/household/users`, `/pair-code`, `/devices`, `/sharing`, and `/data/delete` + `/day` — see docs/INTEGRATION.md), scoped to the owner's family; empty = all 404; must differ from `APPLE_SERVICE_TOKEN` |
+| `APPLE_PUBLIC_ORIGIN` | no | the origin a phone reaches this server on from outside, written into pairing QRs minted over the household lane (SR-Main asks over loopback, so `APP_ORIGIN` is not it), and where the retired `/apple-app` 308s to (`/welcome`); defaults to `https://strangeramblings.com` |
 | `APPLE_DOORBELL_URL` | no | POSTed (empty body, `Authorization: Bearer $APPLE_DOORBELL_TOKEN`) after each owner upload so /health pulls the export at once; empty = no ring, and /health still catches up on its own page-load backstop |
 | `APPLE_DOORBELL_TOKEN` | no | the doorbell's own ring-only secret — distinct from `APPLE_SERVICE_TOKEN`, can only trigger a pull, and grants no read access |
 
@@ -175,29 +178,31 @@ xcodegen generate --spec ios/project.yml
 open ios/SRAppleApp.xcodeproj
 ```
 
-Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code from the dashboard. Pairing expires after 10 minutes; device credentials expire after 90 days and can be revoked immediately. A pairing code binds the phone to the person who generated it. Pair each family member's own phone with their own account.
+Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code from strangeramblings.com/welcome. Pairing expires after 10 minutes; device credentials expire after 90 days and can be revoked immediately. A pairing code binds the phone to the person who generated it. Pair each family member's own phone with their own account.
 
 ## Pilot behaviour and limits
 
 - Initial health history starts 30 days before the local app state was created. HR/RHR/sleep/workout changes use persisted HealthKit anchors. Deleted sample IDs remove the corresponding uploaded sample.
 - Steps use HealthKit cumulative daily statistics, not raw phone-plus-Watch sums. The most recent 30 daily buckets are recomputed, allowing updated totals to replace older uploads. If a whole bucket disappears or permission is withdrawn, HealthKit's absence cannot reliably distinguish deletion from denied access; existing server totals remain until explicitly deleted. Historical bucket timezone changes and long-running backfills need further real-device validation.
-- Sleep stages retain source and interval. The dashboard does not sum overlapping sources into a misleading sleep total.
+- Sleep stages retain source and interval. Overlapping sources are unioned, never summed, into a sleep total (`asleepSeconds` on the timeline).
 - HR is available historical readings, not continuous real-time sensing. Watch-originated records must first reach the phone.
 - HealthKit reads can fail while locked; retry after unlock. Apple deliberately does not disclose denied read permission, so empty data is not presented as confirmed permission.
 - With motion gating on, GPS is switched off entirely while the phone is still. That trades latency for battery: movement is noticed on leaving the anchor, not the second somebody stands up. It refuses to sleep at all unless Always location access, significant-change monitoring, geofencing and a readable motion history are ALL available, and records a reason in the history when it cannot — the app keeps recording expensively rather than silently stopping. Motion & Fitness permission is required; step and activity history is read only to decide whether to start GPS and is never uploaded.
 - Continuous/low-accuracy location monitoring and significant-change recovery detect movement. GPS drift is filtered; inaccurate or old fixes are discarded. Recording frequency does not equal sensor frequency. The best-effort timer works only while iOS runs the process. Suspension, force-quit, disabled Background App Refresh, low power and poor reception cause gaps. Stationary points are not fabricated from stale coordinates.
 - Pausing sharing on the website hides the last position immediately. The phone stops collection when it next reaches the server. Pausing on an offline phone stops collection immediately; server visibility changes only once the pause reaches the server.
 - Queue and anchors are persisted atomically with iOS file protection and excluded from backup. Tokens use device-only Keychain storage. The queue caps at 50,000 records and stops advancing collection when full. Uploads retry on subsequent events, foreground launch, a best-effort retry timer, and OS-scheduled background refresh.
-- Browser and native history views are bounded recent-record views, not full historical analytics. A family location still opens explicitly in Apple Maps rather than being embedded. The **Movement** tab does embed a basemap, and what that costs is written out under [The movement map](#the-movement-map) rather than left to be discovered.
+- Native history views are bounded recent-record views, not full historical analytics. A family location still opens explicitly in Apple Maps rather than being embedded.
 - Locations are retained for up to 30 days (pruned on ingestion); family reads expose the latest point only. Health records remain until deletion. Delete uploaded data revokes paired devices to prevent immediate automatic re-upload.
 - Family account provisioning is administrator CLI-only, and deliberately so: `family` decides who can see a location, and there is nothing in a Google login to infer it from. See [site integration](docs/INTEGRATION.md).
 
 ## The movement map
 
-A day's track on a basemap, with that day's health on a timeline under it.
-Reading it is `GET /api/apple/track` for the geometry and
-`GET /api/apple/timeline` for the health, both scoped to the signed-in person
-on either lane. There is no user parameter to reject: `family` discloses a
+A day's track, with that day's health on a timeline under it. The person's own
+lanes read it as `GET /api/apple/track` for the geometry and
+`GET /api/apple/timeline` for the health, both scoped to the signed-in person.
+The main site reads the same two shapes in one response from
+`GET /api/apple/household/day` (see docs/INTEGRATION.md) and draws the map on
+the person's own `/home/people` page; the same functions build both. There is no user parameter to reject: `family` discloses a
 LATEST position, this discloses a HISTORY, and a month of positions says where
 somebody sleeps, works and takes their children. Reading your own track does
 not depend on the sharing switch — that governs uploading and what the family
@@ -230,29 +235,8 @@ summed within segments only. That makes the distance an undercount whenever the
 phone slept through a journey, which is the honest direction to be wrong in.
 Nothing here is called "distance travelled".
 
-**What the basemap costs.** Tiles are raster images from Mapbox, using the main
-site's own public token fetched from `/api/maps/config` on the same origin —
-this server never holds a Mapbox credential. Mapbox therefore sees the tile
-coordinates being viewed (an area, not the trace), the viewer's IP, and the
-origin. It does not see the track, the times, or who is looking. If that trade
-is not wanted, the map degrades on purpose: with no token, or a failed fetch,
-the track draws on a plain ground with a scale bar and says so.
-
-Two details that are not obvious and both fail silently if missed:
-
-- The tiles are `<img>` elements rather than a WebGL map library, which is why
-  the CSP only gains `img-src https://api.mapbox.com`. A GL map would have
-  wanted `connect-src`, `worker-src blob:` and a looser `style-src` on a page
-  showing a month of somebody's whereabouts, plus a megabyte of vendored code
-  into a server with no bundler.
-- The token is URL-restricted, and this server sends `Referrer-Policy:
-  no-referrer`. A tile inheriting that arrives anonymous and is refused with a
-  403 and nothing in the console. Each tile carries its own
-  `referrerpolicy="strict-origin-when-cross-origin"`, which overrides the
-  document policy for that element alone and sends the origin and nothing more.
-
 **Days are the reader's days.** Everything is stored in UTC and bucketed using
-the offset the browser reports, because a walk that starts at half past midnight
+the offset the reader's browser reports, because a walk that starts at half past midnight
 in summer otherwise lands on the day before. One offset covers the whole window,
 so on the two days a year the clocks move an hour of fixes sits on the
 neighbouring day. Named in `server/movement.mjs` rather than engineered around.
@@ -260,18 +244,18 @@ neighbouring day. Named in `server/movement.mjs` rather than engineered around.
 **Steps are not added up.** The phone uploads one HealthKit cumulative-sum row
 per calendar day, so `timeline` returns step records rather than a total: a
 window that overlaps two of them would otherwise report a day that never
-happened. Sleep is unioned rather than summed for the same reason the health tab
-already gives — stages overlap across sources.
+happened. Sleep is unioned rather than summed (`asleepSeconds`) because stages overlap
+across sources.
 
 ## Validation
 
-`npm test` verifies authentication, owner isolation, family boundaries, consent enforcement, input validation, idempotent retries, deletion isolation, pairing replay/expiry, CSRF and device revocation. It also covers the movement lane: that a track is readable by nobody but the person who recorded it, that pausing sharing does not lock you out of your own history, that a gap becomes a second segment rather than a straight line, that distance is never summed across one, that days bucket in the reader's timezone, and that sleep and workouts are selected by overlap so a night that began yesterday evening is not lost. XCTest checks movement cadence, bad GPS accuracy, HTTPS URL rules, queue persistence, corrupt-state handling, the motion-gate decision (including that unreadable motion turns GPS on rather than going quiet) and the duty-cycle arithmetic behind the history screen. Core Motion answers nothing in a simulator, so the gate's judgement is deliberately pure and the state machine itself is device-only. Browser checks cover sign-in, private records, family display, pause/resume, pairing, responsive layout, and the movement map end to end — that the trace draws, that a gap draws dashed, that scrubbing the timeline places a dot on the track and refuses to place one in a gap, and that the map pans and zooms.
+`npm test` verifies authentication, owner isolation, family boundaries, consent enforcement, input validation, idempotent retries, deletion isolation, pairing replay/expiry, CSRF and device revocation. It also covers the movement lane: that a track is readable by nobody but the person who recorded it, that pausing sharing does not lock you out of your own history, that a gap becomes a second segment rather than a straight line, that distance is never summed across one, that days bucket in the reader's timezone, and that sleep and workouts are selected by overlap so a night that began yesterday evening is not lost. XCTest checks movement cadence, bad GPS accuracy, HTTPS URL rules, queue persistence, corrupt-state handling, the motion-gate decision (including that unreadable motion turns GPS on rather than going quiet) and the duty-cycle arithmetic behind the history screen. Core Motion answers nothing in a simulator, so the gate's judgement is deliberately pure and the state machine itself is device-only. The household lane's tests cover onboarding, delete-my-data on someone's behalf (that person only, never another family) and the day read (the same track and timeline the person's own routes return, a 48-hour cap, family scope), and that every `/apple-app` path 308s to `/welcome`.
 
 [Device acceptance checklist](docs/DEVICE-TESTING.md) covers the remaining physical-iPhone checks. Passing API/simulator tests does not establish battery life, continuous background delivery, TestFlight installation or production integration.
 
 ## QR pairing
 
-On the companion dashboard, open **Connect & privacy → Create pairing QR code**. In the iPhone app, choose **Pair by QR code**, allow camera access, scan the dashboard on another screen, and confirm the displayed server. The QR carries the HTTPS origin and a single-use token. It expires after ten minutes; creating another QR invalidates the previous token. The app rejects unrelated QR codes and non-HTTPS origins. Manual paste remains available, with a Show pairing code switch. The app uses a consistent light paper appearance even when the system is in dark mode.
+On strangeramblings.com, open **/welcome** (or, for the owner, **Admin → Access → Devices**) and create a pairing QR code. In the iPhone app, choose **Pair by QR code**, allow camera access, scan the code on another screen, and confirm the displayed server. The QR carries the HTTPS origin and a single-use token. It expires after ten minutes; creating another QR invalidates the previous token. The app rejects unrelated QR codes and non-HTTPS origins. Manual paste remains available, with a Show pairing code switch. The app uses a consistent light paper appearance even when the system is in dark mode.
 
 ## Chat and news, natively
 
