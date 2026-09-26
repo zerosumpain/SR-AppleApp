@@ -950,3 +950,134 @@ test("household sharing sets a family member's switch and nobody else's", async 
   assert.equal(db.prepare("SELECT sharing FROM users WHERE id='robin'").get().sharing, 0);
   assert.equal((await household(request, 'household/sharing', { method: 'PUT', body: { email: 'sam@example.test', enabled: 'yes' } })).status, 400);
 });
+
+// --- Household: delete data + day (SR-Main /welcome, /home/people) ---------
+
+test('household data delete wipes that person only, unpairs them, and refuses another family', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  for (const user of ['alex', 'sam']) {
+    await request('sharing', { user, method: 'PUT', body: { enabled: true } });
+    await request('sync', { user, method: 'POST', body: batch([health('A'), health('B')], [location()]) });
+  }
+  await request('sync', { method: 'POST', body: batch([], [], ['B']) });
+  await household(request, 'household/pair-code', { method: 'POST', body: { email: 'alex@example.test' } });
+  await household(request, 'household/events', { method: 'POST', body: { events: [{ id: 'e1', recipients: ['alex@example.test', 'sam@example.test'], title: 'Home', body: 'Sam got home', at: stamp() }] } });
+
+  const response = await household(request, 'household/data/delete', { method: 'POST', body: { email: 'Alex@example.test' } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { deleted: { health: 1, tombstones: 1, locations: 1, alerts: 1, credentials: 2 } });
+  const count = (table, user) => db.prepare(`SELECT count(*) n FROM ${table} WHERE user_id=?`).get(user).n;
+  for (const table of ['health', 'health_deleted', 'locations', 'alerts', 'credentials']) assert.equal(count(table, 'alex'), 0, table);
+  assert.equal(db.prepare("SELECT sharing FROM users WHERE id='alex'").get().sharing, 0);
+  assert.equal((await request('me')).status, 401, 'alex\'s phone is unpaired');
+  // Sam, in the same family, is untouched.
+  assert.equal(count('health', 'sam'), 2);
+  assert.equal(count('locations', 'sam'), 1);
+  assert.equal(count('alerts', 'sam'), 1);
+  assert.equal((await request('me', { user: 'sam' })).status, 200);
+
+  assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'robin@example.test' } })).status, 404, 'another family');
+  assert.equal(count('credentials', 'robin'), 1, 'robin still paired');
+  assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'ghost@example.test' } })).status, 404, 'unknown');
+  assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'sam@example.test' }, token: 'wrong' })).status, 401);
+  assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'sam@example.test', extra: 1 } })).status, 400);
+  assert.equal(count('health', 'sam'), 2);
+});
+
+test('the person\'s own delete-my-data and the household delete are the same wipe', async t => {
+  const { request, db } = await fixture(t);
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  await request('sync', { method: 'POST', body: batch([health('A')], [location()]) });
+  assert.deepEqual((await request('data', { method: 'DELETE' })).body, { ok: true });
+  assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='alex'").get().n, 0);
+  assert.equal(db.prepare("SELECT count(*) n FROM locations WHERE user_id='alex'").get().n, 0);
+  assert.equal(db.prepare("SELECT sharing FROM users WHERE id='alex'").get().sharing, 0);
+});
+
+test('household day returns the track and timeline shapes together, for one family member', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const { base, date } = await withTrack(request);
+  const at = ms => new Date(ms).toISOString();
+  await request('sync', { method: 'POST', body: batch([
+    { id: 'hr1', kind: 'heart_rate', start: at(base), end: at(base), value: 60, unit: 'bpm', source: 'Watch' },
+    { id: 'hr2', kind: 'heart_rate', start: at(base + 60000), end: at(base + 60000), value: 80, unit: 'bpm', source: 'Watch' },
+    // Two sources describing the same hour: the union counts it once.
+    { id: 's1', kind: 'sleep', start: at(base - 8 * 3600000), end: at(base - 7 * 3600000), stage: 'deep', source: 'Watch' },
+    { id: 's2', kind: 'sleep', start: at(base - 8 * 3600000), end: at(base - 7 * 3600000), stage: 'asleep', source: 'iPhone' },
+    { id: 's3', kind: 'sleep', start: at(base - 7 * 3600000), end: at(base - 6 * 3600000), stage: 'in_bed', source: 'iPhone' },
+    { id: 'walk', kind: 'workout', start: at(base), end: at(base + 1800000), value: 1800, unit: 'seconds', activity: 'Walking', distance: 2100, source: 'Watch' },
+    { id: 'steps1', kind: 'steps', start: `${date}T00:00:00.000Z`, end: `${date}T23:59:59.000Z`, value: 8241, unit: 'count', source: 'HealthKit daily statistics' }
+  ]) });
+  const from = `${date}T00:00:00.000Z`, to = new Date(Date.parse(from) + 86400000).toISOString();
+  const day = await household(request, `household/day?email=Alex%40example.test&from=${from}&to=${to}&tz=-60`);
+  assert.equal(day.status, 200);
+  const { body } = day;
+  assert.deepEqual(Object.keys(body), ['email', 'tz', 'track', 'timeline']);
+  assert.equal(body.email, 'alex@example.test');
+  assert.equal(body.tz, -60);
+  // The track is exactly what the person's own `/track?date=` returns for that
+  // window, less the day index — one function behind both.
+  const own = (await request(`track?offset=0&date=${date}`)).body;
+  for (const key of ['from', 'to', 'points', 'segments', 'activities', 'totals', 'gapSeconds', 'truncated']) assert.deepEqual(body.track[key], own[key], key);
+  assert.deepEqual(Object.keys(body.track).sort(), ['activities', 'from', 'gapSeconds', 'points', 'segments', 'to', 'totals', 'truncated']);
+  assert.deepEqual(body.track.segments, [[0, 2], [3, 4]]);
+  // And the timeline is the person's own `/timeline` for it.
+  assert.deepEqual(body.timeline, (await request(`timeline?from=${own.from}&to=${own.to}`)).body);
+  assert.equal(body.timeline.heartRate.seconds, 300);
+  assert.equal(body.timeline.heartRate.bins[0][1], 70);
+  assert.deepEqual(body.timeline.sleep.map(s => s.stage).sort(), ['asleep', 'deep', 'in_bed']);
+  // Deep (Watch) and asleep (iPhone) cover the same hour; in_bed is not asleep.
+  assert.equal(body.timeline.asleepSeconds, 3600);
+  assert.deepEqual(body.timeline.workouts.map(w => w.activity), ['Walking']);
+  assert.deepEqual(body.timeline.steps.map(s => s.value), [8241]);
+
+  // Sam's day in the same family reads Sam's (empty) data, never Alex's.
+  const sam = (await household(request, `household/day?email=sam@example.test&from=${from}&to=${to}`)).body;
+  assert.equal(sam.track.points.length, 0);
+  assert.deepEqual(sam.timeline.sleep, []);
+});
+
+test('household day refuses a long or malformed window, another family and a wrong token', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const from = '2026-09-01T00:00:00.000Z';
+  const q = (params) => household(request, `household/day?${new URLSearchParams(params)}`);
+  const ok = { email: 'alex@example.test', from, to: '2026-09-03T00:00:00.000Z' };
+  assert.equal((await q(ok)).status, 200, 'exactly 48 hours is allowed');
+  assert.equal((await q({ ...ok, to: '2026-09-03T00:00:01.000Z' })).status, 400, 'over 48 hours');
+  assert.equal((await q({ ...ok, to: from })).status, 400, 'empty window');
+  assert.equal((await q({ ...ok, to: '2026-08-31T00:00:00.000Z' })).status, 400, 'backwards');
+  assert.equal((await q({ ...ok, from: 'yesterday' })).status, 400);
+  assert.equal((await q({ email: 'alex@example.test', from })).status, 400, 'no to');
+  assert.equal((await q({ ...ok, tz: '1.5' })).status, 400);
+  assert.equal((await q({ ...ok, tz: '900' })).status, 400);
+  assert.equal((await q({ ...ok, user: 'alex' })).status, 400, 'unknown parameter');
+  assert.equal((await q({ ...ok, email: 'robin@example.test' })).status, 404, 'another family');
+  assert.equal((await q({ ...ok, email: 'ghost@example.test' })).status, 404);
+  assert.equal((await q({ from, to: ok.to })).status, 400, 'no email');
+  assert.equal((await household(request, `household/day?${new URLSearchParams(ok)}`, { token: 'wrong' })).status, 401);
+});
+
+test('household day does not exist until APPLE_HOUSEHOLD_TOKEN is configured', async t => {
+  const { request } = await fixture(t);
+  assert.equal((await household(request, 'household/day?email=alex@example.test&from=2026-09-01T00:00:00Z&to=2026-09-02T00:00:00Z')).status, 404);
+  assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'alex@example.test' } })).status, 404);
+});
+
+// --- The retired dashboard ---------------------------------------------------
+
+test('the dashboard is retired: every /apple-app path 308s to the public /welcome', async t => {
+  const db = openStore(':memory:');
+  const app = createApp(db, { origin: 'http://localhost', publicOrigin: 'https://staging.example.test/' });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const base = `http://127.0.0.1:${app.address().port}`;
+  for (const path of ['/apple-app', '/apple-app/', '/apple-app/app.js', '/apple-app/movement.js', '/apple-app/style.css', '/apple-app/anything/deeper', '/']) {
+    const response = await fetch(`${base}${path}`, { redirect: 'manual' });
+    assert.equal(response.status, 308, path);
+    assert.equal(response.headers.get('location'), 'https://staging.example.test/welcome', path);
+  }
+  // Only the dashboard's own prefix moves; a neighbour is still a 404, and the API is untouched.
+  assert.equal((await fetch(`${base}/apple-appx`, { redirect: 'manual' })).status, 404);
+  assert.equal((await fetch(`${base}/api/apple/me`)).status, 401);
+  assert.equal((await fetch(`${base}/healthz`)).status, 200);
+});

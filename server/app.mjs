@@ -1,11 +1,9 @@
 import QRCode from 'qrcode';
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { DEVICE_TTL, PAIR_CODE_TTL, ensureUser, hash, issue, mintPairCode } from './store.mjs';
+import { DEVICE_TTL, PAIR_CODE_TTL, deleteUserData, ensureUser, hash, issue, mintPairCode } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
-import { SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
+import { ASLEEP_STAGES, SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf, unionSeconds } from './movement.mjs';
 import { KINDS, catalogue, validateHealthRecord } from './catalogue.mjs';
 import { exportPage } from './export.mjs';
 import { createDoorbell } from './doorbell.mjs';
@@ -28,21 +26,69 @@ const bounded = (x, lo, hi) => typeof x === 'number' && Number.isFinite(x) && x 
 const string = (x, max = 200) => typeof x === 'string' && x.length > 0 && x.length <= max;
 function fail(status, message) { throw Object.assign(new Error(message), { status }); }
 /**
- * One origin is allowed beyond `'self'`, and only for IMAGES.
- *
- * The movement map draws Mapbox raster tiles as plain `<img>` elements rather
- * than running a WebGL map library, and that choice is what keeps this header
- * as tight as it is: a GL map would need `connect-src` for the tile fetches,
- * `worker-src blob:` for its workers and, in practice, a loosened `style-src`.
- * None of that is here. `script-src 'self'` still means the only code that can
- * run on a page showing a month of somebody's whereabouts is code this
- * repository serves.
- *
- * The token itself is the site's public `pk.` one, fetched from Main's
- * `/api/maps/config` on the same origin — so `connect-src 'self'` covers it and
- * this server never holds a Mapbox credential of its own.
+ * One stored fix as the compact tuple every movement response uses:
+ * `[lon, lat, epochSeconds, accuracy, moving 0|1, speed]`.
  */
-const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://api.mapbox.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+function fixOf(payload) {
+  const p = JSON.parse(payload);
+  return [round(p.longitude, 6), round(p.latitude, 6), Math.round(Date.parse(p.recorded) / 1000), round(p.accuracy, 1), p.moving ? 1 : 0, round(p.speed, 2)];
+}
+/**
+ * A window of somebody's track, drawn: the fixes inside [from, to), where a
+ * line may be drawn (`segments`), what the time was (`activities`) and the
+ * totals. The one shape both the person's own `/track?date=` and the
+ * household lane's `/household/day` return, so the map that reads one reads
+ * the other.
+ */
+function trackWindow(points, from, to) {
+  const day = points.filter(p => p[2] >= from && p[2] < to);
+  // `segments` says where a LINE may be drawn — continuous recording.
+  // `activities` says what the day was — journeys and the stops between
+  // them, judged on movement rather than on the presence of data. They
+  // are different questions and the map needs both.
+  const segments = segmentsOf(day);
+  const activities = activitiesOf(day);
+  return { from, to, points: day, segments, activities, totals: { fixes: day.length, metres: Math.round(recordedMetres(day, segments)), movingSeconds: movingSeconds(day, segments), journeys: activities.filter(a => a.kind === 'journey').length } };
+}
+/**
+ * The health that goes UNDER the map for one person and one window, binned so
+ * a chart can draw it. Shared by `/timeline` (the person's own) and
+ * `/household/day` (SR-Main asking for them).
+ */
+function timelineWindow(db, userId, from, to, bins) {
+  const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
+  const started = kind => db.prepare('SELECT payload FROM health WHERE user_id=? AND kind=? AND start>=? AND start<? ORDER BY start').all(userId, kind, fromISO, toISO).map(r => JSON.parse(r.payload));
+  // Sleep, workouts and a daily step total are SPANS, not instants. A
+  // night that began before midnight belongs to the morning it ends in
+  // as much as to the evening it started in, so they are selected by
+  // OVERLAP. Selecting them by start alone loses every night's sleep.
+  const spanning = kind => db.prepare('SELECT payload FROM health WHERE user_id=? AND kind=? AND start<? AND end>? ORDER BY start').all(userId, kind, toISO, fromISO).map(r => JSON.parse(r.payload));
+  const resting = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='resting_heart_rate' AND start<? ORDER BY start DESC LIMIT 1").get(userId, toISO);
+  const sleep = spanning('sleep').map(s => ({ stage: s.stage, start: s.start, end: s.end, source: s.source }));
+  return {
+    from, to,
+    heartRate: binSeries(started('heart_rate'), from, to, bins),
+    restingHeartRate: resting ? { value: JSON.parse(resting.payload).value, at: JSON.parse(resting.payload).start } : null,
+    // Returned as RECORDS rather than a total on purpose. The phone
+    // uploads one cumulative-sum row per calendar day, so a window can
+    // legitimately overlap two of them, and adding those together would
+    // report a number neither day ever had. The caller picks the record
+    // that matches the day it is drawing and says whose total it is.
+    steps: spanning('steps').map(s => ({ value: s.value, start: s.start, end: s.end, source: s.source })),
+    workouts: spanning('workout').map(w => ({ activity: w.activity, start: w.start, end: w.end, seconds: w.value, distance: w.distance ?? null, energy: w.energy ?? null, source: w.source })),
+    sleep,
+    // Time asleep inside the window, counted ONCE across overlapping stages
+    // and sources — a watch's `deep` and a phone's `asleep` are the same
+    // night, so a sum would report a night longer than the night was.
+    asleepSeconds: unionSeconds(sleep.filter(s => ASLEEP_STAGES.includes(s.stage)).map(s => [Date.parse(s.start) / 1000, Date.parse(s.end) / 1000]), from, to),
+  };
+}
+/**
+ * This server serves JSON and nothing else — the browser dashboard it used to
+ * serve is retired (its views live on the main site now) — so no response
+ * needs to load, run or frame anything.
+ */
+const CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 function exactKeys(obj, allowed) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || Object.keys(obj).some(k => !allowed.includes(k))) fail(400, 'Unexpected fields');
 }
@@ -108,13 +154,13 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       const path = url.pathname;
       const method = req.method;
       if (method === 'GET' && path === '/healthz') return send(200, { ok: true });
-      const assets = { '/apple-app': 'index.html', '/apple-app/': 'index.html', '/apple-app/app.js': 'app.js', '/apple-app/map.js': 'map.js', '/apple-app/movement.js': 'movement.js', '/apple-app/style.css': 'style.css' };
-      if (method === 'GET' && assets[path]) {
-        const contents = await readFile(fileURLToPath(new URL(`./public/${assets[path]}`, import.meta.url)));
-        res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html');
-        return res.end(contents);
-      }
-      if (path === '/' && method === 'GET') { res.writeHead(302, { Location: '/apple-app/' }); return res.end(); }
+      // The browser dashboard is retired: pairing, devices and sharing live
+      // on the main site's /welcome and /admin/access/devices, health on
+      // /health, movement on /home/people. Old bookmarks and the phone's
+      // older copy land on /welcome — a PERMANENT redirect (308) so a
+      // browser stops asking, and on the PUBLIC origin because a person
+      // following it is never on this loopback address.
+      if (path === '/' || path === '/apple-app' || path.startsWith('/apple-app/')) { res.writeHead(308, { Location: `${pairServer}/welcome` }); return res.end(); }
       if (!path.startsWith('/api/apple/')) fail(404, 'Not found');
       const readJSON = async () => {
         if (!(req.headers['content-type'] ?? '').startsWith('application/json')) fail(415, 'JSON required');
@@ -128,7 +174,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // authenticate to find out how to authenticate cannot draw itself — and it
       // discloses nothing but a boolean and a URL.
       if (path === '/api/apple/context' && method === 'GET') {
-        return send(200, { demo: demo && !secure, signInUrl: `${csrfOrigin}/login?callbackUrl=%2Fapple-app%2F` });
+        return send(200, { demo: demo && !secure, signInUrl: `${csrfOrigin}/login?callbackUrl=%2Fwelcome` });
       }
       // The local preview's stand-in for signing in to the main site. Refused
       // outright unless BOTH demo mode is on and the origin is not https, so it
@@ -194,10 +240,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!ownerId) return send(200, { from, to, retentionDays: RETENTION_DAYS, journeys: [], workouts: [], truncated: false });
         const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
         const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? AND recorded>=? AND recorded<? ORDER BY recorded LIMIT ${TRACK_LIMIT + 1}`).all(ownerId, fromISO, toISO);
-        const points = rows.slice(0, TRACK_LIMIT).map(r => {
-          const p = JSON.parse(r.payload);
-          return [round(p.longitude, 6), round(p.latitude, 6), Math.round(Date.parse(p.recorded) / 1000), round(p.accuracy, 1), p.moving ? 1 : 0, round(p.speed, 2)];
-        });
+        const points = rows.slice(0, TRACK_LIMIT).map(r => fixOf(r.payload));
         const beats = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='heart_rate' AND start>=? AND start<? ORDER BY start").all(ownerId, fromISO, toISO)
           .map(r => JSON.parse(r.payload)).map(h => [Math.round(Date.parse(h.start) / 1000), h.value]);
         // The same journeys the map draws — `activitiesOf` is the one definition
@@ -410,6 +453,44 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         db.prepare('UPDATE users SET sharing=? WHERE id=?').run(Number(body.enabled), member.id);
         return send(200, { sharing: body.enabled });
       }
+      // "Delete my uploaded data", asked for by SR-Main's /welcome on the
+      // signed-in person's behalf — exactly what that person's own
+      // `DELETE /api/apple/data` does, through the same function.
+      if (path === '/api/apple/household/data/delete' && method === 'POST') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['email']);
+        const member = householdMember(owner, body.email);
+        return send(200, { deleted: deleteUserData(db, member.id) });
+      }
+      // One person's day for SR-Main's /home/people "Your day": the same track
+      // and timeline the retired dashboard's Movement tab built from `/track`
+      // and `/timeline`, in one response, through the same functions. SR-Main
+      // decides WHO may ask (only that person, for their own page); this
+      // server only refuses anyone outside the owner's family.
+      //
+      // At most 48 hours: enough for a day in any timezone, and not a way to
+      // pull a month of somebody's whereabouts in one read.
+      if (path === '/api/apple/household/day' && method === 'GET') {
+        const owner = householdOwner(['email', 'from', 'to', 'tz']);
+        const member = householdMember(owner, url.searchParams.get('email'));
+        const rawFrom = url.searchParams.get('from'), rawTo = url.searchParams.get('to');
+        if (!iso(rawFrom) || !iso(rawTo)) fail(400, 'from and to must be ISO timestamps');
+        const from = Math.floor(Date.parse(rawFrom) / 1000), to = Math.ceil(Date.parse(rawTo) / 1000);
+        if (to <= from || to - from > 48 * 3600) fail(400, 'Invalid window: at most 48 hours');
+        const rawTz = url.searchParams.get('tz');
+        const tz = rawTz === null || rawTz === '' ? 0 : Number(rawTz);
+        if (!Number.isInteger(tz) || Math.abs(tz) > 840) fail(400, 'Invalid timezone offset');
+        const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
+        const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? AND recorded>=? AND recorded<? ORDER BY recorded LIMIT ${TRACK_LIMIT + 1}`).all(member.id, fromISO, toISO);
+        const points = rows.slice(0, TRACK_LIMIT).map(r => fixOf(r.payload));
+        // Five-minute bins, as the dashboard drew a day (288 over 24 h).
+        const bins = Math.max(1, Math.ceil((to - from) / 300));
+        return send(200, {
+          email: member.email, tz,
+          track: { ...trackWindow(points, from, to), gapSeconds: SEGMENT_GAP_SECONDS, truncated: rows.length > TRACK_LIMIT },
+          timeline: timelineWindow(db, member.id, from, to, bins),
+        });
+      }
       // Two ways in, and only two.
       //
       //  * A PAIRED IPHONE presents a device token it got from a pairing code.
@@ -508,7 +589,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { sharing: body.enabled });
       }
       if (path === '/api/apple/summary' && method === 'GET') {
-        // The dashboard's tiles only ever draw the legacy kinds (labels exist
+        // The (retired) dashboard's tiles only ever drew the legacy kinds (labels exist
         // for those five, nothing else); looping every catalogued kind meant
         // up to 35 point lookups a call for tiles nothing shows.
         const records = Object.keys(catalogue.legacyKinds).flatMap(kind => {
@@ -522,14 +603,15 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const kind = url.searchParams.get('kind');
         if (kind && !KINDS.has(kind)) fail(400, 'Unknown health category');
         const before = url.searchParams.get('before') ?? '9999';
-        // Unfiltered, this fed the dashboard's list — which has no way to draw a
-        // route/series chunk and no `value` to show for one (see app.js). An
+        // Unfiltered, this fed the (retired) dashboard's list — which has no way to draw a
+        // route/series chunk and no `value` to show for one (it is gone now). An
         // explicit `?kind=workout_route` still reads them; only the "everything"
         // view excludes the megabyte-sized `points` arrays.
         const rows = db.prepare(`SELECT payload, received FROM health WHERE user_id=? AND ((? IS NULL AND kind NOT IN ('workout_route','workout_series')) OR kind=?) AND start<? ORDER BY start DESC LIMIT 501`).all(auth.user_id, kind, kind, before);
         return send(200, { records: rows.slice(0, 500).map(r => ({ ...JSON.parse(r.payload), received: r.received })), truncated: rows.length > 500 });
       }
-      // Your own movement, for the map on the dashboard.
+      // Your own movement, for a map of it (the retired dashboard's Movement
+      // tab; SR-Main's /home/people reads the same shape via /household/day).
       //
       // OWNER-SCOPED, like /health, and for a sharper reason than /health has.
       // `family` shares a LATEST position; this shares a HISTORY, and the two
@@ -553,21 +635,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const date = url.searchParams.get('date');
         if (date !== null && !/^\d{4}-\d\d-\d\d$/.test(date)) fail(400, 'Invalid date');
         const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? ORDER BY recorded DESC LIMIT ${TRACK_LIMIT + 1}`).all(auth.user_id);
-        const points = rows.slice(0, TRACK_LIMIT).reverse().map(r => {
-          const p = JSON.parse(r.payload);
-          return [round(p.longitude, 6), round(p.latitude, 6), Math.round(Date.parse(p.recorded) / 1000), round(p.accuracy, 1), p.moving ? 1 : 0, round(p.speed, 2)];
-        });
+        const points = rows.slice(0, TRACK_LIMIT).reverse().map(r => fixOf(r.payload));
         const body = { days: dayIndex(points, offset), truncated: rows.length > TRACK_LIMIT, gapSeconds: SEGMENT_GAP_SECONDS, retentionDays: RETENTION_DAYS };
         if (date === null) return send(200, body);
         const [from, to] = dayBounds(date, offset);
-        const day = points.filter(p => p[2] >= from && p[2] < to);
-        const segments = segmentsOf(day);
-        // `segments` says where a LINE may be drawn — continuous recording.
-        // `activities` says what the day was — journeys and the stops between
-        // them, judged on movement rather than on the presence of data. They
-        // are different questions and the map needs both.
-        const activities = activitiesOf(day);
-        return send(200, { ...body, date, from, to, points: day, segments, activities, totals: { fixes: day.length, metres: Math.round(recordedMetres(day, segments)), movingSeconds: movingSeconds(day, segments), journeys: activities.filter(a => a.kind === 'journey').length } });
+        return send(200, { ...body, date, ...trackWindow(points, from, to) });
       }
       // The health that goes UNDER the map: one window, every signal that can
       // be laid against a track.
@@ -584,27 +656,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const rawBins = url.searchParams.get('bins');
         const bins = rawBins === null || rawBins === '' ? 288 : Number(rawBins);
         if (!Number.isInteger(bins) || bins < 1 || bins > 1440) fail(400, 'Invalid bin count');
-        const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
-        const started = kind => db.prepare('SELECT payload FROM health WHERE user_id=? AND kind=? AND start>=? AND start<? ORDER BY start').all(auth.user_id, kind, fromISO, toISO).map(r => JSON.parse(r.payload));
-        // Sleep, workouts and a daily step total are SPANS, not instants. A
-        // night that began before midnight belongs to the morning it ends in
-        // as much as to the evening it started in, so they are selected by
-        // OVERLAP. Selecting them by start alone loses every night's sleep.
-        const spanning = kind => db.prepare('SELECT payload FROM health WHERE user_id=? AND kind=? AND start<? AND end>? ORDER BY start').all(auth.user_id, kind, toISO, fromISO).map(r => JSON.parse(r.payload));
-        const resting = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='resting_heart_rate' AND start<? ORDER BY start DESC LIMIT 1").get(auth.user_id, toISO);
-        return send(200, {
-          from, to,
-          heartRate: binSeries(started('heart_rate'), from, to, bins),
-          restingHeartRate: resting ? { value: JSON.parse(resting.payload).value, at: JSON.parse(resting.payload).start } : null,
-          // Returned as RECORDS rather than a total on purpose. The phone
-          // uploads one cumulative-sum row per calendar day, so a window can
-          // legitimately overlap two of them, and adding those together would
-          // report a number neither day ever had. The caller picks the record
-          // that matches the day it is drawing and says whose total it is.
-          steps: spanning('steps').map(s => ({ value: s.value, start: s.start, end: s.end, source: s.source })),
-          workouts: spanning('workout').map(w => ({ activity: w.activity, start: w.start, end: w.end, seconds: w.value, distance: w.distance ?? null, energy: w.energy ?? null, source: w.source })),
-          sleep: spanning('sleep').map(s => ({ stage: s.stage, start: s.start, end: s.end, source: s.source }))
-        });
+        return send(200, timelineWindow(db, auth.user_id, from, to, bins));
       }
       if (path === '/api/apple/family' && method === 'GET') {
         const members = db.prepare('SELECT id,name,sharing FROM users WHERE family=? ORDER BY name').all(auth.family);
@@ -659,16 +711,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { accepted: health.length + locations.length + body.deleted.length, received });
       }
       if (path === '/api/apple/data' && method === 'DELETE') {
-        db.exec('BEGIN IMMEDIATE');
-        try {
-          db.prepare('DELETE FROM health WHERE user_id=?').run(auth.user_id);
-          db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(auth.user_id);
-          db.prepare('DELETE FROM locations WHERE user_id=?').run(auth.user_id);
-          db.prepare('DELETE FROM alerts WHERE user_id=?').run(auth.user_id);
-          db.prepare("DELETE FROM credentials WHERE user_id=? AND kind IN ('device','pair')").run(auth.user_id);
-          db.prepare('UPDATE users SET sharing=0 WHERE id=?').run(auth.user_id);
-          db.exec('COMMIT');
-        } catch (error) { db.exec('ROLLBACK'); throw error; }
+        deleteUserData(db, auth.user_id);
         return send(200, { ok: true });
       }
       fail(404, 'Not found');

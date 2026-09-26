@@ -255,3 +255,26 @@ export function binSeries(records, fromSeconds, toSeconds, buckets) {
       .map(([bucket, { sum, count }]) => [fromSeconds + bucket * seconds, Math.round(sum / count)]),
   };
 }
+
+/** Sleep stages that are asleep, as opposed to in bed or awake. */
+export const ASLEEP_STAGES = ['asleep', 'core', 'deep', 'rem'];
+
+/**
+ * Total time covered by a set of `[start, end]` spans (epoch seconds), clipped
+ * to a window and counted ONCE.
+ *
+ * A union rather than a sum because sleep stages overlap across sources, so
+ * adding a watch's `deep` to a phone's `asleep` reports a night longer than the
+ * night was. Clipped because a stage is selected when it overlaps the window,
+ * and the part of it that fell outside belongs to the neighbouring day.
+ */
+export function unionSeconds(spans, from, to) {
+  let total = 0;
+  let covered = from;
+  for (const [start, end] of [...spans].sort((a, b) => a[0] - b[0])) {
+    const open = Math.max(start, from, covered);
+    const close = Math.min(end, to);
+    if (close > open) { total += close - open; covered = close; }
+  }
+  return total;
+}
