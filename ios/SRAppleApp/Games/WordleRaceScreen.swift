@@ -46,7 +46,7 @@ struct WordleRaceScreen: View {
             GameEndedView(id: "wordle-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown, .armed, .result:
+            case .lobby, .unknown, .armed, .result, .question, .reveal:
                 GameLobby(room: room, store: store, prefix: "wordle", done: { dismiss() })
             case .countdown:
                 GameCountdownView(room: room, store: store,

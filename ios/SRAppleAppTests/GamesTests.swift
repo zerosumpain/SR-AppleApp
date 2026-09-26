@@ -257,7 +257,8 @@ final class GamesTests: XCTestCase {
         let lobby = try XCTUnwrap(SRDemoFixtures.route(method: "GET", path: "/api/native/games", query: [:], body: nil, clock: clock))
         let decoded = try JSONDecoder().decode(GamesLobby.self, from: Data(lobby.utf8))
         XCTAssertEqual(decoded.players.map(\.name), ["Sam", "Robin"])
-        XCTAssertEqual(decoded.invites.count, 1)
+        XCTAssertEqual(decoded.invites.map(\.game), ["tap-duel", "quiz-night"])
+        XCTAssertNil(decoded.invites[0].about, "a Tap Duel invite has nothing to add")
 
         let room = try XCTUnwrap(SRDemoFixtures.route(method: "GET", path: "/api/native/games/g_demo_lobby", query: [:], body: nil, clock: clock))
         let envelope = try JSONDecoder().decode(GameRoomEnvelope.self, from: Data(room.utf8))

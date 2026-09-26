@@ -77,21 +77,30 @@ final class GamesStore: ObservableObject {
 
     // MARK: - Actions
 
-    /// Start a room. Returns it so the screen can push it.
-    func create(game: GameKind = .tapDuel, difficulty: GameDifficulty, invite: [String]) async -> GameRoom? {
-        guard busy == nil else { return nil }
+    /// Start a room. The outcome carries the room so the screen can push it,
+    /// or the server's sentence ("Pick a different topic.", a quiz cap) for
+    /// the sheet to show where the host is looking.
+    func create(_ body: CreateGameBody) async -> GameCreateOutcome {
+        guard busy == nil else { return .refused("Starting a game already…") }
         busy = "new"
         defer { busy = nil }
-        do {
-            let body = try JSONEncoder().encode(CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite))
-            let data = try await client.post("api/native/games", body: body)
-            let room = try JSONDecoder().decode(GameRoomEnvelope.self, from: data).room
+        let outcome = await Self.createRoom(body)
+        if case .created = outcome {
             message = nil
             Task { await self.load() }
-            return room
+        }
+        return outcome
+    }
+
+    /// `POST /api/native/games`. Shared with a room's own "Play again", which
+    /// is a new room for Quiz Night.
+    static func createRoom(_ body: CreateGameBody) async -> GameCreateOutcome {
+        do {
+            let data = try await SiteClient.shared.post("api/native/games", body: try JSONEncoder().encode(body))
+            return .created(try JSONDecoder().decode(GameRoomEnvelope.self, from: data).room)
         } catch {
-            message = error.localizedDescription
-            return nil
+            if error is DecodingError { return .refused("The server sent something this version of the app cannot read.") }
+            return .refused(error.localizedDescription)
         }
     }
 
@@ -185,4 +194,11 @@ final class GamesStore: ObservableObject {
         return false
         #endif
     }
+}
+
+/// How a create went.
+enum GameCreateOutcome {
+    case created(GameRoom)
+    /// Refused or failed, with a sentence for the player.
+    case refused(String)
 }

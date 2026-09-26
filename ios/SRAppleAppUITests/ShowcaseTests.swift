@@ -478,6 +478,68 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Quiz Night: John's quiz on an open question (four answers, the clock,
+    /// who has answered), then Sam's on a reveal (the right answer ticked,
+    /// everyone's picks, the explanation), then the new-game sheet with Quiz
+    /// Night picked (topic, audience).
+    @MainActor func testShowcaseQuizNight() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+        soft(byId(app, "games-invite-about-g_demo_quiz_invite").exists, "the quiz invite does not say what it is about")
+
+        let question = byId(app, "games-room-g_demo_quiz")
+        if scroll(app, to: question) {
+            question.tap()
+            settle(app, on: byId(app, "quiz-option-0"), seconds: 2)
+            soft(byId(app, "quiz-prompt").exists, "no question on screen")
+            soft(byId(app, "quiz-option-3").exists, "fewer than four answers")
+            soft(byId(app, "quiz-timer").exists, "no clock on the question")
+            soft(byId(app, "quiz-answered").exists, "no row of who has answered")
+            attach(app, "Showcase — Quiz Night, question")
+            let answer = byId(app, "quiz-option-1")
+            if answer.exists {
+                answer.tap()
+                settle(app, on: byId(app, "quiz-locked"))
+                attach(app, "Showcase — Quiz Night, answer locked in")
+            }
+            let back = app.navigationBars.buttons.element(boundBy: 0)
+            if back.waitForExistence(timeout: 5) { back.tap() }
+            settle(app, on: byId(app, "games-screen"))
+        } else {
+            soft(false, "no quiz on a question to resume")
+        }
+
+        let reveal = byId(app, "games-room-g_demo_quiz_reveal")
+        if scroll(app, to: reveal) {
+            reveal.tap()
+            settle(app, on: byId(app, "quiz-reveal"), seconds: 2)
+            soft(byId(app, "quiz-explain").exists, "no explanation on the reveal")
+            soft(byId(app, "quiz-picks").exists, "no picks on the reveal")
+            soft(byId(app, "quiz-pick-p_sam").exists, "Sam's pick is missing")
+            attach(app, "Showcase — Quiz Night, reveal")
+            let back = app.navigationBars.buttons.element(boundBy: 0)
+            if back.waitForExistence(timeout: 5) { back.tap() }
+            settle(app, on: byId(app, "games-screen"))
+        } else {
+            soft(false, "no quiz on a reveal to resume")
+        }
+
+        let card = byId(app, "games-new-quiz-night")
+        if scroll(app, to: card) {
+            card.tap()
+            settle(app, on: byId(app, "games-game-quiz-night"))
+            soft(byId(app, "games-quiz-topic").exists, "no topic field")
+            soft(byId(app, "games-audience-kids").exists, "no audience choices")
+            soft(byId(app, "games-difficulty-hard").exists, "no difficulty choices")
+            attach(app, "Showcase — Games, new Quiz Night")
+            let cancel = byId(app, "games-new-cancel")
+            if cancel.waitForExistence(timeout: 5) { cancel.tap() }
+        } else {
+            soft(false, "no Quiz Night card")
+        }
+    }
+
     // MARK: - A member
 
     /// A family member given Family and Games and nothing else. Chat, News and
@@ -541,11 +603,18 @@ final class ShowcaseTests: XCTestCase {
         XCTContext.runActivity(named: "Soft miss: \(note)") { _ in }
     }
 
+    /// Down the page first, then back up it: an element above a card the
+    /// test has already scrolled to (a Games room above the game cards) is
+    /// found on the way back.
     @MainActor private func scroll(_ app: XCUIApplication, to element: XCUIElement, swipes: Int = 8) -> Bool {
         if element.waitForExistence(timeout: 10), element.isHittable { return true }
         for _ in 0..<swipes {
             if element.exists && element.isHittable { return true }
             app.swipeUp()
+        }
+        for _ in 0..<swipes {
+            if element.exists && element.isHittable { return true }
+            app.swipeDown()
         }
         return element.exists && element.isHittable
     }
