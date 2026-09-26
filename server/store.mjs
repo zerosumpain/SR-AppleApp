@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -84,6 +84,44 @@ export function openStore(path) {
 export function createUser(db, { id, email, name, family }) {
   db.prepare('INSERT INTO users(id,email,name,family) VALUES (?,?,?,?)')
     .run(id, email.toLowerCase(), name, family);
+}
+/**
+ * Add somebody to a family, or find them if they are already in it.
+ *
+ * The household lane's way in (SR-Main's /welcome). The family is always the
+ * caller's to name, never the request's, and somebody already in a DIFFERENT
+ * family is never moved — that would hand their location to people they did
+ * not choose — so they come back as `conflict` rather than being touched.
+ * A new person starts with sharing off: the phone asks at pairing.
+ */
+export function ensureUser(db, { email, name, family }) {
+  const lower = email.toLowerCase();
+  const existing = db.prepare('SELECT id,email,name,family FROM users WHERE email=?').get(lower);
+  if (existing) {
+    if (existing.family !== family) return { conflict: true };
+    // A name already on file wins: the site sends whatever its sign-in holds,
+    // and that must not overwrite one the owner chose.
+    const kept = existing.name || name;
+    if (!existing.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(name, existing.id);
+    return { id: existing.id, email: existing.email, name: kept, created: false };
+  }
+  const id = randomUUID();
+  createUser(db, { id, email: lower, name, family });
+  return { id, email: lower, name, created: true };
+}
+/** How long a paired phone's device token lives. */
+export const DEVICE_TTL = 90 * 86400000;
+/** How long a one-time pairing code lives. */
+export const PAIR_CODE_TTL = 600000;
+/**
+ * A fresh one-time pairing code for somebody, replacing any they had — one
+ * definition shared by the browser's own "pair a phone" and the household
+ * lane's onboarding, so the two cannot drift on lifetime or on "one live code
+ * per person".
+ */
+export function mintPairCode(db, user) {
+  db.prepare("DELETE FROM credentials WHERE user_id=? AND kind='pair'").run(user);
+  return issue(db, user, 'pair', 'One-time pairing', PAIR_CODE_TTL);
 }
 export function issue(db, user, kind, label, ttl) {
   const token = secret();

@@ -22,6 +22,10 @@ services:
       # with SR-Main's COMPANION_HOUSEHOLD_TOKEN), never APPLE_SERVICE_TOKEN;
       # empty = both household endpoints 404.
       APPLE_HOUSEHOLD_TOKEN: ${APPLE_HOUSEHOLD_TOKEN:-}
+      # The origin written into pairing QRs SR-Main's /welcome mints over the
+      # household lane — what a phone reaches this server on from outside.
+      # Empty = https://strangeramblings.com.
+      APPLE_PUBLIC_ORIGIN: ${APPLE_PUBLIC_ORIGIN:-}
       # /health's doorbell (spec E2): rung after each owner upload so /health
       # pulls the export at once. Empty = no ring; /health still catches up on
       # its page-load backstop. APPLE_DOORBELL_TOKEN is its OWN ring-only

@@ -104,7 +104,7 @@ struct SitePairing: Decodable {
         // TestFlight update that would not have helped.
         guard payload.type != "sr-companion-pair" else {
             throw SiteError.message(
-                "That is the health & location code, for the Companion tab. On the dashboard, scroll to Chat & news and create that code instead."
+                "That is the health & location code, for the Companion tab. At strangeramblings.com/welcome, create the Chat & news code instead."
             )
         }
         guard payload.type == "sr-native-pair" else {

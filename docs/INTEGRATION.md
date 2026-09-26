@@ -20,7 +20,7 @@ Provision users into the isolated service with:
 node server/admin.mjs create-user person@example.com 'Display name' family-id
 ```
 
-Run inside the service container or with `DATABASE_PATH` pointing to the intended database. Reusing a family-id is an explicit membership assignment, not a value clients can set through the API. New users start with location sharing off. A family administrator does not acquire health access. The pilot does not expose account provisioning, password reset or membership changes as public endpoints.
+Run inside the service container or with `DATABASE_PATH` pointing to the intended database. Reusing a family-id is an explicit membership assignment, not a value clients can set through the API. New users start with location sharing off. A family administrator does not acquire health access. The pilot does not expose account provisioning, password reset or membership changes as public endpoints; SR-Main adds people to the owner's family over the token-gated household lane (see "Onboarding over the household lane").
 
 Do not seed demo accounts in an environment containing real data. Use trusted TLS and secure the persistent volume/backups. No public telemetry or third-party analytics is included. This is a single-process family pilot, not a multi-instance service.
 
@@ -57,6 +57,20 @@ After each upload by the owner, this server POSTs `APPLE_DOORBELL_URL` (empty bo
 own ring-only token, not `APPLE_SERVICE_TOKEN` — it can only trigger a pull and
 grants no read access, so it is safe to leave the host even though the service
 token above never does. Unset token or URL = no ring, as before.
+
+## Onboarding over the household lane (2026-09-26)
+
+SR-Main's `/welcome` and `/admin/access/devices` replace the dashboard's Connect & privacy tab. They call these routes server-to-server with `Authorization: Bearer $APPLE_HOUSEHOLD_TOKEN` (404 when unset, 401 on any other token). Every route works inside the family of `APPLE_SERVICE_OWNER` and nowhere else; emails are lower-cased.
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `POST /api/apple/household/users` | `{email, name}` | 201 `{id, email, name, created:true}` for a new person (sharing off), 200 `{..., created:false}` for an existing member (name updated, sharing untouched). 409 if the email belongs to ANOTHER family (never moved) or no owner is configured. |
+| `POST /api/apple/household/pair-code` | `{email}` | 200 `{code, payload, expiresIn:600}`; replaces that person's previous code. `payload` is the exact QR string, `{"type":"sr-companion-pair","version":1,"server":"<APPLE_PUBLIC_ORIGIN>","code":"..."}`. 404 for anyone not in the family. |
+| `GET /api/apple/household/devices` | — | 200 `{devices:[{id, email, name, label, created, expires, lastUsed}]}`: every live paired phone in the family. `id` is the credential hash; times are ISO; `created` is derived (`expires` − 90 days); `lastUsed` is always `null` (not tracked). |
+| `DELETE /api/apple/household/devices/:id` | — | 204, or 404 when the id is not a live phone in the family. |
+| `PUT /api/apple/household/sharing` | `{email, enabled}` | 200 `{sharing}`; 404 for anyone not in the family. |
+
+The origin in the QR is `APPLE_PUBLIC_ORIGIN` (default `https://strangeramblings.com`), not `APP_ORIGIN`: SR-Main asks over loopback, and a QR must name somewhere a phone on mobile data can reach. `node server/admin.mjs create-user` still works for anything outside this flow.
 
 ## Later integration work
 
