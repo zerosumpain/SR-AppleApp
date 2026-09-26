@@ -540,6 +540,83 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Anagram Blitz, Quick Maths Sprint and Sequence Memory, each mid-play:
+    /// John's tiles and words, John's problem and keypad on a bonus streak, a
+    /// Sequence Memory round waiting on John's taps with Robin out. Then the
+    /// new-game sheet with the three new games and their difficulty lines.
+    @MainActor func testShowcaseAnagramSprintMemory() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let anagram = byId(app, "games-room-g_demo_anagram")
+        if scroll(app, to: anagram) {
+            anagram.tap()
+            settle(app, on: byId(app, "anagram-tiles"), seconds: 2)
+            soft(byId(app, "anagram-tile-6").exists, "fewer than seven tiles")
+            soft(byId(app, "anagram-word").exists, "no word row")
+            soft(byId(app, "anagram-shuffle").exists, "no Shuffle")
+            soft(byId(app, "anagram-enter").exists, "no Enter")
+            soft(byId(app, "anagram-timer").exists, "no clock")
+            soft(byId(app, "anagram-other-p_sam").exists, "Sam is not in the strip")
+            soft(byId(app, "anagram-my-words").exists, "no list of my words")
+            attach(app, "Showcase — Anagram Blitz, playing")
+            back(app)
+        } else {
+            soft(false, "no Anagram Blitz to resume")
+        }
+
+        let sprint = byId(app, "games-room-g_demo_sprint")
+        if scroll(app, to: sprint) {
+            sprint.tap()
+            settle(app, on: byId(app, "sprint-keypad"), seconds: 2)
+            soft(byId(app, "sprint-problem").exists, "no problem on screen")
+            soft(byId(app, "sprint-key-0").exists, "no 0 key")
+            soft(byId(app, "sprint-key-minus").exists, "no minus key")
+            soft(byId(app, "sprint-go").exists, "no Go key")
+            soft(byId(app, "sprint-streak").exists, "no streak")
+            soft(byId(app, "sprint-timer").exists, "no clock")
+            soft(byId(app, "sprint-other-p_sam").exists, "Sam is not in the strip")
+            attach(app, "Showcase — Quick Maths Sprint, playing")
+            back(app)
+        } else {
+            soft(false, "no Quick Maths Sprint to resume")
+        }
+
+        let memory = byId(app, "games-room-g_demo_memory")
+        if scroll(app, to: memory) {
+            memory.tap()
+            settle(app, on: byId(app, "memory-grid"), seconds: 2)
+            soft(byId(app, "memory-tile-5").exists, "fewer than six tiles on medium")
+            soft(byId(app, "memory-taps").exists, "no row of taps")
+            soft(byId(app, "memory-undo").exists, "no Undo")
+            soft(byId(app, "memory-player-p_robin").exists, "Robin is not in the players")
+            attach(app, "Showcase — Sequence Memory, input")
+            back(app)
+        } else {
+            soft(false, "no Sequence Memory to resume")
+        }
+
+        let card = byId(app, "games-new-anagram-blitz")
+        if scroll(app, to: card) {
+            card.tap()
+            settle(app, on: byId(app, "games-game-anagram-blitz"))
+            soft(byId(app, "games-game-maths-sprint").exists, "no Quick Maths Sprint in the picker")
+            soft(byId(app, "games-game-sequence-memory").exists, "no Sequence Memory in the picker")
+            attach(app, "Showcase — Games, new Anagram Blitz")
+            let memoryChoice = byId(app, "games-game-sequence-memory")
+            if memoryChoice.exists {
+                memoryChoice.tap()
+                settle(app, on: byId(app, "games-difficulty-hard"))
+                attach(app, "Showcase — Games, new Sequence Memory")
+            }
+            let cancel = byId(app, "games-new-cancel")
+            if cancel.waitForExistence(timeout: 5) { cancel.tap() }
+        } else {
+            soft(false, "no Anagram Blitz card")
+        }
+    }
+
     // MARK: - A member
 
     /// A family member given Family and Games and nothing else. Chat, News and
@@ -568,6 +645,13 @@ final class ShowcaseTests: XCTestCase {
         app.launchArguments = ["-SRDemo"]
         app.launch()
         return app
+    }
+
+    /// Back out of a room to the Games tab.
+    @MainActor private func back(_ app: XCUIApplication) {
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        if back.waitForExistence(timeout: 5) { back.tap() }
+        settle(app, on: byId(app, "games-screen"))
     }
 
     @MainActor private func openTab(_ app: XCUIApplication, _ name: String) {
