@@ -440,6 +440,44 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Wordle Race: the new-game sheet opened from its card (game picked,
+    /// difficulty lines from the Wordle table), then Sam's race half played —
+    /// my three rows and the keyboard, Sam and Robin as colours only.
+    @MainActor func testShowcaseWordleRace() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let card = byId(app, "games-new-wordle-race")
+        if scroll(app, to: card) {
+            card.tap()
+            settle(app, on: byId(app, "games-game-wordle-race"))
+            soft(byId(app, "games-game-tap-duel").exists, "the sheet cannot switch game")
+            soft(byId(app, "games-difficulty-hard").exists, "no difficulty choices")
+            attach(app, "Showcase — Games, new Wordle Race")
+            let cancel = byId(app, "games-new-cancel")
+            if cancel.waitForExistence(timeout: 5) { cancel.tap() }
+            settle(app)
+        } else {
+            soft(false, "no Wordle Race card")
+        }
+
+        let room = byId(app, "games-room-g_demo_wordle")
+        if scroll(app, to: room) {
+            room.tap()
+            settle(app, on: byId(app, "wordle-keyboard"), seconds: 2)
+            soft(byId(app, "wordle-other-p_sam").exists, "Sam is not in the strip")
+            soft(byId(app, "wordle-other-p_robin").exists, "Robin is not in the strip")
+            soft(byId(app, "wordle-key-q").exists, "no Q key")
+            soft(byId(app, "wordle-enter").exists, "no Enter key")
+            soft(byId(app, "wordle-delete").exists, "no Delete key")
+            soft(byId(app, "wordle-timer").exists, "no time limit on screen")
+            attach(app, "Showcase — Wordle Race, playing")
+        } else {
+            soft(false, "no Wordle Race to resume")
+        }
+    }
+
     // MARK: - A member
 
     /// A family member given Family and Games and nothing else. Chat, News and
