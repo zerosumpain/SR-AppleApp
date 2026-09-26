@@ -214,7 +214,18 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         }
         profile = me
         let f: FamilyResponse = try await api.request("family"); family = f.members
+        // The watched places ride in the household view. Read on every sync
+        // (including background wakes), so a place flagged on the site is
+        // watched by the phone without anybody opening the Family tab.
+        if let v: HouseholdViewResponse = try? await api.request("household/view", timeout: 12) { adoptWatch(v.view?.watch) }
         let h: HealthResponse = try await api.request("health"); records = h.records
+    }
+    /// Hand the site's watched places to the collector. Nil — an older site,
+    /// or no view yet — changes nothing: an unreadable answer must not stop
+    /// the phone watching home.
+    func adoptWatch(_ places: [WatchedPlace]?) {
+        guard let places else { return }
+        location.setWatchedPlaces(places)
     }
     func flush() async {
         updateQueue()

@@ -17,7 +17,9 @@ final class FamilyStore: ObservableObject {
 
     /// Re-read while a map is on screen. The view itself changes every two
     /// minutes on the server; asking more often than that buys nothing.
-    static let refreshInterval: Duration = .seconds(60)
+    /// 15 s: the site files a fresh view within about 30 s of a phone's
+    /// upload while somebody is out on close tracking.
+    static let refreshInterval: Duration = .seconds(15)
 
     private let companion: Companion
     private var loading = false
@@ -48,7 +50,8 @@ final class FamilyStore: ObservableObject {
         defer { loading = false; loaded = true }
         do {
             let response: HouseholdViewResponse = try await companion.api.request("household/view", timeout: 12)
-            view = response.view
+            companion.adoptWatch(response.view?.watch)
+            view = response.view?.showsHousehold == true ? response.view : nil
             updated = response.updated
             message = nil
         } catch {
