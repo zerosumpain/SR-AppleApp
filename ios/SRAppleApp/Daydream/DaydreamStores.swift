@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 /// The reader's verdicts on notes, shared by every screen that shows one.
 ///
@@ -19,11 +20,25 @@ final class NoticedFeedback: ObservableObject {
     /// Notes whose last verdict did not reach the site.
     @Published private(set) var failed: Set<String> = []
     @Published private(set) var sending: Set<String> = []
+    /// Notes rated here whose moment on screen is over.
+    @Published private(set) var settled: Set<String> = []
+
+    /// How long a rated note stays, showing what was chosen, before it goes.
+    var settleDelay: Duration = .seconds(3)
 
     private let client = SiteClient.shared
 
     func verdict(for note: DaydreamNote) -> DaydreamVerdict? {
         chosen[note.id] ?? note.feedback
+    }
+
+    /// Whether a note still belongs on screen: not yet rated, or rated here a
+    /// moment ago and still showing the answer. A note that arrives already
+    /// rated (on the site, or on this phone before a relaunch) is done.
+    func isShowing(_ note: DaydreamNote) -> Bool {
+        if settled.contains(note.id) { return false }
+        if chosen[note.id] != nil { return true }
+        return note.feedback == nil
     }
 
     func didFail(_ note: DaydreamNote) -> Bool { failed.contains(note.id) }
@@ -47,6 +62,20 @@ final class NoticedFeedback: ObservableObject {
         } catch {
             chosen[note.id] = previous
             failed.insert(note.id)
+            return
+        }
+        settleSoon(note.id, verdict: verdict)
+    }
+
+    /// Take the note away once the reader has seen the answer land — unless
+    /// they changed it in the meantime, in which case that later answer's own
+    /// timer does it.
+    private func settleSoon(_ id: String, verdict: DaydreamVerdict) {
+        let delay = settleDelay
+        Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, self.chosen[id] == verdict else { return }
+            withAnimation(.easeOut(duration: 0.35)) { _ = self.settled.insert(id) }
         }
     }
 

@@ -568,7 +568,8 @@ final class FlowRunStore: ObservableObject {
 
 // MARK: - Today's card
 
-/// How many workflows want looking at, for Today.
+/// The workflows as Today counts them: working, not working, and the next
+/// scheduled run.
 ///
 /// Its own request, after Today's first paint, rather than a field on
 /// `/api/native/today`: the today payload does not carry workflows, and adding
@@ -576,17 +577,72 @@ final class FlowRunStore: ObservableObject {
 /// screen wait for the slowest thing on the site.
 @MainActor
 final class FlowAttentionStore: ObservableObject {
-    @Published private(set) var flows: [FlowSummary] = []
+    @Published private(set) var all: [FlowSummary] = []
+    /// Whether the list has answered at least once. Before that the card is
+    /// not drawn — "0 working" while the request is in flight would be a lie.
+    @Published private(set) var loaded = false
 
     private let client = SiteClient.shared
+
+    func stats(now: Date) -> FlowStats { FlowStats(all, now: now) }
 
     func load() async {
         guard client.isPaired else { return }
         do {
             let list: FlowList = try await client.send("api/native/workflows")
-            flows = list.workflows.filter(\.needsAttention)
+            all = list.workflows
+            loaded = true
         } catch {
             // Silent: a missing card is the right failure for a summary.
         }
+    }
+}
+
+/// Three numbers from the workflow list.
+struct FlowStats: Equatable {
+    struct Next: Equatable {
+        let title: String
+        let at: Date
+    }
+
+    /// Everything not failing: healthy, running, never run, or manual.
+    let working: Int
+    /// Flagged by the site as needing attention, or whose last run failed.
+    let failing: Int
+    /// The soonest future run across every enabled schedule.
+    let next: Next?
+
+    init(_ flows: [FlowSummary], now: Date) {
+        let failing = flows.filter(Self.isFailing)
+        self.failing = failing.count
+        working = flows.count - failing.count
+
+        var soonest: Next?
+        for flow in flows where flow.trigger.enabled {
+            // `nextRuns` is the site's own forecast, oldest first; the first
+            // one still ahead of the phone's clock is the next run.
+            guard let at = flow.trigger.nextRuns.lazy.compactMap(isoDate).first(where: { $0 > now }) else { continue }
+            if soonest == nil || at < soonest!.at { soonest = Next(title: flow.title, at: at) }
+        }
+        next = soonest
+    }
+
+    static func isFailing(_ flow: FlowSummary) -> Bool {
+        if flow.needsAttention { return true }
+        switch flow.lastRun?.state {
+        case .failed?, .partial?: return true
+        default: return false
+        }
+    }
+
+    /// "14:30" today, "Tue 07:00" later in the week, "3 Oct 07:00" beyond it —
+    /// in the phone's own time zone and clock style.
+    static func when(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDate(date, inSameDayAs: now) { return time }
+        if let week = calendar.date(byAdding: .day, value: 6, to: now), date < week {
+            return "\(date.formatted(.dateTime.weekday(.abbreviated))) \(time)"
+        }
+        return "\(date.formatted(.dateTime.day().month(.abbreviated))) \(time)"
     }
 }
