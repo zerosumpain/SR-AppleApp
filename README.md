@@ -174,7 +174,7 @@ For an actual phone, follow [TestFlight setup](docs/TESTFLIGHT.md). This require
 On a Mac with Xcode and XcodeGen:
 
 ```sh
-xcodegen generate --spec ios/project.yml
+xcodegen generate --spec ios/project.yml  # the iPhone app and the Watch app; ios/app.yml is the iPhone app alone
 open ios/SRAppleApp.xcodeproj
 ```
 

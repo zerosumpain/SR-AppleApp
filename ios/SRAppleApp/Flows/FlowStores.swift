@@ -99,6 +99,7 @@ final class FlowListStore: ObservableObject {
         do {
             let list: FlowList = try await client.send("api/native/workflows")
             workflows = list.workflows
+            PinnedFlows.shared.reconcile(with: list.workflows)
             message = nil
         } catch SiteError.expired {
             message = "This iPhone needs pairing again."
@@ -592,6 +593,7 @@ final class FlowAttentionStore: ObservableObject {
             let list: FlowList = try await client.send("api/native/workflows")
             all = list.workflows
             loaded = true
+            PinnedFlows.shared.reconcile(with: list.workflows)
         } catch {
             // Silent: a missing card is the right failure for a summary.
         }

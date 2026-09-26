@@ -86,3 +86,36 @@ connection. A simulator cannot press a notification button.
   category, as before, and a connections alert must open the connections list.
 - Do the same with the phone unlocked, from the lock-screen banner's long press.
   The buttons behave identically.
+
+### The Watch app (Phases 1 and 2)
+
+Needs a TestFlight build made with the Watch profiles (the upload log says
+"uploading the iPhone app without the Watch app" when they are missing), and
+the app installed on the Watch from the Watch app on the phone. WatchConnectivity
+does not run between simulators reliably, so all of this is device-only.
+
+- Open the phone app, then the Watch app. Today should show Readiness and
+  Recovery matching the phone's rings within a few seconds, and "From iPhone ·
+  now". With Apple Health's activity rings shared on the Watch, Move should
+  match the Activity app; before that, "Show my Move ring" asks once.
+- Pull the phone's Today to refresh after a health upload. The Watch's numbers
+  follow without opening the Watch app again.
+- **Alerts:** swipe a row, press **Clear**. It leaves the Watch at once and the
+  phone's Today card. Press **Read** on another: the phone's badge drops by one.
+  With the phone in flight mode the Watch says "Queued for your iPhone", and
+  both happen when the phone is back.
+- **Ask jkai:** dictate a question. The phone's chat composer must open with
+  it waiting, UNSENT. Nothing may send on its own.
+- **iPhone page:** the queue count, the last upload and the location gate match
+  Settings on the phone. **Sync now** says "Syncing on your iPhone" and the
+  queue drops.
+- **Workflows:** pin one on the phone (a workflow's ••• menu → Pin to Apple
+  Watch; a fourth pin is refused). It appears on the Watch. Running it asks
+  first; after **Run** the site's run list shows it. Unpin it on the phone:
+  it leaves the Watch, and an old copy of the page must not be able to run it.
+- **Complications:** add Readiness and Alerts to a face. They show the same
+  numbers as the app and update when the phone sends new ones.
+- **A family member's Watch:** no Alerts or Workflows page, no unread count in
+  the complication, and Ask only if they have chat.
+- Revoke the phone's pairing on the website. The Watch keeps its last numbers
+  (it holds no credential) but nothing it asks for succeeds.

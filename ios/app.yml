@@ -1,0 +1,70 @@
+# The iPhone app alone. `project.yml` includes this and adds the Watch app and
+# its complications (`watch.yml`); CI builds that. The TestFlight job archives
+# this spec on its own until the Watch's provisioning profiles exist — see
+# docs/WATCH.md and docs/TESTFLIGHT.md.
+name: SRAppleApp
+options:
+  bundleIdPrefix: com.strangeramblings
+  deploymentTarget:
+    iOS: '17.0'
+    watchOS: '10.0'
+settings:
+  base:
+    # Every bundle identifier derives from this one. The TestFlight job passes
+    # its own on the command line, so a fork signs with its own team's IDs.
+    SR_BUNDLE_ID: com.strangeramblings.com.appleapp
+    SWIFT_VERSION: '5.0'
+    TARGETED_DEVICE_FAMILY: '1'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGN_STYLE: Automatic
+targets:
+  SRAppleApp:
+    type: application
+    platform: iOS
+    # Recursive, so `Design/`, `News/`, `Chat/`, `Site/` and the `Fonts/` .ttf
+    # files are all picked up — xcodegen puts the fonts in the resources phase
+    # at the bundle root, which is where the bare filenames in `UIAppFonts`
+    # expect them. A folder reference would nest them and break registration.
+    # `Font.custom` fails SILENTLY on a missing face (it falls back to the
+    # system font and the screen still renders, just wrong), so
+    # `SiteTests.testEveryNamedFontIsRegistered` asserts each one arrived.
+    sources:
+      - SRAppleApp
+      # The Watch snapshot and command model, shared with the Watch targets.
+      - Shared
+      # The pilot server's own list of health kinds, units and bounds. Bundled,
+      # not copied, so the phone can never send a kind the server refuses — a
+      # refused batch wedges the outbox forever.
+      - path: ../server/health-catalogue.json
+        buildPhase: resources
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: '1'
+        PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID)
+        # Per target, so the archive can sign three targets with three
+        # profiles. Empty (automatic signing) outside the TestFlight job.
+        PROVISIONING_PROFILE_SPECIFIER: $(SR_APP_PROFILE)
+        INFOPLIST_FILE: SRAppleApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SRAppleApp/SRAppleApp.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets: [SRAppleAppTests, SRAppleAppUITests]
+  SRAppleAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [SRAppleAppTests]
+    dependencies:
+      - target: SRAppleApp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  SRAppleAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [SRAppleAppUITests]
+    dependencies:
+      - target: SRAppleApp
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

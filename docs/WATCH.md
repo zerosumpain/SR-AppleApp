@@ -1,9 +1,12 @@
 # Apple Watch
 
 What the companion does on a wrist, what it deliberately does not, and what
-each further step would cost. Phase 0 is built. The rest is a plan, written down
-before any of it is started, because every step past Phase 0 needs something
-from Apple's developer portal that this repository does not have yet.
+each step costs. Phases 0, 1 and 2 are built. Phase 3 is not (see below).
+
+**Signing.** Phases 1 and 2 need two App Store profiles this repository does
+not have yet (docs/TESTFLIGHT.md, "The Apple Watch app"). Until they exist the
+TestFlight job uploads the iPhone app alone, exactly as before, and says so in
+its log. CI builds everything for the simulator, where no profile is needed.
 
 ## What a watch is for, here
 
@@ -83,7 +86,38 @@ as late as it reaches the phone.
 The routing is pure and covered by `AlertActionsTests`. Pressing a button is
 device-only; see [Device testing](DEVICE-TESTING.md#apple-watch).
 
-## Phase 1: the watch app (one new target, one new profile)
+## Phase 1: the watch app (built; one new target, one new profile)
+
+As built, and where it differs from the plan below:
+
+- **Code.** `ios/SRAppleWatch/` (the app), `ios/Shared/WatchShared.swift`
+  (`WatchSnapshot`, `WatchCommand`, `WatchReply`: compiled into the phone, the
+  Watch and the complications, so the contract cannot drift), and
+  `ios/SRAppleApp/Watch/WatchBridge.swift` (the phone's side).
+- **When the snapshot is sent.** Not on named events: the bridge subscribes to
+  the stores that already hold each input (Today's payload, the inbox the app
+  shell holds, the connections, the upload queue and gate, the pins, the
+  access) and sends when any moves, coalesced to one send per burst and
+  skipped when only the timestamp changed. Still no network call of its own.
+- **Figures.** Readiness and recovery (same sources as Today's rings), then
+  HRV, resting heart rate and sleep when the site sent them.
+- **Sync now** answers at once ("Syncing on your iPhone") and runs a sync with
+  the 15-second collection window a background refresh gets: a sync can take
+  longer than a Watch waits for a reply, and the next snapshot's queue count
+  is the result.
+- **Out of reach.** A command is sent with `sendMessage` when the phone is
+  reachable and queued with `transferUserInfo` when it is not; the Watch says
+  "Queued for your iPhone".
+- **Spec.** `ios/app.yml` is the iPhone app alone; `ios/watch.yml` adds the two
+  Watch targets; `ios/project.yml` includes both. Every bundle ID derives from
+  `SR_BUNDLE_ID`, and each target names its own `SR_*_PROFILE`.
+- **CI.** A step builds the Watch scheme for a watchOS simulator before the
+  iPhone tests, and fetches the watchOS platform if the runner image lacks it.
+  The job's timeout went from 35 to 50 minutes.
+- **Tests.** `WatchBridgeTests`: who gets what in the snapshot, the context and
+  every command round-tripping, malformed commands refused, the pin limit.
+
+The plan, as written before it was built:
 
 - **Target.** `SRAppleWatch`, a single-target SwiftUI watchOS app, watchOS 10+
   (the release alongside iOS 17), embedded in the iOS app through `project.yml`.
@@ -140,7 +174,18 @@ device-only; see [Device testing](DEVICE-TESTING.md#apple-watch).
   builder stays pure and unit-tested, the same approach the motion gate takes.
   The round trip goes on the device checklist.
 
-## Phase 2: complications and pinned flows (a third profile)
+## Phase 2: complications and pinned flows (built; a third profile)
+
+As built: `ios/SRAppleWatchWidgets/` has two complications, **Readiness**
+(circular gauge, corner, inline, rectangular with recovery and unread) and
+**Alerts** (unread count). They read the snapshot the Watch app writes to the
+App Group, and the app reloads their timelines on every new snapshot.
+Pinned workflows are chosen on the phone (a workflow's menu → Pin to Apple
+Watch; three at most, kept on the phone, titles kept current from the list).
+The phone runs one only if it is STILL pinned when the request arrives, so an
+old snapshot on the wrist cannot start a workflow unpinned since.
+
+The plan:
 
 - **Complications and Smart Stack:** a WidgetKit extension on the Watch
   showing the Readiness ring and an unread count. It reads the snapshot through
@@ -150,7 +195,12 @@ device-only; see [Device testing](DEVICE-TESTING.md#apple-watch).
   `POST api/native/workflows/:slug/run`. A tap on a wrist is too easy to make by
   accident for a side effect without one.
 
-## Phase 3 (optional): refresh without the phone
+## Phase 3 (optional, not built): refresh without the phone
+
+Not built, deliberately. It needs a new endpoint on the site (SR-Main) that
+mints and revokes a watch-scoped token, which is outside this repository;
+building the Watch half against an endpoint that does not exist would be
+guessing at its contract. Worth doing only if the phone is often left behind.
 
 A read-only, watch-scoped token, minted on the phone and handed over WCSession,
 good for `api/native/today` only. It would be listed and revocable beside the

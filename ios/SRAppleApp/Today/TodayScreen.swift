@@ -251,6 +251,9 @@ struct TodayScreen: View {
             }
         }
         .task {
+            // The Watch's health figures and Today's first alerts come from
+            // this store's payload — no second request.
+            WatchBridge.shared.attach(today: store)
             move.start()
             // Not awaited before Today's own request: the map is a glance, and
             // the first paint must not wait on a second server.

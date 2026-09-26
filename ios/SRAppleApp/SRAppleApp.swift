@@ -29,6 +29,9 @@ import UIKit
         // not registered when a notification arrives shows it with no buttons,
         // on the phone and on the Watch alike.
         UNUserNotificationCenter.current().setNotificationCategories(AlertActions.categories)
+        // Listening before any scene exists: a message from the Watch can wake
+        // the app in the background, and must find a session to arrive at.
+        WatchBridge.shared.start(companion: companion)
         installQuickActions(application)
 
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.com.appleapp.refresh", using: nil) { [weak self] task in

@@ -245,6 +245,9 @@ struct ContentView: View {
             // Anything a quick action, a notification tap or a Shortcut left
             // waiting before there was a router to receive it.
             drainPending()
+            // The Watch mirrors this inbox and these connections, not a
+            // transient store's empty ones.
+            WatchBridge.shared.attach(alerts: alerts, connections: connections)
             connections.runLocalFix = { [companion = self.companion, router = self.router] fix in
                 switch fix {
                 case .syncNow: Task { await companion.sync() }

@@ -102,7 +102,8 @@ jobs:
     needs: scope
     if: needs.scope.outputs.ios == 'true'
     runs-on: macos-26
-    timeout-minutes: 35
+    # Was 35, and green runs took ~30. The Watch app adds a build of its own.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - name: Verify current Apple toolchain
@@ -114,6 +115,17 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate --spec ios/project.yml
+      # The iPhone app embeds the Watch app, so the test step below builds it
+      # too; this step builds it on its own first, so a Watch compile error is
+      # reported as one rather than as a failed iPhone test run. Xcode ships
+      # platforms separately: if this image lacks watchOS, fetch it once.
+      - name: Build the Watch app
+        run: |
+          set -o pipefail
+          if ! xcodebuild -showsdks | grep -q watchsimulator; then
+            xcodebuild -downloadPlatform watchOS
+          fi
+          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleWatch -destination 'generic/platform=watchOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee watch-build.log
       - name: Build and test on iPhone simulator
         run: |
           set -o pipefail
@@ -134,6 +146,7 @@ jobs:
           name: ios-simulator-results
           path: |
             build.log
+            watch-build.log
             artifacts/Tests.xcresult
             artifacts/screenshots
             DerivedData/Build/Products/Debug-iphonesimulator/SRAppleApp.app
