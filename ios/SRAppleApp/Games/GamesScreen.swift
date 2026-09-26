@@ -46,7 +46,14 @@ struct GamesScreen: View {
                 if !store.rooms.isEmpty {
                     section("Your games", trailing: nil) {
                         ForEach(store.rooms) { room in
-                            NavigationLink(value: GameRoomRef(id: room.id)) {
+                            // A Button onto the tab's path, not a NavigationLink:
+                            // the link under an interactive glass card never
+                            // received the tap in CI; a Button over the same
+                            // glass (the Tap Duel card) does.
+                            Button {
+                                SRHaptic.tap()
+                                router.games.append(GameRoomRef(id: room.id))
+                            } label: {
                                 GameRoomRow(room: room)
                             }
                             .buttonStyle(.plain)
