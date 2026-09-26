@@ -506,6 +506,8 @@ struct ChatScreen: View {
 
                     if recorder.recording {
                         recordingPill
+                    } else if store.transcribing {
+                        transcribingPill
                     } else {
                         TextField(store.pending.isEmpty ? "Message jkai" : "Say something about it", text: $draft, axis: .vertical)
                             .font(SR.Text.body())
@@ -604,6 +606,23 @@ struct ChatScreen: View {
         .frame(maxWidth: .infinity, minHeight: 48)
         .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityElement(children: .combine)
+    }
+
+    /// Between letting go of the mic and the turn going out: the phone is
+    /// reading the recording. Usually about a second.
+    private var transcribingPill: some View {
+        HStack(spacing: 10) {
+            ProgressView().tint(SR.accent)
+            Text("Transcribing…")
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, minHeight: 48)
+        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("chat-transcribing")
     }
 
     private func beginRecording() {
