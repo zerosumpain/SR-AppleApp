@@ -272,6 +272,10 @@ struct ChatScreen: View {
     @State private var choosingFiles = false
     @State private var takingPhoto = false
     @State private var showingModel = false
+    /// A member's thread runs on what the site chose (the model route answers
+    /// `locked`), takes no voice notes (the upload lane refuses audio) and
+    /// attaches images, PDFs, documents and text only. The owner's is as it was.
+    @ObservedObject private var access = AccessStore.shared
     @StateObject private var recorder = VoiceRecorder()
     /// Whether a thumb is still on the mic. Plain state, read by the async
     /// start: a release that lands before the recorder is up must still stop it.
@@ -411,9 +415,11 @@ struct ChatScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button {
-                        showingModel = true
-                    } label: { Label("Model & thinking", systemImage: "cpu") }
+                    if access.current.owner {
+                        Button {
+                            showingModel = true
+                        } label: { Label("Model & thinking", systemImage: "cpu") }
+                    }
                     Link(destination: SiteClient.shared.webURL("jkai")) {
                         Label("Open jkai on the web", systemImage: "safari")
                     }
@@ -548,8 +554,12 @@ struct ChatScreen: View {
 
     /// The mic takes the send button's place while there is nothing to send —
     /// Messages' arrangement, so one circle does one job at a time.
+    ///
+    /// Owner only: a member's upload lane takes no audio, so a voice note is
+    /// never offered rather than recorded and refused.
     private var showsMic: Bool {
-        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        access.current.owner
+            && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && store.pending.isEmpty && !store.sending
     }
 
@@ -700,6 +710,12 @@ struct ChatScreen: View {
             return
         }
         let mime = ChatUpload.mimeType(for: url)
+        // The Files picker already offers only allowed types; a file shared in
+        // from another app has not been through it.
+        guard ChatUpload.allowed(mime: mime, owner: access.current.owner) else {
+            store.message = "\(url.lastPathComponent) can't be sent from this iPhone."
+            return
+        }
         if mime.hasPrefix("image/"), let image = UIImage(data: data) {
             store.attachPhoto(image)
         } else {

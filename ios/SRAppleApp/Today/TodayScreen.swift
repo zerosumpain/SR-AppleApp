@@ -99,7 +99,7 @@ final class TodayStore: ObservableObject {
     private let client = SiteClient.shared
 
     func load(fresh: Bool = false) async {
-        guard client.isPaired, !loading else { return }
+        guard AccessStore.ownerSite, !loading else { return }
         loading = true
         defer { loading = false }
         do {
@@ -146,6 +146,10 @@ struct TodayScreen: View {
     /// Today's Move ring, live from Apple Health on this phone.
     @StateObject private var move = MoveRingStore()
     @ObservedObject private var noticed = NoticedFeedback.shared
+    /// What this person may use. The owner's cards (the site's figures,
+    /// alerts, workflows, what the loop noticed) are not drawn for anybody
+    /// else — their endpoints would only refuse a member.
+    @ObservedObject private var access = AccessStore.shared
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var connections: ConnectionsStore
     @Environment(\.scenePhase) private var scenePhase
@@ -162,35 +166,46 @@ struct TodayScreen: View {
                     .padding(.horizontal, SR.gutter)
                     .padding(.top, 4)
 
-                if site.paired {
+                if ownerSite {
                     vitalsCard
                         .padding(.horizontal, SR.gutter)
                 }
 
                 // Everyone, on a map, one tap from the Family tab. Over the
                 // companion pairing, so a family member without the site's
-                // sees it too. Draws nothing until there is somebody to pin.
-                FamilyMiniMap(store: family) {
-                    router.show(.family)
+                // sees it too — if the owner gave them the family. Draws
+                // nothing until there is somebody to pin.
+                if access.current.family {
+                    FamilyMiniMap(store: family) {
+                        router.show(.family)
+                    }
+                    .padding(.horizontal, SR.gutter)
                 }
-                .padding(.horizontal, SR.gutter)
 
                 // What the daydream loop noticed, straight under the body's
                 // numbers: the notes are the part of Today that is an opinion.
                 // A rated note leaves a few seconds after the rating saves.
-                if site.paired, !visibleNotes.isEmpty {
+                if ownerSite, !visibleNotes.isEmpty {
                     NoticedCard(notes: visibleNotes)
                         .padding(.horizontal, SR.gutter)
                 }
 
                 VStack(alignment: .leading, spacing: 22) {
-                    if !site.paired {
+                    if access.current.owner && !site.paired {
+                        // The owner's QR. A member's phone pairs itself, and a
+                        // member with neither chat nor news has nothing to pair.
                         connectCard
+                    } else if !companion.paired && !access.current.owner {
+                        // Nobody knows who this is yet: the companion is where
+                        // that answer comes from.
+                        companionCard
                     } else {
-                        askField
-                        alertsCard
-                        if flows.loaded { flowsCard }
-                        if let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
+                        if access.current.chat && site.paired { askField }
+                        if access.current.owner {
+                            alertsCard
+                            if flows.loaded { flowsCard }
+                        }
+                        if access.current.news, let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
                         quickActions
                     }
                     syncFooter
@@ -217,11 +232,14 @@ struct TodayScreen: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) { SRBarMark() }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { SRHaptic.tap(); router.openAlerts() } label: {
-                    Image(systemName: alerts.unread > 0 ? "bell.badge" : "bell")
+            // The bell is the site's inbox, which is the owner's.
+            if access.current.owner {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { SRHaptic.tap(); router.openAlerts() } label: {
+                        Image(systemName: alerts.unread > 0 ? "bell.badge" : "bell")
+                    }
+                    .accessibilityLabel(alerts.unread > 0 ? "Alerts, \(alerts.unread) unread" : "Alerts")
                 }
-                .accessibilityLabel(alerts.unread > 0 ? "Alerts, \(alerts.unread) unread" : "Alerts")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { SRHaptic.tap(); router.openSettings() } label: { Image(systemName: "gearshape") }
@@ -286,6 +304,34 @@ struct TodayScreen: View {
     }
 
     // MARK: - Cards
+
+    /// The owner's site lane: paired, and the owner. A member may be
+    /// site-paired now (for chat or news) and still see none of this.
+    private var ownerSite: Bool { access.current.owner && site.paired }
+
+    /// Before the companion is paired the app cannot know who is holding it,
+    /// so it offers only the pairing every person needs.
+    private var companionCard: some View {
+        SRCard(accented: true) {
+            VStack(alignment: .leading, spacing: 12) {
+                SRSectionLabel(text: "Not connected")
+                Text("Connect this iPhone")
+                    .font(SR.Text.display())
+                    .foregroundStyle(SR.ink)
+                Text("Pair with the companion to upload from Apple Health. What else appears here is up to the account it pairs as.")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { SRHaptic.tap(); router.openSettings(.connections) } label: {
+                    SRButtonLabel(title: "Connect", icon: "qrcode.viewfinder", fill: true)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityLabel("CONNECT")
+                .padding(.top, 4)
+            }
+        }
+    }
 
     private var connectCard: some View {
         SRCard(accented: true) {
@@ -589,8 +635,10 @@ struct TodayScreen: View {
     private var quickActions: some View {
         SRGlassGroup(spacing: SR.cardGap) {
             HStack(spacing: SR.cardGap) {
-                QuickAction(title: "New thread", icon: "square.and.pencil") {
-                    router.ask("")
+                if access.current.chat && site.paired {
+                    QuickAction(title: "New thread", icon: "square.and.pencil") {
+                        router.ask("")
+                    }
                 }
                 QuickAction(title: companion.busy ? "Syncing…" : "Sync now", icon: "arrow.triangle.2.circlepath") {
                     Task { await companion.sync() }

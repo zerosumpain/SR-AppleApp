@@ -65,6 +65,13 @@ enum ChatUpload {
         UTType(filenameExtension: "xlsx"),
     ].compactMap { $0 }
 
+    /// Whether a file of this type may be attached. The owner's lane takes
+    /// whatever the site does; a member's takes images, PDFs, documents and
+    /// text — never audio or video, which the site refuses for them.
+    static func allowed(mime: String, owner: Bool) -> Bool {
+        owner || !(mime.hasPrefix("audio/") || mime.hasPrefix("video/"))
+    }
+
     static func mimeType(for url: URL) -> String {
         UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
     }

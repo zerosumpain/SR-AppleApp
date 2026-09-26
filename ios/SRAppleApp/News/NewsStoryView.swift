@@ -11,6 +11,7 @@ struct NewsStoryScreen: View {
     @StateObject private var store = StoryStore()
     @Environment(\.dismiss) private var dismiss
     @State private var acting = false
+    @ObservedObject private var access = AccessStore.shared
 
     var body: some View {
         ScrollView {
@@ -116,7 +117,7 @@ struct NewsStoryScreen: View {
 
             SRGlassGroup(spacing: 10) {
                 HStack(spacing: 10) {
-                    ForEach([NewsAction.favourite, .graph, .note, .research], id: \.rawValue) { action in
+                    ForEach(AccessPolicy.newsActions(can: store.article?.can, access: access.current), id: \.rawValue) { action in
                         Button {
                             SRHaptic.tap()
                             Task { await act(action) }

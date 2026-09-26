@@ -11,6 +11,11 @@ import XCTest
 /// pairing is a job you do once from a QR code on another screen, and a
 /// permanent slot on the bar for it was the clearest clutter in the app. It is
 /// under Settings → Connections now, and `Today` took the slot.
+///
+/// And rewritten again for member access. A fresh install does not know who is
+/// holding it — the answer arrives with the companion pairing — so it fails
+/// CLOSED: Today and Health, the companion's pairing, and nothing that belongs
+/// to the owner. The owner's full bar is covered by the `-SRDemo` tests.
 final class OnboardingTests: XCTestCase {
 
     @MainActor func testTheTabBarIsThePlacesYouGo() {
@@ -18,9 +23,12 @@ final class OnboardingTests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        // Six tabs on a bar that holds five: News and Flows sit under More.
-        for tab in ["Today", "Chat", "Health", "Family", "More"] {
+        // Nobody known yet: Today and Health, and nothing else exists at all.
+        for tab in ["Today", "Health"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
+        }
+        for tab in ["Chat", "News", "Flows", "Family", "More"] {
+            XCTAssertFalse(app.tabBars.buttons[tab].exists, "\(tab) is on the bar before anybody said this person may use it")
         }
         // The old Connect tab must be gone, not merely unused.
         XCTAssertFalse(app.tabBars.buttons["Connect"].exists, "Connect is still a tab")
@@ -34,27 +42,13 @@ final class OnboardingTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
 
-        // Unpaired, Today must say so rather than sitting empty.
+        // Unpaired, Today must say so rather than sitting empty — and offer
+        // the companion, the pairing every person needs.
         XCTAssertTrue(app.buttons["CONNECT"].waitForExistence(timeout: 15),
                       "an unconnected Today does not offer a way to connect")
+        // No bell: the alert inbox is the owner's.
+        XCTAssertFalse(app.buttons["Alerts"].exists, "the owner's alert bell is on an unknown phone")
         attach(app, "Today, not yet connected")
-    }
-
-    @MainActor func testChatAndNewsBothGateOnPairing() {
-        let app = XCUIApplication()
-        app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20))
-
-        app.tabBars.buttons["Chat"].tap()
-        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10)
-                      || app.staticTexts["Not connected yet"].waitForExistence(timeout: 5),
-                      "chat does not explain why it is empty")
-        attach(app, "Chat, not yet connected")
-
-        XCTAssertTrue(app.openTab("News"), "no way to News, on the bar or under More")
-        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10)
-                      || app.staticTexts["Not connected yet"].waitForExistence(timeout: 5),
-                      "news does not explain why it is empty")
     }
 
     @MainActor func testSettingsHoldsBothPairingsOnOneScreen() {
@@ -70,12 +64,13 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(connections.waitForExistence(timeout: 10), "no Connections row in settings")
         connections.tap()
 
-        // Both credentials, on one screen, each named for what it opens.
-        XCTAssertTrue(app.buttons["site-pair-scan"].waitForExistence(timeout: 10),
-                      "no way to scan the website's code")
-        XCTAssertTrue(app.buttons["companion-pair-scan"].exists,
+        // The companion's pairing, which is how the app learns who this is.
+        // The website's QR is the owner's, and nobody is known yet.
+        XCTAssertTrue(app.buttons["companion-pair-scan"].waitForExistence(timeout: 10),
                       "no way to scan the companion's code")
-        attach(app, "Settings — both connections")
+        XCTAssertFalse(app.buttons["site-pair-scan"].exists,
+                       "the website's QR is offered before anybody said this is the owner")
+        attach(app, "Settings — the companion connection")
     }
 
     @MainActor func testTheManualPairingCodeCanStillBeRevealed() {
@@ -93,8 +88,20 @@ final class OnboardingTests: XCTestCase {
         attach(app, "Settings — pairing by hand")
     }
 
+    @MainActor func testNotificationRoutingIsTheOwnersAlone() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        app.buttons["open-settings"].tap()
+        XCTAssertTrue(app.buttons["settings-connections"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["settings-notifications"].exists,
+                       "where the site's alerts go is offered on a phone not known to be the owner's")
+    }
+
+    /// As the owner (demo mode), where the site's alerts go is one row away.
     @MainActor func testNotificationRoutingIsReachableAndListsCategories() {
         let app = XCUIApplication()
+        app.launchArguments = ["-SRDemo"]
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
         app.buttons["open-settings"].tap()

@@ -24,6 +24,9 @@ struct SettingsScreen: View {
     /// Where something else wanted this sheet to open. A "Connect" button three
     /// screens away should land on the pairing screen, not on the hub.
     let target: Router.SettingsTarget?
+    /// Where alerts go and the website's pairing are the owner's; everything
+    /// this phone collects is everyone's.
+    @ObservedObject private var access = AccessStore.shared
 
     @Environment(\.dismiss) private var dismiss
     @State private var path = NavigationPath()
@@ -34,7 +37,9 @@ struct SettingsScreen: View {
         NavigationStack(path: $path) {
             List {
                 Section {
-                    link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
+                    if access.current.owner {
+                        link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
+                    }
                     link(.connections, "Connections", connectionsSubtitle, "qrcode")
                 } header: {
                     SRSectionLabel(text: "The app")
@@ -68,7 +73,8 @@ struct SettingsScreen: View {
             }
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .notifications: AlertRoutingScreen(alerts: alerts)
+                case .notifications:
+                    if access.current.owner { AlertRoutingScreen(alerts: alerts) }
                 case .connections: ConnectionsScreen(companion: companion, site: site, connections: connections)
                 case .health: AppleHealthScreen(outbox: outbox, companion: companion, location: location)
                 case .location: LocationSettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
@@ -82,7 +88,7 @@ struct SettingsScreen: View {
             // instead would re-push every time the reader navigated back to the
             // hub, which is a settings screen you cannot leave.
             switch target {
-            case .notifications: path.append(Route.notifications)
+            case .notifications: if access.current.owner { path.append(Route.notifications) }
             case .connections: path.append(Route.connections)
             case .health: path.append(Route.health)
             case .location: path.append(Route.location)
@@ -97,6 +103,8 @@ struct SettingsScreen: View {
         if connections.count > 0 {
             return connections.count == 1 ? "A site connection needs you" : "\(connections.count) site connections need you"
         }
+        // A member's site credential is the app's business, not theirs.
+        guard access.current.owner else { return companion.paired ? "Companion connected" : "Not connected" }
         return site.paired && companion.paired
             ? "Both connected"
             : site.paired ? "Website connected" : companion.paired ? "Companion connected" : "Not connected"
@@ -126,6 +134,7 @@ struct ConnectionsScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var site: SitePairingModel
     @ObservedObject var connections: ConnectionsStore
+    @ObservedObject private var access = AccessStore.shared
 
     @State private var scanningSite = false
     @State private var scannedSite: SitePairing?
@@ -147,106 +156,27 @@ struct ConnectionsScreen: View {
             //
             // First, because when it is not empty it is why the reader is here.
             // Only once the site is paired: without that, the phone cannot know.
-            if site.paired {
+            if site.paired && access.current.owner {
                 SiteConnectionsSection(store: connections)
             }
 
             // MARK: Website
-            Section {
-                if site.paired {
-                    SRRow(title: "Connected", subtitle: site.ownerEmail, icon: "checkmark.circle.fill", tone: SR.good)
+            //
+            // The owner's: a QR to scan, a credential to revoke. A member's
+            // phone is paired and unpaired by the app itself, so all it shows
+            // is that it is connected — never a scanner or a prompt.
+            if access.current.owner {
+                websiteSection
+            } else if site.paired {
+                Section {
+                    SRRow(title: "Connected to strangeramblings.com", icon: "checkmark.circle.fill", tone: SR.good)
                         .srGlassRow()
-                    Button(role: .destructive) { SRHaptic.tap(); site.signOut() } label: {
-                        SRRow(title: "Disconnect from the website", icon: "xmark.circle", tone: SR.error)
-                    }
-                    .buttonStyle(.plain)
-                    .srGlassRow()
-                } else {
-                    Button {
-                        SRHaptic.tap()
-                        scannedSite = nil
-                        scanningSite = true
-                    } label: {
-                        SRRow(title: site.busy ? "Connecting…" : "Scan the chat & news code",
-                              subtitle: "strangeramblings.com/welcome",
-                              icon: "qrcode.viewfinder")
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(site.busy)
-                    .srGlassRow()
-                    .accessibilityIdentifier("site-pair-scan")
+                } header: {
+                    SRSectionLabel(text: "The website")
                 }
-                if let message = site.message {
-                    Text(message)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(site.paired ? SR.inkMuted : SR.error)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .srGlassRow()
-                        .padding(.vertical, 6)
-                }
-            } header: {
-                SRSectionLabel(text: "The website", trailing: site.paired ? "Connected" : nil)
-            } footer: {
-                Text("Chat threads, the news desk, your health figures and alerts. A device token, not a password — the website can revoke it at any moment, and it expires after ninety days.")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
-                    .padding(.vertical, 4)
             }
 
-            // MARK: Companion
-            Section {
-                if companion.paired {
-                    if let profile = companion.profile {
-                        SRRow(title: "Connected", subtitle: profile.name, icon: "checkmark.circle.fill", tone: SR.good)
-                            .srGlassRow()
-                    }
-                    Button { SRHaptic.tap(); Task { await companion.sync() } } label: {
-                        SRRow(title: companion.busy ? "Syncing…" : "Sync now",
-                              subtitle: companion.queueCount > 0 ? "\(companion.queueCount) waiting" : nil,
-                              icon: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(companion.busy)
-                    .srGlassRow()
-                    Button(role: .destructive) { confirmDisconnect = true } label: {
-                        SRRow(title: "Disconnect this iPhone", icon: "xmark.circle", tone: SR.error)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(companion.busy)
-                    .srGlassRow()
-                } else {
-                    Button {
-                        SRHaptic.tap()
-                        focus = nil
-                        scannedCompanion = nil
-                        scanningCompanion = true
-                    } label: {
-                        SRRow(title: "Pair by QR code",
-                              subtitle: "The health & location code on the same page",
-                              icon: "qrcode.viewfinder")
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(companion.busy)
-                    .srGlassRow()
-                    .accessibilityIdentifier("companion-pair-scan")
-
-                    manualPairing
-                }
-                if companion.paired == false, !companion.message.isEmpty {
-                    Text(companion.message)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .srGlassRow().padding(.vertical, 6)
-                }
-            } header: {
-                SRSectionLabel(text: "The companion", trailing: companion.paired ? "Connected" : nil)
-            } footer: {
-                Text("Apple Health uploads and family location. A different server and a different credential: disconnecting either leaves the other running.")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
-                    .padding(.vertical, 4)
-            }
+            companionSection
         }
         .listStyle(.insetGrouped)
         .srPaper()
@@ -302,6 +232,108 @@ struct ConnectionsScreen: View {
             Button("Disconnect", role: .destructive) { Task { await companion.disconnect() } }
         } message: {
             Text("Stops syncing, pauses location sharing and revokes this device. Health records already uploaded stay on the website.")
+        }
+    }
+
+    /// The website's pairing — the owner's QR flow, unchanged.
+    private var websiteSection: some View {
+        Section {
+            if site.paired {
+                SRRow(title: "Connected", subtitle: site.ownerEmail, icon: "checkmark.circle.fill", tone: SR.good)
+                    .srGlassRow()
+                Button(role: .destructive) { SRHaptic.tap(); site.signOut() } label: {
+                    SRRow(title: "Disconnect from the website", icon: "xmark.circle", tone: SR.error)
+                }
+                .buttonStyle(.plain)
+                .srGlassRow()
+            } else {
+                Button {
+                    SRHaptic.tap()
+                    scannedSite = nil
+                    scanningSite = true
+                } label: {
+                    SRRow(title: site.busy ? "Connecting…" : "Scan the chat & news code",
+                          subtitle: "strangeramblings.com/welcome",
+                          icon: "qrcode.viewfinder")
+                }
+                .buttonStyle(.plain)
+                .disabled(site.busy)
+                .srGlassRow()
+                .accessibilityIdentifier("site-pair-scan")
+            }
+            if let message = site.message {
+                Text(message)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(site.paired ? SR.inkMuted : SR.error)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .srGlassRow()
+                    .padding(.vertical, 6)
+            }
+        } header: {
+            SRSectionLabel(text: "The website", trailing: site.paired ? "Connected" : nil)
+        } footer: {
+            Text("Chat threads, the news desk, your health figures and alerts. A device token, not a password — the website can revoke it at any moment, and it expires after ninety days.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .padding(.vertical, 4)
+        }
+    }
+
+    /// The companion's pairing. Everybody's: it is how the app learns who is
+    /// holding it.
+    private var companionSection: some View {
+        Section {
+            if companion.paired {
+                if let profile = companion.profile {
+                    SRRow(title: "Connected", subtitle: profile.name, icon: "checkmark.circle.fill", tone: SR.good)
+                        .srGlassRow()
+                }
+                Button { SRHaptic.tap(); Task { await companion.sync() } } label: {
+                    SRRow(title: companion.busy ? "Syncing…" : "Sync now",
+                          subtitle: companion.queueCount > 0 ? "\(companion.queueCount) waiting" : nil,
+                          icon: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.plain)
+                .disabled(companion.busy)
+                .srGlassRow()
+                Button(role: .destructive) { confirmDisconnect = true } label: {
+                    SRRow(title: "Disconnect this iPhone", icon: "xmark.circle", tone: SR.error)
+                }
+                .buttonStyle(.plain)
+                .disabled(companion.busy)
+                .srGlassRow()
+            } else {
+                Button {
+                    SRHaptic.tap()
+                    focus = nil
+                    scannedCompanion = nil
+                    scanningCompanion = true
+                } label: {
+                    SRRow(title: "Pair by QR code",
+                          subtitle: "The health & location code on the same page",
+                          icon: "qrcode.viewfinder")
+                }
+                .buttonStyle(.plain)
+                .disabled(companion.busy)
+                .srGlassRow()
+                .accessibilityIdentifier("companion-pair-scan")
+
+                manualPairing
+            }
+            if companion.paired == false, !companion.message.isEmpty {
+                Text(companion.message)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .srGlassRow().padding(.vertical, 6)
+            }
+        } header: {
+            SRSectionLabel(text: "The companion", trailing: companion.paired ? "Connected" : nil)
+        } footer: {
+            Text("Apple Health uploads and family location. A different server and a different credential: disconnecting either leaves the other running.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .padding(.vertical, 4)
         }
     }
 

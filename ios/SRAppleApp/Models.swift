@@ -141,6 +141,11 @@ struct PersistedState: Codable {
     /// The close-tracking stretch in progress, if any. Persisted so a
     /// relaunch mid-walk carries on rather than dropping back to the gate.
     var outing: OutingState?
+    /// What the site last said this person may use (see `AccessStore`). Nil
+    /// until it has said anything. Belongs to the COMPANION pairing — it rides
+    /// in that server's household view — so `clear()` on a re-pair drops it:
+    /// the next person to pair this phone may not be the last one.
+    var access: AppAccess?
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -183,6 +188,8 @@ struct PersistedState: Codable {
         // `try?`: a cache of a server answer, like `connections`.
         watchedPlaces = (try? c.decodeIfPresent([WatchedPlace].self, forKey: .watchedPlaces)) ?? []
         outing = (try? c.decodeIfPresent(OutingState.self, forKey: .outing)) ?? nil
+        // `try?`: a cache of a server answer, like `connections`.
+        access = (try? c.decodeIfPresent(AppAccess.self, forKey: .access)) ?? nil
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`

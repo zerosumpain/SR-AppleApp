@@ -36,9 +36,11 @@ final class ConnectionsStore: ObservableObject {
 
     init(outbox: Outbox?) {
         self.outbox = outbox
-        // Only while the site is paired: a cache left by a credential since
-        // revoked would put up a banner nobody on this phone can act on.
-        let saved = SiteClient.shared.isPaired ? outbox?.state.connections : nil
+        // Only while the site is paired, and paired as the owner: a cache left
+        // by a credential since revoked — or read on a member's phone, which
+        // has no business with the site's connections — would put up a banner
+        // nobody on this phone can act on.
+        let saved = AccessStore.ownerSite ? outbox?.state.connections : nil
         items = saved?.items ?? []
         checkedAt = saved?.checkedAt
     }
@@ -62,9 +64,10 @@ final class ConnectionsStore: ObservableObject {
     // MARK: - Reading
 
     func refresh() async {
-        guard client.isPaired else {
-            // Unpaired — or just disconnected. The site's connections are the
-            // site's business, and this phone no longer speaks for it.
+        guard AccessStore.ownerSite else {
+            // Unpaired — or just disconnected, or a member's phone. The site's
+            // connections are the owner's business, and this phone does not
+            // speak for them.
             await apply(ConnectionsSnapshot())
             return
         }
@@ -121,7 +124,7 @@ final class ConnectionsStore: ObservableObject {
     /// Static, like `AlertStore.backgroundPass`: a wake has no view hierarchy
     /// watching `@Published` state, and seconds to finish in.
     static func backgroundPass(outbox: Outbox?) async {
-        guard SiteClient.shared.isPaired else { return }
+        guard AccessStore.ownerSite else { return }
         do {
             let feed: ConnectionsFeed = try await SiteClient.shared.send("api/native/connections")
             let fresh = Self.snapshot(of: feed)

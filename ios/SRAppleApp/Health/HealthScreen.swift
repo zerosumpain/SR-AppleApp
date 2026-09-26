@@ -31,13 +31,19 @@ struct HealthScreen: View {
     @StateObject private var noticed = HealthNoticedStore()
     /// So a note rated here, or on Today, leaves this list too.
     @ObservedObject private var feedback = NoticedFeedback.shared
+    /// The site's sections — the hero, the read, what the loop noticed, the
+    /// activities — are the owner's /health. Gated on OWNER, not on the site
+    /// being paired: a member's phone may hold a site credential for chat or
+    /// news. Everybody keeps what is theirs: this phone's heart rate and the
+    /// family rows.
+    @ObservedObject private var access = AccessStore.shared
     @EnvironmentObject private var router: Router
 
     var body: some View {
         List {
             SRPageHeader(kicker: "Body · \(Date().formatted(.dateTime.weekday(.wide)))", title: "Health")
                 .srBareRow()
-            if let summary = store.summary {
+            if access.current.owner, let summary = store.summary {
                 // The ink band: readiness and today's figures, /health's hero.
                 HealthHero(summary: summary).srInkRow()
                 if let digest = hub.hub { readSection(digest) }
@@ -55,7 +61,7 @@ struct HealthScreen: View {
                 }
                 if let week = summary.week { weekSection(week) }
                 if !summary.records.isEmpty { records(summary.records) }
-            } else if store.unavailable {
+            } else if access.current.owner && store.unavailable {
                 SREmpty(
                     title: "Health is not answering",
                     icon: "heart.slash",
@@ -64,15 +70,15 @@ struct HealthScreen: View {
                     action: reload
                 )
                 .srBareRow()
-            } else if store.loading {
+            } else if access.current.owner && store.loading {
                 HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
                     .padding(.vertical, 40)
                     .srBareRow()
             }
 
-            if store.summary == nil {
+            if store.summary == nil || !access.current.owner {
                 heartSection
-                recentActivities
+                if access.current.owner { recentActivities }
             }
             family
         }
@@ -259,7 +265,7 @@ struct HealthScreen: View {
     @ViewBuilder
     private var noticedSection: some View {
         let notes = noticed.notes.filter(feedback.isShowing)
-        if !notes.isEmpty {
+        if access.current.owner, !notes.isEmpty {
             Section {
                 ForEach(notes) { note in
                     NoticedNoteRow(note: note).srGlassRow()

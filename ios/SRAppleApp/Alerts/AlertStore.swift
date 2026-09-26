@@ -63,7 +63,7 @@ final class AlertStore: ObservableObject {
     // MARK: - Reading
 
     func refresh() async {
-        guard client.isPaired, !loading else { return }
+        guard AccessStore.ownerSite, !loading else { return }
         loading = true
         defer { loading = false }
         do {
@@ -84,7 +84,7 @@ final class AlertStore: ObservableObject {
     }
 
     func loadRoutes() async {
-        guard client.isPaired else { return }
+        guard AccessStore.ownerSite else { return }
         do {
             let payload: AlertRoutes = try await client.send("api/native/notifications/routes")
             routes = payload.categories
@@ -123,7 +123,7 @@ final class AlertStore: ObservableObject {
     }
 
     func markAllRead() async {
-        guard client.isPaired, unread > 0 else { return }
+        guard AccessStore.ownerSite, unread > 0 else { return }
         unread = 0
         recent = recent.map { alert in
             var copy = alert
@@ -255,7 +255,7 @@ final class AlertStore: ObservableObject {
     /// `@Published` state that a torn-down view hierarchy is not watching, and
     /// must finish inside the seconds iOS grants it. It asks for the queue only.
     static func backgroundPass() async {
-        guard SiteClient.shared.isPaired else { return }
+        guard AccessStore.ownerSite else { return }
         do {
             let feed: AlertFeed = try await SiteClient.shared.send("api/native/notifications?limit=20&inbox=1")
             await AlertStore().raise(feed.pending)

@@ -251,7 +251,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const pageLimit = rawLimit === null || rawLimit === '' ? 2000 : Number(rawLimit);
         if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > 5000) fail(400, 'Invalid limit');
         if (!owner) return send(200, { cursor: since, users: [], fixes: [], more: false });
-        const members = db.prepare('SELECT email, name, sharing FROM users WHERE family=? ORDER BY email').all(owner.family);
+        const members = db.prepare('SELECT email, name, sharing, site_pair_wanted FROM users WHERE family=? ORDER BY email').all(owner.family);
         // The cursor is opaque to callers but is really a tuple: (received,
         // user_id, location id). It is split on the first two '|'s so a
         // location id containing one — unlikely, but ids are caller-chosen —
@@ -275,7 +275,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         });
         const last = page.at(-1);
         const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;
-        return send(200, { cursor, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing })), fixes });
+        return send(200, { cursor, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing, sitePairWanted: m.site_pair_wanted ?? null })), fixes });
       }
       // Arrivals/departures forwarded from SR-Main, same token as the read
       // side above. Fanned out to `alerts` rows keyed (recipient, event id)
@@ -499,6 +499,17 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       if (path === '/api/apple/devices' && method === 'GET') return send(200, { devices: db.prepare("SELECT hash AS id,label,expires FROM credentials WHERE user_id=? AND kind='device' AND expires>?").all(auth.user_id, Date.now()) });
       if (path.startsWith('/api/apple/devices/') && method === 'DELETE' && auth.kind === 'session') {
         db.prepare("DELETE FROM credentials WHERE hash=? AND user_id=? AND kind='device'").run(path.split('/').at(-1), auth.user_id);
+        return send(200, { ok: true });
+      }
+      // A member's phone asking SR-Main for a site credential (chat, news),
+      // or saying it has one now. Only a flag with a timestamp on the caller's
+      // OWN row — no parameter names anyone else — and SR-Main decides whether
+      // the person is entitled to one before it mints anything, so asking
+      // grants nothing by itself.
+      if (path === '/api/apple/site-pair' && method === 'POST') {
+        const body = await readJSON(); exactKeys(body, ['wanted']);
+        if (typeof body.wanted !== 'boolean') fail(400, 'wanted must be boolean');
+        db.prepare('UPDATE users SET site_pair_wanted=? WHERE id=?').run(body.wanted ? new Date().toISOString() : null, auth.user_id);
         return send(200, { ok: true });
       }
       if (path === '/api/apple/sharing' && method === 'PUT') {
