@@ -525,7 +525,9 @@ struct AboutScreen: View {
     private var version: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
-        return "\(short) (\(build))"
+        // A TestFlight build is 0.1.<run> with <run> as its build number too
+        // (testflight.yml), so the build only earns a mention when it differs.
+        return short.hasSuffix(".\(build)") ? short : "\(short) (\(build))"
     }
 
     var body: some View {
