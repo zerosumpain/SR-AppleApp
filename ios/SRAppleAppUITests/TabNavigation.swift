@@ -1,7 +1,8 @@
 import XCTest
 
-/// Six tabs, and an iPhone shows five: the fifth and sixth (News, Flows) sit
-/// under iOS's "More". Every test that opens a tab by name goes through here,
+/// Seven tabs for the owner, and an iPhone shows five: past the fourth (Games,
+/// News, Flows) they sit under iOS's "More". A member with Family and Games
+/// has four and no More. Every test that opens a tab by name goes through here,
 /// so a tab moving under More — or back — changes one place, not every test.
 extension XCUIApplication {
     /// Opens a tab by its label, through More when it is not on the bar.

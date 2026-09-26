@@ -27,7 +27,7 @@ final class OnboardingTests: XCTestCase {
         for tab in ["Today", "Health"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
         }
-        for tab in ["Chat", "News", "Flows", "Family", "More"] {
+        for tab in ["Chat", "News", "Flows", "Family", "Games", "More"] {
             XCTAssertFalse(app.tabBars.buttons[tab].exists, "\(tab) is on the bar before anybody said this person may use it")
         }
         // The old Connect tab must be gone, not merely unused.
