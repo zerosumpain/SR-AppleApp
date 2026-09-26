@@ -147,7 +147,7 @@ final class GamesStore: ObservableObject {
 
     /// The local notification for one invite. Identified by the room, so the
     /// same invite can never stack twice.
-    static func request(for invite: GameInvite) -> UNNotificationRequest {
+    nonisolated static func request(for invite: GameInvite) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = invite.notificationTitle
         content.body = invite.notificationBody
