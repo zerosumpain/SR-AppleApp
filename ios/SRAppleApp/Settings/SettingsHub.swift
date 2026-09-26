@@ -252,6 +252,8 @@ struct ConnectionsScreen: View {
         .srPaper()
         .navigationTitle("Connections")
         .navigationBarTitleDisplayMode(.inline)
+        // The moment of pairing is the onboarding: ask about the household here.
+        .srSharingQuestion(companion: companion, onPairing: true)
         .task {
             await site.check()
             await connections.refresh()
