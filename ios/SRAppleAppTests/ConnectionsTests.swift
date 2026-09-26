@@ -1,4 +1,5 @@
 import XCTest
+import UserNotifications
 @testable import SRAppleApp
 
 /// "A connection needs you": the wire contract decoded defensively, the banner's
@@ -108,19 +109,72 @@ final class ConnectionsTests: XCTestCase {
     // MARK: - The banner
 
     func testTheBannerIsHiddenWhenNothingNeedsYou() {
-        XCTAssertEqual(ConnectionBannerMode.of(items: [], collapsedFor: nil), .hidden)
-        XCTAssertEqual(ConnectionBannerMode.of(items: [], collapsedFor: ["a"]), .hidden)
+        XCTAssertEqual(ConnectionBannerMode.of(items: [], dismissed: []), .hidden)
+        XCTAssertEqual(ConnectionBannerMode.of(items: [], dismissed: ["a|expired"]), .hidden)
     }
 
-    func testTheBannerShowsInFullUntilCollapsed() {
-        XCTAssertEqual(ConnectionBannerMode.of(items: [item("a")], collapsedFor: nil), .full)
-        XCTAssertEqual(ConnectionBannerMode.of(items: [item("a")], collapsedFor: ["a"]), .slim)
+    func testDismissingHidesTheBannerForWhatItShowed() {
+        let a = item("a")
+        XCTAssertEqual(ConnectionBannerMode.of(items: [a], dismissed: []), .full)
+        XCTAssertEqual(ConnectionBannerMode.of(items: [a], dismissed: [a.dismissKey]), .hidden)
     }
 
-    func testANewlyLapsedConnectionReopensTheBanner() {
-        XCTAssertEqual(ConnectionBannerMode.of(items: [item("a"), item("b")], collapsedFor: ["a"]), .full)
-        // One of the collapsed ones fixed: still slim, nothing new to say.
-        XCTAssertEqual(ConnectionBannerMode.of(items: [item("b")], collapsedFor: ["a", "b"]), .slim)
+    func testANewProblemReopensADismissedBanner() {
+        let a = item("a"), b = item("b")
+        XCTAssertEqual(ConnectionBannerMode.of(items: [a, b], dismissed: [a.dismissKey]), .full)
+        // The same connection in a different state is news too.
+        let worse = ConnectionItem(id: "a", label: "A", status: "broken", detail: "")
+        XCTAssertEqual(ConnectionBannerMode.of(items: [worse], dismissed: [a.dismissKey]), .full)
+    }
+
+    @MainActor func testDismissalsPersistAndClearedProblemsAreForgotten() {
+        let defaults = UserDefaults(suiteName: "connections-dismiss-\(UUID().uuidString)")!
+        let store = ConnectionsStore(outbox: nil, defaults: defaults)
+        let stale = PersonalHealthCheck.items(paired: true, healthEnabled: true, reviewNeeded: false,
+                                              lastUpload: Date().addingTimeInterval(-3 * 86_400))
+        store.setPersonal(stale)
+        XCTAssertEqual(store.bannerMode, .full)
+        store.dismiss()
+        XCTAssertEqual(store.bannerMode, .hidden)
+        XCTAssertEqual(ConnectionsStore(outbox: nil, defaults: defaults).dismissed, store.dismissed, "kept across launches")
+        // Fixed, then stalled again: shown again.
+        store.setPersonal([])
+        store.setPersonal(stale)
+        XCTAssertEqual(store.bannerMode, .full)
+    }
+
+    // MARK: - This phone's own health link
+
+    func testPersonalChecksNeedAPairedPhoneWithHealthOn() {
+        let old = Date().addingTimeInterval(-3 * 86_400)
+        XCTAssertTrue(PersonalHealthCheck.items(paired: false, healthEnabled: true, reviewNeeded: true, lastUpload: old).isEmpty)
+        XCTAssertTrue(PersonalHealthCheck.items(paired: true, healthEnabled: false, reviewNeeded: true, lastUpload: old).isEmpty)
+    }
+
+    func testPersonalChecksFindAMissingPermissionAndAStall() {
+        let now = Date()
+        let fresh = PersonalHealthCheck.items(paired: true, healthEnabled: true, reviewNeeded: false,
+                                              lastUpload: now.addingTimeInterval(-3600), now: now)
+        XCTAssertTrue(fresh.isEmpty, "an hour without an upload is a quiet hour")
+        let both = PersonalHealthCheck.items(paired: true, healthEnabled: true, reviewNeeded: true,
+                                             lastUpload: now.addingTimeInterval(-25 * 3600), now: now)
+        XCTAssertEqual(both.map(\.localFix), [.healthPermissions, .syncNow])
+        XCTAssertTrue(both.allSatisfy(\.isPersonal))
+        XCTAssertNil(both.first?.fixURL, "fixed in the app, never in Safari")
+    }
+
+    @MainActor func testAStallIsNotifiedOnceUntilItClears() async {
+        let defaults = UserDefaults(suiteName: "personal-notify-\(UUID().uuidString)")!
+        let stale = PersonalHealthCheck.items(paired: true, healthEnabled: true, reviewNeeded: false,
+                                              lastUpload: Date().addingTimeInterval(-3 * 86_400))
+        var added: [String] = []
+        let add: (UNNotificationRequest) async throws -> Void = { added.append($0.identifier) }
+        await PersonalHealthCheck.notifyOnce(stale, defaults: defaults, add: add)
+        await PersonalHealthCheck.notifyOnce(stale, defaults: defaults, add: add)
+        XCTAssertEqual(added.count, 1)
+        await PersonalHealthCheck.notifyOnce([], defaults: defaults, add: add)
+        await PersonalHealthCheck.notifyOnce(stale, defaults: defaults, add: add)
+        XCTAssertEqual(added.count, 2, "a relapse is told again")
     }
 
     // MARK: - The badge

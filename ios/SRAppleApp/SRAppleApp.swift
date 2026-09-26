@@ -49,6 +49,9 @@ import UIKit
                     // And whether a site connection has lapsed, for the badge
                     // and the banner the next launch opens on.
                     await ConnectionsStore.backgroundPass(outbox: companion.outbox)
+                    // And whether this phone's OWN uploads have stalled — told
+                    // once, to whoever holds it, owner or not.
+                    await PersonalHealthCheck.backgroundPass(outbox: companion.outbox, paired: companion.paired)
                     task.setTaskCompleted(success: companion.queueCount == 0)
                 }
                 task.expirationHandler = { work.cancel() }

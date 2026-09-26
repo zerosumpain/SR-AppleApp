@@ -27,15 +27,26 @@ final class ConnectionsStore: ObservableObject {
     @Published private(set) var checkedAt: Date?
     @Published private(set) var loading = false
     @Published var message: String?
-    /// The ids that were showing when the reader made the banner smaller.
-    /// Session-only by design: never persisted, so a relaunch shows it in full.
-    @Published private(set) var collapsedFor: Set<String>?
+    /// Problems with this phone's OWN health link — everyone's, owner or not.
+    /// See `PersonalHealthCheck`.
+    @Published private(set) var personal: [ConnectionItem] = []
+    /// What the banner was dismissed for, by `dismissKey`. Kept across
+    /// launches — a dismissal that came back on every open would not be one —
+    /// and pruned as problems clear, so a relapse shows again.
+    @Published private(set) var dismissed: Set<String>
+    /// What the banner's button does for a problem the phone fixes itself.
+    /// Set by `ContentView`, which holds the companion and the router.
+    var runLocalFix: ((PersonalFix) -> Void)?
 
     private let outbox: Outbox?
     private let client = SiteClient.shared
+    private let defaults: UserDefaults
+    static let dismissedKey = "connections-dismissed"
 
-    init(outbox: Outbox?) {
+    init(outbox: Outbox?, defaults: UserDefaults = .standard) {
         self.outbox = outbox
+        self.defaults = defaults
+        dismissed = Set(defaults.stringArray(forKey: Self.dismissedKey) ?? [])
         // Only while the site is paired, and paired as the owner: a cache left
         // by a credential since revoked — or read on a member's phone, which
         // has no business with the site's connections — would put up a banner
@@ -45,20 +56,45 @@ final class ConnectionsStore: ObservableObject {
         checkedAt = saved?.checkedAt
     }
 
+    /// The site's connections needing the owner.
     var count: Int { items.count }
 
+    /// Everything wrong: the site's (owner only) and this phone's own.
+    var all: [ConnectionItem] { items + personal }
+
+    /// What the banner shows: everything not dismissed.
+    var visible: [ConnectionItem] { all.filter { !dismissed.contains($0.dismissKey) } }
+
     var bannerMode: ConnectionBannerMode {
-        ConnectionBannerMode.of(items: items, collapsedFor: collapsedFor)
+        ConnectionBannerMode.of(items: all, dismissed: dismissed)
     }
 
-    func collapse() {
+    /// Take the banner down for what it is showing now.
+    func dismiss() {
         SRHaptic.select()
-        collapsedFor = Set(items.map(\.id))
+        dismissed.formUnion(visible.map(\.dismissKey))
+        saveDismissed()
     }
 
-    func expand() {
-        SRHaptic.select()
-        collapsedFor = nil
+    /// This phone's own problems, re-checked. Dismissals of personal problems
+    /// that have cleared are forgotten here; the site's are pruned in `apply`.
+    func setPersonal(_ found: [ConnectionItem]) {
+        if found != personal { personal = found }
+        prune(personal: true, keeping: found)
+    }
+
+    private func prune(personal: Bool, keeping current: [ConnectionItem]) {
+        let live = Set(current.map(\.dismissKey))
+        let kept = dismissed.filter { key in
+            key.hasPrefix(PersonalHealthCheck.prefix) != personal || live.contains(key)
+        }
+        guard kept != dismissed else { return }
+        dismissed = kept
+        saveDismissed()
+    }
+
+    private func saveDismissed() {
+        defaults.set(Array(dismissed), forKey: Self.dismissedKey)
     }
 
     // MARK: - Reading
@@ -106,7 +142,7 @@ final class ConnectionsStore: ObservableObject {
     private func apply(_ snapshot: ConnectionsSnapshot) async {
         items = snapshot.items
         checkedAt = snapshot.checkedAt
-        if let collapsedFor, collapsedFor.isEmpty || items.isEmpty { self.collapsedFor = nil }
+        prune(personal: false, keeping: snapshot.items)
         Self.persist(snapshot, in: outbox)
         await AppBadge.update(connections: snapshot.items.count)
     }

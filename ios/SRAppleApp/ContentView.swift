@@ -218,16 +218,29 @@ struct ContentView: View {
             // Anything a quick action, a notification tap or a Shortcut left
             // waiting before there was a router to receive it.
             drainPending()
+            connections.runLocalFix = { [companion = self.companion, router = self.router] fix in
+                switch fix {
+                case .syncNow: Task { await companion.sync() }
+                case .healthPermissions: router.openSettings(.health)
+                }
+            }
+            checkPersonal()
             await site.check()
             await reconcileSite()
             await alerts.refresh()
             await connections.refresh()
         }
+        // This phone's own health link, re-judged whenever what it is judged
+        // on moves. Everyone's, owner or member — see `PersonalHealthCheck`.
+        .onChange(of: companion.lastUpload) { _, _ in checkPersonal() }
+        .onChange(of: companion.healthReviewNeeded) { _, _ in checkPersonal() }
+        .onChange(of: companion.paired) { _, _ in checkPersonal() }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             // A quick action taken while the app was merely backgrounded never
             // goes through `task`, which runs once per view lifetime.
             drainPending()
+            checkPersonal()
             Task {
                 await alerts.refresh()
                 // Back from Safari after pressing Fix is the commonest way in
@@ -299,6 +312,15 @@ struct ContentView: View {
                 ConnectionsSheet(store: connections)
             }
         }
+    }
+
+    private func checkPersonal() {
+        connections.setPersonal(PersonalHealthCheck.items(
+            paired: companion.paired,
+            healthEnabled: !outbox.state.healthEnabled.isEmpty,
+            reviewNeeded: companion.healthReviewNeeded,
+            lastUpload: companion.lastUpload
+        ))
     }
 
     private func drainPending() {

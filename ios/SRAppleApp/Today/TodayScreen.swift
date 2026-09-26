@@ -153,6 +153,8 @@ struct TodayScreen: View {
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var connections: ConnectionsStore
     @Environment(\.scenePhase) private var scenePhase
+    /// The alert tapped on the card, read in full in a sheet.
+    @State private var opened: SiteAlert?
 
     /// How often the numbers are re-read while Today is on screen. Readiness
     /// and recovery move when a sync lands on the site; five minutes is often
@@ -171,12 +173,13 @@ struct TodayScreen: View {
                         .padding(.horizontal, SR.gutter)
                 }
 
-                // Everyone, on a map, one tap from the Family tab. Over the
+                // Where everyone is, in words: who is moving and where, then
+                // the rest in a line, one tap from the Family tab. Over the
                 // companion pairing, so a family member without the site's
                 // sees it too — if the owner gave them the family. Draws
-                // nothing until there is somebody to pin.
+                // nothing until there is somebody to show.
                 if access.current.family {
-                    FamilyMiniMap(store: family) {
+                    FamilySummary(store: family) {
                         router.show(.family)
                     }
                     .padding(.horizontal, SR.gutter)
@@ -283,6 +286,20 @@ struct TodayScreen: View {
         }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }
+        }
+        .sheet(item: $opened) { alert in
+            NavigationStack {
+                AlertDetailScreen(alert: alert, alerts: alerts) {
+                    withAnimation(.snappy) { alerts.clearFromToday([alert.id]) }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { opened = nil }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -423,8 +440,8 @@ struct TodayScreen: View {
         )
     }
 
-    /// The newest few alerts, each one tap off this card. The bell in the bar
-    /// is the way into the inbox, so a row here does not duplicate it.
+    /// The newest few alerts. A tap on a row opens it in full; the cross takes
+    /// it off Today. The bell in the bar is the way into the inbox.
     /// Clearing is Today's alone — the Alerts screen keeps everything.
     private var alertsCard: some View {
         let rows = alertRows
@@ -486,27 +503,41 @@ struct TodayScreen: View {
         }
     }
 
+    /// The whole alert, from the inbox the phone holds when it has it — Today's
+    /// own rows carry no body.
+    private func open(_ row: TodayAlerts.Latest) {
+        SRHaptic.tap()
+        opened = alerts.recent.first { $0.id == row.id } ?? SiteAlert(latest: row)
+    }
+
     private func alertRow(_ row: TodayAlerts.Latest) -> some View {
         HStack(alignment: .top, spacing: 4) {
-            HStack(alignment: .top, spacing: 10) {
-                Circle()
-                    .fill(row.severity == "alert" || row.severity == "high" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
-                    .frame(width: 7, height: 7)
-                    .padding(.top, 6)
-                Text(row.title)
-                    .font(SR.Text.secondary(15))
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 6)
-                Text(shortAgo(row.createdAt))
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
-                    .padding(.top, 2)
+            Button { open(row) } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    Circle()
+                        .fill(row.severity == "alert" || row.severity == "high" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 6)
+                    Text(row.title)
+                        .font(SR.Text.secondary(15))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 6)
+                    Text(shortAgo(row.createdAt))
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .padding(.top, 2)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 6)
+            .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(shortAgo(row.createdAt).isEmpty ? row.title : "\(row.title), \(shortAgo(row.createdAt)) ago")
+            .accessibilityHint("Opens the alert")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("today-alert-open-\(row.id)")
 
             Button {
                 SRHaptic.select()

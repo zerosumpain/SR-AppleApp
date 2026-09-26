@@ -35,6 +35,7 @@ extension SRDemoFixtures {
         {"view":{"generatedAt":"\(at(1))","viewer":"owner","people":[
           {"subject":"alex","name":"Alex","self":true,"status":"out","line":"Bethesda Terrace · seen 2m ago",
            "batteryPct":64,"lastSeenAt":"\(at(2))","position":{"lat":40.7740,"lon":-73.9708,"at":"\(at(2))"},
+           "moving":{"mode":"walking","speedKmh":4.8,"since":"\(at(9))"},
            "today":{"firstOut":"08:12","minutesOut":127,"distanceKm":4.6,"stops":["Home","The Boathouse","Bethesda Terrace"],"trail":[\(walk.joined(separator: ","))]}},
           {"subject":"sam","name":"Sam","self":false,"status":"out","line":"At School · seen 6m ago",
            "batteryPct":18,"lastSeenAt":"\(at(6))","position":{"lat":40.7713,"lon":-73.9709,"at":"\(at(6))"},

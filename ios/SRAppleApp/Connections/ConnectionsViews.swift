@@ -20,10 +20,15 @@ extension View {
     }
 }
 
-/// The banner itself: full, slim, or nothing.
+/// The banner itself, or nothing.
 ///
-/// Cannot be dismissed. It can be made smaller for the rest of the session,
-/// and a connection that newly lapses opens it again.
+/// Dismissable: the cross takes it down for the problems it is showing, and
+/// only a new one — or one that was fixed and came back — puts it up again.
+/// Everything stays listed in Settings → Connections.
+///
+/// What it can show depends on who is holding the phone: the site's
+/// connections are the owner's alone (the server refuses anyone else), and
+/// everybody sees problems with their OWN phone's health link.
 struct ConnectionsBanner: View {
     @ObservedObject var store: ConnectionsStore
     let onDetails: () -> Void
@@ -31,18 +36,12 @@ struct ConnectionsBanner: View {
 
     var body: some View {
         Group {
-            if let lead = store.items.first {
-                switch store.bannerMode {
-                case .hidden: EmptyView()
-                case .full: full(lead)
-                case .slim: slim(lead)
-                }
+            if store.bannerMode == .full, let lead = store.visible.first {
+                full(lead)
             }
         }
         .animation(.snappy(duration: 0.25), value: store.bannerMode)
     }
-
-    // MARK: Full
 
     private func full(_ lead: ConnectionItem) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -57,16 +56,17 @@ struct ConnectionsBanner: View {
                     .foregroundStyle(SR.error)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                Button { store.collapse() } label: {
-                    Image(systemName: "chevron.up")
+                Button { withAnimation(.snappy) { store.dismiss() } } label: {
+                    Image(systemName: "xmark")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SR.inkMuted)
                         .frame(minWidth: 32, minHeight: 32)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Make this smaller")
-                .accessibilityIdentifier("connections-banner-collapse")
+                .accessibilityLabel("Dismiss")
+                .accessibilityHint("Hides this until something else needs you")
+                .accessibilityIdentifier("connections-banner-dismiss")
             }
 
             // Side by side at ordinary sizes; stacked once the reader's text is
@@ -99,8 +99,11 @@ struct ConnectionsBanner: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
+    private var count: Int { store.visible.count }
+
     private var kicker: String {
-        store.count == 1 ? "A connection needs you" : "\(store.count) connections need you"
+        count == 1 ? (store.visible.first?.isPersonal == true ? "Your iPhone needs you" : "A connection needs you")
+            : "\(count) things need you"
     }
 
     private func summary(_ lead: ConnectionItem) -> some View {
@@ -130,82 +133,47 @@ struct ConnectionsBanner: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Shows every connection that needs you")
+        .accessibilityHint("Shows everything that needs you")
         .accessibilityIdentifier("connections-banner-details")
     }
 
     private func subline(_ lead: ConnectionItem) -> String {
-        store.count > 1 ? "\(lead.subline) · and \(store.count - 1) more" : lead.subline
+        count > 1 ? "\(lead.subline) · and \(count - 1) more" : lead.subline
     }
 
     @ViewBuilder
     private func fixButton(_ lead: ConnectionItem) -> some View {
-        if let url = lead.fixURL {
+        ConnectionFixButton(item: lead, store: store)
+    }
+}
+
+/// Fix: Safari for the site's connections, the app itself for the phone's own.
+struct ConnectionFixButton: View {
+    let item: ConnectionItem
+    @ObservedObject var store: ConnectionsStore
+
+    var body: some View {
+        if let fix = item.localFix {
+            Button {
+                SRHaptic.tap()
+                store.runLocalFix?(fix)
+            } label: {
+                SRButtonLabel(title: fix.buttonTitle, icon: fix == .syncNow ? "arrow.triangle.2.circlepath" : "heart")
+            }
+            .srButton(.prominent)
+            .accessibilityLabel("\(fix.buttonTitle): \(item.headline)")
+            .accessibilityIdentifier("connection-fix-\(item.id)")
+        } else if let url = item.fixURL {
             Button {
                 SRHaptic.tap()
                 ConnectionFix.open(url)
             } label: {
-                SRButtonLabel(title: "Fix", icon: "arrow.up.right")
+                SRButtonLabel(title: "Fix", icon: "safari")
             }
             .srButton(.prominent)
-            .accessibilityLabel("Fix \(lead.label) on the website")
-            .accessibilityIdentifier("connections-banner-fix")
+            .accessibilityLabel("Fix \(item.label) in Safari")
+            .accessibilityIdentifier("connection-fix-\(item.id)")
         }
-    }
-
-    // MARK: Slim
-
-    private func slim(_ lead: ConnectionItem) -> some View {
-        HStack(spacing: 10) {
-            Button { store.expand() } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(SR.error)
-                        .accessibilityHidden(true)
-                    Text(store.count == 1 ? lead.headline : "\(store.count) connections need you")
-                        .font(SR.Text.bodyMedium(14))
-                        .foregroundStyle(SR.ink)
-                        .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(SR.inkMuted)
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Shows the whole warning again")
-            .accessibilityIdentifier("connections-banner-expand")
-
-            if let url = lead.fixURL {
-                Button {
-                    SRHaptic.tap()
-                    ConnectionFix.open(url)
-                } label: {
-                    Text("FIX")
-                        .font(SR.Text.label(13))
-                        .tracking(1.2)
-                        .foregroundStyle(SR.accent)
-                        .frame(minHeight: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Fix \(lead.label) on the website")
-                .accessibilityIdentifier("connections-banner-fix")
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 4)
-        .srGlass(.paper, in: Capsule())
-        .overlay { Capsule().strokeBorder(SR.error.opacity(0.45), lineWidth: 1) }
-        .padding(.horizontal, 12)
-        .padding(.top, 2)
-        .padding(.bottom, 4)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("connections-banner")
-        .transition(.opacity)
     }
 }
 
@@ -227,6 +195,7 @@ enum ConnectionFix {
 /// A connection in a list: what is wrong, what to do, since when, and Fix.
 struct ConnectionAttentionRow: View {
     let item: ConnectionItem
+    @ObservedObject var store: ConnectionsStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -247,17 +216,7 @@ struct ConnectionAttentionRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                if let url = item.fixURL {
-                    Button {
-                        SRHaptic.tap()
-                        ConnectionFix.open(url)
-                    } label: {
-                        SRButtonLabel(title: "Fix", icon: "safari")
-                    }
-                    .srButton(.prominent)
-                    .accessibilityLabel("Fix \(item.label) in Safari")
-                    .accessibilityIdentifier("connection-fix-\(item.id)")
-                }
+                ConnectionFixButton(item: item, store: store)
             }
             .padding(.leading, 36)
             .padding(.bottom, 10)
@@ -278,16 +237,27 @@ struct ConnectionsSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if store.items.isEmpty {
+                if !store.personal.isEmpty {
                     Section {
-                        SRRow(title: "Nothing needs you", subtitle: "Every connection the site holds is working.",
-                              icon: "checkmark.circle.fill", tone: SR.good)
-                            .srGlassRow()
+                        ForEach(store.personal) { item in
+                            ConnectionAttentionRow(item: item, store: store).srGlassRow()
+                        }
+                    } header: {
+                        SRSectionLabel(text: "This iPhone", trailing: "\(store.personal.count)")
+                    }
+                }
+                if store.items.isEmpty {
+                    if store.personal.isEmpty {
+                        Section {
+                            SRRow(title: "Nothing needs you", subtitle: "Everything is connected and working.",
+                                  icon: "checkmark.circle.fill", tone: SR.good)
+                                .srGlassRow()
+                        }
                     }
                 } else {
                     Section {
                         ForEach(store.items) { item in
-                            ConnectionAttentionRow(item: item).srGlassRow()
+                            ConnectionAttentionRow(item: item, store: store).srGlassRow()
                         }
                     } header: {
                         SRSectionLabel(text: "Needs you", trailing: "\(store.count)")
@@ -349,7 +319,7 @@ struct SiteConnectionsSection: View {
                     .srGlassRow()
             } else {
                 ForEach(store.items) { item in
-                    ConnectionAttentionRow(item: item).srGlassRow()
+                    ConnectionAttentionRow(item: item, store: store).srGlassRow()
                 }
             }
         } header: {

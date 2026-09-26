@@ -34,25 +34,29 @@ struct ThreadListScreen: View {
                 }
             }
 
-            Section {
-                ForEach(store.unpinned) { conversation in
-                    row(conversation)
-                        .onAppear {
-                            // Infinite scroll rather than an "Older threads"
-                            // button. A button at the end of a list is a control
-                            // you have to find; the list simply continuing is
-                            // what every other iPhone list does.
-                            if conversation.id == store.unpinned.last?.id { Task { await store.loadMore() } }
-                        }
+            // A search answers in relevance order, which dates would scramble:
+            // one section. Otherwise the unpinned threads by when they were
+            // last touched — see `ThreadSections`.
+            if store.query.isEmpty {
+                ForEach(store.sections) { group in
+                    Section {
+                        ForEach(group.threads) { conversation in listed(conversation) }
+                    } header: {
+                        SRSectionLabel(text: group.title, trailing: "\(group.threads.count)")
+                    }
                 }
-                if store.loading && !store.conversations.isEmpty {
-                    HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                        .srGlassRow().padding(.vertical, 12)
+            } else {
+                Section {
+                    ForEach(store.unpinned) { conversation in listed(conversation) }
+                } header: {
+                    if !store.unpinned.isEmpty {
+                        SRSectionLabel(text: "Results", trailing: "\(store.unpinned.count)")
+                    }
                 }
-            } header: {
-                if !store.pinned.isEmpty && store.query.isEmpty {
-                    SRSectionLabel(text: "Recent")
-                }
+            }
+            if store.loading && !store.conversations.isEmpty {
+                HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                    .srGlassRow().padding(.vertical, 12)
             }
         }
         // Inset-grouped: on iOS 26 the sections are the rounded sheets the rest
@@ -163,6 +167,16 @@ struct ThreadListScreen: View {
         }
     }
 
+    /// A row that pages the list on: infinite scroll rather than an "Older
+    /// threads" button. A button at the end of a list is a control you have to
+    /// find; the list simply continuing is what every other iPhone list does.
+    private func listed(_ conversation: Conversation) -> some View {
+        row(conversation)
+            .onAppear {
+                if conversation.id == store.unpinned.last?.id { Task { await store.loadMore() } }
+            }
+    }
+
     @ViewBuilder
     private func row(_ conversation: Conversation) -> some View {
         NavigationLink(value: conversation) {
@@ -234,19 +248,15 @@ struct ThreadRow: View {
                 }
             }
 
-            if let preview = conversation.oneLinePreview {
+            // Only when it says something the title does not: a thread the
+            // site has not named yet is TITLED by its last line already.
+            if let preview = conversation.oneLinePreview,
+               Conversation.clip(preview) != conversation.displayTitle {
                 Text(preview)
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkMuted)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .multilineTextAlignment(.leading)
-            }
-
-            if conversation.isWhatsApp {
-                Text("WhatsApp")
-                    .font(SR.Text.mono())
-                    .tracking(1)
-                    .foregroundStyle(SR.good)
             }
         }
         }

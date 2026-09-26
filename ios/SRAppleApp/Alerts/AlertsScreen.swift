@@ -10,7 +10,6 @@ import UIKit
 struct AlertsScreen: View {
     @ObservedObject var alerts: AlertStore
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         List {
@@ -50,12 +49,12 @@ struct AlertsScreen: View {
         .task { await alerts.refresh() }
     }
 
+    /// A row opens the alert, in full — the body is clipped here at four lines,
+    /// and the page the site attached is one button inside.
     @ViewBuilder
     private func row(_ alert: SiteAlert) -> some View {
-        Button {
-            guard let path = alert.url else { return }
-            SRHaptic.tap()
-            openURL(SiteClient.shared.webURL(path))
+        NavigationLink {
+            AlertDetailScreen(alert: alert, alerts: alerts)
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: alert.icon)
@@ -91,15 +90,10 @@ struct AlertsScreen: View {
             .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityIdentifier("alert-\(alert.id)")
     }
 
-    private func tone(_ alert: SiteAlert) -> Color {
-        if alert.isAlert { return SR.error }
-        if alert.isWarning { return SR.warn }
-        return SR.accentInk
-    }
+    private func tone(_ alert: SiteAlert) -> Color { AlertTone.of(alert) }
 }
 
 /// Where each kind of alert goes.

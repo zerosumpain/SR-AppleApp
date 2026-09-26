@@ -137,6 +137,26 @@ final class AlertStore: ObservableObject {
         )
     }
 
+    /// One alert opened and read in full. Optimistic, like `markAllRead`: the
+    /// dot goes the moment the alert is open, and a failed POST costs only a
+    /// dot that comes back on the next refresh.
+    func markRead(_ id: String) async {
+        guard AccessStore.ownerSite else { return }
+        guard let index = recent.firstIndex(where: { $0.id == id }), !recent[index].read else {
+            // Not in the inbox the phone holds (Today's first paint): tell the
+            // site anyway; the next refresh brings the count into line.
+            _ = try? await client.post("api/native/notifications", body: try JSONSerialization.data(withJSONObject: ["read": [id]]))
+            return
+        }
+        recent[index].read = true
+        unread = max(unread - 1, 0)
+        await refreshBadge()
+        _ = try? await client.post(
+            "api/native/notifications",
+            body: try JSONSerialization.data(withJSONObject: ["read": [id]])
+        )
+    }
+
     // MARK: - Clearing Today
 
     /// Take alerts off the Today card. Local only — see `clearedFromToday`.

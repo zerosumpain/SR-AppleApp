@@ -70,7 +70,9 @@ final class ThreadListStore: ObservableObject {
     // read at a glance, and one undifferentiated run with a pin glyph in it is
     // not — the glyph is 10pt and it is the first thing lost to a sunny bus.
     var pinned: [Conversation] { conversations.filter(\.pinned) }
-    var unpinned: [Conversation] { conversations.filter { !$0.pinned } }
+    var unpinned: [Conversation] { conversations.filter { !$0.pinned && $0.isListable() } }
+    /// The unpinned threads by when they were last touched.
+    var sections: [ThreadSections.Group] { ThreadSections.group(unpinned) }
 
     // MARK: - Mutations
     //

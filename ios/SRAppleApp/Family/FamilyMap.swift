@@ -67,14 +67,19 @@ struct FamilyPin: View {
     }
 }
 
-/// The Today card: the whole household at a glance, one tap from the tab.
-struct FamilyMiniMap: View {
+/// The Today card: where everyone is, in words — who is on the move and
+/// where, then everybody else in one line — and a map glyph into the tab.
+///
+/// It was a map. A map on Today is a picture of pins you have to read, and at
+/// 180 points high it said little a sentence does not say better; the Family
+/// tab has the real one. Draws nothing until there is somebody to show.
+struct FamilySummary: View {
     @ObservedObject var store: FamilyStore
+    @ObservedObject private var places = PlaceNamer.shared
     let open: () -> Void
-    @State private var camera: MapCameraPosition = .automatic
 
     var body: some View {
-        if let view = store.view, !view.placed.isEmpty {
+        if let view = store.view, !view.people.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 SRSectionLabel(text: "Family", trailing: store.freshness)
                     .padding(.horizontal, 4)
@@ -82,38 +87,86 @@ struct FamilyMiniMap: View {
                     SRHaptic.tap()
                     open()
                 } label: {
-                    VStack(alignment: .leading, spacing: 0) {
-                        FamilyMapCanvas(people: view.people, camera: $camera)
-                            .frame(height: 180)
-                            // The map is a UIKit view and can swallow a tap
-                            // even with interaction off; the button over it
-                            // takes the tap instead (same as `RouteMap`).
-                            .allowsHitTesting(false)
-                        HStack(spacing: 10) {
-                            Text(view.summary)
-                                .font(SR.Text.secondary(15))
-                                .foregroundStyle(SR.ink)
-                                .lineLimit(2)
-                            Spacer(minLength: 6)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(SR.inkMuted)
+                    SRCard(interactive: true) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(view.moving) { person in movingRow(person) }
+                            if !view.moving.isEmpty {
+                                Rectangle().fill(SR.divider).frame(height: 1)
+                            }
+                            HStack(alignment: .center, spacing: 12) {
+                                faces(view.people)
+                                Text(view.summary)
+                                    .font(SR.Text.secondary(15))
+                                    .foregroundStyle(SR.ink)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "map")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(SR.accent)
+                                    .frame(width: 34, height: 34)
+                                    .background(SR.accent.opacity(0.12), in: Circle())
+                                    .accessibilityHidden(true)
+                            }
                         }
-                        .padding(.horizontal, SR.cardPadding)
-                        .padding(.vertical, 12)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-                    .srGlassCard(.paper, interactive: true)
-                    .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Family map. \(view.summary)")
+                .accessibilityLabel(spoken(view))
                 .accessibilityHint("Opens Family")
                 .accessibilityIdentifier("today-family")
             }
-            // Re-fit when the pins change, not only on first paint.
-            .onChange(of: view.placed.map(\.subject)) { _, _ in camera = .automatic }
         }
+    }
+
+    private func movingRow(_ person: FamilyPerson) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: person.moving?.symbol ?? "figure.walk")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(SR.paper)
+                .frame(width: 30, height: 30)
+                .background(SR.accent, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(person.movingLead ?? person.name)
+                    .font(SR.Text.title(16))
+                    .foregroundStyle(SR.ink)
+                Text(whereLine(person))
+                    .font(SR.Text.secondary(14))
+                    .foregroundStyle(SR.inkSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// "near Station Road, Darlington · 5 km/h" — or the site's own line
+    /// until the phone has a name for the spot.
+    private func whereLine(_ person: FamilyPerson) -> String {
+        let speed = person.moving.map { " · \(Int($0.speedKmh.rounded())) km/h" } ?? ""
+        if let position = person.position, let name = places.name(lat: position.lat, lon: position.lon) {
+            return "near \(name)\(speed)"
+        }
+        return person.line + speed
+    }
+
+    /// Everyone's initial, overlapped, in their map colour.
+    private func faces(_ people: [FamilyPerson]) -> some View {
+        HStack(spacing: -8) {
+            ForEach(people.prefix(5)) { person in
+                Text(person.initial)
+                    .font(SR.monoBold(11))
+                    .foregroundStyle(SR.paper)
+                    .frame(width: 26, height: 26)
+                    .background(FamilyPin.tone(for: person), in: Circle())
+                    .overlay(Circle().stroke(SR.paper, lineWidth: 2))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func spoken(_ view: HouseholdView) -> String {
+        let moving = view.moving.map { "\($0.movingLead ?? $0.name), \(whereLine($0))" }
+        return (["Family"] + moving + [view.summary]).joined(separator: ". ")
     }
 }

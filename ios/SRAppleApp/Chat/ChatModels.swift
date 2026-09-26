@@ -18,9 +18,33 @@ struct Conversation: Decodable, Identifiable, Hashable {
     let createdAt: String?
     let updatedAt: String?
 
+    /// Never "Untitled". The site names a thread from its opening message on
+    /// the first reply; one it has not named yet is called by what was last
+    /// said in it, and one with nothing said in it is exactly what it is — new.
     var displayTitle: String {
-        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return title }
-        return "Untitled thread"
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "new thread" {
+            return title
+        }
+        if let said = oneLinePreview { return Self.clip(said) }
+        return "New thread"
+    }
+
+    /// A line cut at a whole word, the way the site cuts a title.
+    static func clip(_ text: String, max: Int = 48) -> String {
+        guard text.count > max else { return text }
+        let cut = String(text.prefix(max))
+        let words = cut.lastIndex(of: " ").map { String(cut[..<$0]) } ?? cut
+        return words.trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:—-")) + "…"
+    }
+
+    /// Worth a row: somebody wrote in it, it is pinned, or it was opened in
+    /// the last half hour. The site leaves the rest out already; this holds
+    /// the line against an older server.
+    func isListable(now: Date = Date()) -> Bool {
+        if messageCount > 0 || pinned { return true }
+        guard let created = createdAt.flatMap(parseTimestamp) else { return false }
+        return now.timeIntervalSince(created) < 30 * 60
     }
 
     /// The one-line preview. A transcript's newlines would turn a two-line cell
@@ -52,6 +76,54 @@ struct Conversation: Decodable, Identifiable, Hashable {
             createdAt: nil,
             updatedAt: nil
         )
+    }
+}
+
+/// The thread list, cut into the spans a person remembers a conversation by.
+///
+/// One undifferentiated run of four hundred rows is a list you search, not
+/// one you read. Today, Yesterday, the last week and the last month, then one
+/// section per month — the shape every message app on the phone already uses.
+/// The server orders by `updatedAt`, so this only draws the lines. PURE.
+enum ThreadSections {
+    struct Group: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let threads: [Conversation]
+    }
+
+    static func group(_ threads: [Conversation], now: Date = Date(), calendar: Calendar = .current) -> [Group] {
+        var order: [String] = []
+        var titles: [String: String] = [:]
+        var buckets: [String: [Conversation]] = [:]
+        let today = calendar.startOfDay(for: now)
+        for thread in threads {
+            let (key, title) = bucket(thread.updatedAt.flatMap(parseTimestamp), today: today, now: now, calendar: calendar)
+            if buckets[key] == nil { order.append(key); titles[key] = title }
+            buckets[key, default: []].append(thread)
+        }
+        return order.map { Group(id: $0, title: titles[$0] ?? $0, threads: buckets[$0] ?? []) }
+    }
+
+    private static func bucket(_ date: Date?, today: Date, now: Date, calendar: Calendar) -> (String, String) {
+        guard let date else { return ("earlier", "Earlier") }
+        let day = calendar.startOfDay(for: date)
+        let days = calendar.dateComponents([.day], from: day, to: today).day ?? 0
+        switch days {
+        case ..<1: return ("today", "Today")
+        case 1: return ("yesterday", "Yesterday")
+        case 2..<7: return ("week", "Previous 7 days")
+        case 7..<30: return ("month", "Previous 30 days")
+        default:
+            let parts = calendar.dateComponents([.year, .month], from: date)
+            let sameYear = parts.year == calendar.component(.year, from: now)
+            let formatter = DateFormatter()
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.locale = Locale(identifier: "en_GB")
+            formatter.dateFormat = sameYear ? "LLLL" : "LLLL yyyy"
+            return ("m-\(parts.year ?? 0)-\(parts.month ?? 0)", formatter.string(from: date))
+        }
     }
 }
 
