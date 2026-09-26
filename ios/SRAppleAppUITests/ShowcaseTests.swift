@@ -542,8 +542,9 @@ final class ShowcaseTests: XCTestCase {
 
     /// Anagram Blitz, Quick Maths Sprint and Sequence Memory, each mid-play:
     /// John's tiles and words, John's problem and keypad on a bonus streak, a
-    /// Sequence Memory round waiting on John's taps with Robin out. Then the
-    /// new-game sheet with the three new games and their difficulty lines.
+    /// Sequence Memory round waiting on John's taps with Robin out. (The
+    /// new-game sheet is shot by the older games' tests; the suite is near its
+    /// time limit.)
     @MainActor func testShowcaseAnagramSprintMemory() {
         let app = launch()
         openTab(app, "Games")
@@ -595,25 +596,6 @@ final class ShowcaseTests: XCTestCase {
             back(app)
         } else {
             soft(false, "no Sequence Memory to resume")
-        }
-
-        let card = byId(app, "games-new-anagram-blitz")
-        if scroll(app, to: card) {
-            card.tap()
-            settle(app, on: byId(app, "games-game-anagram-blitz"))
-            soft(byId(app, "games-game-maths-sprint").exists, "no Quick Maths Sprint in the picker")
-            soft(byId(app, "games-game-sequence-memory").exists, "no Sequence Memory in the picker")
-            attach(app, "Showcase — Games, new Anagram Blitz")
-            let memoryChoice = byId(app, "games-game-sequence-memory")
-            if memoryChoice.exists {
-                memoryChoice.tap()
-                settle(app, on: byId(app, "games-difficulty-hard"))
-                attach(app, "Showcase — Games, new Sequence Memory")
-            }
-            let cancel = byId(app, "games-new-cancel")
-            if cancel.waitForExistence(timeout: 5) { cancel.tap() }
-        } else {
-            soft(false, "no Anagram Blitz card")
         }
     }
 
