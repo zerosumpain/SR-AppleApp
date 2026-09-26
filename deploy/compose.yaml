@@ -17,6 +17,11 @@ services:
       # SR-Health's COMPANION_SERVICE_TOKEN; the owner is an email in `users`.
       APPLE_SERVICE_TOKEN: ${APPLE_SERVICE_TOKEN:-}
       APPLE_SERVICE_OWNER: ${APPLE_SERVICE_OWNER:-}
+      # The household lane SR-Main's /home/people pulls the family's fixes
+      # through, and pushes arrive/leave alerts into. Its OWN secret (shared
+      # with SR-Main's COMPANION_HOUSEHOLD_TOKEN), never APPLE_SERVICE_TOKEN;
+      # empty = both household endpoints 404.
+      APPLE_HOUSEHOLD_TOKEN: ${APPLE_HOUSEHOLD_TOKEN:-}
       # /health's doorbell (spec E2): rung after each owner upload so /health
       # pulls the export at once. Empty = no ring; /health still catches up on
       # its page-load backstop. APPLE_DOORBELL_TOKEN is its OWN ring-only
