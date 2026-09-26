@@ -66,7 +66,50 @@ final class HouseholdTests: XCTestCase {
         XCTAssertTrue(PersistedState().healthEnabled.isEmpty)
     }
 
+    /// I-1: the question's default must never unshare anybody. "Not now" (and a
+    /// swipe, which answers the same way) records the answer and sends nothing:
+    /// no local switch-off, and no pending change for the next flush to PUT.
+    @MainActor func testNotNowOnlyRecordsTheAnswer() async throws {
+        for sharing in [true, false] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
+            try outbox.change { $0.sharing = sharing }
+            let companion = Companion(outbox: outbox)
+
+            await companion.answerSharingQuestion(false)
+
+            XCTAssertTrue(outbox.state.sharingAsked, "answered, so never asked again")
+            XCTAssertEqual(outbox.state.sharing, sharing, "Not now must not change sharing")
+            XCTAssertNil(outbox.state.pendingSharing, "and must queue nothing for the server")
+        }
+    }
+
+    /// I-1: a re-paired phone whose person is already sharing on the server
+    /// adopts that, and so is never asked.
+    func testARePairedPhoneAdoptsTheServersSharing() {
+        XCTAssertTrue(SharingQuestion.adoptsServerSharing(local: false, pending: nil, server: true))
+        XCTAssertFalse(SharingQuestion.adoptsServerSharing(local: false, pending: nil, server: false))
+        XCTAssertFalse(SharingQuestion.adoptsServerSharing(local: true, pending: nil, server: true), "already on")
+        XCTAssertFalse(SharingQuestion.adoptsServerSharing(local: false, pending: false, server: true),
+                       "a local choice not yet delivered outranks the server")
+
+        // Adopted, the question is then not due.
+        let local = SharingQuestion.adoptsServerSharing(local: false, pending: nil, server: true)
+        XCTAssertFalse(SharingQuestion.shouldAsk(paired: true, asked: false, sharing: local))
+    }
+
     // MARK: - The alerts drain
+
+    /// I-2: the drain rides on a flush and must not make a failed one wait
+    /// longer; and its requests are short.
+    func testTheDrainIsSkippedWhenTheFlushsUploadFailed() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertFalse(HouseholdAlerts.due(last: nil, now: start, uploadFailed: true))
+        XCTAssertFalse(HouseholdAlerts.due(last: start, now: start.addingTimeInterval(3600), uploadFailed: true))
+        XCTAssertTrue(HouseholdAlerts.due(last: nil, now: start, uploadFailed: false))
+        XCTAssertLessThanOrEqual(HouseholdAlerts.requestTimeout, 6)
+    }
 
     func testTheQueueDecodes() throws {
         let body = #"{"alerts":[{"id":"e1","title":"Someone arrived","body":"Arrived 17:52","at":"2026-09-26T16:52:00Z"},{"id":"e2","title":"Someone left","body":"Left 18:10"}]}"#

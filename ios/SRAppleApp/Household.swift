@@ -24,8 +24,13 @@ enum HouseholdAlerts {
     /// A flush runs on every location fix and HealthKit wake; the queue does not
     /// need asking that often.
     static let minimumInterval: TimeInterval = 60
+    /// For both the queue GET and the ack POST (the API default is 25 s).
+    static let requestTimeout: TimeInterval = 6
 
-    static func due(last: Date?, now: Date) -> Bool {
+    /// `uploadFailed`: the flush this drain rides on could not reach the
+    /// server, so asking again now would only spend the wake's time.
+    static func due(last: Date?, now: Date, uploadFailed: Bool = false) -> Bool {
+        guard !uploadFailed else { return false }
         guard let last else { return true }
         return now.timeIntervalSince(last) >= minimumInterval
     }
@@ -62,14 +67,21 @@ enum HouseholdAlerts {
 
 /// "Share your location with the household?" — asked once per pairing.
 ///
-/// Only put to a phone that is paired and NOT already sharing. An install that
-/// is sharing has answered this already, by switching it on, and a question
-/// whose default is "off" must not be the thing that turns it off again.
+/// Only put to a phone that is paired and NOT already sharing — locally, or on
+/// the server (`refresh()` adopts the server's answer before the question is
+/// checked). Answering "Not now" never sends sharing off.
 enum SharingQuestion {
     static let title = "Share your location with the household?"
     static let message = "Your family will see where you are and when you arrive or leave places you've named. You can change this any time in Settings."
 
     static func shouldAsk(paired: Bool, asked: Bool, sharing: Bool) -> Bool {
         paired && !asked && !sharing
+    }
+
+    /// Whether `/me` saying "sharing" should switch this phone's sharing on.
+    /// Only when the phone is off and has no change of its own waiting to be
+    /// sent: a pending local choice outranks the server until it is delivered.
+    static func adoptsServerSharing(local: Bool, pending: Bool?, server: Bool) -> Bool {
+        server && !local && pending == nil
     }
 }

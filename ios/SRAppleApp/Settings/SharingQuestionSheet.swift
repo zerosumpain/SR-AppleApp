@@ -3,10 +3,9 @@ import SwiftUI
 /// The one question a newly paired phone is asked: does this person share
 /// where they are with the household.
 ///
-/// Off unless they say yes. "Not now", and swiping the sheet away, both leave
-/// sharing off — and say so to the server, so a re-pair of an account that was
-/// sharing before cannot carry on sharing without being asked. The same switch
-/// stays in Settings.
+/// Off unless they say yes. "Not now", and swiping the sheet away, only record
+/// that it was answered: they never send sharing off, so the question cannot
+/// unshare somebody. The same switch stays in Settings.
 struct SharingQuestionSheet: View {
     let answer: (Bool) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -72,7 +71,9 @@ extension View {
     ///
     /// `onPairing`: false checks once, when the view first appears (an install
     /// that was paired before the question existed); true checks when pairing
-    /// completes. Kept apart because the app-level view cannot present over the
+    /// completes — on the first `/me` after it, not on `paired` flipping, so the
+    /// server's own sharing answer is already in (see `Companion.refresh()`).
+    /// Kept apart because the app-level view cannot present over the
     /// Settings sheet that pairing happens in — the screen doing the pairing
     /// has to ask.
     func srSharingQuestion(companion: Companion, onPairing: Bool) -> some View {
@@ -92,12 +93,13 @@ private struct SharingQuestionPresenter: ViewModifier {
                 guard !onPairing else { return }
                 check()
             }
-            .onChange(of: companion.paired) { _, paired in
-                guard onPairing, paired else { return }
+            .onChange(of: companion.profile?.id) { _, id in
+                guard onPairing, id != nil else { return }
                 check()
             }
             .sheet(isPresented: $asking, onDismiss: {
-                // Swiped away: the default, which is off.
+                // Swiped away: the same as "Not now" — recorded as answered,
+                // and nothing sent.
                 if !answered { Task { await companion.answerSharingQuestion(false) } }
             }) {
                 SharingQuestionSheet { share in

@@ -116,8 +116,9 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             await refreshHealthReview()
         }
     }
-    func setSharing(_ enabled: Bool) async {
-        guard !busy else { return }
+    /// Returns whether the server acknowledged the change.
+    @discardableResult func setSharing(_ enabled: Bool) async -> Bool {
+        guard !busy else { return false }
         busy = true; defer { busy = false }
         do {
             // Pause locally immediately, including while offline. Retry server pause on next flush.
@@ -126,9 +127,12 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": enabled]))
             try outbox.change { $0.pendingSharing = nil }
             message = enabled ? "Family location sharing enabled." : "Location sharing paused."
-            try await refresh()
+            updateQueue()
+            try? await refresh()
+            return true
         } catch { message = "Saved on this phone. Server update pending: \(error.localizedDescription)" }
         updateQueue()
+        return false
     }
     /// Whether to ask "Share your location with the household?" now. An install
     /// already sharing has answered it by switching sharing on: that is
@@ -143,15 +147,30 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     /// because a sync happens to be running (the question appears straight
     /// after pairing, when one usually is): it is recorded the way an offline
     /// toggle is, and the next flush sends it.
+    ///
+    /// "Not now" (and a swipe) only records that the question was answered. It
+    /// never sends sharing OFF: the question's default must not be able to
+    /// switch off a person the server already has sharing.
+    ///
+    /// "Share" turns sharing on — which raises the location sheet — and once
+    /// the server has it, asks for notification permission the same way the
+    /// Notifications screen does, because household alerts are notifications.
     func answerSharingQuestion(_ share: Bool) async {
         try? outbox.change { $0.sharingAsked = true }
-        guard busy else { await setSharing(share); return }
-        do {
-            try outbox.change { $0.sharing = share; $0.pendingSharing = share; if !share { for i in $0.batches.indices { $0.batches[i].locations = [] } } }
-        } catch { message = error.localizedDescription; return }
-        if share { location.requestPermission(); location.start() } else { location.stop() }
-        updateQueue()
-        await flush()
+        guard share else { return }
+        let sent: Bool
+        if !busy {
+            sent = await setSharing(true)
+        } else {
+            do { try outbox.change { $0.sharing = true; $0.pendingSharing = true } }
+            catch { message = error.localizedDescription; return }
+            location.requestPermission(); location.start()
+            updateQueue()
+            await flush()
+            sent = outbox.state.pendingSharing == nil
+        }
+        guard sent else { return }
+        await AlertStore().requestPermission()
     }
     /// Household arrivals and departures queued for this person on the
     /// companion server, raised as local notifications and then acknowledged —
@@ -160,17 +179,20 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     ///
     /// Like `AlertStore.raise`, it waits for notification permission rather
     /// than acknowledging alerts nobody could have seen.
-    func drainHouseholdAlerts(now: Date = Date()) async {
-        guard paired, !drainingAlerts, HouseholdAlerts.due(last: lastAlertDrain, now: now) else { return }
+    ///
+    /// Both requests carry a short timeout: this runs at the tail of a flush,
+    /// inside a background task's seconds, and must never be what holds it up.
+    func drainHouseholdAlerts(now: Date = Date(), uploadFailed: Bool = false) async {
+        guard paired, !drainingAlerts, HouseholdAlerts.due(last: lastAlertDrain, now: now, uploadFailed: uploadFailed) else { return }
         drainingAlerts = true; defer { drainingAlerts = false }
         lastAlertDrain = now
         let centre = UNUserNotificationCenter.current()
         let permission = await centre.notificationSettings().authorizationStatus
         guard permission == .authorized || permission == .provisional else { return }
-        guard let queue: HouseholdAlertsResponse = try? await api.request("alerts"), !queue.alerts.isEmpty else { return }
+        guard let queue: HouseholdAlertsResponse = try? await api.request("alerts", timeout: HouseholdAlerts.requestTimeout), !queue.alerts.isEmpty else { return }
         let delivered = await HouseholdAlerts.post(queue.alerts) { try await centre.add($0) }
         guard !delivered.isEmpty, let body = try? JSONEncoder().encode(["ids": delivered]) else { return }
-        let _: API.Acknowledgement? = try? await api.request("alerts/ack", method: "POST", data: body)
+        let _: API.Acknowledgement? = try? await api.request("alerts/ack", method: "POST", data: body, timeout: HouseholdAlerts.requestTimeout)
     }
     /// `collectingFor`: 120 s in the foreground; a background refresh passes
     /// 15 s so the upload and the notification pass still fit its budget.
@@ -181,7 +203,16 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         catch { message = error.localizedDescription }
     }
     func refresh() async throws {
-        profile = try await api.request("me")
+        let me: Profile = try await api.request("me")
+        // A re-paired phone starts with local sharing off (`clear()`), while the
+        // server may still have this person sharing. The server is the record:
+        // adopt it, before `profile` is published, so the household question
+        // (which watches `profile`) sees a phone that is already sharing.
+        if SharingQuestion.adoptsServerSharing(local: outbox.state.sharing, pending: outbox.state.pendingSharing, server: me.sharing) {
+            try? outbox.change { $0.sharing = true }
+            location.start()
+        }
+        profile = me
         let f: FamilyResponse = try await api.request("family"); family = f.members
         let h: HealthResponse = try await api.request("health"); records = h.records
     }
@@ -194,6 +225,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         if queueCount > 0 { message = "Uploading \(queueCount) record\(queueCount == 1 ? "" : "s")…" }
         var dropped = 0
         var madeProgress = false
+        var uploadFailed = false
         var lastPersist = Date()
         var taskID: UIBackgroundTaskIdentifier = .invalid
         taskID = UIApplication.shared.beginBackgroundTask(withName: "Sync SR records") { UIApplication.shared.endBackgroundTask(taskID); taskID = .invalid }
@@ -264,6 +296,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             message = health.needsPermissionReview ? reviewPrompt : withHealthNotes("Up to date with the server.", dropped: dropped)
             retryTask?.cancel(); retryTask = nil
         } catch {
+            uploadFailed = true
             message = isTransientUploadFailure(error)
                 ? withHealthNotes("Upload paused — \(queueCount) record\(queueCount == 1 ? "" : "s") left; it will resume automatically.", dropped: dropped)
                 : withHealthNotes("Upload pending: \(error.localizedDescription)", dropped: dropped)
@@ -278,8 +311,10 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         // Every flush is a wake — a location fix, a HealthKit delivery, a
         // background refresh, the app coming forward — and with no push
         // certificate a wake is the only time a household alert can arrive.
-        // Throttled inside, so a backfill's many flushes ask once a minute.
-        await drainHouseholdAlerts()
+        // Throttled inside, so a backfill's many flushes ask once a minute; and
+        // skipped when this flush's upload failed, since the same network
+        // would only make the wake wait longer for nothing.
+        await drainHouseholdAlerts(uploadFailed: uploadFailed)
     }
     /// Removes refused batches (each a lone record) and logs what went — kind
     /// and id, never values. Returns how many records that was.
