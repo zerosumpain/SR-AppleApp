@@ -11,12 +11,13 @@ import CoreSpotlight
 /// write, which is what every one of those entry points needs.
 @MainActor
 final class Router: ObservableObject {
-    enum Tab: String, Hashable { case today, chat, health, family, news, flows }
+    enum Tab: String, Hashable { case today, chat, health, family, games, news, flows }
 
     @Published var tab: Tab = .today
     @Published var chat = NavigationPath()
     @Published var health = NavigationPath()
     @Published var family = NavigationPath()
+    @Published var games = NavigationPath()
     @Published var news = NavigationPath()
     @Published var flows = NavigationPath()
     /// The one modal, whichever it currently is.
@@ -76,11 +77,20 @@ final class Router: ObservableObject {
         case .chat: chat = NavigationPath()
         case .health: health = NavigationPath()
         case .family: family = NavigationPath()
+        case .games: games = NavigationPath()
         case .news: news = NavigationPath()
         case .flows: flows = NavigationPath()
         case .today: break
         }
         self.tab = tab
+    }
+
+    /// Open one game room — a tapped invite notification. Lands on the Games
+    /// tab with the room pushed; somebody without games lands on Today.
+    func openGame(_ roomId: String) {
+        show(.games)
+        guard tab == .games else { return }
+        games.append(GameRoomRef(id: roomId))
     }
 
     func ask(_ question: String) {
@@ -125,6 +135,9 @@ struct ContentView: View {
     /// One household view for the Today mini-map and the Family tab, so the
     /// tab opens on the picture it was opened from.
     @StateObject private var family: FamilyStore
+    /// The Games tab's lobby, held here because its invite poll runs whichever
+    /// tab is open — see `syncGamesPoll`.
+    @StateObject private var games = GamesStore()
     /// What this person may use. Every tab below, and most of what is in them,
     /// is built from it — see `AccessPolicy`.
     @ObservedObject private var access = AccessStore.shared
@@ -181,6 +194,18 @@ struct ContentView: View {
                 .tag(Router.Tab.family)
             }
 
+            // Family games. Straight after Family so a member given both sees
+            // it on the bar. Its rooms live on the site, hence `paired` — a
+            // games-only member's phone pairs itself for it.
+            if access.allows(.games) {
+                NavigationStack(path: $router.games) {
+                    paired(what: "family games") { GamesScreen(store: games) }
+                        .srConnectionsBanner(connections) { router.openConnections() }
+                }
+                .tabItem { Label("Games", systemImage: "gamecontroller") }
+                .tag(Router.Tab.games)
+            }
+
             if access.allows(.news) {
                 NavigationStack(path: $router.news) {
                     paired(what: "the news desk") { NewsScreen() }
@@ -225,6 +250,7 @@ struct ContentView: View {
                 }
             }
             checkPersonal()
+            syncGamesPoll()
             await site.check()
             await reconcileSite()
             await alerts.refresh()
@@ -236,6 +262,9 @@ struct ContentView: View {
         .onChange(of: companion.healthReviewNeeded) { _, _ in checkPersonal() }
         .onChange(of: companion.paired) { _, _ in checkPersonal() }
         .onChange(of: scenePhase) { _, phase in
+            // The invite poll is a foreground thing: it stops the moment the
+            // scene leaves, and nothing claims it runs when the app is shut.
+            syncGamesPoll()
             guard phase == .active else { return }
             // A quick action taken while the app was merely backgrounded never
             // goes through `task`, which runs once per view lifetime.
@@ -250,6 +279,7 @@ struct ContentView: View {
         }
         // Disconnecting the site clears its connections; connecting fetches them.
         .onChange(of: site.paired) { _, _ in
+            syncGamesPoll()
             Task {
                 await reconcileSite()
                 await connections.refresh()
@@ -259,6 +289,7 @@ struct ContentView: View {
         // code a member's phone asked for.
         .onChange(of: access.current) { _, _ in
             if !access.allows(router.tab) { router.tab = .today }
+            syncGamesPoll()
             Task { await reconcileSite() }
         }
         .onChange(of: access.offer) { _, _ in
@@ -286,6 +317,12 @@ struct ContentView: View {
                 return
             }
             router.share([url])
+        }
+        // A notification tapped while the app is already open — a game invite
+        // banner, most often. No scene-phase change comes with that, so
+        // nothing else would drain what the delegate left waiting.
+        .onReceive(NotificationCenter.default.publisher(for: PendingEntry.changed)) { _ in
+            drainPending()
         }
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             guard access.allows(.chat),
@@ -323,6 +360,12 @@ struct ContentView: View {
         ))
     }
 
+    /// Run the Games invite poll exactly while it can be useful: the scene is
+    /// active, this person may play, and the site credential exists.
+    private func syncGamesPoll() {
+        games.setPolling(scenePhase == .active && access.allows(.games) && site.paired)
+    }
+
     private func drainPending() {
         // The router refuses anything this person may not reach — a question
         // without chat, a hidden tab, the owner's inbox — so a stale entry
@@ -340,11 +383,12 @@ struct ContentView: View {
 
     /// Bring the site credential into line with what this person may use.
     ///
-    /// A member entitled to chat or news is paired automatically, with the
+    /// A member entitled to chat, news or games is paired automatically, with the
     /// one-time code SR-Main put in their view after the phone asked
     /// (`Companion.adoptAccess`); through `site` so `site.paired` — and every
     /// tab watching it — updates. A member who has lost both is signed out so
     /// nothing lingers, and without chat the thread titles leave Spotlight.
+    /// (Games counts as a lane: its rooms are on the site too.)
     /// An owner is never touched: the QR flow is theirs.
     private func reconcileSite() async {
         UIApplication.shared.shortcutItems = AccessPolicy.quickActions(for: access.current).map { $0.item }

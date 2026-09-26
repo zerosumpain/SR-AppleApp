@@ -21,22 +21,26 @@ struct AppAccess: Codable, Equatable {
     var notes = false
     var intel = false
     var family = false
+    /// Family games (`games:self` on the site): the Games tab and its invites.
+    var games = false
     /// Where the answer came from: "view" (the household view — preferred,
     /// because it is what the owner's access groups were pushed into) or
     /// "site" (`/api/native/me`, the fallback for a phone whose view carries
     /// none). Nil in anything built in code.
     var source: String? = nil
 
-    static let everything = AppAccess(owner: true, chat: true, news: true, research: true, notes: true, intel: true, family: true)
+    static let everything = AppAccess(owner: true, chat: true, news: true, research: true, notes: true, intel: true, family: true, games: true)
     static let nothing = AppAccess()
 
     init(owner: Bool = false, chat: Bool = false, news: Bool = false, research: Bool = false,
-         notes: Bool = false, intel: Bool = false, family: Bool = false, source: String? = nil) {
+         notes: Bool = false, intel: Bool = false, family: Bool = false, games: Bool = false,
+         source: String? = nil) {
         self.owner = owner; self.chat = chat; self.news = news; self.research = research
-        self.notes = notes; self.intel = intel; self.family = family; self.source = source
+        self.notes = notes; self.intel = intel; self.family = family; self.games = games
+        self.source = source
     }
 
-    private enum CodingKeys: String, CodingKey { case owner, chat, news, research, notes, intel, family, source }
+    private enum CodingKeys: String, CodingKey { case owner, chat, news, research, notes, intel, family, games, source }
 
     /// Lenient: a missing or mistyped flag is false, never a thrown decode —
     /// this rides inside the household view and the persisted upload queue,
@@ -45,7 +49,7 @@ struct AppAccess: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func flag(_ key: CodingKeys) -> Bool { ((try? c.decodeIfPresent(Bool.self, forKey: key)) ?? nil) ?? false }
         owner = flag(.owner); chat = flag(.chat); news = flag(.news); research = flag(.research)
-        notes = flag(.notes); intel = flag(.intel); family = flag(.family)
+        notes = flag(.notes); intel = flag(.intel); family = flag(.family); games = flag(.games)
         source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? nil
     }
 
@@ -116,8 +120,11 @@ enum AccessPolicy {
     /// The tab bar, in its fixed order, holding only what may be opened.
     /// Today and Health are everyone's: Health is at least this phone's own
     /// uploads. iOS adds "More" by itself only past five.
+    ///
+    /// Games sits straight after Family: a family member given both has four
+    /// tabs and sees it on the bar; the owner, with seven, finds it under More.
     static func tabs(for access: AppAccess) -> [Router.Tab] {
-        [Router.Tab.today, .chat, .health, .family, .news, .flows].filter { allows($0, access) }
+        [Router.Tab.today, .chat, .health, .family, .games, .news, .flows].filter { allows($0, access) }
     }
 
     static func allows(_ tab: Router.Tab, _ access: AppAccess) -> Bool {
@@ -126,6 +133,7 @@ enum AccessPolicy {
         case .chat: return access.owner || access.chat
         case .news: return access.owner || access.news
         case .family: return access.owner || access.family
+        case .games: return access.owner || access.games
         case .flows: return access.owner
         }
     }
@@ -133,17 +141,25 @@ enum AccessPolicy {
     /// Whether this phone should ask the site for a member credential: a known
     /// member, entitled to something that needs one, without one yet. An owner
     /// never auto-pairs — the QR flow is theirs.
+    ///
+    /// Games counts: its rooms live on the site (`/api/native/games`), so a
+    /// member given games and nothing else still needs a site credential.
     static func wantsSitePair(known: AppAccess?, sitePaired: Bool) -> Bool {
         guard let known, !known.owner, !sitePaired else { return false }
-        return known.chat || known.news
+        return needsSite(known)
     }
 
     /// Whether a site credential this phone holds must go: a known member who
-    /// has lost both lanes it was for. Never when the site itself says the
+    /// has lost every lane it was for. Never when the site itself says the
     /// credential is the owner's — a stale view must not sign John out.
     static func signsOutSite(known: AppAccess?, sitePaired: Bool, siteRole: String?) -> Bool {
         guard sitePaired, let known, !known.owner, siteRole != "owner" else { return false }
-        return !known.chat && !known.news
+        return !needsSite(known)
+    }
+
+    /// The lanes a member's site credential is for.
+    private static func needsSite(_ access: AppAccess) -> Bool {
+        access.chat || access.news || access.games
     }
 
     /// How often a member phone re-asks for a pairing code.

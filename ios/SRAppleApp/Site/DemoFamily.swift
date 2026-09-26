@@ -29,7 +29,7 @@ extension SRDemoFixtures {
         // The same answer `AccessStore` holds in demo mode, so the view and
         // the tab bar never disagree.
         let access = SRDemo.access
-        let accessJSON = "{\"owner\":\(access.owner),\"chat\":\(access.chat),\"news\":\(access.news),\"research\":\(access.research),\"notes\":\(access.notes),\"intel\":\(access.intel),\"family\":\(access.family),\"sitePair\":null}"
+        let accessJSON = "{\"owner\":\(access.owner),\"chat\":\(access.chat),\"news\":\(access.news),\"research\":\(access.research),\"notes\":\(access.notes),\"intel\":\(access.intel),\"family\":\(access.family),\"games\":\(access.games),\"sitePair\":null}"
 
         let json = """
         {"view":{"generatedAt":"\(at(1))","viewer":"owner","people":[
