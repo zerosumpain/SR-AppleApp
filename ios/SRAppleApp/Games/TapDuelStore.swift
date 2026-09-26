@@ -3,19 +3,16 @@ import QuartzCore
 
 /// One Tap Duel room, live.
 ///
-/// The room arrives over the site's SSE stream (`api/native/games/<id>/stream`,
-/// frames `{"type":"room","room":…}`); every action is a POST that answers with
-/// the room too. The stream is reopened on a drop and when the scene comes
-/// back; a stream that cannot be opened at all (demo mode answers 404) falls
-/// back to re-reading the snapshot on the same backoff, so the screen never
-/// sits on a stale room without trying.
+/// The connection — stream, snapshot fallback, reconnects, the clock and the
+/// lobby's auto-join — is `GameRoomLink`, shared with every game. This owns
+/// what a Tap Duel room means.
 ///
 /// The armed phase runs off a display link rather than a timer: each frame
 /// asks `TapTiming.signal` what the screen should show at the instant THAT
 /// FRAME reaches the glass (`targetTimestamp`), and the frame that first shows
 /// green is the one the reaction is measured from.
 @MainActor
-final class TapDuelStore: ObservableObject {
+final class TapDuelStore: ObservableObject, GameRoomStoring {
     let roomId: String
 
     @Published private(set) var room: GameRoom?
@@ -27,101 +24,55 @@ final class TapDuelStore: ObservableObject {
     @Published private(set) var busy = false
     @Published var message: String?
 
-    private(set) var clock = GameClock()
+    private let link: GameRoomLink
     private var ledger = TapLedger()
     /// Monotonic seconds at which green reached the screen this round.
     private var shownAt: Double?
     private var roundNumber: Int?
-    private var streamTask: Task<Void, Never>?
     private var ticker: FrameTicker?
-    private var joinTried = false
-    private let client = SiteClient.shared
 
     init(roomId: String) {
         self.roomId = roomId
+        self.link = GameRoomLink(roomId: roomId)
+        link.onRoom = { [weak self] room in self?.apply(room) }
+        link.onEnd = { [weak self] in self?.didEnd() }
+        link.onNote = { [weak self] update in self?.note(update) }
     }
 
+    var clock: GameClock { link.clock }
+
     /// Monotonic milliseconds — the phone's side of `GameClock`.
-    static func nowMs() -> Double { CACurrentMediaTime() * 1000 }
+    static func nowMs() -> Double { GameRoomLink.nowMs() }
 
     /// The server's clock, now, as well as this phone can tell.
-    func serverNow() -> Double? { clock.server(Self.nowMs()) }
+    func serverNow() -> Double? { link.serverNow() }
 
     // MARK: - Connection
 
     /// Open (or reopen) the room. Idempotent.
-    func open() {
-        guard streamTask == nil, !ended else { return }
-        streamTask = Task { [weak self] in
-            var backoff: UInt64 = 1
-            while !Task.isCancelled {
-                guard let self, !self.ended else { return }
-                await self.refresh()
-                if self.ended || Task.isCancelled { return }
-                let delivered = await self.listen()
-                if Task.isCancelled || self.ended { return }
-                // A stream that carried frames earns a quick retry; one that
-                // never opened backs off, up to ten seconds.
-                backoff = delivered ? 1 : min(backoff * 2, 10)
-                try? await Task.sleep(nanoseconds: backoff * 1_000_000_000)
-            }
-        }
-    }
+    func open() { link.open() }
 
     /// Close the stream and stop the display link. The room screen calls this
     /// when it goes away and when the scene leaves the foreground.
     func close() {
-        streamTask?.cancel()
-        streamTask = nil
+        link.close()
         ticker?.stop()
         ticker = nil
     }
 
-    /// The snapshot: `GET api/native/games/<id>`, timed as a round trip.
-    func refresh() async {
-        let sent = Self.nowMs()
-        do {
-            let envelope: GameRoomEnvelope = try await client.send("api/native/games/\(roomId)")
-            clock.record(serverNow: envelope.room.serverNow, sentAt: sent, receivedAt: Self.nowMs())
-            apply(envelope.room)
-        } catch SiteError.status(let code, _) where code == 404 {
-            end()
-        } catch SiteError.status(let code, _) where code == 403 {
-            message = "You are not in this game."
-            end()
-        } catch is CancellationError {
-            return
-        } catch {
-            if (error as? URLError)?.code == .cancelled { return }
-            message = room == nil ? error.localizedDescription : "Reconnecting…"
-        }
-    }
+    func refresh() async { await link.refresh() }
 
-    /// Read the stream until it ends. True when at least one frame arrived.
-    private func listen() async -> Bool {
-        var delivered = false
-        do {
-            let stream = try client.stream(path: "api/native/games/\(roomId)/stream")
-            for try await frame in stream {
-                if Task.isCancelled { break }
-                let received = Self.nowMs()
-                guard let decoded = try? JSONDecoder().decode(GameStreamFrame.self, from: frame.data),
-                      decoded.type == "room", let room = decoded.room else { continue }
-                delivered = true
-                clock.record(serverNow: room.serverNow, receivedAt: received)
-                apply(room)
-                if message == "Reconnecting…" { message = nil }
-            }
-        } catch {
-            // Dropped or refused. The loop re-reads the snapshot next, which
-            // is what tells a gone room (404) from a flaky connection.
-        }
-        return delivered
-    }
-
-    private func end() {
+    private func didEnd() {
         ended = true
         close()
+    }
+
+    private func note(_ note: GameLinkNote) {
+        switch note {
+        case .reconnecting: message = "Reconnecting…"
+        case .reconnected: if message == "Reconnecting…" { message = nil }
+        case .error(let text): message = text
+        }
     }
 
     // MARK: - Applying a room
@@ -129,7 +80,6 @@ final class TapDuelStore: ObservableObject {
     private func apply(_ next: GameRoom) {
         if next.phase == .closed {
             room = next
-            end()
             return
         }
         let newRound = next.round?.number
@@ -148,13 +98,6 @@ final class TapDuelStore: ObservableObject {
             ticker?.stop()
             ticker = nil
             if next.phase != .armed { signal = next.phase == .result ? .go : .wait }
-        }
-
-        // An invitee who opened the room — from the notification or the list —
-        // is in it. Once: a decline elsewhere must not be undone by this.
-        if next.phase == .lobby, next.me?.status == "invited", !joinTried {
-            joinTried = true
-            Task { await self.act("join") }
         }
     }
 
@@ -205,24 +148,15 @@ final class TapDuelStore: ObservableObject {
 
     @discardableResult
     private func send(_ body: GameActionBody) async -> Bool {
-        let sent = Self.nowMs()
-        do {
-            let data = try await client.post("api/native/games/\(roomId)", body: try JSONEncoder().encode(body))
-            let received = Self.nowMs()
-            if let envelope = try? JSONDecoder().decode(GameRoomEnvelope.self, from: data) {
-                clock.record(serverNow: envelope.room.serverNow, sentAt: sent, receivedAt: received)
-                apply(envelope.room)
-            }
+        switch await link.post(body) {
+        case .ok:
             return true
-        } catch SiteError.status(let code, _) where code == 404 {
-            end()
+        case .gone, .wrongPhase:
+            // Gone: the link has ended the screen. Wrong phase — a tap for a
+            // round that just closed: the stream already carries the truth.
             return false
-        } catch SiteError.status(let code, _) where code == 409 {
-            // Wrong phase — a tap for a round that just closed. The stream
-            // already carries the truth; nothing to say.
-            return false
-        } catch {
-            message = error.localizedDescription
+        case .refused(let text), .failed(let text):
+            message = text
             return false
         }
     }

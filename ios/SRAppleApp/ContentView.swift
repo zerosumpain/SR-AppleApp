@@ -87,10 +87,12 @@ final class Router: ObservableObject {
 
     /// Open one game room — a tapped invite notification. Lands on the Games
     /// tab with the room pushed; somebody without games lands on Today.
-    func openGame(_ roomId: String) {
+    /// `game` picks the room's screen at once; without it the room is read
+    /// first to find out.
+    func openGame(_ roomId: String, game: String? = nil) {
         show(.games)
         guard tab == .games else { return }
-        games.append(GameRoomRef(id: roomId))
+        games.append(GameRoomRef(id: roomId, game: game))
     }
 
     func ask(_ question: String) {

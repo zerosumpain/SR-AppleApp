@@ -141,8 +141,10 @@ import UIKit
         // A game invite, raised by this phone's own foreground poll. Opens the
         // room; `Router.openGame` refuses it for somebody without games.
         if category == "game" {
-            if let room = response.notification.request.content.userInfo["roomId"] as? String {
+            let info = response.notification.request.content.userInfo
+            if let room = info["roomId"] as? String {
                 Self.pending.gameRoom = room
+                Self.pending.gameKind = info["game"] as? String
             } else {
                 Self.pending.tab = .games
             }
@@ -174,6 +176,8 @@ import UIKit
     var tab: Router.Tab?
     /// A game room to open, from a tapped invite.
     var gameRoom: String?
+    /// Which game that room is, when the notification said.
+    var gameKind: String?
     var openAlerts = false
     var openConnections = false
     /// A question handed in by Siri or a Shortcut. Put in the composer, never
@@ -188,8 +192,9 @@ import UIKit
             tab = nil
         }
         if let gameRoom {
-            router.openGame(gameRoom)
+            router.openGame(gameRoom, game: gameKind)
             self.gameRoom = nil
+            gameKind = nil
             tab = nil
         }
         if let tab { router.show(tab) }

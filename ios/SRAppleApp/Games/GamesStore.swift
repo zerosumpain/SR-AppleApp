@@ -78,12 +78,12 @@ final class GamesStore: ObservableObject {
     // MARK: - Actions
 
     /// Start a room. Returns it so the screen can push it.
-    func create(difficulty: GameDifficulty, invite: [String]) async -> GameRoom? {
+    func create(game: GameKind = .tapDuel, difficulty: GameDifficulty, invite: [String]) async -> GameRoom? {
         guard busy == nil else { return nil }
         busy = "new"
         defer { busy = nil }
         do {
-            let body = try JSONEncoder().encode(CreateGameBody(difficulty: difficulty.rawValue, invite: invite))
+            let body = try JSONEncoder().encode(CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite))
             let data = try await client.post("api/native/games", body: body)
             let room = try JSONDecoder().decode(GameRoomEnvelope.self, from: data).room
             message = nil
@@ -154,7 +154,8 @@ final class GamesStore: ObservableObject {
         content.sound = .default
         content.categoryIdentifier = "game"
         content.threadIdentifier = "game"
-        content.userInfo = ["roomId": invite.roomId, "category": "game"]
+        // `game` lets the tap open the right screen without a round trip.
+        content.userInfo = ["roomId": invite.roomId, "game": invite.game, "category": "game"]
         // `.timeSensitive` needs an entitlement this profile does not carry;
         // `.active` is as loud as this app may be.
         content.interruptionLevel = .active

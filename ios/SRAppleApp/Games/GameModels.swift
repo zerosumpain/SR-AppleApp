@@ -11,12 +11,49 @@ import Foundation
 // yet is 0, no decoys is none) and strict where it does not: a room without an
 // id or a phase is not a room.
 
-/// Navigation value for one room, pushed on the Games tab's stack.
+/// Navigation value for one room, pushed on the Games tab's stack. `game` is
+/// known from every list the room was picked from; a bare id (an old
+/// notification) is resolved by `GameRoomScreen` reading the snapshot.
 struct GameRoomRef: Hashable {
     let id: String
+    var game: String? = nil
 }
 
-/// How hard a Tap Duel is. Picked by the host, for the whole game.
+/// The games this version of the app can play. The wire carries a plain string
+/// (`room.game`, `invite.game`), so a newer site's third game is a string this
+/// enum does not know, never a decode failure.
+enum GameKind: String, CaseIterable, Identifiable {
+    case tapDuel = "tap-duel"
+    case wordleRace = "wordle-race"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .tapDuel: return "Tap Duel"
+        case .wordleRace: return "Wordle Race"
+        }
+    }
+
+    /// The shelf card's sentence.
+    var blurb: String {
+        switch self {
+        case .tapDuel:
+            return "Five rounds. Wait for green, then tap faster than everyone else. Tap early and the round is gone."
+        case .wordleRace:
+            return "Everyone gets the same five-letter word and six guesses. You see the others' colours, not their letters. Solve it first."
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .tapDuel: return "hand.tap.fill"
+        case .wordleRace: return "character.textbox"
+        }
+    }
+}
+
+/// How hard a game is. Picked by the host, for the whole game.
 enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
     case easy, medium, hard
 
@@ -30,12 +67,18 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// One line, from the spec's table.
-    var line: String {
-        switch self {
-        case .easy: return "Green after 2–4 s. No decoys. 2 s to tap."
-        case .medium: return "Green after 1.5–5 s. Maybe one decoy. 1.2 s to tap."
-        case .hard: return "Green after 1–6 s. One or two decoys. 0.8 s to tap."
+    /// One line, from the spec's table — Tap Duel's.
+    var line: String { line(for: .tapDuel) }
+
+    /// One line per game, from the spec's tables.
+    func line(for game: GameKind) -> String {
+        switch (game, self) {
+        case (.tapDuel, .easy): return "Green after 2–4 s. No decoys. 2 s to tap."
+        case (.tapDuel, .medium): return "Green after 1.5–5 s. Maybe one decoy. 1.2 s to tap."
+        case (.tapDuel, .hard): return "Green after 1–6 s. One or two decoys. 0.8 s to tap."
+        case (.wordleRace, .easy): return "The 500 commonest words. 5 minutes."
+        case (.wordleRace, .medium): return "The 1,000 commonest words. 4 minutes."
+        case (.wordleRace, .hard): return "Any of 1,405 words. 3 minutes. Hard mode: greens stay put, found letters stay in."
         }
     }
 
@@ -47,7 +90,8 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
 
 /// Where a room is in its life.
 enum GamePhase: String, Decodable {
-    case lobby, countdown, armed, result, finished, closed
+    /// `armed` and `result` are Tap Duel's; `playing` is Wordle Race's.
+    case lobby, countdown, armed, result, playing, finished, closed
     /// A phase this version of the app has not heard of. Shown as "waiting",
     /// never a thrown decode — a newer site must not blank an open game.
     case unknown
@@ -142,10 +186,20 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
     let name: String
     /// invited | joined | declined | left
     let status: String
+    /// Tap Duel: rounds won.
     let score: Int
     let isHost: Bool
 
-    private enum CodingKeys: String, CodingKey { case id, name, status, score, isHost }
+    // Wordle Race. Absent (and so empty/zero) in a Tap Duel room.
+    let guessCount: Int
+    let solved: Bool
+    /// Solved, out of guesses, or out of time: this player has nothing left to play.
+    let done: Bool
+    let solveMs: Int?
+    /// Letters for me always, for the others only once the game is finished.
+    let rows: [WordleRow]
+
+    private enum CodingKeys: String, CodingKey { case id, name, status, score, isHost, guessCount, solved, done, solveMs, rows }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -154,6 +208,11 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
         status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "joined"
         score = (try? c.decodeIfPresent(Int.self, forKey: .score)) ?? 0
         isHost = (try? c.decodeIfPresent(Bool.self, forKey: .isHost)) ?? false
+        rows = (try? c.decodeIfPresent([WordleRow].self, forKey: .rows)) ?? []
+        guessCount = (try? c.decodeIfPresent(Int.self, forKey: .guessCount)) ?? rows.count
+        solved = (try? c.decodeIfPresent(Bool.self, forKey: .solved)) ?? false
+        done = (try? c.decodeIfPresent(Bool.self, forKey: .done)) ?? false
+        solveMs = ((try? c.decodeIfPresent(Double.self, forKey: .solveMs)) ?? nil).map { Int($0.rounded()) }
     }
 
     var joined: Bool { status == "joined" }
@@ -219,12 +278,17 @@ struct GameRound: Decodable, Equatable {
 struct GameStanding: Decodable, Equatable, Identifiable {
     let id: String
     let name: String
+    // Tap Duel.
     let score: Int
     let bestMs: Int?
     let avgMs: Int?
     let falseStarts: Int
+    // Wordle Race.
+    let solved: Bool
+    let guesses: Int?
+    let solveMs: Int?
 
-    private enum CodingKeys: String, CodingKey { case id, name, score, bestMs, avgMs, falseStarts }
+    private enum CodingKeys: String, CodingKey { case id, name, score, bestMs, avgMs, falseStarts, solved, guesses, solveMs }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -237,6 +301,9 @@ struct GameStanding: Decodable, Equatable, Identifiable {
         bestMs = ms(.bestMs)
         avgMs = ms(.avgMs)
         falseStarts = (try? c.decodeIfPresent(Int.self, forKey: .falseStarts)) ?? 0
+        solved = (try? c.decodeIfPresent(Bool.self, forKey: .solved)) ?? false
+        guesses = (try? c.decodeIfPresent(Int.self, forKey: .guesses)) ?? nil
+        solveMs = ms(.solveMs)
     }
 }
 
@@ -257,8 +324,21 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     let winnerIds: [String]
     let serverNow: Double
 
+    // Wordle Race. Defaults in a Tap Duel room.
+    let wordLength: Int
+    let maxGuesses: Int
+    let timeLimitMs: Double?
+    let hardMode: Bool
+    /// When play began, server epoch ms. Nil before play.
+    let startedAt: Double?
+    /// My best mark per letter, lower-case keys.
+    let keyboard: [String: WordleMark]
+    /// The word, once finished.
+    let secret: String?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
+        case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
     }
 
     init(from decoder: Decoder) throws {
@@ -276,6 +356,13 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         standings = (try? c.decodeIfPresent([GameStanding].self, forKey: .standings)) ?? nil
         winnerIds = (try? c.decodeIfPresent([String].self, forKey: .winnerIds)) ?? []
         serverNow = try c.decode(Double.self, forKey: .serverNow)
+        wordLength = max(1, (try? c.decodeIfPresent(Int.self, forKey: .wordLength)) ?? 5)
+        maxGuesses = max(1, (try? c.decodeIfPresent(Int.self, forKey: .maxGuesses)) ?? 6)
+        timeLimitMs = (try? c.decodeIfPresent(Double.self, forKey: .timeLimitMs)) ?? nil
+        hardMode = (try? c.decodeIfPresent(Bool.self, forKey: .hardMode)) ?? false
+        startedAt = (try? c.decodeIfPresent(Double.self, forKey: .startedAt)) ?? nil
+        keyboard = (try? c.decodeIfPresent([String: WordleMark].self, forKey: .keyboard)) ?? [:]
+        secret = (try? c.decodeIfPresent(String.self, forKey: .secret)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -284,6 +371,9 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// Everyone still in: joined players, host included.
     var playing: [GamePlayer] { players.filter(\.joined) }
     var solo: Bool { players.count <= 1 }
+    /// Everyone else still in — Wordle's strip of other players.
+    var others: [GamePlayer] { playing.filter { $0.id != meId } }
+    var kind: GameKind? { GameKind(rawValue: game) }
 
     func name(of id: String) -> String {
         players.first { $0.id == id }?.name ?? standings?.first { $0.id == id }?.name ?? "Someone"
@@ -315,11 +405,13 @@ struct GameActionBody: Encodable {
     var round: Int? = nil
     var reactionMs: Int? = nil
     var early: Bool? = nil
+    /// Wordle Race: `{action:"guess", word}`.
+    var word: String? = nil
 }
 
 enum GameNames {
     static func title(_ game: String) -> String {
-        game == "tap-duel" ? "Tap Duel" : game.replacingOccurrences(of: "-", with: " ").capitalized
+        GameKind(rawValue: game)?.title ?? game.replacingOccurrences(of: "-", with: " ").capitalized
     }
 
     /// "Sam", "Sam and Robin", "John, Sam and Robin".

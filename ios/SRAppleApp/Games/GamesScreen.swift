@@ -2,13 +2,14 @@ import SwiftUI
 
 /// The Games tab: invitations waiting, rooms I am in, and a game to start.
 ///
-/// Tap Duel is the first of a series, so the tab is a shelf of games rather
-/// than one game's front door — one card per game, and the rooms and invites
-/// above them are game-agnostic.
+/// A shelf of games rather than one game's front door — one card per game
+/// (Tap Duel, Wordle Race), and the rooms and invites above them say which
+/// game each is.
 struct GamesScreen: View {
     @ObservedObject var store: GamesStore
     @EnvironmentObject private var router: Router
-    @State private var starting = false
+    /// The game whose card was tapped; the sheet opens on it.
+    @State private var starting: GameKind?
 
     var body: some View {
         ScrollView {
@@ -33,7 +34,7 @@ struct GamesScreen: View {
                                 join: {
                                     Task {
                                         if await store.join(invite) {
-                                            router.games.append(GameRoomRef(id: invite.roomId))
+                                            router.games.append(GameRoomRef(id: invite.roomId, game: invite.game))
                                         }
                                     }
                                 },
@@ -46,7 +47,14 @@ struct GamesScreen: View {
                 if !store.rooms.isEmpty {
                     section("Your games", trailing: nil) {
                         ForEach(store.rooms) { room in
-                            NavigationLink(value: GameRoomRef(id: room.id)) {
+                            // A Button onto the tab's path, not a NavigationLink:
+                            // the link under an interactive glass card never
+                            // received the tap in CI; a Button over the same
+                            // glass (the Tap Duel card) does.
+                            Button {
+                                SRHaptic.tap()
+                                router.games.append(GameRoomRef(id: room.id, game: room.game))
+                            } label: {
                                 GameRoomRow(room: room)
                             }
                             .buttonStyle(.plain)
@@ -56,14 +64,17 @@ struct GamesScreen: View {
                 }
 
                 section("Play", trailing: nil) {
-                    Button {
-                        SRHaptic.tap()
-                        starting = true
-                    } label: {
-                        TapDuelCard()
+                    ForEach(GameKind.allCases) { kind in
+                        Button {
+                            SRHaptic.tap()
+                            starting = kind
+                        } label: {
+                            GameCard(kind: kind)
+                        }
+                        .buttonStyle(.plain)
+                        // Tap Duel keeps the id it shipped with.
+                        .accessibilityIdentifier(kind == .tapDuel ? "games-new" : "games-new-\(kind.rawValue)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("games-new")
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -75,7 +86,7 @@ struct GamesScreen: View {
         .navigationTitle("Games")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
-        .navigationDestination(for: GameRoomRef.self) { TapDuelScreen(roomId: $0.id).id($0.id) }
+        .navigationDestination(for: GameRoomRef.self) { GameRoomScreen(ref: $0).id($0.id) }
         .task {
             if store.lobby == nil { await store.load() }
             await store.askForNotificationsIfUndecided()
@@ -87,11 +98,11 @@ struct GamesScreen: View {
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message) }
         }
-        .sheet(isPresented: $starting) {
-            NewGameSheet(players: store.players, busy: store.busy == "new") { difficulty, invite in
-                guard let room = await store.create(difficulty: difficulty, invite: invite) else { return false }
-                starting = false
-                router.games.append(GameRoomRef(id: room.id))
+        .sheet(item: $starting) { kind in
+            NewGameSheet(game: kind, players: store.players, busy: store.busy == "new") { game, difficulty, invite in
+                guard let room = await store.create(game: game, difficulty: difficulty, invite: invite) else { return false }
+                starting = nil
+                router.games.append(GameRoomRef(id: room.id, game: room.game))
                 return true
             }
         }
@@ -116,11 +127,11 @@ struct GameInviteCard: View {
         SRCard(accented: true) {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(invite.hostName) invited you")
+                    Text("\(invite.hostName) invited you to \(GameNames.title(invite.game))")
                         .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("\(GameNames.title(invite.game)) · \(GameDifficulty.label(for: invite.difficulty)) · \(GameNames.list(invite.players))")
+                    Text("\(GameDifficulty.label(for: invite.difficulty)) · \(GameNames.list(invite.players))")
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -153,7 +164,7 @@ struct GameRoomRow: View {
     var body: some View {
         SRCard(interactive: true) {
             HStack(spacing: 12) {
-                Image(systemName: "gamecontroller")
+                Image(systemName: GameKind(rawValue: room.game)?.icon ?? "gamecontroller")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(SR.accent)
                     .frame(width: 28)
@@ -180,7 +191,7 @@ struct GameRoomRow: View {
     private var phaseLabel: String {
         switch room.phase {
         case .lobby: return "Lobby"
-        case .countdown, .armed, .result: return "Playing"
+        case .countdown, .armed, .result, .playing: return "Playing"
         case .finished: return "Finished"
         case .closed: return "Closed"
         case .unknown: return "Open"
@@ -188,21 +199,24 @@ struct GameRoomRow: View {
     }
 }
 
-/// The Tap Duel card on the shelf.
-struct TapDuelCard: View {
+/// One game's card on the shelf.
+struct GameCard: View {
+    let kind: GameKind
+
     var body: some View {
         SRCard(interactive: true) {
             HStack(alignment: .top, spacing: 14) {
-                Image(systemName: "hand.tap.fill")
+                Image(systemName: kind.icon)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(SR.paper)
                     .frame(width: 48, height: 48)
-                    .background(Circle().fill(SR.accent))
+                    .background(Circle().fill(kind == .tapDuel ? SR.accent : SR.accentInk))
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Tap Duel")
+                    Text(kind.title)
                         .font(SR.Text.display(22))
                         .foregroundStyle(SR.ink)
-                    Text("Five rounds. Wait for green, then tap faster than everyone else. Tap early and the round is gone.")
+                    Text(kind.blurb)
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -220,31 +234,53 @@ struct TapDuelCard: View {
     }
 }
 
-/// Difficulty, who to invite, Start.
+/// Which game, how hard, who to invite, Start.
 struct NewGameSheet: View {
     let players: [GamePerson]
     let busy: Bool
     /// Creates the room; true when it did, and the sheet is then closed by
     /// its owner.
-    let start: (GameDifficulty, [String]) async -> Bool
+    let start: (GameKind, GameDifficulty, [String]) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
+    @State private var game: GameKind
     @State private var difficulty: GameDifficulty = .easy
     @State private var invited: Set<String> = []
     @State private var working = false
+
+    /// Opens on the game whose card was tapped; the first section can change it.
+    init(game: GameKind = .tapDuel, players: [GamePerson], busy: Bool,
+         start: @escaping (GameKind, GameDifficulty, [String]) async -> Bool) {
+        self.players = players
+        self.busy = busy
+        self.start = start
+        _game = State(initialValue: game)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
-                    SRPageHeader(kicker: "New game", title: "Tap Duel")
+                    SRPageHeader(kicker: "New game", title: game.title)
+
+                    VStack(alignment: .leading, spacing: SR.cardGap) {
+                        SRSectionLabel(text: "Game")
+                        ForEach(GameKind.allCases) { kind in
+                            choice(
+                                title: kind.title,
+                                line: nil,
+                                selected: game == kind,
+                                id: "games-game-\(kind.rawValue)"
+                            ) { game = kind }
+                        }
+                    }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
                         SRSectionLabel(text: "Difficulty")
                         ForEach(GameDifficulty.allCases) { level in
                             choice(
                                 title: level.label,
-                                line: level.line,
+                                line: level.line(for: game),
                                 selected: difficulty == level,
                                 id: "games-difficulty-\(level.rawValue)"
                             ) { difficulty = level }
@@ -281,7 +317,7 @@ struct NewGameSheet: View {
                         SRHaptic.tap()
                         working = true
                         Task {
-                            _ = await start(difficulty, players.filter { invited.contains($0.id) }.map(\.id))
+                            _ = await start(game, difficulty, players.filter { invited.contains($0.id) }.map(\.id))
                             working = false
                         }
                     } label: {
