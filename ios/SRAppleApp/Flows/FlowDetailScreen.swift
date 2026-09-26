@@ -12,6 +12,8 @@ struct FlowDetailScreen: View {
     @State private var deletingWorkflow = false
     @State private var deletingStep: FlowStep?
     @State private var starting = false
+    /// For the "Pin to Apple Watch" item.
+    @ObservedObject private var pinned = PinnedFlows.shared
 
     /// ONE sheet modifier, switched on this — SwiftUI honours one sheet per
     /// view, and a second `.sheet` silently does nothing (see `Router.sheet`).
@@ -150,6 +152,20 @@ struct FlowDetailScreen: View {
             } label: { Label("Rename", systemImage: "pencil") }
             Link(destination: SiteClient.shared.webURL("jkai/canvas/\(ref.slug)")) {
                 Label("Open the canvas on the web", systemImage: "safari")
+            }
+            // Up to three, each run from the wrist behind a confirmation.
+            if pinned.isPinned(ref.slug) {
+                Button {
+                    pinned.toggle(slug: ref.slug, title: store.detail?.title ?? ref.title)
+                } label: { Label("Unpin from Apple Watch", systemImage: "applewatch.slash") }
+            } else {
+                Button {
+                    pinned.toggle(slug: ref.slug, title: store.detail?.title ?? ref.title)
+                } label: {
+                    Label(pinned.isFull ? "Apple Watch has \(PinnedFlows.limit) pinned" : "Pin to Apple Watch",
+                          systemImage: "applewatch")
+                }
+                .disabled(pinned.isFull)
             }
             Divider()
             Button(role: .destructive) { deletingWorkflow = true } label: {

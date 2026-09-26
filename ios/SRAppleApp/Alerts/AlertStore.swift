@@ -49,6 +49,13 @@ final class AlertStore: ObservableObject {
 
     private let client = SiteClient.shared
     private let defaults: UserDefaults
+    private var elsewhere: AnyCancellable?
+
+    /// Posted when a notification's button changed the inbox without going
+    /// through this store — from the Watch, or a lock-screen banner. The store
+    /// the screens are watching was not the one that did it, and would otherwise
+    /// keep showing a cleared row until the next launch.
+    static let changedElsewhere = Notification.Name("sr.alerts.changed-elsewhere")
 
     static let clearedKey = "today-cleared-alerts"
     /// Enough to outlast the inbox the phone asks for (60), with room over; the
@@ -58,6 +65,24 @@ final class AlertStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         clearedFromToday = Set(defaults.stringArray(forKey: Self.clearedKey) ?? [])
+        // Hopped to the main actor by the Task, not by `receive(on:)`: a
+        // RunLoop hop waits for the run loop to turn, which an async test does
+        // not guarantee.
+        elsewhere = NotificationCenter.default.publisher(for: Self.changedElsewhere)
+            .sink { [weak self] note in
+                let read = note.userInfo?["read"] as? String
+                Task { @MainActor [weak self] in self?.caughtUp(read: read) }
+            }
+    }
+
+    /// Re-read what a notification button wrote. The site is not asked: a
+    /// cleared row is local, and "mark read" already told the server.
+    private func caughtUp(read id: String?) {
+        clearedFromToday = Set(defaults.stringArray(forKey: Self.clearedKey) ?? [])
+        if let id, let index = recent.firstIndex(where: { $0.id == id }), !recent[index].read {
+            recent[index].read = true
+            unread = max(unread - 1, 0)
+        }
     }
 
     // MARK: - Reading
@@ -219,7 +244,10 @@ final class AlertStore: ObservableObject {
             // Connections get a thread of their own, so a lapsed Gmail never
             // stacks under a pile of health nudges in Notification Centre.
             content.threadIdentifier = alert.isConnections ? "connections" : alert.category
-            content.categoryIdentifier = alert.category
+            // One of two fixed identifiers, so every alert gets its buttons
+            // whatever the site calls its category. The site's own category
+            // rides in `userInfo` below. See `AlertActions`.
+            content.categoryIdentifier = AlertActions.categoryIdentifier(for: alert)
             // Graded, and deliberately not upward. `.timeSensitive` and
             // `.critical` both need entitlements this profile does not carry, so
             // the only honest lever is DOWN: a health reading or a headline is
@@ -282,6 +310,48 @@ final class AlertStore: ObservableObject {
             await AppBadge.update(unread: feed.unread)
         } catch {
             return
+        }
+    }
+}
+
+// MARK: - Notification buttons
+
+extension AlertStore {
+    /// "Clear from Today", pressed on a notification — usually on the Watch.
+    ///
+    /// Written through a store of its own on the same defaults, so the cap and
+    /// the ordering are the ones `clearFromToday` already keeps; then any store
+    /// a screen is holding is told to re-read.
+    static func clearFromNotification(_ id: String, defaults: UserDefaults = .standard) {
+        AlertStore(defaults: defaults).clearFromToday([id])
+        NotificationCenter.default.post(name: changedElsewhere, object: nil)
+    }
+
+    /// "Mark read", pressed on a notification.
+    ///
+    /// Runs in the seconds iOS gives a background action. The POST is the one
+    /// that matters; the count after it is read back from the site rather than
+    /// worked out here, because the alert may already have been read on the
+    /// website and a phone that subtracted one would undercount.
+    ///
+    /// Owner only, like every inbox call since access roles: a notification
+    /// can outlive the access that raised it. A failed POST changes nothing,
+    /// so the badge never drops against a server that disagrees.
+    static func markReadFromNotification(_ id: String) async {
+        guard AccessStore.ownerSite else { return }
+        do {
+            _ = try await SiteClient.shared.post(
+                "api/native/notifications",
+                body: try JSONSerialization.data(withJSONObject: ["read": [id]])
+            )
+        } catch {
+            return
+        }
+        NotificationCenter.default.post(name: changedElsewhere, object: nil, userInfo: ["read": id])
+        // Only the count is used. Anything pending is left unacknowledged for
+        // the next refresh to raise, as it would be had this not asked.
+        if let feed: AlertFeed = try? await SiteClient.shared.send("api/native/notifications?limit=1&inbox=1") {
+            await AppBadge.update(unread: feed.unread)
         }
     }
 }

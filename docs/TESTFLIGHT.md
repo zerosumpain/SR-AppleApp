@@ -29,6 +29,29 @@ Add these environment secrets:
 - `DISTRIBUTION_P12_PASSWORD`
 - `PROVISION_PROFILE_BASE64`: base64-encoded App Store profile.
 
+### The Apple Watch app (optional)
+
+Until these two secrets exist, the upload is the iPhone app alone and the run
+logs a warning saying so. Nothing else changes. To ship the Watch app and its
+complications:
+
+1. Register an App Group, `group.<bundle ID>` (for example
+   `group.com.strangeramblings.com.appleapp`).
+2. Register the Watch App ID `<bundle ID>.watchkitapp` with **HealthKit** and
+   **App Groups** (that group) enabled.
+3. Register the complications App ID `<bundle ID>.watchkitapp.complications`
+   with **App Groups** (the same group) enabled.
+4. Make an App Store distribution profile for each, with the same Apple
+   Distribution certificate.
+5. Add them as environment secrets:
+   - `WATCH_PROVISION_PROFILE_BASE64`: the Watch app's profile.
+   - `WIDGET_PROVISION_PROFILE_BASE64`: the complications' profile.
+
+`scripts/install-signing.sh` checks that each profile names the right App ID,
+that the Watch profile carries HealthKit and the group, and that the
+complications profile carries the group, before anything is built. See
+[the watch plan](WATCH.md) for what the Watch app does.
+
 The workflow checks these settings before building. Temporary signing files and the runner keychain are removed after the run. Use a monotonically increasing build number if previous uploads predate this workflow's run counter. TestFlight's workflow run number supplies the default.
 
 ## Server for the first real-device test

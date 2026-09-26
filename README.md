@@ -174,7 +174,7 @@ For an actual phone, follow [TestFlight setup](docs/TESTFLIGHT.md). This require
 On a Mac with Xcode and XcodeGen:
 
 ```sh
-xcodegen generate --spec ios/project.yml
+xcodegen generate --spec ios/project.yml  # the iPhone app and the Watch app; ios/app.yml is the iPhone app alone
 open ios/SRAppleApp.xcodeproj
 ```
 
@@ -275,6 +275,13 @@ Four turns a chat can take are **not** answerable here — a plan approval, a
 dangerous-command confirmation, a clarification, and a credential request. All
 four are desk-shaped. The app names the gate and offers the website rather than
 spinning on a turn that will never resolve.
+
+### On the Watch
+
+A site alert the phone raises reaches a paired Apple Watch while the phone is
+locked, with **Mark read** and **Clear from Today** under it. Both run on the
+phone in the background, so there is no watch app yet. What a real one would add,
+and the provisioning profile each step costs, is in [Apple Watch](docs/WATCH.md).
 
 ### Two pairings, deliberately
 

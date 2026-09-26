@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDisplayName</key><string>SR</string>
+<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+<key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<!-- A single-target watch app (watchOS 7+ style), installed with the iPhone
+     app it belongs to. Not watch-only: it holds no credential of its own. -->
+<key>WKApplication</key><true/>
+<key>WKCompanionAppBundleIdentifier</key><string>$(SR_BUNDLE_ID)</string>
+<!-- Where the app leaves the phone's snapshot for its complications. -->
+<key>SRAppGroup</key><string>group.$(SR_BUNDLE_ID)</string>
+<key>NSHealthShareUsageDescription</key><string>Show today's Move ring on your Watch. Nothing is written to Apple Health.</string>
+<key>UIAppFonts</key><array><string>ArchivoBlack-Regular.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string></array>
+</dict></plist>
