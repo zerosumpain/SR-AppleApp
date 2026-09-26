@@ -20,7 +20,7 @@
 <key>UIUserInterfaceStyle</key><string>Light</string>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
 <key>NSHealthUpdateUsageDescription</key><string>SR Companion reads your selected Apple Health data for your private dashboard. It does not write or change data in Apple Health.</string>
-<key>NSCameraUsageDescription</key><string>Scan the pairing QR code on your Strange Ramblings dashboard to connect this iPhone, and take photos to send to jkai.</string>
+<key>NSCameraUsageDescription</key><string>Scan the pairing QR code at strangeramblings.com/welcome to connect this iPhone, and take photos to send to jkai.</string>
 <key>NSHealthShareUsageDescription</key><string>Sync the Apple Health categories you choose — activity, heart, overnight vitals, fitness, workouts with their routes, sleep, mobility, body and lifestyle — to your private Strange Ramblings health dashboard. Nothing is shared with anyone else.</string>
 <key>NSLocationWhenInUseUsageDescription</key><string>Share your current location with members of your Strange Ramblings family.</string>
 <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>Keep your family location updated when the app is closed, using more frequent records while moving. You can pause sharing at any time.</string>

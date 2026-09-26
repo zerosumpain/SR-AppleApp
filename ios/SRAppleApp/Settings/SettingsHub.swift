@@ -168,7 +168,7 @@ struct ConnectionsScreen: View {
                         scanningSite = true
                     } label: {
                         SRRow(title: site.busy ? "Connecting…" : "Scan the chat & news code",
-                              subtitle: "strangeramblings.com/apple-app → Connect & privacy",
+                              subtitle: "strangeramblings.com/welcome",
                               icon: "qrcode.viewfinder")
                     }
                     .buttonStyle(.plain)
@@ -503,8 +503,8 @@ struct AboutScreen: View {
                     Text(version).font(SR.Text.mono(13)).foregroundStyle(SR.inkMuted)
                 }
                 .srGlassRow()
-                Link(destination: SiteClient.shared.webURL("apple-app")) {
-                    SRRow(title: "Connect & privacy on the web", icon: "safari") {
+                Link(destination: SiteClient.shared.webURL("welcome")) {
+                    SRRow(title: "Pairing on the web", icon: "safari") {
                         Image(systemName: "arrow.up.forward").foregroundStyle(SR.inkMuted)
                     }
                 }

@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { hash, issue } from './store.mjs';
+import { DEVICE_TTL, PAIR_CODE_TTL, ensureUser, hash, issue, mintPairCode } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
 import { SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf } from './movement.mjs';
 import { KINDS, catalogue, validateHealthRecord } from './catalogue.mjs';
@@ -62,7 +62,7 @@ function alertEvent(e) {
   if (!string(e.id, 100) || !Array.isArray(e.recipients) || !e.recipients.every(r => string(r, 320)) || !string(e.title, 120) || !string(e.body, 300) || !iso(e.at)) fail(400, 'Invalid event');
   return e;
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, householdToken = process.env.APPLE_HOUSEHOLD_TOKEN, doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, householdToken = process.env.APPLE_HOUSEHOLD_TOKEN, publicOrigin = process.env.APPLE_PUBLIC_ORIGIN || 'https://strangeramblings.com', doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
   const rate = new Map();
   // Its OWN ring-only secret, never the service token — that token can READ
   // the owner's export, and this URL is not guaranteed to stay on loopback the
@@ -79,6 +79,14 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
   // let /health read the owner's own export.
   const householdLaneToken = householdToken && serviceToken && householdToken === serviceToken ? undefined : householdToken;
   const csrfOrigin = new URL(origin).origin;
+  // Where a phone reaches this server from OUTSIDE — the origin a QR minted
+  // for somebody else's phone must name. APP_ORIGIN is what this process is
+  // served as; when SR-Main asks for a code over loopback that is not
+  // something a phone on mobile data can reach, so the household lane's
+  // codes always carry this one instead.
+  const pairServer = new URL(publicOrigin).origin;
+  // The exact string a pairing QR encodes, whoever minted it.
+  const pairPayload = (server, code) => JSON.stringify({ type: 'sr-companion-pair', version: 1, server, code });
   const secure = csrfOrigin.startsWith('https:');
   function limit(key) {
     const now = Date.now();
@@ -143,7 +151,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           const code = db.prepare("SELECT * FROM credentials WHERE hash=? AND kind='pair' AND expires>?").get(hash(body.code), Date.now());
           if (!code) fail(401, 'Pairing code expired or invalid');
           db.prepare('DELETE FROM credentials WHERE hash=?').run(code.hash);
-          const token = issue(db, code.user_id, 'device', body.label, 90 * 86400000);
+          const token = issue(db, code.user_id, 'device', body.label, DEVICE_TTL);
           db.exec('COMMIT');
           return send(200, { token, userId: code.user_id });
         } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -343,6 +351,65 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         } catch (error) { db.exec('ROLLBACK'); throw error; }
         return send(200, { stored });
       }
+      // THE HOUSEHOLD ONBOARDING LANE — SR-Main's /welcome and
+      // /admin/access/devices, doing what the dashboard's Connect & privacy
+      // tab used to: add somebody, mint their pairing code, list and revoke
+      // their phones, set their sharing. Same token and same rule as the three
+      // routes above: everything happens inside the configured owner's family
+      // and nowhere else. A person named by email who is not in that family —
+      // unknown, or real but in another family — is a 404 here (409 when
+      // adding them), never a way to reach them.
+      const householdMember = (owner, email) => {
+        if (!string(email, 320)) fail(400, 'Email required');
+        const member = owner ? db.prepare('SELECT id,email,name,sharing FROM users WHERE email=? AND family=?').get(email.toLowerCase(), owner.family) : null;
+        if (!member) fail(404, 'No such person in this household');
+        return member;
+      };
+      if (path === '/api/apple/household/users' && method === 'POST') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['email', 'name']);
+        if (!string(body.email, 320) || !body.email.includes('@') || !string(body.name?.trim?.(), 120)) fail(400, 'Email and name required');
+        // Nothing to add anybody TO: a configuration gap, said as one rather
+        // than inventing a family for them.
+        if (!owner) fail(409, 'The household owner has no account on this server');
+        const user = ensureUser(db, { email: body.email, name: body.name.trim(), family: owner.family });
+        if (user.conflict) fail(409, 'This person belongs to another household');
+        return send(user.created ? 201 : 200, user);
+      }
+      if (path === '/api/apple/household/pair-code' && method === 'POST') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['email']);
+        const member = householdMember(owner, body.email);
+        const code = mintPairCode(db, member.id);
+        return send(200, { code, payload: pairPayload(pairServer, code), expiresIn: PAIR_CODE_TTL / 1000 });
+      }
+      if (path === '/api/apple/household/devices' && method === 'GET') {
+        const owner = householdOwner([]);
+        if (!owner) return send(200, { devices: [] });
+        // No issue time or last use is stored for a credential. Every device
+        // token is issued with DEVICE_TTL by `/api/apple/pair`, so its pairing
+        // time is exactly `expires - DEVICE_TTL`; last use is not tracked.
+        const rows = db.prepare("SELECT c.hash, c.label, c.expires, u.email, u.name FROM credentials c JOIN users u ON u.id=c.user_id WHERE u.family=? AND c.kind='device' AND c.expires>? ORDER BY u.email, c.expires DESC").all(owner.family, Date.now());
+        return send(200, { devices: rows.map(r => ({ id: r.hash, email: r.email, name: r.name, label: r.label, created: new Date(r.expires - DEVICE_TTL).toISOString(), expires: new Date(r.expires).toISOString(), lastUsed: null })) });
+      }
+      if (path.startsWith('/api/apple/household/devices/') && method === 'DELETE') {
+        const owner = householdOwner([]);
+        const id = path.slice('/api/apple/household/devices/'.length);
+        if (!owner || !/^[0-9a-f]{64}$/.test(id)) fail(404, 'No such device');
+        // Scoped to the family in the same statement, so another household's
+        // phone cannot be revoked by guessing its id.
+        const { changes } = db.prepare("DELETE FROM credentials WHERE hash=? AND kind='device' AND user_id IN (SELECT id FROM users WHERE family=?)").run(id, owner.family);
+        if (!changes) fail(404, 'No such device');
+        res.writeHead(204); return res.end();
+      }
+      if (path === '/api/apple/household/sharing' && method === 'PUT') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['email', 'enabled']);
+        if (typeof body.enabled !== 'boolean') fail(400, 'enabled must be boolean');
+        const member = householdMember(owner, body.email);
+        db.prepare('UPDATE users SET sharing=? WHERE id=?').run(Number(body.enabled), member.id);
+        return send(200, { sharing: body.enabled });
+      }
       // Two ways in, and only two.
       //
       //  * A PAIRED IPHONE presents a device token it got from a pairing code.
@@ -425,11 +492,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { acked });
       }
       if (path === '/api/apple/pair-code' && method === 'POST' && auth.kind === 'session') {
-        db.prepare("DELETE FROM credentials WHERE user_id=? AND kind='pair'").run(auth.user_id);
-        const code = issue(db, auth.user_id, 'pair', 'One-time pairing', 600000);
-        const payload = JSON.stringify({ type: 'sr-companion-pair', version: 1, server: csrfOrigin, code });
-        const qr = await QRCode.toDataURL(payload, { errorCorrectionLevel: 'M', margin: 4, scale: 6 });
-        return send(200, { code, qr, expiresIn: 600 });
+        const code = mintPairCode(db, auth.user_id);
+        const qr = await QRCode.toDataURL(pairPayload(csrfOrigin, code), { errorCorrectionLevel: 'M', margin: 4, scale: 6 });
+        return send(200, { code, qr, expiresIn: PAIR_CODE_TTL / 1000 });
       }
       if (path === '/api/apple/devices' && method === 'GET') return send(200, { devices: db.prepare("SELECT hash AS id,label,expires FROM credentials WHERE user_id=? AND kind='device' AND expires>?").all(auth.user_id, Date.now()) });
       if (path.startsWith('/api/apple/devices/') && method === 'DELETE' && auth.kind === 'session') {

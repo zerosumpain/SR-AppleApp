@@ -18,7 +18,7 @@ async function fixture(t, overrides = {}) {
   t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
   const request = async (path, { user = 'alex', method = 'GET', body, headers = {} } = {}) => {
     const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/${path}`, { method, headers: { ...(user ? { Authorization: `Bearer ${tokens[user]}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
-    return { status: response.status, body: await response.json(), headers: response.headers };
+    return { status: response.status, body: response.status === 204 ? null : await response.json(), headers: response.headers };
   };
   return { db, tokens, request };
 }
@@ -826,4 +826,127 @@ test('a fix may carry a battery percentage, which the household lane passes on',
   for (const bad of [101, -1, 50.5, '64']) {
     assert.equal((await request('sync', { method: 'POST', body: batch([], [{ ...location(), id: `bad-${bad}`, battery: bad }]) })).status, 400);
   }
+});
+
+// --- Household: onboarding (SR-Main /welcome, /admin/access/devices) -------
+
+const household = (request, path, { method = 'GET', body, token = HOUSEHOLD_TOKEN } = {}) =>
+  request(path, { user: null, method, body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+
+test('the onboarding routes do not exist until APPLE_HOUSEHOLD_TOKEN is configured, and refuse the wrong token', async t => {
+  const closed = await fixture(t);
+  const open = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const routes = [
+    ['household/users', 'POST', { email: 'new@example.test', name: 'New' }],
+    ['household/pair-code', 'POST', { email: 'sam@example.test' }],
+    ['household/devices', 'GET', undefined],
+    [`household/devices/${'0'.repeat(64)}`, 'DELETE', undefined],
+    ['household/sharing', 'PUT', { email: 'sam@example.test', enabled: true }],
+  ];
+  for (const [path, method, body] of routes) {
+    assert.equal((await household(closed.request, path, { method, body })).status, 404, `${method} ${path} unset`);
+    assert.equal((await household(open.request, path, { method, body, token: 'wrong' })).status, 401, `${method} ${path} wrong token`);
+    assert.equal((await household(open.request, path, { method, body, token: null })).status, 401, `${method} ${path} no token`);
+  }
+  assert.equal(open.db.prepare("SELECT count(*) n FROM users WHERE email='new@example.test'").get().n, 0);
+});
+
+test('adding a person puts them in the owner\'s family once, lower-cased, sharing off; another family\'s person is refused', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const first = await household(request, 'household/users', { method: 'POST', body: { email: 'New.Person@Example.test', name: ' New Person ' } });
+  assert.equal(first.status, 201);
+  assert.deepEqual(Object.keys(first.body).sort(), ['created', 'email', 'id', 'name']);
+  assert.equal(first.body.email, 'new.person@example.test');
+  assert.equal(first.body.name, 'New Person');
+  assert.equal(first.body.created, true);
+  const row = db.prepare('SELECT family, sharing FROM users WHERE id=?').get(first.body.id);
+  assert.deepEqual({ ...row }, { family: 'one', sharing: 0 });
+  const again = await household(request, 'household/users', { method: 'POST', body: { email: 'new.person@example.test', name: 'Renamed' } });
+  assert.equal(again.status, 200);
+  assert.deepEqual(again.body, { id: first.body.id, email: 'new.person@example.test', name: 'Renamed', created: false });
+  // An existing member's sharing is theirs, and an upsert leaves it alone.
+  db.prepare("UPDATE users SET sharing=1 WHERE id='sam'").run();
+  assert.equal((await household(request, 'household/users', { method: 'POST', body: { email: 'sam@example.test', name: 'sam' } })).status, 200);
+  assert.equal(db.prepare("SELECT sharing FROM users WHERE id='sam'").get().sharing, 1);
+  const robin = await household(request, 'household/users', { method: 'POST', body: { email: 'ROBIN@example.test', name: 'robin' } });
+  assert.equal(robin.status, 409);
+  assert.deepEqual({ ...db.prepare("SELECT family, name FROM users WHERE id='robin'").get() }, { family: 'two', name: 'robin' });
+  for (const body of [{ email: 'x@example.test' }, { email: 'no-at', name: 'x' }, { email: 'x@example.test', name: 'x', family: 'two' }, { email: 'x@example.test', name: '   ' }]) {
+    assert.equal((await household(request, 'household/users', { method: 'POST', body })).status, 400, JSON.stringify(body));
+  }
+});
+
+test('adding a person with no configured owner is a configuration conflict, not a new family', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN, serviceOwner: undefined });
+  assert.equal((await household(request, 'household/users', { method: 'POST', body: { email: 'new@example.test', name: 'New' } })).status, 409);
+  assert.equal(db.prepare("SELECT count(*) n FROM users WHERE email='new@example.test'").get().n, 0);
+});
+
+test('a household pair code names the public origin, replaces the old one, and pairs a phone once', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const first = await household(request, 'household/pair-code', { method: 'POST', body: { email: 'SAM@example.test' } });
+  assert.equal(first.status, 200);
+  assert.deepEqual(Object.keys(first.body).sort(), ['code', 'expiresIn', 'payload']);
+  assert.equal(first.body.expiresIn, 600);
+  assert.equal(first.body.payload, JSON.stringify({ type: 'sr-companion-pair', version: 1, server: 'https://strangeramblings.com', code: first.body.code }));
+  const second = await household(request, 'household/pair-code', { method: 'POST', body: { email: 'sam@example.test' } });
+  assert.equal(db.prepare("SELECT count(*) n FROM credentials WHERE user_id='sam' AND kind='pair'").get().n, 1, 'one live code per person');
+  assert.equal((await request('pair', { user: null, method: 'POST', body: { code: first.body.code, label: 'Old' } })).status, 401, 'the replaced code is dead');
+  const paired = await request('pair', { user: null, method: 'POST', body: { code: second.body.code, label: 'Sam phone' } });
+  assert.equal(paired.status, 200);
+  assert.equal(paired.body.userId, 'sam');
+  assert.equal((await request('pair', { user: null, method: 'POST', body: { code: second.body.code, label: 'Again' } })).status, 401);
+  assert.equal((await household(request, 'household/pair-code', { method: 'POST', body: { email: 'robin@example.test' } })).status, 404, 'another family');
+  assert.equal((await household(request, 'household/pair-code', { method: 'POST', body: { email: 'ghost@example.test' } })).status, 404, 'unknown');
+  assert.equal(db.prepare("SELECT count(*) n FROM credentials WHERE user_id='robin' AND kind='pair'").get().n, 0);
+});
+
+test('a household pair code takes its origin from APPLE_PUBLIC_ORIGIN, never the loopback it was asked over', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN, publicOrigin: 'https://staging.example.test/' });
+  const { body } = await household(request, 'household/pair-code', { method: 'POST', body: { email: 'alex@example.test' } });
+  assert.equal(JSON.parse(body.payload).server, 'https://staging.example.test');
+});
+
+test('household devices lists the family\'s live phones only, and revokes only within the family', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  issue(db, 'sam', 'device', 'Expired phone', -1000);
+  issue(db, 'sam', 'pair', 'One-time pairing', 600000);
+  const { status, body } = await household(request, 'household/devices');
+  assert.equal(status, 200);
+  assert.deepEqual(body.devices.map(d => d.email).sort(), ['alex@example.test', 'sam@example.test']);
+  const alex = body.devices.find(d => d.email === 'alex@example.test');
+  assert.deepEqual(Object.keys(alex).sort(), ['created', 'email', 'expires', 'id', 'label', 'lastUsed', 'name']);
+  assert.equal(alex.label, 'Test phone');
+  assert.equal(alex.name, 'alex');
+  assert.equal(alex.lastUsed, null);
+  assert.match(alex.id, /^[0-9a-f]{64}$/);
+  assert.ok(Date.parse(alex.expires) > Date.now());
+  assert.equal(Date.parse(alex.expires) - Date.parse(alex.created), 90 * 86400000);
+  const robinId = db.prepare("SELECT hash FROM credentials WHERE user_id='robin' AND kind='device'").get().hash;
+  assert.equal((await household(request, `household/devices/${robinId}`, { method: 'DELETE' })).status, 404, 'another family');
+  assert.equal((await request('me', { user: 'robin' })).status, 200, 'robin still paired');
+  assert.equal((await household(request, 'household/devices/not-a-hash', { method: 'DELETE' })).status, 404);
+  const del = await household(request, `household/devices/${alex.id}`, { method: 'DELETE' });
+  assert.equal(del.status, 204);
+  assert.equal((await request('me')).status, 401, 'alex\'s phone is revoked');
+  assert.equal((await household(request, `household/devices/${alex.id}`, { method: 'DELETE' })).status, 404, 'already gone');
+  assert.deepEqual((await household(request, 'household/devices')).body.devices.map(d => d.email), ['sam@example.test']);
+});
+
+test('household devices is empty, not an error, when no owner is configured', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN, serviceOwner: undefined });
+  assert.deepEqual((await household(request, 'household/devices')).body, { devices: [] });
+});
+
+test("household sharing sets a family member's switch and nobody else's", async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const on = await household(request, 'household/sharing', { method: 'PUT', body: { email: 'Sam@example.test', enabled: true } });
+  assert.equal(on.status, 200);
+  assert.deepEqual(on.body, { sharing: true });
+  assert.equal(db.prepare("SELECT sharing FROM users WHERE id='sam'").get().sharing, 1);
+  assert.deepEqual((await household(request, 'household/sharing', { method: 'PUT', body: { email: 'sam@example.test', enabled: false } })).body, { sharing: false });
+  assert.equal(db.prepare("SELECT sharing FROM users WHERE id='sam'").get().sharing, 0);
+  assert.equal((await household(request, 'household/sharing', { method: 'PUT', body: { email: 'robin@example.test', enabled: true } })).status, 404);
+  assert.equal(db.prepare("SELECT sharing FROM users WHERE id='robin'").get().sharing, 0);
+  assert.equal((await household(request, 'household/sharing', { method: 'PUT', body: { email: 'sam@example.test', enabled: 'yes' } })).status, 400);
 });
