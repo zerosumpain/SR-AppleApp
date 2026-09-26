@@ -253,7 +253,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         }
         return send(200, { ok: true, signOutAt: `${csrfOrigin}/auth/signout` });
       }
-      if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo });
+      // `owner` is derived here rather than stored, so re-pointing
+      // APPLE_SERVICE_OWNER at a different family member changes who the app
+      // treats as owner on the next request, with nothing to migrate.
+      if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo, owner: !!serviceOwner && auth.email === serviceOwner.toLowerCase() });
       if (path === '/api/apple/pair-code' && method === 'POST' && auth.kind === 'session') {
         db.prepare("DELETE FROM credentials WHERE user_id=? AND kind='pair'").run(auth.user_id);
         const code = issue(db, auth.user_id, 'pair', 'One-time pairing', 600000);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { openStore, createUser, issue } from '../store.mjs';
 import { createApp } from '../app.mjs';
 
-async function fixture(t) {
+async function fixture(t, overrides = {}) {
   const db = openStore(':memory:');
   for (const [id, family] of [['alex', 'one'], ['sam', 'one'], ['robin', 'two']]) createUser(db, { id, family, email: `${id}@example.test`, name: id });
   const tokens = Object.fromEntries(['alex', 'sam', 'robin'].map(id => [id, issue(db, id, 'device', 'Test phone', 3600000)]));
@@ -11,7 +11,9 @@ async function fixture(t) {
   // kept for the configured service owner) exercise the real gate rather than
   // the "no owner configured" branch. serviceToken stays unset, so the
   // service lane itself remains closed (404) for every test using fixture().
-  const app = createApp(db, { origin: 'http://localhost', demo: true, serviceOwner: 'alex@example.test' });
+  // Tests that need the household lane open (its own token) or a different
+  // owner pass `overrides` — merged in last so they can also unset serviceOwner.
+  const app = createApp(db, { origin: 'http://localhost', demo: true, serviceOwner: 'alex@example.test', ...overrides });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
   const request = async (path, { user = 'alex', method = 'GET', body, headers = {} } = {}) => {
@@ -94,7 +96,7 @@ test('expired credentials fail and secrets are not returned with profile', async
   const { request, db } = await fixture(t);
   const profile = await request('me');
   assert.equal(profile.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(Object.keys(profile.body).sort(), ['demo', 'email', 'id', 'name', 'sharing']);
+  assert.deepEqual(Object.keys(profile.body).sort(), ['demo', 'email', 'id', 'name', 'owner', 'sharing']);
   db.prepare('UPDATE credentials SET expires=0').run();
   assert.equal((await request('me')).status, 401);
 });
@@ -229,6 +231,25 @@ test('a device token still works, and is the only lane that needs no session', a
   const me = await request('me');
   assert.equal(me.status, 200);
   assert.equal(me.body.email, 'alex@example.test');
+});
+
+// --- Household: owner flag -------------------------------------------------
+
+test('/me reports owner true only for the configured service owner, case-insensitively', async t => {
+  const { request } = await fixture(t);
+  assert.equal((await request('me')).body.owner, true);
+  assert.equal((await request('me', { user: 'sam' })).body.owner, false);
+});
+
+test('/me reports owner false for everyone when APPLE_SERVICE_OWNER is unset', async t => {
+  const db = openStore(':memory:');
+  createUser(db, { id: 'alex', family: 'one', email: 'alex@example.test', name: 'alex' });
+  const token = issue(db, 'alex', 'device', 'Test phone', 3600000);
+  const app = createApp(db, { origin: 'http://localhost', demo: true });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const response = await fetch(`http://127.0.0.1:${app.address().port}/api/apple/me`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal((await response.json()).owner, false);
 });
 
 test('the stored password hashes are gone, not merely unused', async (t) => {

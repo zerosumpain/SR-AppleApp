@@ -34,6 +34,16 @@ export function openStore(path) {
       kind TEXT NOT NULL, start TEXT NOT NULL, deleted TEXT NOT NULL,
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS health_deleted_time ON health_deleted(user_id, deleted);
+    -- Household alerts (arrivals/departures forwarded from SR-Main). One row
+    -- per (recipient, event id) so a retried events POST is INSERT OR IGNORE
+    -- idempotent; 'acked' is NULL until the recipient's own device/browser
+    -- acknowledges it, and the pending-first index below is what the alerts
+    -- GET and the 7-day prune both walk.
+    CREATE TABLE IF NOT EXISTS alerts (
+      user_id TEXT NOT NULL REFERENCES users(id), id TEXT NOT NULL,
+      payload TEXT NOT NULL, created TEXT NOT NULL, acked TEXT,
+      PRIMARY KEY(user_id, id));
+    CREATE INDEX IF NOT EXISTS alerts_user_pending ON alerts(user_id, acked, created);
     CREATE INDEX IF NOT EXISTS health_workout_parts ON health(user_id, json_extract(payload, '$.workout'))
       WHERE kind IN ('workout_route', 'workout_series');
   `);
