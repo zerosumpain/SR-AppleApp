@@ -276,6 +276,13 @@ dangerous-command confirmation, a clarification, and a credential request. All
 four are desk-shaped. The app names the gate and offers the website rather than
 spinning on a turn that will never resolve.
 
+### On the Watch
+
+A site alert the phone raises reaches a paired Apple Watch while the phone is
+locked, with **Mark read** and **Clear from Today** under it. Both run on the
+phone in the background, so there is no watch app yet. What a real one would add,
+and the provisioning profile each step costs, is in [Apple Watch](docs/WATCH.md).
+
 ### Two pairings, deliberately
 
 The app holds two independent credentials:

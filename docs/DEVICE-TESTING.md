@@ -61,3 +61,28 @@ This is not an emergency tracking service. The interface must display stale/miss
 - The in-app browser does not install the PWA or provide its Home Screen push/offline guarantees. Test those in the separately installed PWA if needed.
 
 - From the main Companion page, open JKAI, News, and Health; check the expected website and sign-in, then tap Back to SR Companion and reopen another link. Verify the native health pairing remains intact.
+
+## Apple Watch
+
+Phase 0 of [the watch plan](WATCH.md): buttons on the alerts the phone already
+raises. Needs a paired Watch, notification permission granted, and a site
+connection. A simulator cannot press a notification button.
+
+- Lock the phone with the Watch on your wrist and let a background refresh raise
+  an alert, or open the app, raise one and then lock it. The alert should arrive
+  on the Watch with **Mark read** and **Clear from Today** under it.
+- Press **Clear from Today** on the Watch. Unlock the phone: that row must be
+  gone from the Today card and still listed on the Alerts screen.
+- Press **Mark read** on the Watch. The badge should drop by one, and on
+  unlocking, the Alerts screen should show that alert read and the others
+  untouched. Mark an alert read on the website first and then press **Mark
+  read** on its notification: the badge must not drop a second time. Repeat in
+  flight mode: nothing should change, and the badge must not drop.
+- Raise a lapsed-connection alert. It must arrive with NO buttons.
+- On a family member's phone (not the owner's), no site alert should arrive at
+  all. If one raised before a role change is still in Notification Centre,
+  **Mark read** on it must do nothing.
+- Tap an alert itself (not a button) on the phone. It must open the tab for its
+  category, as before, and a connections alert must open the connections list.
+- Do the same with the phone unlocked, from the lock-screen banner's long press.
+  The buttons behave identically.

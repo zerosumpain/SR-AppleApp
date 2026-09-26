@@ -25,6 +25,10 @@ import UIKit
         catch { startupError = "Saved sync data could not be opened: \(error.localizedDescription). Reopen the app after unlocking your phone. Existing data has not been discarded." }
 
         UNUserNotificationCenter.current().delegate = self
+        // Before anything is raised, and on every launch: a category that is
+        // not registered when a notification arrives shows it with no buttons,
+        // on the phone and on the Watch alike.
+        UNUserNotificationCenter.current().setNotificationCategories(AlertActions.categories)
         installQuickActions(application)
 
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.com.appleapp.refresh", using: nil) { [weak self] task in
@@ -116,11 +120,33 @@ import UIKit
     /// Except a lapsed connection, which opens the list of them with Fix on
     /// each, over whichever tab was open: the inbox would be one tap further
     /// from the only thing the reader can do about it.
+    ///
+    /// A pressed BUTTON is different: it arrives with the app in the
+    /// background, often from the Watch, and does its job without navigating
+    /// anywhere. See `AlertActions`.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let category = response.notification.request.content.categoryIdentifier
+        let content = response.notification.request.content
+        let outcome = AlertActions.outcome(
+            action: response.actionIdentifier,
+            categoryIdentifier: content.categoryIdentifier,
+            userInfo: content.userInfo
+        )
+        let category: String
+        switch outcome {
+        case .read(let id):
+            await AlertStore.markReadFromNotification(id)
+            return
+        case .clear(let id):
+            AlertStore.clearFromNotification(id)
+            return
+        case .ignore:
+            return
+        case .open(let tapped):
+            category = tapped
+        }
         // The site's categories reach only the owner's phone (a member's never
         // polls the owner's inbox), but a notification can outlive the access
         // that raised it. The router refuses a tab, the inbox or the
