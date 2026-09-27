@@ -3,10 +3,11 @@
 What the companion does on a wrist, what it deliberately does not, and what
 each step costs. Phases 0, 1 and 2 are built. Phase 3 is not (see below).
 
-**Signing.** Phases 1 and 2 need two App Store profiles this repository does
-not have yet (docs/TESTFLIGHT.md, "The Apple Watch app"). Until they exist the
-TestFlight job uploads the iPhone app alone, exactly as before, and says so in
-its log. CI builds everything for the simulator, where no profile is needed.
+**Signing.** Phases 1 and 2 need an App Group and two App IDs registered by
+hand once ([Apple Watch setup](WATCH-SETUP.md)); the TestFlight job then gets
+their profiles from Apple itself (`scripts/asc-watch-profiles.py`). Until then
+it uploads the iPhone app alone, exactly as before, and says so in its log. CI
+builds everything for the simulator, where no profile is needed.
 
 ## What a watch is for, here
 
