@@ -23,7 +23,10 @@ struct MoreScreen: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: SR.sectionGap) {
+            // A plain stack: a handful of cards and one row need no laziness,
+            // and a lazy stack whose last child (Settings) is measured at a
+            // different height than it was estimated at loops at the bottom.
+            VStack(alignment: .leading, spacing: SR.sectionGap) {
                 if places.contains(.games) { waiting }
 
                 VStack(alignment: .leading, spacing: SR.cardGap) {
