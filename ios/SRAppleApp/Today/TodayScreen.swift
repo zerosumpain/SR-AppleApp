@@ -146,8 +146,7 @@ struct TodayScreen: View {
     /// Today's Move ring, live from Apple Health on this phone.
     @StateObject private var move = MoveRingStore()
     @ObservedObject private var noticed = NoticedFeedback.shared
-    @ObservedObject private var daydream = DaydreamStore.shared
-    @EnvironmentObject private var games: GamesStore
+    private var daydream: DaydreamStore { DaydreamStore.shared }
     /// What this person may use. The owner's cards (the site's figures,
     /// alerts, workflows, what the loop noticed) are not drawn for anybody
     /// else — their endpoints would only refuse a member.
@@ -231,7 +230,6 @@ struct TodayScreen: View {
                 )
             }
         }
-        .animation(.snappy, value: TodayAlerts.urgent(in: alerts.recent, dismissed: waved)?.id)
         .navigationTitle("Today")
         // Inline, and the title itself is replaced by the `sr.` mark. There is
         // no headline on the page either: see `SRPageHeader` for why a large
@@ -457,61 +455,30 @@ struct TodayScreen: View {
         .accessibilityIdentifier("today-health")
     }
 
-    /// Unrated notes: what the tile counts as new. A rated one leaves the
-    /// count a few seconds after the rating saves.
-    private var freshNotes: [DaydreamNote] {
-        daydream.notes.filter(noticed.isShowing)
-    }
-
-    /// What the daydream loop noticed, as a door: the count and the newest
-    /// title. The notes themselves open in their own page, in More.
+    /// Its own view, watching the notes: a rating or a re-read redraws the
+    /// tile, not the whole of Today.
     private var daydreamTile: some View {
-        let fresh = freshNotes
-        let title = fresh.isEmpty ? "All caught up" : fresh.count == 1 ? "1 new note" : "\(fresh.count) new notes"
-        return Button {
+        Button {
             SRHaptic.tap()
             router.openDaydream()
         } label: {
-            TodayTileCard(kicker: "Daydream", title: title, subline: (fresh.first ?? daydream.notes.first)?.title) {
-                TodayTileGlyph(symbol: "sparkles", tone: SR.accentInk, count: fresh.count)
-            }
+            TodayDaydreamTile()
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Daydream, \(title)")
-        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("today-daydream")
     }
 
-    /// An invitation first, then a game in progress, then the shelf.
+    /// Its own view, watching the lobby: the invite poll redraws the tile,
+    /// not the whole of Today.
     private var gamesTile: some View {
-        let invite = games.invites.first
-        let title: String
-        let subline: String?
-        if let invite {
-            title = games.invites.count == 1 ? "1 invitation" : "\(games.invites.count) invitations"
-            subline = "\(invite.hostName) · \(GameNames.title(invite.game))"
-        } else if !games.rooms.isEmpty {
-            title = games.rooms.count == 1 ? "1 in progress" : "\(games.rooms.count) in progress"
-            subline = games.rooms.first.map { GameNames.title($0.game) }
-        } else {
-            title = "Play together"
-            subline = "\(GameKind.allCases.count) quick games"
-        }
-        return Button {
+        Button {
             SRHaptic.tap()
             router.show(.games)
         } label: {
-            TodayTileCard(kicker: "Games", title: title, subline: subline) {
-                TodayTileGlyph(symbol: "gamecontroller.fill", tone: SR.accent, count: games.invites.count)
-            }
+            TodayGamesTile()
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Games, \(title)")
-        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("today-games")
-        .task { if games.lobby == nil { await games.load() } }
     }
 
     private var alertRows: [TodayAlerts.Latest] {

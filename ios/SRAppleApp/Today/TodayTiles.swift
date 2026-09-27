@@ -25,21 +25,38 @@ enum TodayTile: String, CaseIterable, Identifiable {
     }
 }
 
-/// The grid itself. Two columns of squares; one column of rows at the
-/// accessibility text sizes, where a square would clip its own words.
+/// The grid itself: rows of two, one column at the accessibility text sizes,
+/// where a square would clip its own words.
+///
+/// Plain stacks at a fixed (scaled) height, not a lazy grid of aspect-ratio
+/// cells: four tiles never need laziness, and a lazy grid re-negotiating
+/// square cells whenever the safe area moved (the tab bar shrinking on
+/// scroll, even with Today behind another tab) was work for nothing.
 struct TodayTileGrid<Tile: View>: View {
     let tiles: [TodayTile]
     @ViewBuilder let tile: (TodayTile) -> Tile
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// About square on a phone: a 390pt screen less the gutters and the gap
+    /// leaves tiles ~169pt wide.
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 164
 
     var body: some View {
         let folded = typeSize.isAccessibilitySize
-        let columns = Array(repeating: GridItem(.flexible(), spacing: SR.cardGap), count: folded ? 1 : 2)
-        LazyVGrid(columns: columns, spacing: SR.cardGap) {
-            ForEach(tiles) { kind in
-                tile(kind)
-                    .frame(maxWidth: .infinity, minHeight: folded ? 120 : nil)
-                    .aspectRatio(folded ? nil : 1, contentMode: .fit)
+        let rows: [[TodayTile]] = folded
+            ? tiles.map { [$0] }
+            : stride(from: 0, to: tiles.count, by: 2).map { Array(tiles[$0..<min($0 + 2, tiles.count)]) }
+        VStack(spacing: SR.cardGap) {
+            ForEach(rows, id: \.first) { row in
+                HStack(spacing: SR.cardGap) {
+                    ForEach(row) { kind in
+                        tile(kind)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: folded ? nil : side)
+                            .frame(minHeight: folded ? 120 : nil)
+                    }
+                    // A lone tile keeps its half, not the whole row.
+                    if !folded && row.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+                }
             }
         }
     }
@@ -121,6 +138,54 @@ struct TodayAskTile: View {
             .frame(width: 44, height: 44)
             .background(SR.paper.opacity(0.18), in: Circle())
             .accessibilityHidden(true)
+    }
+}
+
+/// What the daydream loop noticed, as a door: how many notes are new and
+/// the newest title. The notes open in their own page, in More.
+struct TodayDaydreamTile: View {
+    @ObservedObject private var store = DaydreamStore.shared
+    @ObservedObject private var feedback = NoticedFeedback.shared
+
+    var body: some View {
+        // Unrated: a rated note leaves the count a few seconds after it saves.
+        let fresh = store.notes.filter(feedback.isShowing)
+        let title = fresh.isEmpty ? "All caught up" : fresh.count == 1 ? "1 new note" : "\(fresh.count) new notes"
+        TodayTileCard(kicker: "Daydream", title: title, subline: (fresh.first ?? store.notes.first)?.title) {
+            TodayTileGlyph(symbol: "sparkles", tone: SR.accentInk, count: fresh.count)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Daydream, \(title)")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Invitations first, then a game in progress, then the shelf.
+struct TodayGamesTile: View {
+    @EnvironmentObject private var games: GamesStore
+
+    var body: some View {
+        let (title, subline) = lines
+        TodayTileCard(kicker: "Games", title: title, subline: subline) {
+            TodayTileGlyph(symbol: "gamecontroller.fill", tone: SR.accent, count: games.invites.count)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Games, \(title)")
+        .accessibilityAddTraits(.isButton)
+        .task { if games.lobby == nil { await games.load() } }
+    }
+
+    private var lines: (String, String?) {
+        if let invite = games.invites.first {
+            let count = games.invites.count
+            return (count == 1 ? "1 invitation" : "\(count) invitations",
+                    "\(invite.hostName) · \(GameNames.title(invite.game))")
+        }
+        if let room = games.rooms.first {
+            let count = games.rooms.count
+            return (count == 1 ? "1 in progress" : "\(count) in progress", GameNames.title(room.game))
+        }
+        return ("Play together", "\(GameKind.allCases.count) quick games")
     }
 }
 
