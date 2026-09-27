@@ -35,7 +35,7 @@ enum TrailSamples {
           "alsoFrom": ["companion"]
         },
         {
-          "id": "strava:1234567",
+          "id": "imported:1234567",
           "name": "Evening ride",
           "activityType": "ride",
           "startDate": "2026-09-20T17:30:00.000Z",
@@ -169,10 +169,10 @@ enum TrailSamples {
         { "id": 903, "activityId": "apple:6F1C2A9E-1B2C-4D5E-8F90-ABCDEF012345", "activityName": "Morning park loop",
           "activityType": "run", "startedAt": "2026-09-22T06:30:00.000Z", "durationS": 252, "paceSPerKm": 276.9,
           "avgHeartrate": 161, "efficiencyFactor": 1.41, "isBest": false },
-        { "id": 811, "activityId": "strava:998877", "activityName": "Tempo Tuesday",
+        { "id": 811, "activityId": "imported:998877", "activityName": "Tempo Tuesday",
           "activityType": "run", "startedAt": "2026-08-12T17:05:00.000Z", "durationS": 246, "paceSPerKm": 270.3,
           "avgHeartrate": 166, "efficiencyFactor": null, "isBest": true },
-        { "id": 702, "activityId": "strava:887766", "activityName": "Long run",
+        { "id": 702, "activityId": "imported:887766", "activityName": "Long run",
           "activityType": "run", "startedAt": "2026-06-30T08:10:00.000Z", "durationS": 270, "paceSPerKm": 296.7,
           "avgHeartrate": 152, "efficiencyFactor": 1.33, "isBest": false }
       ]
@@ -380,8 +380,8 @@ final class ActivityOriginTests: XCTestCase {
         let ride = page.activities[1]
         XCTAssertNil(ride.source)
         XCTAssertEqual(ride.alsoFrom, [])
-        XCTAssertEqual(ride.origin, "strava", "an older server sent no source; the id prefix says it")
-        XCTAssertEqual(ride.originLine, "Strava")
+        XCTAssertEqual(ride.origin, "imported", "an older server sent no source; the id prefix says it")
+        XCTAssertEqual(ride.originLine, "Imported")
 
         let bare = try row("", id: "no-prefix")
         XCTAssertNil(bare.source)
@@ -412,7 +412,7 @@ final class ActivityOriginTests: XCTestCase {
         XCTAssertEqual(ActivityOrigin.label("apple"), "Apple Health")
         XCTAssertEqual(ActivityOrigin.label("companion"), "SR app")
         XCTAssertEqual(ActivityOrigin.label("recorded"), "Site recorder")
-        XCTAssertEqual(ActivityOrigin.label("strava"), "Strava")
+        XCTAssertEqual(ActivityOrigin.label("imported"), "Imported")
         XCTAssertEqual(ActivityOrigin.label("whoop"), "WHOOP")
         XCTAssertEqual(ActivityOrigin.label("manual"), "Manual")
         XCTAssertEqual(ActivityOrigin.label("Companion"), "SR app")
@@ -425,7 +425,7 @@ final class ActivityOriginTests: XCTestCase {
 
     func testTheKeyFallsBackToTheIdPrefix() {
         XCTAssertEqual(ActivityOrigin.key(nil, id: "companion:1727000000"), "companion")
-        XCTAssertEqual(ActivityOrigin.key("", id: "strava:1"), "strava")
+        XCTAssertEqual(ActivityOrigin.key("", id: "imported:1"), "imported")
         XCTAssertEqual(ActivityOrigin.key("whoop", id: "apple:X"), "whoop", "an explicit source wins over the id")
         XCTAssertEqual(ActivityOrigin.key(nil, id: "plain"), "")
     }

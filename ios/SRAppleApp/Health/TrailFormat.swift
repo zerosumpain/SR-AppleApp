@@ -194,7 +194,7 @@ enum Sport {
 /// The server sends `source`; an older server did not send it on list rows, so
 /// the id's prefix (`apple:…`, `companion:…`) stands in when it is missing.
 enum ActivityOrigin {
-    /// A normalised source key: `apple`, `companion`, `recorded`, `strava`,
+    /// A normalised source key: `apple`, `companion`, `recorded`, `imported`,
     /// `whoop`, `manual`, or whatever unknown key arrived, lowercased.
     static func key(_ source: String?, id: String = "") -> String {
         let trimmed = source?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -218,7 +218,7 @@ enum ActivityOrigin {
         case "apple": return "Apple Health"
         case "companion": return "SR app"
         case "recorded": return "Site recorder"
-        case "strava": return "Strava"
+        case "imported": return "Imported"
         case "whoop": return "WHOOP"
         case "manual": return "Manual"
         case "": return ""
@@ -231,7 +231,7 @@ enum ActivityOrigin {
         case "apple": return "heart.fill"
         case "companion": return "location.fill"
         case "recorded": return "record.circle"
-        case "strava": return "arrow.triangle.2.circlepath"
+        case "imported": return "arrow.triangle.2.circlepath"
         case "whoop": return "waveform.path.ecg"
         case "manual": return "pencil"
         default: return "tray.and.arrow.down"
@@ -244,7 +244,7 @@ enum ActivityOrigin {
         case "apple": return "Recorded as a workout by the Watch or phone and sent to the site through Apple Health."
         case "companion": return "Captured in the background by the SR app's movement tracking — no workout was started. The type is inferred from speed, there is no elevation, and the app keeps location for 30 days."
         case "recorded": return "Recorded live with the site's own recorder."
-        case "strava": return "Synced from Strava."
+        case "imported": return "Imported activity history."
         case "whoop": return "Recorded by WHOOP and synced to the site."
         case "manual": return "Entered by hand, so there is no track behind it."
         case "": return nil

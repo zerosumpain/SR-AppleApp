@@ -390,7 +390,7 @@ enum SRDemoFixtures {
         /// Origins whose copy of this outing the server folded into this row.
         var alsoFrom: [String] = []
 
-        /// `apple`, `strava`, `companion` — the id's own prefix.
+        /// `apple`, `imported`, `companion` — the id's own prefix.
         var source: String { String(id.split(separator: ":").first ?? "apple") }
         /// Captured by the app from location: no workout, so no elevation or
         /// heart rate, and a type guessed from speed.
@@ -408,7 +408,7 @@ enum SRDemoFixtures {
                      minutesAgo: 60 * 19, distanceM: 2410, durationS: 1935, movingS: nil, gainM: nil,
                      avgHR: nil, pace: 803, kcal: nil, hasTrack: true, segmentCount: 0,
                      highlightLabel: nil, highlightDetail: nil),
-        DemoActivity(id: "strava:1234567", name: "Evening ride", type: "ride",
+        DemoActivity(id: "imported:1234567", name: "Evening ride", type: "ride",
                      minutesAgo: 60 * 27, distanceM: 32180, durationS: 4210, movingS: 4050, gainM: 310,
                      avgHR: 138, pace: 125.9, kcal: 820, hasTrack: true, segmentCount: 2,
                      highlightLabel: nil, highlightDetail: nil),
@@ -420,7 +420,7 @@ enum SRDemoFixtures {
                      minutesAgo: 60 * 76, distanceM: 3120, durationS: 2280, movingS: 2200, gainM: 12,
                      avgHR: 96, pace: 705, kcal: 180, hasTrack: true, segmentCount: 0,
                      highlightLabel: nil, highlightDetail: nil, alsoFrom: ["companion"]),
-        DemoActivity(id: "strava:1234512", name: "Long run", type: "run",
+        DemoActivity(id: "imported:1234512", name: "Long run", type: "run",
                      minutesAgo: 60 * 24 * 5 + 180, distanceM: 16104, durationS: 5820, movingS: 5710, gainM: 142,
                      avgHR: 151, pace: 354.6, kcal: 1130, hasTrack: true, segmentCount: 4,
                      highlightLabel: "Longest this month", highlightDetail: "16.1 km, the furthest since May"),
@@ -432,7 +432,7 @@ enum SRDemoFixtures {
                      minutesAgo: 60 * 24 * 8, distanceM: 5020, durationS: 1830, movingS: 1790, gainM: 31,
                      avgHR: 139, pace: 356.6, kcal: 350, hasTrack: true, segmentCount: 2,
                      highlightLabel: nil, highlightDetail: nil),
-        DemoActivity(id: "strava:1234498", name: "Hill repeats", type: "run",
+        DemoActivity(id: "imported:1234498", name: "Hill repeats", type: "run",
                      minutesAgo: 60 * 24 * 10 + 240, distanceM: 8210, durationS: 3050, movingS: 2890, gainM: 204,
                      avgHR: 157, pace: 352, kcal: 640, hasTrack: true, segmentCount: 3,
                      highlightLabel: "3rd best", highlightDetail: "kestrel.moss.rise, 2:58"),

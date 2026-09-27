@@ -21,7 +21,7 @@ struct ActivitiesScreen: View {
                     SREmpty(
                         title: "No activities yet",
                         icon: "figure.walk",
-                        message: "Workouts appear here once Apple Health or Strava has sent them to the site."
+                        message: "Workouts appear here once Apple Health has sent them to the site."
                     )
                     .srBareRow()
                 } else {

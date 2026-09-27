@@ -41,9 +41,9 @@ final class ConnectionsTests: XCTestCase {
     }
 
     func testAnUnknownStatusStillNeedsYou() throws {
-        let one = try decode(ConnectionItem.self, #"{"id": "x", "label": "Strava", "status": "quantum-flux", "detail": ""}"#)
+        let one = try decode(ConnectionItem.self, #"{"id": "x", "label": "Calendar", "status": "quantum-flux", "detail": ""}"#)
         XCTAssertEqual(one.state, .other("quantum-flux"))
-        XCTAssertEqual(one.headline, "Strava needs you")
+        XCTAssertEqual(one.headline, "Calendar needs you")
         XCTAssertEqual(one.subline, "Open the site to reconnect it.", "an empty detail falls back rather than showing nothing")
     }
 
