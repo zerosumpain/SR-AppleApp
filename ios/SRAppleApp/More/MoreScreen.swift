@@ -21,8 +21,6 @@ struct MoreScreen: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: "Everything else", title: "More")
-
                 if places.contains(.games) { waiting }
 
                 VStack(alignment: .leading, spacing: SR.cardGap) {

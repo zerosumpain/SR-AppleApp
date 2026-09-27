@@ -113,12 +113,12 @@ final class AccessTests: XCTestCase {
     // MARK: - Tabs
 
     func testTheOwnerHasEverySevenTabsInOrder() {
-        XCTAssertEqual(AccessPolicy.tabs(for: .everything), [.today, .chat, .health, .family, .games, .news, .flows])
+        XCTAssertEqual(AccessPolicy.tabs(for: .everything), [.today, .family, .games, .chat, .health, .news, .flows])
     }
 
     func testGamesSitsRightAfterFamilyForAMember() {
         // Four tabs: on the bar, no More.
-        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(family: true, games: true)), [.today, .health, .family, .games])
+        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(family: true, games: true)), [.today, .family, .games, .health])
         XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(games: true)), [.today, .health, .games])
     }
 
@@ -133,7 +133,7 @@ final class AccessTests: XCTestCase {
     }
 
     func testAFamilyOnlyMemberHasNoChatNewsOrFlows() {
-        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(family: true)), [.today, .health, .family])
+        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(family: true)), [.today, .family, .health])
     }
 
     func testFlowsAreTheOwnersEvenWithEveryOtherFlag() {
@@ -144,7 +144,7 @@ final class AccessTests: XCTestCase {
 
     func testTheOwnersOverflowSitsInTheAppsOwnMore() {
         XCTAssertEqual(AccessPolicy.inMore(for: .everything), [.games, .news, .flows])
-        XCTAssertEqual(AccessPolicy.bar(for: .everything), [.today, .chat, .health, .family, .more])
+        XCTAssertEqual(AccessPolicy.bar(for: .everything), [.today, .family, .chat, .health, .more])
         XCTAssertTrue(AccessPolicy.allows(.more, .everything))
     }
 
@@ -159,7 +159,7 @@ final class AccessTests: XCTestCase {
     func testTheBarNeverHoldsMoreThanFive() {
         let all = AppAccess(chat: true, news: true, family: true, games: true)
         XCTAssertEqual(AccessPolicy.tabs(for: all).count, 6)
-        XCTAssertEqual(AccessPolicy.bar(for: all), [.today, .chat, .health, .family, .more])
+        XCTAssertEqual(AccessPolicy.bar(for: all), [.today, .family, .chat, .health, .more])
         XCTAssertEqual(AccessPolicy.inMore(for: all), [.games, .news])
     }
 

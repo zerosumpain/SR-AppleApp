@@ -141,88 +141,106 @@ struct TodayVital: Equatable, Identifiable {
     }
 }
 
-// MARK: - The card
+// MARK: - The row
 
-/// Three small rings in one card: the day's answer, not the reasoning. The
-/// Health tab, one tap away, has the rest.
-struct TodayVitalsCard: View {
+/// The body, as one row of Today's "Up next": three nested rings and the
+/// readiness verdict. The Health tab, one tap away, has the reasoning.
+///
+/// It was a card of three rings at the top of the screen. Today leads with the
+/// family now, and a glance at the body needs one line, not a third of the
+/// first screen — the rings stay, nested the way the Watch draws them, small
+/// enough to sit where a row's icon goes.
+struct TodayHealthRow: View {
     let vitals: [TodayVital]
-    var updated: String? = nil
     var isMock = false
 
+    private var readiness: TodayVital? { vitals.first { $0.key == "readiness" } }
+    private var others: [TodayVital] { vitals.filter { $0.key != "readiness" } }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "Health · today", trailing: updated)
-                .padding(.horizontal, 4)
-            SRCard(interactive: true) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 8) {
-                        ForEach(vitals) { vital in
-                            VitalColumn(vital: vital, tint: tint(vital.key))
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    if isMock {
-                        Text("Demonstration figures, not a measurement.")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                            .frame(maxWidth: .infinity)
-                    }
+        HStack(spacing: 14) {
+            TodayRings(vitals: vitals)
+                .frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                // Figure and verdict as separate texts: the verdict is a word
+                // the screen can be found by ("Primed"), and it wraps under the
+                // figure at a large text size rather than truncating it.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) { headline }
+                    VStack(alignment: .leading, spacing: 0) { headline }
                 }
+                Text(isMock ? "Demonstration figures, not a measurement." : subline)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SR.inkGhost)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, SR.rowPadding)
+        .frame(minHeight: SR.tapTarget)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(vitals.map(\.spoken).joined(separator: ". "))
+    }
+
+    @ViewBuilder
+    private var headline: some View {
+        Text(readiness.map { "Readiness \($0.value)" } ?? "Readiness")
+            .font(SR.Text.title())
+            .foregroundStyle(SR.ink)
+        if let caption = readiness?.caption {
+            Text(caption)
+                .font(SR.Text.title())
+                .foregroundStyle(SR.inkSecondary)
         }
     }
 
-    private func tint(_ key: String) -> Color {
-        switch key {
-        case "move": return SR.accent
-        case "recovery": return SR.good
-        default: return SR.warn
-        }
+    /// "Move 76% · Recovery 68%".
+    private var subline: String {
+        others.map { "\($0.label) \($0.value)" }.joined(separator: " · ")
     }
 }
 
-private struct VitalColumn: View {
-    let vital: TodayVital
-    let tint: Color
-    @ScaledMetric(relativeTo: .body) private var ring: CGFloat = 52
+/// Move, Recovery and Readiness as three concentric rings, outermost first.
+/// A number with no reading draws its track and no arc.
+struct TodayRings: View {
+    let vitals: [TodayVital]
+
+    static func tint(_ key: String) -> Color {
+        switch key {
+        case "move": return SR.accent
+        case "recovery": return SR.good
+        default: return SR.accentInk
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 6) {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            let line = max(3, side * 0.11)
             ZStack {
-                Circle()
-                    .stroke(tint.opacity(0.16), lineWidth: 5)
-                if let fraction = vital.fraction {
-                    Circle()
-                        .trim(from: 0, to: max(0, min(1, fraction)))
-                        .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
+                ForEach(Array(vitals.enumerated()), id: \.element.id) { index, vital in
+                    let inset = CGFloat(index) * (line + 1.5)
+                    let tint = Self.tint(vital.key)
+                    ZStack {
+                        Circle().stroke(tint.opacity(0.16), lineWidth: line)
+                        if let fraction = vital.fraction {
+                            Circle()
+                                .trim(from: 0, to: max(0, min(1, fraction)))
+                                .stroke(tint, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                        }
+                    }
+                    .padding(inset + line / 2)
                 }
-                Text(vital.value)
-                    .font(SR.Text.figure(16))
-                    .foregroundStyle(vital.fraction == nil ? SR.inkMuted : SR.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .padding(7)
             }
-            .frame(width: ring, height: ring)
-            .animation(.easeInOut(duration: 0.4), value: vital.fraction)
-
-            Text(vital.label.uppercased())
-                .font(SR.Text.label())
-                .tracking(1)
-                .foregroundStyle(SR.inkMuted)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            if let caption = vital.caption {
-                Text(caption)
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
+            .frame(width: side, height: side)
+            .animation(.easeInOut(duration: 0.4), value: vitals)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(vital.spoken)
+        .accessibilityHidden(true)
     }
 }

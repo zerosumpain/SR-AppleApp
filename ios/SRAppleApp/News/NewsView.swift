@@ -22,9 +22,6 @@ struct NewsScreen: View {
         // the gutter pointing at nothing.
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                SRPageHeader(kicker: "The desk", title: "On the wire")
-                    .padding(.horizontal, SR.gutter)
-                    .padding(.top, 4)
                 viewPicker
                 Text(strap)
                     .font(SR.Text.mono())

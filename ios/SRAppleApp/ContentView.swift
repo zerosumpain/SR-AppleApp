@@ -219,6 +219,32 @@ struct ContentView: View {
 
             // Only the tabs this person may open are BUILT: a feature somebody
             // lacks is not a greyed-out tab or an explanation, it is not there.
+            //
+            // Where everyone is, straight after Today, which leads with it. Over
+            // the COMPANION pairing, which every phone in the family has — so,
+            // unlike Chat or News, not behind `paired`. The bar's order is
+            // `AccessPolicy.tabs`; this follows it.
+            if access.allows(.family) {
+                NavigationStack(path: $router.family) {
+                    FamilyScreen(store: family, companion: companion)
+                        .srConnectionsBanner(connections) { router.openConnections() }
+                }
+                .tabItem { Label("Family", systemImage: "person.2.wave.2") }
+                .tag(Router.Tab.family)
+            }
+
+            // Games, News and Flows: each its own tab while the bar has room,
+            // otherwise all three behind our own More (see `AccessPolicy.inMore`).
+            // Games straight after Family, so a member given both sees them together.
+            if access.allows(.games) && !router.inMore(.games) {
+                NavigationStack(path: $router.games) {
+                    place(.games).placeDestinations()
+                }
+                .tabItem { Label("Games", systemImage: "gamecontroller") }
+                .badge(games.invites.count)
+                .tag(Router.Tab.games)
+            }
+
             if access.allows(.chat) {
                 NavigationStack(path: $router.chat) {
                     paired(what: "your threads") { ThreadListScreen() }
@@ -234,29 +260,6 @@ struct ContentView: View {
             }
             .tabItem { Label("Health", systemImage: "heart.text.square") }
             .tag(Router.Tab.health)
-
-            // Where everyone is. Over the COMPANION pairing, which every phone
-            // in the family has — so, unlike Chat or News, not behind `paired`.
-            if access.allows(.family) {
-                NavigationStack(path: $router.family) {
-                    FamilyScreen(store: family, companion: companion)
-                        .srConnectionsBanner(connections) { router.openConnections() }
-                }
-                .tabItem { Label("Family", systemImage: "person.2.wave.2") }
-                .tag(Router.Tab.family)
-            }
-
-            // Games, News and Flows: each its own tab while the bar has room,
-            // otherwise all three behind our own More (see `AccessPolicy.inMore`).
-            // Games straight after Family, so a member given both sees it on the bar.
-            if access.allows(.games) && !router.inMore(.games) {
-                NavigationStack(path: $router.games) {
-                    place(.games).placeDestinations()
-                }
-                .tabItem { Label("Games", systemImage: "gamecontroller") }
-                .badge(games.invites.count)
-                .tag(Router.Tab.games)
-            }
 
             if access.allows(.news) && !router.inMore(.news) {
                 NavigationStack(path: $router.news) {
@@ -289,7 +292,9 @@ struct ContentView: View {
                 .tag(Router.Tab.more)
             }
         }
-        .tint(SR.accent)
+        // The deeper accent: the selected tab's label is 10-point text on
+        // glass, where `SR.accent` measures 3.5:1 and this holds 4.8:1.
+        .tint(SR.accentDeep)
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
         // comes back when you scroll up — the content gets the screen.
         .srTabBarMinimizes()

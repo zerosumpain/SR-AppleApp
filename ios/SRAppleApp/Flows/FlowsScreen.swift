@@ -16,11 +16,6 @@ struct FlowsScreen: View {
 
     var body: some View {
         List {
-            if store.query.isEmpty {
-                SRPageHeader(kicker: "Workflows", title: "Flows")
-                    .srBareRow()
-            }
-
             if !store.building.isEmpty {
                 Section {
                     ForEach(store.building) { build in

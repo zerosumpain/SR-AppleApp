@@ -163,66 +163,57 @@ struct TodayScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                SRPageHeader(kicker: dateLine, title: greeting)
-                    .padding(.horizontal, SR.gutter)
-                    .padding(.top, 4)
-
-                if ownerSite {
-                    vitalsCard
-                        .padding(.horizontal, SR.gutter)
-                }
-
-                // Where everyone is, in words: who is moving and where, then
-                // the rest in a line, one tap from the Family tab. Over the
-                // companion pairing, so a family member without the site's
-                // sees it too — if the owner gave them the family. Draws
+            // No page title. The tab bar already says this is Today and the
+            // bar carries the date, so the first thing under the bar is the
+            // thing the app is opened for: where everyone is.
+            VStack(alignment: .leading, spacing: 24) {
+                // Over the companion pairing, so a family member without the
+                // site's sees it too — if the owner gave them the family. Draws
                 // nothing until there is somebody to show.
                 if access.current.family {
-                    FamilySummary(store: family) {
+                    TodayFamilyCard(store: family) {
                         router.show(.family)
                     }
-                    .padding(.horizontal, SR.gutter)
                 }
 
-                // What the daydream loop noticed, straight under the body's
-                // numbers: the notes are the part of Today that is an opinion.
-                // A rated note leaves a few seconds after the rating saves.
-                if ownerSite, !visibleNotes.isEmpty {
-                    NoticedCard(notes: visibleNotes)
-                        .padding(.horizontal, SR.gutter)
-                }
-
-                VStack(alignment: .leading, spacing: 22) {
-                    if access.current.owner && !site.paired {
-                        // The owner's QR. A member's phone pairs itself, and a
-                        // member with neither chat nor news has nothing to pair.
-                        connectCard
-                    } else if !companion.paired && !access.current.owner {
-                        // Nobody knows who this is yet: the companion is where
-                        // that answer comes from.
-                        companionCard
-                    } else {
-                        if access.current.chat && site.paired { askField }
-                        if access.current.owner {
-                            alertsCard
-                            if flows.loaded { flowsCard }
-                        }
-                        if access.current.news, let news = store.payload?.news, !news.stories.isEmpty { newsCard(news) }
-                        quickActions
+                if access.current.owner && !site.paired {
+                    // The owner's QR. A member's phone pairs itself, and a
+                    // member with neither chat nor news has nothing to pair.
+                    connectCard
+                } else if !companion.paired && !access.current.owner {
+                    // Nobody knows who this is yet: the companion is where
+                    // that answer comes from.
+                    companionCard
+                } else {
+                    // The one prominent action on the screen.
+                    if access.current.chat && site.paired { askField }
+                    // Everything else the owner is owed, as one list, below
+                    // the fold on a phone: the body, the inbox, the workflows.
+                    if access.current.owner { upNext }
+                    if access.current.news, let news = store.payload?.news, let story = news.stories.first {
+                        newsCard(news, story: story)
                     }
-                    syncFooter
+                    // What the daydream loop noticed: the part of Today that is
+                    // an opinion. A rated note leaves a few seconds after the
+                    // rating saves.
+                    if ownerSite, !visibleNotes.isEmpty {
+                        NoticedCard(notes: visibleNotes)
+                    }
+                    syncAction
                 }
-                .padding(.horizontal, SR.gutter)
-                .padding(.bottom, 28)
+                syncFooter
             }
+            .padding(.horizontal, SR.gutter)
+            .padding(.top, 4)
+            .padding(.bottom, 28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .srGround(.warm)
         .navigationTitle("Today")
-        // Inline, and the title itself is replaced by the `sr.` mark: the page
-        // carries the headline (see `SRPageHeader` for why a large title is not
-        // an option on this OS with a custom face).
+        // Inline, and the title itself is replaced by the `sr.` mark. There is
+        // no headline on the page either: see `SRPageHeader` for why a large
+        // title is not an option on this OS with a custom face, and the body
+        // above for why the page does not need one.
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
             move.start()
@@ -234,6 +225,16 @@ struct TodayScreen: View {
             if companion.paired { await companion.sync() }
         }
         .toolbar {
+            // The date, where the page title used to carry it.
+            ToolbarItem(placement: .topBarLeading) {
+                Text(dateLine.uppercased())
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.inkSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .accessibilityLabel(fullDate)
+            }
             ToolbarItem(placement: .principal) { SRBarMark() }
             // The bell is the site's inbox, which is the owner's.
             if access.current.owner {
@@ -308,19 +309,15 @@ struct TodayScreen: View {
 
     // MARK: - Header
 
+    /// "SUN 27 SEP" in the bar: short enough to sit beside the mark and the
+    /// two buttons at any width a phone has.
     private var dateLine: String {
-        Date().formatted(.dateTime.weekday(.wide).day().month(.wide))
+        Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 
-    /// A time of day rather than a tab name — the tab bar already says where
-    /// you are, so the page can say something.
-    private var greeting: String {
-        switch Calendar.current.component(.hour, from: Date()) {
-        case 5..<12: return "Morning."
-        case 12..<18: return "Afternoon."
-        case 18..<23: return "Evening."
-        default: return "Late one."
-        }
+    /// What VoiceOver says for it: "Sunday 27 September".
+    private var fullDate: String {
+        Date().formatted(.dateTime.weekday(.wide).day().month(.wide))
     }
 
     // MARK: - Cards
@@ -375,17 +372,16 @@ struct TodayScreen: View {
         }
     }
 
-    /// Move, Recovery and Readiness as three small rings. The whole card is
-    /// one tap into the Health tab, which has the reasoning behind them.
-    private var vitalsCard: some View {
+    /// The body, as the first row of Up next. One tap into the Health tab,
+    /// which has the reasoning behind the numbers.
+    private var healthRow: some View {
         let health = store.payload?.health
         return Button {
             SRHaptic.tap()
             router.show(.health)
         } label: {
-            TodayVitalsCard(
+            TodayHealthRow(
                 vitals: TodayVital.make(health: health, move: move.reading),
-                updated: health.flatMap { updatedLine($0.generatedAt) },
                 isMock: health?.isMock ?? false
             )
         }
@@ -398,36 +394,32 @@ struct TodayScreen: View {
         (store.payload?.daydream?.notes ?? []).filter(noticed.isShowing)
     }
 
-    private func updatedLine(_ iso: String) -> String? {
-        let ago = shortAgo(iso)
-        return ago.isEmpty ? nil : "\(ago) ago"
-    }
-
     /// A field that is really a button: tap it and a new thread opens with the
-    /// keyboard up. The shape is the composer's, so the thumb learns it once.
+    /// keyboard up. The one filled control on Today — the screen's primary
+    /// action — so it takes the accent, one step deeper so the cream label
+    /// holds 5:1 on it.
     private var askField: some View {
         Button {
             SRHaptic.tap()
             router.ask("")
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(SR.accent)
-                Text("Ask jkai anything…")
-                    .font(SR.Text.body())
-                    .foregroundStyle(SR.inkMuted)
+                Image(systemName: "bubble.left")
+                    .font(.system(size: 17, weight: .semibold))
+                Text("Ask jkai anything")
+                    .font(SR.Text.bodyMedium(17))
                 Spacer(minLength: 8)
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(SR.paper)
-                    .frame(width: 34, height: 34)
-                    .background(SR.accent, in: Circle())
+                Image(systemName: "mic")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(SR.paper.opacity(0.18), in: Circle())
+                    .accessibilityHidden(true)
             }
-            .padding(.leading, 18)
-            .padding(.trailing, 7)
-            .frame(minHeight: 50)
-            .srGlass(.paper, in: Capsule(), interactive: true)
+            .foregroundStyle(SR.paper)
+            .padding(.leading, 20)
+            .padding(.trailing, 8)
+            .frame(minHeight: 56)
+            .background(SR.accentDeep, in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -443,22 +435,24 @@ struct TodayScreen: View {
         )
     }
 
-    /// The newest few alerts. A tap on a row opens it in full; the cross takes
-    /// it off Today. The bell in the bar is the way into the inbox.
-    /// Clearing is Today's alone — the Alerts screen keeps everything.
-    private var alertsCard: some View {
+    /// Up next: the body, the newest few alerts and the workflows, as ONE
+    /// grouped list rather than a card each. A tap on an alert opens it in
+    /// full; the cross takes it off Today. The bell in the bar is the way into
+    /// the inbox. Clearing is Today's alone — the Alerts screen keeps
+    /// everything.
+    private var upNext: some View {
         let rows = alertRows
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 SRSectionLabel(
-                    text: "Alerts",
+                    text: "Up next",
                     trailing: alerts.unread > 0 ? "\(alerts.unread) unread" : nil
                 )
                 if !rows.isEmpty {
                     Button {
                         SRHaptic.select()
                         // Everything the phone knows of, not just the rows on
-                        // show — otherwise the next three slide up and the card
+                        // show — otherwise the next three slide up and the list
                         // looks as if the clear did not take.
                         let ids = (store.payload?.alerts?.latest.map(\.id) ?? []) + alerts.recent.map(\.id)
                         withAnimation(.snappy) { alerts.clearFromToday(ids) }
@@ -469,7 +463,7 @@ struct TodayScreen: View {
                         Text("CLEAR ALL")
                             .font(SR.Text.label())
                             .tracking(1.2)
-                            .foregroundStyle(SR.accent)
+                            .foregroundStyle(SR.accentDeep)
                             .padding(.vertical, 6)
                             .contentShape(Rectangle())
                     }
@@ -480,30 +474,55 @@ struct TodayScreen: View {
             }
             .padding(.horizontal, 4)
 
-            SRCard {
+            VStack(alignment: .leading, spacing: 0) {
+                if ownerSite {
+                    healthRow
+                    rowDivider
+                }
                 if rows.isEmpty {
-                    HStack(spacing: 10) {
-                        Image(systemName: "bell.slash")
-                            .foregroundStyle(SR.inkMuted)
+                    HStack(spacing: 14) {
+                        rowIcon("bell.slash", tone: SR.inkMuted)
                         Text("Nothing to report.")
                             .font(SR.Text.secondary())
                             .foregroundStyle(SR.inkMuted)
                         Spacer()
                     }
+                    .padding(.vertical, SR.rowPadding)
+                    .frame(minHeight: SR.tapTarget)
                     .accessibilityElement(children: .combine)
                 } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(rows) { row in
-                            alertRow(row)
-                                .transition(.asymmetric(
-                                    insertion: .opacity,
-                                    removal: .opacity.combined(with: .move(edge: .trailing))
-                                ))
-                        }
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { rowDivider }
+                        alertRow(row)
+                            .transition(.asymmetric(
+                                insertion: .opacity,
+                                removal: .opacity.combined(with: .move(edge: .trailing))
+                            ))
                     }
                 }
+                if flows.loaded {
+                    rowDivider
+                    flowsRow
+                }
             }
+            .padding(.horizontal, SR.cardPadding)
+            .srGlassCard(.paper)
         }
+    }
+
+    /// Between two rows of Up next, starting where the text does.
+    private var rowDivider: some View {
+        Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 48)
+    }
+
+    /// The glyph at a row's leading edge, on a soft square of its own tone.
+    private func rowIcon(_ symbol: String, tone: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(tone)
+            .frame(width: 34, height: 34)
+            .background(tone.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityHidden(true)
     }
 
     /// The whole alert, from the inbox the phone holds when it has it — Today's
@@ -514,25 +533,26 @@ struct TodayScreen: View {
     }
 
     private func alertRow(_ row: TodayAlerts.Latest) -> some View {
-        HStack(alignment: .top, spacing: 4) {
+        let severe = row.severity == "alert" || row.severity == "high"
+        let tone = severe ? SR.error : row.severity == "warn" ? SR.warn : SR.accentInk
+        return HStack(alignment: .center, spacing: 4) {
             Button { open(row) } label: {
-                HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(row.severity == "alert" || row.severity == "high" ? SR.error : row.severity == "warn" ? SR.warn : SR.inkGhost)
-                        .frame(width: 7, height: 7)
-                        .padding(.top, 6)
-                    Text(row.title)
-                        .font(SR.Text.secondary(15))
-                        .foregroundStyle(SR.ink)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                HStack(alignment: .center, spacing: 14) {
+                    rowIcon(severe ? "exclamationmark.triangle" : "bell", tone: tone)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.title)
+                            .font(SR.Text.title())
+                            .foregroundStyle(SR.ink)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Text(alertLine(row))
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
+                    }
                     Spacer(minLength: 6)
-                    Text(shortAgo(row.createdAt))
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                        .padding(.top, 2)
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, SR.rowPadding)
+                .frame(minHeight: SR.tapTarget)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -551,7 +571,7 @@ struct TodayScreen: View {
                     .foregroundStyle(SR.inkMuted)
                     // The mark is small so the row stays a row; the target
                     // round it is not.
-                    .frame(width: 40, height: 32)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -561,124 +581,112 @@ struct TodayScreen: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// The workflows as three numbers: how many are working, how many are
-    /// not, and which one runs next and when. One tap to the Flows tab.
-    private var flowsCard: some View {
+    /// "Alert · 12m ago" — or the category alone for one with no time.
+    private func alertLine(_ row: TodayAlerts.Latest) -> String {
+        let kind: String = row.category.isEmpty ? "Alert" : row.category.prefix(1).uppercased() + String(row.category.dropFirst())
+        let ago = shortAgo(row.createdAt)
+        return ago.isEmpty ? kind : "\(kind) · \(ago) ago"
+    }
+
+    /// The workflows in one row: what runs next, and how many are working.
+    /// One tap to the Flows tab.
+    private var flowsRow: some View {
         let stats = flows.stats(now: Date())
-        return VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "Workflows")
-                .padding(.horizontal, 4)
-            Button {
-                SRHaptic.tap()
-                router.show(.flows)
-            } label: {
-                SRCard(interactive: true) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .top, spacing: 12) {
-                            flowNumber(stats.working, label: "Working", tone: SR.good)
-                            flowNumber(stats.failing, label: "Not working", tone: stats.failing > 0 ? SR.error : SR.inkMuted)
-                        }
-                        Rectangle().fill(SR.divider).frame(height: 1)
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Image(systemName: "clock")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(SR.accent)
-                            if let next = stats.next {
-                                Text("Next: \(next.title)")
-                                    .font(SR.Text.secondary(15))
-                                    .foregroundStyle(SR.ink)
-                                    .lineLimit(1)
-                                Spacer(minLength: 6)
-                                Text("@ \(FlowStats.when(next.at, now: Date()))")
-                                    .font(SR.Text.mono())
-                                    .foregroundStyle(SR.inkMuted)
-                                    .fixedSize()
-                            } else {
-                                Text("Nothing scheduled")
-                                    .font(SR.Text.secondary(15))
-                                    .foregroundStyle(SR.inkMuted)
-                                Spacer(minLength: 0)
-                            }
-                        }
+        let health: String = stats.failing > 0
+            ? "\(stats.working) working, \(stats.failing) not"
+            : "\(stats.working) working"
+        // "Next at 07:00 · 5 working, 1 not".
+        let next: String? = stats.next.map { "Next at \(FlowStats.when($0.at, now: Date()))" }
+        let subline: String = [next, health].compactMap { $0 }.joined(separator: " · ")
+        return Button {
+            SRHaptic.tap()
+            router.show(.flows)
+        } label: {
+            HStack(spacing: 14) {
+                rowIcon("point.3.connected.trianglepath.dotted", tone: stats.failing > 0 ? SR.error : SR.good)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(stats.next?.title ?? "Nothing scheduled")
+                        .font(SR.Text.title())
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Text(subline)
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SR.inkGhost)
+                    .accessibilityHidden(true)
+            }
+            .padding(.vertical, SR.rowPadding)
+            .frame(minHeight: SR.tapTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("today-flows")
+    }
+
+    /// The wire's top story, not a list: the News tab has the rest, and "5
+    /// new" beside the heading is the way there.
+    private func newsCard(_ news: TodayNews, story: TodayNews.Story) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                SRSectionLabel(text: "On the wire")
+                if news.unseen > 0 {
+                    Button {
+                        SRHaptic.tap()
+                        router.show(.news)
+                    } label: {
+                        Text("\(news.unseen) new")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.accentInk)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(news.unseen) new stories")
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("today-flows")
-        }
-    }
-
-    private func flowNumber(_ count: Int, label: String, tone: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(count)")
-                .font(SR.Text.figure(28))
-                .foregroundStyle(tone)
-            Text(label.uppercased())
-                .font(SR.Text.label())
-                .tracking(1.2)
-                .foregroundStyle(SR.inkMuted)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func newsCard(_ news: TodayNews) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "On the wire", trailing: news.unseen > 0 ? "\(news.unseen) new" : nil)
-                .padding(.horizontal, 4)
+            .padding(.horizontal, 4)
             Button {
                 SRHaptic.tap()
                 router.show(.news)
             } label: {
                 SRCard(interactive: true) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(news.stories.enumerated()), id: \.element.id) { index, story in
-                            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                // The ranked-moves numeral, kept: a position is
-                                // the one thing a wire has that a feed does not.
-                                Text("\(index + 1)")
-                                    .font(SR.Text.display(20))
-                                    .foregroundStyle(SR.accent)
-                                    .frame(width: 22, alignment: .leading)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(story.title)
-                                        .font(SR.Text.secondary(15))
-                                        .foregroundStyle(SR.ink)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                    Text(story.sourceLabel.uppercased())
-                                        .font(SR.Text.mono())
-                                        .tracking(1)
-                                        .foregroundStyle(SR.inkMuted)
-                                }
-                            }
-                            .padding(.vertical, 10)
-                            if index < news.stories.count - 1 {
-                                Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 34)
-                            }
-                        }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(story.sourceLabel.uppercased())
+                            .font(SR.Text.label())
+                            .tracking(1)
+                            .foregroundStyle(SR.inkMuted)
+                        Text(story.title)
+                            .font(SR.Text.display(20))
+                            .foregroundStyle(SR.ink)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("today-news")
         }
     }
 
-    private var quickActions: some View {
-        SRGlassGroup(spacing: SR.cardGap) {
-            HStack(spacing: SR.cardGap) {
-                if access.current.chat && site.paired {
-                    QuickAction(title: "New thread", icon: "square.and.pencil") {
-                        router.ask("")
-                    }
-                }
-                QuickAction(title: companion.busy ? "Syncing…" : "Sync now", icon: "arrow.triangle.2.circlepath") {
-                    Task { await companion.sync() }
-                }
-            }
+    /// Sync now, as a quiet glass button. The new-thread tile it used to sit
+    /// beside is the Ask button now.
+    private var syncAction: some View {
+        Button {
+            SRHaptic.tap()
+            Task { await companion.sync() }
+        } label: {
+            SRButtonLabel(title: companion.busy ? "Syncing…" : "Sync now", icon: "arrow.triangle.2.circlepath", fill: true)
         }
+        .srButton(.regular)
+        .controlSize(.large)
+        .disabled(companion.busy)
+        .accessibilityIdentifier("today-sync")
     }
 
     private var syncFooter: some View {
@@ -696,41 +704,5 @@ struct TodayScreen: View {
         }
         .padding(.horizontal, 4)
         .padding(.top, 4)
-    }
-}
-
-/// A glass tile with a glyph and a word. Two across.
-struct QuickAction: View {
-    let title: String
-    let icon: String
-    let run: () -> Void
-
-    var body: some View {
-        Button {
-            SRHaptic.tap()
-            run()
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(SR.accent)
-                    .frame(width: 34, height: 34)
-                    .background(SR.accent.opacity(0.12), in: Circle())
-                Text(title.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.2)
-                    .foregroundStyle(SR.ink)
-                    // Two lines rather than smaller type. "SYNCING…" at a large
-                    // accessibility size does not fit on one, and the reader
-                    // asked for it to be that size.
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(SR.cardPadding)
-            .frame(minHeight: 88, alignment: .leading)
-            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 6, interactive: true)
-            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 6, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 }

@@ -54,21 +54,14 @@ struct SectionHead: View {
     }
 }
 
-/// The brand mark. DM Mono, lowercase, with the accent full stop.
+/// The brand mark on the ink top bar: `SRMark` at its compact size, which
+/// fits the 52-point bar with room above and below.
 struct Monogram: View {
     var register: SRRegister = .ink
-    var size: CGFloat = 17
+    var size: CGFloat = SRMark.compactSize
 
     var body: some View {
-        HStack(spacing: 0) {
-            Text("sr")
-                .font(SR.brand(size))
-                .foregroundStyle(register.primary)
-            Text(".")
-                .font(SR.brand(size))
-                .foregroundStyle(register.accent)
-        }
-        .accessibilityLabel("Strange Ramblings")
+        SRMark(register: register, size: size)
     }
 }
 

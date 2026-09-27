@@ -69,7 +69,10 @@ struct FamilyScreen: View {
                 .accessibilityIdentifier("family-map")
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
-                    SRPageHeader(kicker: Date().formatted(.dateTime.weekday(.wide).day().month(.wide)), title: "Where everyone is.", strap: view.summary)
+                    // The counts, not a headline: the map above is the page's
+                    // title, and the tab says where you are.
+                    SRSectionLabel(text: "Everyone", trailing: view.summary)
+                        .padding(.horizontal, 4)
                         .padding(.top, 14)
                     ForEach(view.people) { person in
                         NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {

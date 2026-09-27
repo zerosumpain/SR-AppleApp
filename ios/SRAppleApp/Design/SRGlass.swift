@@ -253,12 +253,19 @@ struct SRButtonLabel: View {
 
 // MARK: - Headers
 
-/// The top of a tab: a mono kicker, then the title in Archivo Black.
+/// A headline for a screen whose headline IS the content: a game's result, a
+/// round, a workflow's name. A mono kicker, then the title in Archivo Black.
+///
+/// NOT for a tab's root. Tab roots carry no page title: the tab bar already
+/// says where you are, the bar carries the `sr.` mark (and, on Today, the
+/// date), and the first thing under the bar is the thing the tab is opened
+/// for. A title there cost a phone a fifth of its first screen to repeat the
+/// tab's name.
 ///
 /// It lives IN the scroll rather than in the navigation bar. A custom face in
 /// the large-title slot paints nothing at all on iOS 26 (see the note in
 /// `SRChrome`), and the bar's job under Liquid Glass is to float, not to carry
-/// a headline. The bar holds the `sr.` mark; the page holds the title.
+/// a headline.
 struct SRPageHeader: View {
     let kicker: String
     let title: String
@@ -288,15 +295,54 @@ struct SRPageHeader: View {
     }
 }
 
-/// The `sr.` mark for the navigation bar's centre.
+/// The brand mark: `sr` in DM Mono Medium, tightly set, then a DRAWN accent
+/// dot with a soft halo where the full stop was.
+///
+/// The typed `.` was a glyph the face decided the size and weight of, and at
+/// bar size it read as punctuation rather than as the mark. Drawn, it is a
+/// shape the system controls: 0.3 of the letter size, sitting on the baseline,
+/// a ring of the same accent at low strength round it. Every measure is a
+/// proportion of `size` and scales with the reader's text setting, so the dot
+/// never ends up the wrong size for the letters beside it.
+///
+/// Matches the design system's Monogram card, which is the reference.
+struct SRMark: View {
+    /// The navigation bar's size. The ink top bar uses `compactSize`.
+    static let barSize: CGFloat = 26
+    static let compactSize: CGFloat = 20
+
+    var register: SRRegister = .paper
+    var size: CGFloat = SRMark.barSize
+    /// 1 at the default text size; the reader's setting moves it, and the dot,
+    /// the halo and the tracking move with the letters.
+    @ScaledMetric(relativeTo: .headline) private var scale: CGFloat = 1
+
+    var body: some View {
+        let unit = size * scale
+        HStack(alignment: .firstTextBaseline, spacing: unit * 0.08) {
+            Text("sr")
+                .font(SR.Text.mark(size))
+                .tracking(-unit * 0.054)
+                .foregroundStyle(register.primary)
+            Circle()
+                .fill(register.accent)
+                .frame(width: unit * 0.3, height: unit * 0.3)
+                .padding(unit * 0.115)
+                .background(Circle().fill(register.accent.opacity(register == .ink ? 0.22 : 0.16)))
+                // The dot's foot on the baseline: the ring hangs below it, as
+                // the halo does on the site.
+                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - unit * 0.115 }
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Strange Ramblings")
+    }
+}
+
+/// The mark in the navigation bar's centre.
 struct SRBarMark: View {
     var body: some View {
-        HStack(spacing: 0) {
-            Text("sr").foregroundStyle(SR.ink)
-            Text(".").foregroundStyle(SR.accent)
-        }
-        .font(SR.Text.brand(17))
-        .accessibilityLabel("Strange Ramblings")
+        SRMark()
     }
 }
 
