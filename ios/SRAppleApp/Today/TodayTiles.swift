@@ -253,8 +253,12 @@ struct TodayBell: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(unread > 0 ? SR.accentDeep : SR.ink)
                 .frame(width: 44, height: 44)
+                // Inside the 44-point frame, not hanging off its corner: on
+                // iOS 26 a bar item sits in a glass capsule that CLIPS to its
+                // bounds, and a badge lifted above them lost its top — the
+                // number read as cut off.
                 .overlay(alignment: .topTrailing) {
-                    if unread > 0 { TodayCountBadge(count: unread).offset(x: 4, y: -2) }
+                    if unread > 0 { TodayCountBadge(count: unread).offset(x: -1, y: 3) }
                 }
                 .contentShape(Rectangle())
         }

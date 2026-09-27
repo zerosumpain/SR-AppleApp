@@ -14,7 +14,7 @@ final class FamilyTests: XCTestCase {
     // MARK: - Decoding
 
     func testAPersonDecodesWithSelfRenamed() throws {
-        let p = try person(#"{"subject":"sam","name":"Sam","self":true,"status":"out","line":"At School · seen 3m ago","batteryPct":64,"lastSeenAt":"2026-09-26T09:00:00Z","position":{"lat":40.77,"lon":-73.97,"at":"2026-09-26T09:00:00Z"},"today":{"firstOut":"08:12","minutesOut":125,"distanceKm":4.25,"stops":["Home","School"],"trail":[[40.77,-73.97,1790000000]]}}"#)
+        let p = try person(#"{"subject":"sam","name":"Sam","self":true,"status":"out","line":"At School · seen 3m ago","batteryPct":64,"lastSeenAt":"2026-09-26T09:00:00Z","position":{"lat":40.77,"lon":-73.97,"at":"2026-09-26T09:00:00Z"},"today":{"firstOut":"08:12","minutesOut":125,"distanceKm":4.26,"stops":["Home","School"],"trail":[[40.77,-73.97,1790000000]]}}"#)
         XCTAssertTrue(p.isSelf)
         XCTAssertEqual(p.initial, "S")
         XCTAssertEqual(p.position?.coordinate.latitude, 40.77)
@@ -216,5 +216,28 @@ final class FamilyTests: XCTestCase {
         XCTAssertEqual(initials["alex"], "A")
         XCTAssertEqual(Set(initials.values).count, initials.count, "every person reads differently")
     }
-}
 
+    func testThePastDaysDecodeAndRead() throws {
+        let p = try person("""
+        {"subject":"sam","name":"Sam","self":false,"status":"home","line":"At home","batteryPct":null,"lastSeenAt":null,
+         "position":null,"today":null,
+         "days":[{"date":"2026-09-26","firstOut":"07:48","minutesOut":125,"distanceKm":4.26,"stops":["Home","School"]},
+                 {"date":"2026-09-24","firstOut":null,"minutesOut":0,"distanceKm":0,"stops":[]}]}
+        """)
+        XCTAssertEqual(p.days?.count, 2)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        let now = ISO8601DateFormatter().date(from: "2026-09-27T10:00:00Z")!
+        XCTAssertEqual(p.days?[0].label(now: now, calendar: calendar), "Yesterday")
+        XCTAssertEqual(p.days?[0].timeOut, "2h 05m")
+        XCTAssertEqual(p.days?[0].distance, "4.3 km")
+        XCTAssertEqual(p.days?[1].timeOut, "—")
+    }
+
+    func testAPersonFromAnOlderSiteHasNoDays() throws {
+        let p = try person("""
+        {"subject":"sam","name":"Sam","self":false,"status":"home","line":"At home","batteryPct":null,"lastSeenAt":null,"position":null,"today":null}
+        """)
+        XCTAssertNil(p.days)
+    }
+}

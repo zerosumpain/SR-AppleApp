@@ -31,7 +31,7 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var path = NavigationPath()
 
-    enum Route: Hashable { case notifications, connections, health, location, log, about }
+    enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -51,6 +51,16 @@ struct SettingsScreen: View {
                     link(.log, "Gate history", "When GPS slept, and why", "list.bullet.rectangle")
                 } header: {
                     SRSectionLabel(text: "What it collects")
+                }
+
+                // The owner's alone, on the REAL answer — viewing as a member
+                // must not take away the way back.
+                if access.isRealOwner {
+                    Section {
+                        link(.viewAs, "View as", access.viewingAs.map { "Viewing as \($0.name)" } ?? "Check someone's access before it reaches them", "eye")
+                    } header: {
+                        SRSectionLabel(text: "Testing")
+                    }
                 }
 
                 Section {
@@ -80,6 +90,8 @@ struct SettingsScreen: View {
                 case .location: LocationSettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
                 case .log: ActivityLogScreen(outbox: outbox)
                 case .about: AboutScreen()
+                case .viewAs:
+                    if access.isRealOwner { ViewAsScreen() }
                 }
             }
         }

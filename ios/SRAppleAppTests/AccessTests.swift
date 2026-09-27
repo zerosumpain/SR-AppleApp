@@ -276,4 +276,40 @@ final class AccessTests: XCTestCase {
         store.adopt(siteRole: "owner", flags: .nothing)
         XCTAssertEqual(store.current, .everything)
     }
+
+    /// A preview as the site files it: somebody's view, with their flags.
+    private func preview(_ email: String, news: Bool) throws -> ViewPreview {
+        let json = """
+        {"email":"\(email)","name":"Ann","view":{"generatedAt":"2026-09-27T10:00:00Z","viewer":"none","people":[],
+         "access":{"owner":false,"chat":false,"news":\(news),"family":false,"games":false,"sitePair":null}}}
+        """
+        return try JSONDecoder().decode(ViewPreview.self, from: Data(json.utf8))
+    }
+
+    @MainActor func testTheOwnerCanViewTheAppAsSomebodyAndComeBack() throws {
+        #if DEBUG
+        try XCTSkipIf(SRDemo.isOn, "demo mode pins access")
+        #endif
+        let store = AccessStore(outbox: nil, sitePaired: true)
+        let ann = try preview("ann@example.test", news: true)
+        store.adopt(previews: [ann])
+        XCTAssertEqual(store.previews, [ann])
+        store.view(as: ann)
+        XCTAssertEqual(store.current, AppAccess(news: true), "their flags, never the owner's")
+        XCTAssertTrue(store.isRealOwner, "the way back stays")
+        XCTAssertNil(store.known, "nothing about the look is persisted")
+        store.view(as: nil)
+        XCTAssertEqual(store.current, .everything)
+    }
+
+    @MainActor func testOnlyTheOwnerHoldsPreviews() throws {
+        #if DEBUG
+        try XCTSkipIf(SRDemo.isOn, "demo mode pins access")
+        #endif
+        let store = AccessStore(outbox: nil, sitePaired: false)
+        store.adopt(previews: [try preview("ann@example.test", news: true)])
+        XCTAssertTrue(store.previews.isEmpty)
+        store.view(as: try preview("ann@example.test", news: true))
+        XCTAssertNil(store.viewingAs)
+    }
 }

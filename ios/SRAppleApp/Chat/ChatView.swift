@@ -19,9 +19,29 @@ struct ThreadListScreen: View {
     @State private var renaming: Conversation?
     @State private var renameDraft = ""
     @State private var deleting: Conversation?
+    /// Threads from before today, folded away until asked for. Not kept:
+    /// the list opens on today every time.
+    @State private var showEarlier = false
 
     var body: some View {
         List {
+            // The way in, as big as the thing it starts: a filled, full-width
+            // button above everything, not a pencil in the corner of the bar.
+            if store.query.isEmpty {
+                Button {
+                    SRHaptic.tap()
+                    startThread()
+                } label: {
+                    SRButtonLabel(title: "New chat", icon: "square.and.pencil", fill: true)
+                        .padding(.vertical, 8)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityLabel("New thread")
+                .accessibilityIdentifier("thread-new")
+                .srBareRow()
+            }
+
             if !store.pinned.isEmpty && store.query.isEmpty {
                 Section {
                     ForEach(store.pinned) { row($0) }
@@ -31,14 +51,58 @@ struct ThreadListScreen: View {
             }
 
             // A search answers in relevance order, which dates would scramble:
-            // one section. Otherwise the unpinned threads by when they were
-            // last touched — see `ThreadSections`.
+            // one section. Otherwise today's threads, open, and everything
+            // older folded under one row — the list is for picking today's
+            // conversation back up; the archive is a tap (or a search) away.
             if store.query.isEmpty {
-                ForEach(store.sections) { group in
+                let groups = store.sections
+                let today = groups.first { $0.id == "today" }
+                let earlier = groups.filter { $0.id != "today" }
+                Section {
+                    if let today {
+                        ForEach(today.threads) { conversation in listed(conversation) }
+                    } else if !store.conversations.isEmpty {
+                        Text("Nothing yet today.")
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
+                            .srGlassRow()
+                    }
+                } header: {
+                    SRSectionLabel(text: "Today", trailing: today.map { "\($0.threads.count)" })
+                }
+                if !earlier.isEmpty {
                     Section {
-                        ForEach(group.threads) { conversation in listed(conversation) }
-                    } header: {
-                        SRSectionLabel(text: group.title, trailing: "\(group.threads.count)")
+                        Button {
+                            SRHaptic.select()
+                            withAnimation(.snappy) { showEarlier.toggle() }
+                        } label: {
+                            HStack {
+                                Text(showEarlier ? "Hide earlier threads" : "Earlier threads")
+                                    .font(SR.Text.bodyMedium(15))
+                                    .foregroundStyle(SR.ink)
+                                Spacer()
+                                Text("\(earlier.reduce(0) { $0 + $1.threads.count })\(store.hasMore ? "+" : "")")
+                                    .font(SR.Text.mono())
+                                    .foregroundStyle(SR.inkMuted)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(SR.inkGhost)
+                                    .rotationEffect(.degrees(showEarlier ? 90 : 0))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .srGlassRow()
+                        .accessibilityIdentifier("thread-earlier")
+                    }
+                    if showEarlier {
+                        ForEach(earlier) { group in
+                            Section {
+                                ForEach(group.threads) { conversation in listed(conversation) }
+                            } header: {
+                                SRSectionLabel(text: group.title, trailing: "\(group.threads.count)")
+                            }
+                        }
                     }
                 }
             } else {
@@ -73,16 +137,6 @@ struct ThreadListScreen: View {
         .srRefreshable { await store.load() }
         .toolbar {
             ToolbarItem(placement: .principal) { SRBarMark() }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    SRHaptic.tap()
-                    startThread()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel("New thread")
-                .accessibilityIdentifier("thread-new")
-            }
         }
         .overlay {
             if store.conversations.isEmpty && !store.loading {

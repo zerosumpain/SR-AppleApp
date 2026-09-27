@@ -313,6 +313,17 @@ struct ContentView: View {
         // The deeper accent: the selected tab's label is 10-point text on
         // glass, where `SR.accent` measures 3.5:1 and this holds 4.8:1.
         .tint(SR.accentDeep)
+        // Viewing the app as somebody else: said on every screen, with the way
+        // back one tap away, so a look never passes for the real thing.
+        .overlay(alignment: .bottom) {
+            if let preview = access.viewingAs {
+                ViewingAsBanner(name: preview.name) {
+                    SRHaptic.select()
+                    access.view(as: nil)
+                }
+                .padding(.bottom, 64)
+            }
+        }
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
         // comes back when you scroll up — the content gets the screen.
         .srTabBarMinimizes()
@@ -382,6 +393,10 @@ struct ContentView: View {
             if !access.allows(router.tab) || router.inMore(router.tab) { router.tab = .today }
             syncGamesPoll()
             Task { await reconcileSite() }
+        }
+        // "View as" changed: the family is theirs now, or yours again.
+        .onChange(of: access.viewingAs) { _, _ in
+            family.applyViewingAs()
         }
         .onChange(of: access.offer) { _, _ in
             Task { await reconcileSite() }
@@ -488,7 +503,9 @@ struct ContentView: View {
         if SRDemo.isOn { return }
         #endif
         access.siteChanged(paired: site.paired)
-        if !access.current.chat { ThreadIndex.clear() }
+        // Not while viewing as somebody: that is a look, and the Spotlight
+        // index is the owner's own.
+        if !access.current.chat && access.viewingAs == nil { ThreadIndex.clear() }
         if AccessPolicy.signsOutSite(known: access.known, sitePaired: site.paired, siteRole: access.siteRole) {
             site.signOut()
             access.siteChanged(paired: false)

@@ -49,6 +49,7 @@ struct FamilyPersonScreen: View {
                     header(person)
                     if let today = person.today {
                         day(today)
+                        if let days = person.days, !days.isEmpty { week(days) }
                     } else if person.sharing {
                         Text("Their day — when they went out, how far, where — is theirs and the family admins' to see.")
                             .font(SR.Text.mono())
@@ -144,6 +145,68 @@ struct FamilyPersonScreen: View {
                 }
             }
         }
+    }
+
+    /// The days before today: the week's totals, then one row a day.
+    private func week(_ days: [FamilyPerson.Day]) -> some View {
+        let out = days.filter { $0.minutesOut > 0 }.count
+        return VStack(alignment: .leading, spacing: 10) {
+            SRSectionLabel(text: "Last \(days.count) days", trailing: "\(out) out")
+                .padding(.horizontal, 4)
+                .padding(.top, 6)
+            SRCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top, spacing: 8) {
+                        figure(FamilyFigures.duration(days.reduce(0) { $0 + $1.minutesOut }), "Time out")
+                        figure(FamilyFigures.distance(days.reduce(0) { $0 + $1.distanceKm }), "Moved")
+                        figure("\(Set(days.flatMap(\.stops)).count)", "Places")
+                    }
+                    Rectangle().fill(SR.divider).frame(height: 1)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
+                            if index > 0 { Rectangle().fill(SR.divider).frame(height: 1) }
+                            dayRow(day)
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("family-person-week")
+        }
+    }
+
+    /// "Sat 26 Sep · 2h 05m · 4.3 km", and the places under it.
+    private func dayRow(_ day: FamilyPerson.Day) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(day.label())
+                    .font(SR.Text.bodyMedium(15))
+                    .foregroundStyle(SR.ink)
+                Spacer(minLength: 6)
+                Text(day.minutesOut > 0 ? "\(day.timeOut) out" : "In all day")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(day.minutesOut > 0 ? SR.inkSecondary : SR.inkMuted)
+                Text(day.distance)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkSecondary)
+                    .frame(minWidth: 56, alignment: .trailing)
+            }
+            if let detail = dayDetail(day) {
+                Text(detail)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// "Out 08:12 · Home → School → Home", or nil for a day with neither.
+    private func dayDetail(_ day: FamilyPerson.Day) -> String? {
+        var parts: [String] = []
+        if let firstOut = day.firstOut { parts.append("Out \(firstOut)") }
+        if !day.stops.isEmpty { parts.append(day.stops.joined(separator: " → ")) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// A stop on the day's line: a dot, joined to the next by a rule.

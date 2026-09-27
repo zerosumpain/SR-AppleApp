@@ -128,8 +128,9 @@ final class TodayStore: ObservableObject {
 ///
 /// Under glass the screen is a stack of lifted sheets on a warm ground: who is
 /// where, then four squares — Ask jkai, Health (the three rings), Daydream
-/// (what the loop noticed) and Games — then the alerts, the workflows, the
-/// wire, and Sync at the foot. An urgent alert pins itself under the bar.
+/// (what the loop noticed) and Games — then the wire, and Sync at the foot.
+/// The alerts and the workflows are the bell's: Up next repeated them and
+/// went. An urgent alert still pins itself under the bar.
 /// Nothing here is the only place to read anything.
 ///
 /// No "carry on" card for the last thread: the Chat tab is one tap away on the
@@ -140,9 +141,6 @@ struct TodayScreen: View {
     @ObservedObject var site: SitePairingModel
     @ObservedObject var family: FamilyStore
     @StateObject private var store = TodayStore()
-    /// Read AFTER Today's own request, never beside it — the card is a
-    /// nudge, and the first paint must not wait on the workflow list.
-    @StateObject private var flows = FlowAttentionStore()
     /// Today's Move ring, live from Apple Health on this phone.
     @StateObject private var move = MoveRingStore()
     @ObservedObject private var noticed = NoticedFeedback.shared
@@ -195,9 +193,6 @@ struct TodayScreen: View {
                     TodayTileGrid(tiles: TodayTile.kinds(access: access.current, sitePaired: site.paired)) { kind in
                         tile(kind)
                     }
-                    // Everything else the owner is owed, as one list, below
-                    // the fold on a phone: the inbox and the workflows.
-                    if access.current.owner { upNext }
                     if access.current.news, let news = store.payload?.news, let story = news.stories.first {
                         newsCard(news, story: story)
                     }
@@ -243,7 +238,6 @@ struct TodayScreen: View {
             daydream.seed(store.payload?.daydream)
             await alerts.refresh()
             await connections.refresh()
-            await flows.load()
             if companion.paired { await companion.sync() }
         }
         .toolbar {
@@ -288,7 +282,6 @@ struct TodayScreen: View {
             await store.load()
             daydream.seed(store.payload?.daydream)
             await connections.reconcile(with: store.payload?.connections)
-            await flows.load()
             // Then keep the day's numbers moving for as long as Today is on
             // screen. The task is cancelled when the tab goes away and starts
             // again, with a fresh read, when it comes back.
@@ -298,8 +291,7 @@ struct TodayScreen: View {
                 move.start()
                 await store.load()
                 daydream.seed(store.payload?.daydream)
-                await flows.load()
-                await family.load()
+                    await family.load()
             }
         }
         .onAppear { onScreen = true }
@@ -309,8 +301,7 @@ struct TodayScreen: View {
             move.start()
             Task {
                 await store.load()
-                await flows.load()
-                await family.load()
+                    await family.load()
             }
         }
         // The companion just put new health data on the site: re-read, past
@@ -479,204 +470,6 @@ struct TodayScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("today-games")
-    }
-
-    private var alertRows: [TodayAlerts.Latest] {
-        TodayAlerts.rows(
-            recent: alerts.recent,
-            latest: store.payload?.alerts?.latest ?? [],
-            cleared: alerts.clearedFromToday
-        )
-    }
-
-    /// Up next: the newest few alerts and the workflows, as ONE
-    /// grouped list rather than a card each. A tap on an alert opens it in
-    /// full; the cross takes it off Today. The bell in the bar is the way into
-    /// the inbox. Clearing is Today's alone — the Alerts screen keeps
-    /// everything.
-    private var upNext: some View {
-        let rows = alertRows
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                SRSectionLabel(
-                    text: "Up next",
-                    trailing: alerts.unread > 0 ? "\(alerts.unread) unread" : nil
-                )
-                if !rows.isEmpty {
-                    Button {
-                        SRHaptic.select()
-                        // Everything the phone knows of, not just the rows on
-                        // show — otherwise the next three slide up and the list
-                        // looks as if the clear did not take.
-                        let ids = (store.payload?.alerts?.latest.map(\.id) ?? []) + alerts.recent.map(\.id)
-                        withAnimation(.snappy) { alerts.clearFromToday(ids) }
-                        // And the bell with it: a clear that left the badge up
-                        // would be half a clear.
-                        Task { await alerts.markAllRead() }
-                    } label: {
-                        Text("CLEAR ALL")
-                            .font(SR.Text.label())
-                            .tracking(1.2)
-                            .foregroundStyle(SR.accentDeep)
-                            .padding(.vertical, 6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear all alerts from Today")
-                    .accessibilityIdentifier("today-alerts-clear-all")
-                }
-            }
-            .padding(.horizontal, 4)
-
-            VStack(alignment: .leading, spacing: 0) {
-                if rows.isEmpty {
-                    HStack(spacing: 14) {
-                        rowIcon("bell.slash", tone: SR.inkMuted)
-                        Text("Nothing to report.")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                        Spacer()
-                    }
-                    .padding(.vertical, SR.rowPadding)
-                    .frame(minHeight: SR.tapTarget)
-                    .accessibilityElement(children: .combine)
-                } else {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        if index > 0 { rowDivider }
-                        alertRow(row)
-                            .transition(.asymmetric(
-                                insertion: .opacity,
-                                removal: .opacity.combined(with: .move(edge: .trailing))
-                            ))
-                    }
-                }
-                if flows.loaded {
-                    rowDivider
-                    flowsRow
-                }
-            }
-            .padding(.horizontal, SR.cardPadding)
-            .srGlassCard(.paper)
-        }
-    }
-
-    /// Between two rows of Up next, starting where the text does.
-    private var rowDivider: some View {
-        Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 48)
-    }
-
-    /// The glyph at a row's leading edge, on a soft square of its own tone.
-    private func rowIcon(_ symbol: String, tone: Color) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(tone)
-            .frame(width: 34, height: 34)
-            .background(tone.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .accessibilityHidden(true)
-    }
-
-    /// The whole alert, from the inbox the phone holds when it has it — Today's
-    /// own rows carry no body.
-    private func open(_ row: TodayAlerts.Latest) {
-        SRHaptic.tap()
-        opened = alerts.recent.first { $0.id == row.id } ?? SiteAlert(latest: row)
-    }
-
-    private func alertRow(_ row: TodayAlerts.Latest) -> some View {
-        let severe = row.severity == "alert" || row.severity == "high"
-        let tone = severe ? SR.error : row.severity == "warn" ? SR.warn : SR.accentInk
-        return HStack(alignment: .center, spacing: 4) {
-            Button { open(row) } label: {
-                HStack(alignment: .center, spacing: 14) {
-                    rowIcon(severe ? "exclamationmark.triangle" : "bell", tone: tone)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(row.title)
-                            .font(SR.Text.title())
-                            .foregroundStyle(SR.ink)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        Text(alertLine(row))
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                    }
-                    Spacer(minLength: 6)
-                }
-                .padding(.vertical, SR.rowPadding)
-                .frame(minHeight: SR.tapTarget)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(shortAgo(row.createdAt).isEmpty ? row.title : "\(row.title), \(shortAgo(row.createdAt)) ago")
-            .accessibilityHint("Opens the alert")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("today-alert-open-\(row.id)")
-
-            Button {
-                SRHaptic.select()
-                withAnimation(.snappy) { alerts.clearFromToday([row.id]) }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(SR.inkMuted)
-                    // The mark is small so the row stays a row; the target
-                    // round it is not.
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss \(row.title)")
-            .accessibilityIdentifier("today-alert-clear-\(row.id)")
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    /// "Alert · 12m ago" — or the category alone for one with no time.
-    private func alertLine(_ row: TodayAlerts.Latest) -> String {
-        let kind: String = row.category.isEmpty ? "Alert" : row.category.prefix(1).uppercased() + String(row.category.dropFirst())
-        let ago = shortAgo(row.createdAt)
-        return ago.isEmpty ? kind : "\(kind) · \(ago) ago"
-    }
-
-    /// The workflows in one row: what runs next, and how many are working.
-    /// One tap to the Flows tab.
-    private var flowsRow: some View {
-        let stats = flows.stats(now: Date())
-        let health: String = stats.failing > 0
-            ? "\(stats.working) working, \(stats.failing) not"
-            : "\(stats.working) working"
-        // "Next at 07:00 · 5 working, 1 not".
-        let next: String? = stats.next.map { "Next at \(FlowStats.when($0.at, now: Date()))" }
-        let subline: String = [next, health].compactMap { $0 }.joined(separator: " · ")
-        return Button {
-            SRHaptic.tap()
-            router.show(.flows)
-        } label: {
-            HStack(spacing: 14) {
-                rowIcon("point.3.connected.trianglepath.dotted", tone: stats.failing > 0 ? SR.error : SR.good)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(stats.next?.title ?? "Nothing scheduled")
-                        .font(SR.Text.title())
-                        .foregroundStyle(SR.ink)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Text(subline)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(SR.inkGhost)
-                    .accessibilityHidden(true)
-            }
-            .padding(.vertical, SR.rowPadding)
-            .frame(minHeight: SR.tapTarget)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("today-flows")
     }
 
     /// The wire's top story, not a list: the News tab has the rest, and "5
