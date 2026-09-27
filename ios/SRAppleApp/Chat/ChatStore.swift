@@ -39,7 +39,9 @@ final class ThreadListStore: ObservableObject {
             // Titles into iPhone search. Only on a reset — a page of older
             // threads is not what somebody is searching their Home Screen for,
             // and re-indexing on every scroll would write the index all day.
-            if reset && term.isEmpty { ThreadIndex.update(conversations) }
+            // Not while viewing as somebody: Spotlight on this phone is the
+            // owner's, and their threads must not land in it.
+            if reset && term.isEmpty && AccessStore.shared.viewingAs == nil { ThreadIndex.update(conversations) }
         } catch SiteError.expired {
             message = "This iPhone needs pairing again."
         } catch {

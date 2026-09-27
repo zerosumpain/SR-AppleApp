@@ -200,6 +200,10 @@ final class SiteClient {
         return built
     }
 
+    /// Names the person the owner is viewing the app as. Read by SR-Main's
+    /// `nativeViewAs`, which honours it on the owner's credential alone.
+    static let viewAsHeader = "X-SR-View-As"
+
     func request(_ path: String, method: String = "GET", body: Data? = nil) throws -> URLRequest {
         guard let token else { throw SiteError.unpaired }
         var req = URLRequest(url: try url(for: path))
@@ -207,6 +211,13 @@ final class SiteClient {
         req.httpBody = body
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if body != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        // Settings → View as: the site answers this request as that person's
+        // phone would be answered — their threads, their stories — and refuses
+        // anything but a read. Without it the look showed the OWNER's data
+        // under the other person's tabs (SR-Main `nativeViewAs`).
+        if let viewing = AccessStore.shared.viewingAs {
+            req.setValue(viewing.email, forHTTPHeaderField: Self.viewAsHeader)
+        }
         return req
     }
 
