@@ -256,7 +256,7 @@ struct TodayScreen: View {
             // this store's payload — no second request.
             WatchBridge.shared.attach(today: store)
             move.start()
-            // Not awaited before Today's own request: the map is a glance, and
+            // Not awaited before Today's own request: the family is a glance, and
             // the first paint must not wait on a second server.
             Task { await family.load() }
             await store.load()
