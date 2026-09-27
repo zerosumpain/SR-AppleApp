@@ -81,7 +81,7 @@ struct FamilyScreen: View {
                                 Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 52)
                             }
                             NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
-                                FamilyRow(person: person)
+                                FamilyPersonRow(person: person)
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("family-person-\(person.subject)")
@@ -180,7 +180,7 @@ struct FamilyTracksToggle: View {
 /// A row, not a card: five people as cards were a screen of scrolling under
 /// a map that already says where everyone is. The line truncates rather than
 /// wraps, so every person costs the same height.
-struct FamilyRow: View {
+struct FamilyPersonRow: View {
     let person: FamilyPerson
     @ObservedObject private var places = PlaceNamer.shared
 
