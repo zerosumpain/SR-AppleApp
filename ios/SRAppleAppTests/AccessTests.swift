@@ -119,7 +119,9 @@ final class AccessTests: XCTestCase {
     func testGamesSitsRightAfterFamilyForAMember() {
         // Four tabs: on the bar, no More.
         XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(family: true, games: true)), [.today, .family, .games, .health])
-        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(games: true)), [.today, .health, .games])
+        // Games takes Family's side of Health even without Family: the bar's
+        // people-first half comes before the body.
+        XCTAssertEqual(AccessPolicy.tabs(for: AppAccess(games: true)), [.today, .games, .health])
     }
 
     func testGamesNeedsTheGamesFlag() {
