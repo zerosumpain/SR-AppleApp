@@ -126,11 +126,11 @@ final class TodayStore: ObservableObject {
 /// that is a glance: how the body is doing, what the site has been trying to
 /// tell you, and where the conversation got to.
 ///
-/// Under glass the screen is a stack of lifted sheets on a warm ground: the
-/// date and the headline in the page, three rings for the body (Move,
-/// Recovery, Readiness), what the daydream loop noticed, an "Ask jkai" field
-/// that is one tap from a fresh thread, then the alerts, the workflows and the
-/// wire. Nothing here is the only place to read anything.
+/// Under glass the screen is a stack of lifted sheets on a warm ground: who is
+/// where, then four squares — Ask jkai, Health (the three rings), Daydream
+/// (what the loop noticed) and Games — then the alerts, the workflows, the
+/// wire, and Sync at the foot. An urgent alert pins itself under the bar.
+/// Nothing here is the only place to read anything.
 ///
 /// No "carry on" card for the last thread: the Chat tab is one tap away on the
 /// bar and opens on that list.
@@ -146,6 +146,7 @@ struct TodayScreen: View {
     /// Today's Move ring, live from Apple Health on this phone.
     @StateObject private var move = MoveRingStore()
     @ObservedObject private var noticed = NoticedFeedback.shared
+    private var daydream: DaydreamStore { DaydreamStore.shared }
     /// What this person may use. The owner's cards (the site's figures,
     /// alerts, workflows, what the loop noticed) are not drawn for anybody
     /// else — their endpoints would only refuse a member.
@@ -155,6 +156,11 @@ struct TodayScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     /// The alert tapped on the card, read in full in a sheet.
     @State private var opened: SiteAlert?
+    /// Urgent alerts waved off the banner this session. Dismissing also marks
+    /// the alert read, so this only bridges the moment before the inbox agrees.
+    @State private var waved: Set<String> = []
+    /// Today is the tab in front — the bell only rings while it is.
+    @State private var onScreen = false
 
     /// How often the numbers are re-read while Today is on screen. Readiness
     /// and recovery move when a sync lands on the site; five minutes is often
@@ -185,19 +191,15 @@ struct TodayScreen: View {
                     // that answer comes from.
                     companionCard
                 } else {
-                    // The one prominent action on the screen.
-                    if access.current.chat && site.paired { askField }
+                    // Four doors, two by two: Ask and Health, Daydream and Games.
+                    TodayTileGrid(tiles: TodayTile.kinds(access: access.current, sitePaired: site.paired)) { kind in
+                        tile(kind)
+                    }
                     // Everything else the owner is owed, as one list, below
-                    // the fold on a phone: the body, the inbox, the workflows.
+                    // the fold on a phone: the inbox and the workflows.
                     if access.current.owner { upNext }
                     if access.current.news, let news = store.payload?.news, let story = news.stories.first {
                         newsCard(news, story: story)
-                    }
-                    // What the daydream loop noticed: the part of Today that is
-                    // an opinion. A rated note leaves a few seconds after the
-                    // rating saves.
-                    if ownerSite, !visibleNotes.isEmpty {
-                        NoticedCard(notes: visibleNotes)
                     }
                     syncAction
                 }
@@ -209,6 +211,25 @@ struct TodayScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .srGround(.warm)
+        // Pinned under the bar, not scrolled with the page: something urgent
+        // stays in view until it is opened or waved away.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if access.current.owner, let urgent = TodayAlerts.urgent(in: alerts.recent, dismissed: waved) {
+                TodayUrgentBanner(
+                    alert: urgent,
+                    open: {
+                        SRHaptic.tap()
+                        opened = urgent
+                        Task { await alerts.markRead(urgent.id) }
+                    },
+                    dismiss: {
+                        SRHaptic.select()
+                        withAnimation(.snappy) { _ = waved.insert(urgent.id) }
+                        Task { await alerts.markRead(urgent.id) }
+                    }
+                )
+            }
+        }
         .navigationTitle("Today")
         // Inline, and the title itself is replaced by the `sr.` mark. There is
         // no headline on the page either: see `SRPageHeader` for why a large
@@ -219,6 +240,7 @@ struct TodayScreen: View {
             move.start()
             await family.load()
             await store.load(fresh: true)
+            daydream.seed(store.payload?.daydream)
             await alerts.refresh()
             await connections.refresh()
             await flows.load()
@@ -239,16 +261,20 @@ struct TodayScreen: View {
             // The bell is the site's inbox, which is the owner's.
             if access.current.owner {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { SRHaptic.tap(); router.openAlerts() } label: {
-                        Image(systemName: alerts.unread > 0 ? "bell.badge" : "bell")
+                    TodayBell(unread: alerts.unread, active: onScreen && scenePhase == .active) {
+                        SRHaptic.tap()
+                        router.openAlerts()
                     }
-                    .accessibilityLabel(alerts.unread > 0 ? "Alerts, \(alerts.unread) unread" : "Alerts")
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { SRHaptic.tap(); router.openSettings() } label: { Image(systemName: "gearshape") }
-                    .accessibilityLabel("Settings")
-                    .accessibilityIdentifier("open-settings")
+            // Settings live in More. Without a More (a member with four
+            // places or fewer) the cog stays here, or there would be no way in.
+            if !access.allows(.more) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { SRHaptic.tap(); router.openSettings() } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                        .accessibilityIdentifier("open-settings")
+                }
             }
         }
         .task {
@@ -260,6 +286,7 @@ struct TodayScreen: View {
             // the first paint must not wait on a second server.
             Task { await family.load() }
             await store.load()
+            daydream.seed(store.payload?.daydream)
             await connections.reconcile(with: store.payload?.connections)
             await flows.load()
             // Then keep the day's numbers moving for as long as Today is on
@@ -270,10 +297,13 @@ struct TodayScreen: View {
                 guard !Task.isCancelled else { break }
                 move.start()
                 await store.load()
+                daydream.seed(store.payload?.daydream)
                 await flows.load()
                 await family.load()
             }
         }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             move.start()
@@ -322,10 +352,6 @@ struct TodayScreen: View {
 
     // MARK: - Cards
 
-    /// The owner's site lane: paired, and the owner. A member may be
-    /// site-paired now (for chat or news) and still see none of this.
-    private var ownerSite: Bool { access.current.owner && site.paired }
-
     /// Before the companion is paired the app cannot know who is holding it,
     /// so it offers only the pairing every person needs.
     private var companionCard: some View {
@@ -372,59 +398,87 @@ struct TodayScreen: View {
         }
     }
 
-    /// The body, as the first row of Up next. One tap into the Health tab,
-    /// which has the reasoning behind the numbers.
-    private var healthRow: some View {
-        let health = store.payload?.health
-        return Button {
-            SRHaptic.tap()
-            router.show(.health)
-        } label: {
-            TodayHealthRow(
-                vitals: TodayVital.make(health: health, move: move.reading),
-                isMock: health?.isMock ?? false
-            )
+    // MARK: - Tiles
+
+    @ViewBuilder
+    private func tile(_ kind: TodayTile) -> some View {
+        switch kind {
+        case .ask: askTile
+        case .health: healthTile
+        case .daydream: daydreamTile
+        case .games: gamesTile
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("today-health")
-        .accessibilityHint("Opens Health")
     }
 
-    private var visibleNotes: [DaydreamNote] {
-        (store.payload?.daydream?.notes ?? []).filter(noticed.isShowing)
-    }
-
-    /// A field that is really a button: tap it and a new thread opens with the
-    /// keyboard up. The one filled control on Today — the screen's primary
-    /// action — so it takes the accent, one step deeper so the cream label
-    /// holds 5:1 on it.
-    private var askField: some View {
+    /// A new thread with the keyboard up. The one filled control on Today.
+    private var askTile: some View {
         Button {
             SRHaptic.tap()
             router.ask("")
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "bubble.left")
-                    .font(.system(size: 17, weight: .semibold))
-                Text("Ask jkai anything")
-                    .font(SR.Text.bodyMedium(17))
-                Spacer(minLength: 8)
-                Image(systemName: "mic")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 40, height: 40)
-                    .background(SR.paper.opacity(0.18), in: Circle())
-                    .accessibilityHidden(true)
-            }
-            .foregroundStyle(SR.paper)
-            .padding(.leading, 20)
-            .padding(.trailing, 8)
-            .frame(minHeight: 56)
-            .background(SR.accentDeep, in: Capsule())
-            .contentShape(Capsule())
+            TodayAskTile()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Ask jkai")
         .accessibilityIdentifier("today-ask")
+    }
+
+    /// The three rings — Move, Recovery, Readiness — and the verdict. One tap
+    /// into the Health tab, which has the reasoning behind the numbers.
+    private var healthTile: some View {
+        let health = store.payload?.health
+        let vitals = TodayVital.make(health: health, move: move.reading)
+        let readiness = vitals.first { $0.key == "readiness" }
+        let others = vitals.filter { $0.key != "readiness" }
+        // "Primed · Move 76%": the verdict, then as much as fits.
+        var parts: [String] = []
+        if let caption = readiness?.caption { parts.append(caption) }
+        parts += others.map { "\($0.label) \($0.value)" }
+        let subline = (health?.isMock ?? false) ? "Demonstration figures" : parts.joined(separator: " · ")
+        return Button {
+            SRHaptic.tap()
+            router.show(.health)
+        } label: {
+            TodayTileCard(
+                kicker: "Health",
+                title: readiness.map { "Readiness \($0.value)" } ?? "Readiness",
+                subline: subline
+            ) {
+                TodayRings(vitals: vitals).frame(width: 68, height: 68)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Health. " + vitals.map(\.spoken).joined(separator: ". "))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens Health")
+        .accessibilityIdentifier("today-health")
+    }
+
+    /// Its own view, watching the notes: a rating or a re-read redraws the
+    /// tile, not the whole of Today.
+    private var daydreamTile: some View {
+        Button {
+            SRHaptic.tap()
+            router.openDaydream()
+        } label: {
+            TodayDaydreamTile()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("today-daydream")
+    }
+
+    /// Its own view, watching the lobby: the invite poll redraws the tile,
+    /// not the whole of Today.
+    private var gamesTile: some View {
+        Button {
+            SRHaptic.tap()
+            router.show(.games)
+        } label: {
+            TodayGamesTile()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("today-games")
     }
 
     private var alertRows: [TodayAlerts.Latest] {
@@ -435,7 +489,7 @@ struct TodayScreen: View {
         )
     }
 
-    /// Up next: the body, the newest few alerts and the workflows, as ONE
+    /// Up next: the newest few alerts and the workflows, as ONE
     /// grouped list rather than a card each. A tap on an alert opens it in
     /// full; the cross takes it off Today. The bell in the bar is the way into
     /// the inbox. Clearing is Today's alone — the Alerts screen keeps
@@ -475,10 +529,6 @@ struct TodayScreen: View {
             .padding(.horizontal, 4)
 
             VStack(alignment: .leading, spacing: 0) {
-                if ownerSite {
-                    healthRow
-                    rowDivider
-                }
                 if rows.isEmpty {
                     HStack(spacing: 14) {
                         rowIcon("bell.slash", tone: SR.inkMuted)
@@ -674,8 +724,7 @@ struct TodayScreen: View {
         }
     }
 
-    /// Sync now, as a quiet glass button. The new-thread tile it used to sit
-    /// beside is the Ask button now.
+    /// Sync now, as a quiet glass button at the foot of the page.
     private var syncAction: some View {
         Button {
             SRHaptic.tap()

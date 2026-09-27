@@ -24,3 +24,32 @@ extension XCUIApplication {
         return true
     }
 }
+
+extension XCUIApplication {
+    /// Opens Settings wherever this person keeps it: the cog on Today when the
+    /// bar has no More (an unknown phone, a member with four places), else
+    /// the Settings row at the foot of the More hub.
+    @MainActor @discardableResult
+    func openSettings(timeout: TimeInterval = 10) -> Bool {
+        let cog = buttons["open-settings"]
+        let more = tabBars.buttons["More"]
+        // Whichever turns up first: the cog on Today, or the More tab.
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline && !(cog.exists && cog.isHittable) && !more.exists {
+            _ = cog.waitForExistence(timeout: 0.5)
+        }
+        if cog.exists && cog.isHittable {
+            cog.tap()
+            return true
+        }
+        guard more.exists else { return false }
+        more.tap()
+        // Settings is the hub's last row, below the fold on a phone.
+        let row = buttons["open-settings"]
+        guard descendants(matching: .any)["more-screen"].firstMatch.waitForExistence(timeout: timeout) else { return false }
+        for _ in 0..<8 where !(row.exists && row.isHittable) { swipeUp() }
+        guard row.exists && row.isHittable else { return false }
+        row.tap()
+        return true
+    }
+}

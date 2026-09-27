@@ -326,9 +326,17 @@ ink band, component cards). The rules every screen follows:
 - **Today leads with the family, one row per place** — Home, School, wherever
   two people stand together — led by overlapping circles of the initials of
   whoever is there (unique per household: JK, KK, JeK). Anyone not seen lately
-  or not sharing is the last row, dashed. No map on Today; the Family tab has it. Then the one prominent action (Ask jkai), then *Up next* —
-  the body, the alerts and the workflows as one grouped list, below the fold —
-  then the wire's top story.
+  or not sharing is the last row, dashed. No map on Today; the Family tab has it.
+  Then **four squares, two by two:** Ask jkai (the filled one) and Health (the
+  three rings), Daydream (new notes; opens its page in More) and Games. Then
+  *Up next* — the alerts and the workflows as one grouped list, below the
+  fold — the wire's top story, and **Sync now at the foot**.
+- **The bell is loud when it has to be:** filled, in the accent, with the
+  unread count, and it rings once every five seconds until read (not with
+  Reduce Motion). An unread alert at the loudest level pins an ink banner under
+  the bar until it is opened or dismissed.
+- **Settings live in More,** at the foot of the hub, with Daydream at its
+  head. A phone with no More (four places or fewer) keeps the cog on Today.
 - **One filled control per screen,** in `SR.accentDeep` so its cream label
   holds 5:1; everything else is paper glass.
 - **The mark is `SRMark`:** `sr` in DM Mono Medium with a drawn accent dot and

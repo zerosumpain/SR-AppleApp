@@ -360,7 +360,7 @@ enum SRDemoFixtures {
             "figures": \(list(figures.map { figureJSON($0, withSeries: false) })),
             "generatedAt": \(s(clock.iso(minutesAgo: 12)))
           },
-          "alerts": {"pending": 0, "unread": 2, "latest": \(list(alerts))},
+          "alerts": {"pending": 0, "unread": 3, "latest": \(list(alerts))},
           "news": {"updatedAt": \(s(clock.iso(minutesAgo: 6))), "unseen": 5, "stories": \(list(stories))},
           "lastThread": {"id": \(s(thread.id)), "title": \(s(thread.title)), "updatedAt": \(s(clock.iso(minutesAgo: thread.minutesAgo)))},
           "connections": \(todayConnections(clock)),
@@ -993,6 +993,9 @@ enum SRDemoFixtures {
 
     static func demoAlerts(_ clock: DemoClock) -> [DemoAlert] {
         [
+            // Unread at the loudest level: the banner across Today.
+            DemoAlert(id: "demo-alert-0", category: "home", title: "Front door has been open 10 minutes", body: "The hall sensor has read open since 08:32 and every phone is away.",
+                      url: nil, severity: "alert", minutesAgo: 2, read: false),
             DemoAlert(id: "demo-alert-1", category: "deploy", title: "Release 412 is live", body: "The glass overhaul shipped. All checks green.",
                       url: "/admin/releases", severity: "info", minutesAgo: 14, read: false),
             DemoAlert(id: "demo-alert-2", category: "health", title: "Readiness is up to 72", body: "Primed: sleep and HRV back above baseline.",
@@ -1016,7 +1019,7 @@ enum SRDemoFixtures {
         }
         // `pending` stays empty: the app raises a local notification for each
         // one, and a demo must not fire real banners.
-        return "{\"pending\": [], \"recent\": \(list(recent)), \"unread\": 2}"
+        return "{\"pending\": [], \"recent\": \(list(recent)), \"unread\": 3}"
     }
 
     struct DemoRoute {
