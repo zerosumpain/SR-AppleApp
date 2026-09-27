@@ -249,7 +249,7 @@ struct FlowTrigger: Decodable, Hashable {
     /// with a second capital in it, or a known name, is a proper noun.
     static func lowerFirst(_ text: String) -> String {
         let firstWord = text.split(separator: " ").first.map(String.init) ?? text
-        let names: Set<String> = ["Whoop", "Gmail", "Alexa", "Google", "Strava", "Hue", "Tado", "John"]
+        let names: Set<String> = ["Whoop", "Gmail", "Alexa", "Google", "Hue", "Tado", "John"]
         guard let first = firstWord.first, first.isUppercase,
               !firstWord.dropFirst().contains(where: \.isUppercase),
               !names.contains(firstWord) else { return text }

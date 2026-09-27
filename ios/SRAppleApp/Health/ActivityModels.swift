@@ -34,7 +34,7 @@ struct ActivityHighlight: Decodable, Hashable {
 
 /// One row of the activities list, and the head of every activity detail.
 struct ActivityRow: Decodable, Identifiable, Hashable {
-    /// `apple:UUID`, `strava:123` — a colon in it, so it is percent-encoded
+    /// `apple:UUID`, `imported:123` — a colon in it, so it is percent-encoded
     /// before it goes in a path.
     let id: String
     let name: String
@@ -51,7 +51,7 @@ struct ActivityRow: Decodable, Identifiable, Hashable {
     let hasTrack: Bool
     let segmentCount: Int
     let highlight: ActivityHighlight?
-    /// `apple`, `companion`, `recorded`, `strava`, `whoop`, `manual` — or a key
+    /// `apple`, `companion`, `recorded`, `imported`, `whoop`, `manual` — or a key
     /// this build has not heard of. Nil when the server did not say; the id's
     /// prefix then stands in (see `origin`).
     let source: String?
