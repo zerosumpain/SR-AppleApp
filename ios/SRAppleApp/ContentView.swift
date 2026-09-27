@@ -227,7 +227,7 @@ struct ContentView: View {
                 TodayScreen(companion: companion, alerts: alerts, site: site, family: family)
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .tabItem { Label("Today", systemImage: "square.grid.2x2") }
+            .tabItem { SRTabIcon.label("Today", "square.grid.2x2") }
             .tag(Router.Tab.today)
 
             // Only the tabs this person may open are BUILT: a feature somebody
@@ -242,7 +242,7 @@ struct ContentView: View {
                     FamilyScreen(store: family, companion: companion)
                         .srConnectionsBanner(connections) { router.openConnections() }
                 }
-                .tabItem { Label("Family", systemImage: "person.2.wave.2") }
+                .tabItem { SRTabIcon.label("Family", "person.2.wave.2") }
                 .tag(Router.Tab.family)
             }
 
@@ -253,7 +253,7 @@ struct ContentView: View {
                 NavigationStack(path: $router.games) {
                     place(.games).placeDestinations()
                 }
-                .tabItem { Label("Games", systemImage: "gamecontroller") }
+                .tabItem { SRTabIcon.label("Games", "gamecontroller") }
                 .badge(games.invites.count)
                 .tag(Router.Tab.games)
             }
@@ -263,7 +263,7 @@ struct ContentView: View {
                     paired(what: "your threads") { ThreadListScreen() }
                         .srConnectionsBanner(connections) { router.openConnections() }
                 }
-                .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+                .tabItem { SRTabIcon.label("Chat", "bubble.left.and.bubble.right") }
                 .tag(Router.Tab.chat)
             }
 
@@ -271,14 +271,14 @@ struct ContentView: View {
                 HealthScreen(companion: companion)
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .tabItem { Label("Health", systemImage: "heart.text.square") }
+            .tabItem { SRTabIcon.label("Health", "heart.text.square") }
             .tag(Router.Tab.health)
 
             if access.allows(.news) && !router.inMore(.news) {
                 NavigationStack(path: $router.news) {
                     place(.news).placeDestinations()
                 }
-                .tabItem { Label("News", systemImage: "newspaper") }
+                .tabItem { SRTabIcon.label("News", "newspaper") }
                 .tag(Router.Tab.news)
             }
 
@@ -286,7 +286,7 @@ struct ContentView: View {
                 NavigationStack(path: $router.flows) {
                     place(.flows).placeDestinations()
                 }
-                .tabItem { Label("Flows", systemImage: "point.3.connected.trianglepath.dotted") }
+                .tabItem { SRTabIcon.label("Flows", "point.3.connected.trianglepath.dotted") }
                 .tag(Router.Tab.flows)
             }
 
@@ -305,7 +305,7 @@ struct ContentView: View {
                         }
                         .placeDestinations()
                 }
-                .tabItem { Label("More", systemImage: "square.grid.3x3.square") }
+                .tabItem { SRTabIcon.label("More", "square.grid.3x3.square") }
                 .badge(games.invites.count)
                 .tag(Router.Tab.more)
             }
