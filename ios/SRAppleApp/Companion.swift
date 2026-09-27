@@ -250,6 +250,9 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         let _: API.Acknowledgement? = try? await api.request("site-pair", method: "POST", data: JSONEncoder().encode(["wanted": false]), timeout: 12)
     }
     func flush() async {
+        // Every flush is a wake, and a sleeping GPS sends nothing: check in so
+        // the family's "last seen" does not freeze while the phone sits still.
+        await location.confirmStillHere()
         updateQueue()
         guard paired, !sending else { return }
         sending = true; defer { sending = false; updateQueue() }

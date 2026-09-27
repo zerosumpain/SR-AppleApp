@@ -358,15 +358,15 @@ struct FlowDetailScreen: View {
             let runId = await store.run()
             starting = false
             if let runId {
-                router.flows.append(FlowRunRef(runId: runId, title: store.detail?.title ?? ref.title))
+                router.push(FlowRunRef(runId: runId, title: store.detail?.title ?? ref.title), on: .flows)
             }
         }
     }
 
     private func deleteWorkflow() {
         Task {
-            if await store.delete(), !router.flows.isEmpty {
-                router.flows.removeLast()
+            if await store.delete() {
+                router.pop(on: .flows)
             }
         }
     }

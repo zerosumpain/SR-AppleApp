@@ -31,6 +31,10 @@ struct GateAnchor: Codable, Equatable {
     var longitude: Double
     var radius: Double
     var at: Date
+    /// How good the fix that placed the anchor was. What a "still here"
+    /// check-in reports as its accuracy — see `LocationCollector.confirmStillHere`.
+    /// Nil on an anchor stored by an older build.
+    var accuracy: Double? = nil
 }
 
 /// One transition.

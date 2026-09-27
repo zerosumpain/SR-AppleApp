@@ -279,10 +279,15 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
     let roundsSurvived: Int
     let outRound: Int?
 
+    /// An invitee whose phone has fetched the invite. There is no push, so an
+    /// invite waits until their app is open; false from a site older than it.
+    let sawInvite: Bool
+
     private enum CodingKeys: String, CodingKey {
         case id, name, status, score, isHost, guessCount, solved, done, solveMs, rows
         case wordCount, words, answered
         case playing, alive, best, roundsSurvived, outRound
+        case sawInvite
     }
 
     init(from decoder: Decoder) throws {
@@ -305,6 +310,7 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
         best = (try? c.decodeIfPresent(Int.self, forKey: .best)) ?? 0
         roundsSurvived = (try? c.decodeIfPresent(Int.self, forKey: .roundsSurvived)) ?? 0
         outRound = (try? c.decodeIfPresent(Int.self, forKey: .outRound)) ?? nil
+        sawInvite = (try? c.decodeIfPresent(Bool.self, forKey: .sawInvite)) ?? false
     }
 
     var joined: Bool { status == "joined" }
@@ -610,6 +616,8 @@ struct GameActionBody: Encodable {
     var value: Int? = nil
     /// Sequence Memory: `{action:"attempt", round, taps:[tile,…]}`.
     var taps: [Int]? = nil
+    /// The host asking more people into the lobby: `{action:"invite", invite:[playerId]}`.
+    var invite: [String]? = nil
 }
 
 enum GameNames {

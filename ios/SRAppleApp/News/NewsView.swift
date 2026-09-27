@@ -58,7 +58,6 @@ struct NewsScreen: View {
         // Archivo Black correctly. A compact bar also gives a list more of the
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: NewsStory.self) { NewsStoryScreen(story: $0) }
         .task { if store.feed == nil { await store.load() } }
         .srRefreshable { await store.load(force: true) }
         .overlay {
