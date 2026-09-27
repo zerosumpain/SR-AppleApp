@@ -109,6 +109,10 @@ final class ConnectionsStore: ObservableObject {
     // MARK: - Reading
 
     func refresh() async {
+        // Viewing the app as somebody: leave the owner's answer (and their
+        // dismissals) exactly as they are. A refresh here would read as a
+        // member, find nothing, and prune every dismissal the owner made.
+        if AccessStore.shared.viewingAs != nil { return }
         guard AccessStore.ownerSite else {
             // Unpaired — or just disconnected, or a member's phone. The site's
             // connections are the owner's business, and this phone does not

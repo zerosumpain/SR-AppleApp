@@ -21,9 +21,22 @@ struct HouseholdView: Codable, Equatable {
     /// Nil from a site older than access groups, which `AccessPolicy` reads as
     /// "unknown". See `AccessStore`.
     var access: ViewAccess? = nil
+    /// The OWNER's view only: everybody else's view, for "view as" in
+    /// Settings. The site decides who gets these; the phone only offers them.
+    var previewAs: [ViewPreview]? = nil
 
     /// Whether there is anybody to show — a "none" view is only a watch list.
     var showsHousehold: Bool { viewer != "none" }
+}
+
+/// Another app user's view, as the site filed it for them — for the owner to
+/// see the app as that person sees it. Carries no pairing code.
+struct ViewPreview: Codable, Equatable, Identifiable {
+    let email: String
+    let name: String
+    let view: HouseholdView
+
+    var id: String { email }
 }
 
 struct HouseholdViewResponse: Codable {
@@ -47,11 +60,14 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
     /// On the move right now, or nil. Absent from a site older than it.
     var moving: Moving? = nil
     let today: Today?
+    /// The days before today, newest first — only where `today` is shown.
+    /// Absent from a site older than it.
+    var days: [Day]? = nil
 
     var id: String { subject }
 
     enum CodingKeys: String, CodingKey {
-        case subject, name, status, line, batteryPct, lastSeenAt, position, moving, today
+        case subject, name, status, line, batteryPct, lastSeenAt, position, moving, today, days
         case isSelf = "self"
     }
 
@@ -98,6 +114,18 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
         let trail: [[Double]]
     }
 
+    /// One whole day before today: the figures without the line.
+    struct Day: Codable, Equatable, Identifiable {
+        /// "2026-09-26", the local date.
+        let date: String
+        let firstOut: String?
+        let minutesOut: Int
+        let distanceKm: Double
+        let stops: [String]
+
+        var id: String { date }
+    }
+
     var initial: String { String(name.prefix(1)).uppercased() }
     var sharing: Bool { status != "off" }
 
@@ -130,14 +158,42 @@ extension FamilyPerson.Today {
     }
 
     /// "2h 05m", "40m", "—".
-    var timeOut: String {
-        guard minutesOut > 0 else { return "—" }
-        let h = minutesOut / 60, m = minutesOut % 60
+    var timeOut: String { FamilyFigures.duration(minutesOut) }
+
+    var distance: String { FamilyFigures.distance(distanceKm) }
+}
+
+extension FamilyPerson.Day {
+    var timeOut: String { FamilyFigures.duration(minutesOut) }
+    var distance: String { FamilyFigures.distance(distanceKm) }
+
+    /// "Sat 26 Sep" — or "Yesterday".
+    func label(now: Date = Date(), calendar: Calendar = .current) -> String {
+        let parser = DateFormatter()
+        parser.calendar = Calendar(identifier: .gregorian)
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = calendar.timeZone
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let day = parser.date(from: date) else { return date }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)),
+           calendar.isDate(day, inSameDayAs: yesterday) {
+            return "Yesterday"
+        }
+        return day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
+}
+
+/// The figure formats a day and a week share.
+enum FamilyFigures {
+    /// "2h 05m", "40m", "—".
+    static func duration(_ minutes: Int) -> String {
+        guard minutes > 0 else { return "—" }
+        let h = minutes / 60, m = minutes % 60
         return h > 0 ? "\(h)h \(String(format: "%02d", m))m" : "\(m)m"
     }
 
-    var distance: String {
-        distanceKm > 0 ? String(format: distanceKm < 10 ? "%.1f km" : "%.0f km", distanceKm) : "—"
+    static func distance(_ km: Double) -> String {
+        km > 0 ? String(format: km < 10 ? "%.1f km" : "%.0f km", km) : "—"
     }
 }
 

@@ -6,11 +6,12 @@ import MapKit
 /// The map is pinned above the list rather than scrolled with it: a map you can
 /// pan inside a scroll view steals the scroll (see `RouteMap`), and here the
 /// map is the point, so it keeps its gestures and the list scrolls beneath it.
-/// Today's lines can be switched off from the map's corner, and the choice is
-/// kept: some days the pins are the question and the lines are clutter.
+/// Today's lines start OFF here, every time — the pins are the question on
+/// this page — and the map's corner switches them on for the visit.
 ///
-/// A card is who, where and battery. Everything else — the day's figures, the
-/// places, their own route — is on the person's page, one tap in.
+/// A person is ONE row: pin, name, where, battery. Everything else — the day's
+/// figures, the week behind it, their own route — is on the person's page,
+/// one tap in.
 ///
 /// Everything on screen is what the site decided this person may see — a card
 /// with no day is somebody else's day, not a failure to load one.
@@ -20,8 +21,8 @@ struct FamilyScreen: View {
     @EnvironmentObject private var router: Router
     @Environment(\.scenePhase) private var scenePhase
     @State private var camera: MapCameraPosition = .automatic
-    /// Today's lines on the map. Kept across launches.
-    @AppStorage(FamilyTracks.key) private var showTracks = true
+    /// Today's lines on the map. Off on arrival, not remembered.
+    @State private var showTracks = false
 
     var body: some View {
         Group {
@@ -74,13 +75,19 @@ struct FamilyScreen: View {
                     SRSectionLabel(text: "Everyone", trailing: view.summary)
                         .padding(.horizontal, 4)
                         .padding(.top, 14)
-                    ForEach(view.people) { person in
-                        NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
-                            FamilyCard(person: person)
+                    VStack(spacing: 0) {
+                        ForEach(Array(view.people.enumerated()), id: \.element.id) { index, person in
+                            if index > 0 {
+                                Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 52)
+                            }
+                            NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
+                                FamilyPersonRow(person: person)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("family-person-\(person.subject)")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("family-person-\(person.subject)")
                     }
+                    .srGlassCard(.paper)
                     footer(view)
                 }
                 .padding(.horizontal, SR.gutter)
@@ -168,37 +175,45 @@ struct FamilyTracksToggle: View {
     }
 }
 
-/// One person: who, where, battery. The day is on their page.
-struct FamilyCard: View {
+/// One person, one row: pin, name, where, battery. The day is on their page.
+///
+/// A row, not a card: five people as cards were a screen of scrolling under
+/// a map that already says where everyone is. The line truncates rather than
+/// wraps, so every person costs the same height.
+struct FamilyPersonRow: View {
     let person: FamilyPerson
     @ObservedObject private var places = PlaceNamer.shared
 
     var body: some View {
-        SRCard(interactive: true) {
-            HStack(alignment: .center, spacing: 12) {
-                FamilyPin(person: person)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(person.name).font(SR.Text.title()).foregroundStyle(SR.ink)
-                        if person.isSelf {
-                            Text("YOU").font(SR.Text.label()).tracking(1.2).foregroundStyle(SR.accent)
-                        }
-                    }
-                    Text(FamilyWords.line(person, places: places))
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(person.moving != nil ? SR.accentInk : SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .center, spacing: 10) {
+            FamilyPin(person: person)
+            HStack(spacing: 5) {
+                Text(person.name)
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                if person.isSelf {
+                    Text("YOU").font(SR.Text.label()).tracking(1.2).foregroundStyle(SR.accent)
                 }
-                Spacer(minLength: 6)
-                if let pct = person.batteryPct { FamilyBattery(pct: pct) }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(SR.inkGhost)
-                    .accessibilityHidden(true)
             }
+            Text(FamilyWords.line(person, places: places))
+                .font(SR.Text.secondary())
+                .foregroundStyle(person.moving != nil ? SR.accentInk : SR.inkSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let pct = person.batteryPct { FamilyBattery(pct: pct) }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(SR.inkGhost)
+                .accessibilityHidden(true)
         }
+        .padding(.horizontal, SR.cardPadding)
+        .frame(minHeight: SR.tapTarget + 8)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Shows their day")
+        .accessibilityHint("Shows their day and week")
     }
 }
 

@@ -270,6 +270,17 @@ final class AccessStore: ObservableObject {
     @Published private(set) var offer: SitePairOffer?
     /// "owner" or "member", from `/api/native/me`. In memory only.
     private(set) var siteRole: String?
+    /// Everybody else the owner may view the app as, from the owner's own
+    /// household view (`previewAs`). The site sends these to the owner alone.
+    @Published private(set) var previews: [ViewPreview] = []
+    /// Who the owner is viewing the app as, or nil for themselves.
+    ///
+    /// IN MEMORY ONLY, never persisted: a relaunch is always the owner. While
+    /// it is set, `current` is that person's flags — every tab, card and
+    /// button obeys it exactly as it would on their phone — but `known`, the
+    /// persisted answer, and every decision about this phone's own pairing
+    /// stay the owner's.
+    @Published private(set) var viewingAs: ViewPreview?
 
     private weak var outbox: Outbox?
     private var sitePaired: Bool
@@ -326,6 +337,32 @@ final class AccessStore: ObservableObject {
         recompute()
     }
 
+    /// The owner, whoever the app is being viewed as. Settings' "View as" is
+    /// drawn on this, never on `current` — or viewing as a member would take
+    /// away the way back.
+    var isRealOwner: Bool {
+        !Self.isDemo && AccessPolicy.resolve(known: known, sitePaired: sitePaired).owner
+    }
+
+    /// Adopt the previews in the owner's view. Anybody else's view has none,
+    /// and a phone that is not the owner's holds none whatever arrives.
+    func adopt(previews incoming: [ViewPreview]?) {
+        let next = isRealOwner ? (incoming ?? []) : []
+        if next != previews { previews = next }
+        // Keep a preview in use current, so the person moves as the view does.
+        if let showing = viewingAs {
+            viewingAs = next.first { $0.email == showing.email }
+        }
+        recompute()
+    }
+
+    /// Start viewing the app as somebody, or stop (nil).
+    func view(as preview: ViewPreview?) {
+        guard preview == nil || isRealOwner else { return }
+        viewingAs = preview
+        recompute()
+    }
+
     /// Take the waiting code, once.
     func takeOffer() -> SitePairOffer? {
         guard let offer else { return nil }
@@ -363,7 +400,19 @@ final class AccessStore: ObservableObject {
     }
 
     private func recompute() {
-        let next = AccessPolicy.resolve(known: known, sitePaired: sitePaired)
+        var next = AccessPolicy.resolve(known: known, sitePaired: sitePaired)
+        if !next.owner, viewingAs != nil {
+            // No longer the owner: no previews, and no viewing as anybody.
+            viewingAs = nil
+            previews = []
+        }
+        if next.owner, let preview = viewingAs {
+            // Their flags as the site filed them; nothing if it filed none.
+            // Never the owner's — the site sends no owner previews.
+            var flags = preview.view.access?.flags.flags ?? .nothing
+            flags.owner = false
+            next = flags
+        }
         if next != current { current = next }
         applyDemo()
     }

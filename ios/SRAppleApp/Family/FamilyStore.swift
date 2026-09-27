@@ -23,6 +23,9 @@ final class FamilyStore: ObservableObject {
 
     private let companion: Companion
     private var loading = false
+    /// This phone's own view, as read. `view` is this — or, while the owner
+    /// is viewing the app as somebody, that person's view instead.
+    private var real: HouseholdView?
 
     init(companion: Companion) {
         self.companion = companion
@@ -42,6 +45,7 @@ final class FamilyStore: ObservableObject {
         }
         #endif
         guard companion.paired else {
+            real = nil
             view = nil
             loaded = true
             return
@@ -52,7 +56,9 @@ final class FamilyStore: ObservableObject {
             let response: HouseholdViewResponse = try await companion.api.request("household/view", timeout: 12)
             companion.adoptWatch(response.view?.watch)
             await companion.adoptAccess(response.view?.access)
-            view = response.view?.showsHousehold == true ? response.view : nil
+            AccessStore.shared.adopt(previews: response.view?.previewAs)
+            real = response.view
+            applyViewingAs()
             updated = response.updated
             message = nil
         } catch {
@@ -60,6 +66,13 @@ final class FamilyStore: ObservableObject {
             // is worse than one labelled with its age.
             message = error.localizedDescription
         }
+    }
+
+    /// Show the person the owner is viewing the app as, or this phone's own
+    /// view. Called on every read, and when "View as" changes.
+    func applyViewingAs() {
+        let shown = AccessStore.shared.viewingAs?.view ?? real
+        view = shown?.showsHousehold == true ? shown : nil
     }
 
     /// "Updated 2m ago", from when the server filed the view.

@@ -74,7 +74,7 @@ struct FamilyPin: View {
 /// reads as one cluster at a glance. Initials are unique across the household
 /// (`HouseholdView.initials`: JK, KK, JeK), so the circles say who without a
 /// name beside them. Anybody not seen lately or not sharing is the last row,
-/// in dashed circles. The Family tab keeps the map, one tap away from "Map".
+/// in dashed circles. The Family tab keeps the map, one tap on any row away.
 /// Draws nothing until there is somebody to show.
 struct TodayFamilyCard: View {
     @ObservedObject var store: FamilyStore
@@ -90,25 +90,6 @@ struct TodayFamilyCard: View {
             let initials = view.initials
             let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    SRSectionLabel(text: "Family")
-                    Button {
-                        SRHaptic.tap()
-                        open()
-                    } label: {
-                        Text("Map")
-                            .font(SR.Text.bodyMedium(15))
-                            .foregroundStyle(SR.accentInk)
-                            .padding(.vertical, 6)
-                            .padding(.leading, 8)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open the family map")
-                    .accessibilityIdentifier("today-family")
-                }
-                .padding(.horizontal, 4)
-
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(groups.enumerated()), id: \.element.id) { index, place in
                         if index > 0 { divider }
@@ -127,6 +108,10 @@ struct TodayFamilyCard: View {
                     }
                 }
                 .srGlassCard(.paper)
+                // The card is its own way in: no "Family · Map" heading over
+                // it — the circles say who, and any row opens the tab.
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("today-family")
             }
         }
     }

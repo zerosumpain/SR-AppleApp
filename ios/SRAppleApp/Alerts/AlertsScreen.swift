@@ -13,11 +13,19 @@ struct AlertsScreen: View {
 
     var body: some View {
         List {
+            // A sheet each, so each can carry its own edge: an alert is ringed
+            // in red and a warning in amber, and everything else sits plain.
+            // One shared sheet cannot give one row a border.
             ForEach(alerts.recent) { alert in
-                row(alert).srGlassRow()
+                Section {
+                    row(alert)
+                        .listRowBackground(AlertEdge(alert: alert))
+                        .listRowSeparator(.hidden)
+                }
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(10)
         .srPaper()
         .navigationTitle("Alerts")
         .navigationBarTitleDisplayMode(.inline)
@@ -94,6 +102,34 @@ struct AlertsScreen: View {
     }
 
     private func tone(_ alert: SiteAlert) -> Color { AlertTone.of(alert) }
+}
+
+/// A row's sheet, with a coloured edge when the alert matters more than most.
+struct AlertEdge: View {
+    let alert: SiteAlert
+
+    /// Nil for an ordinary alert: no border at all, so the ringed ones stand out.
+    static func stroke(_ alert: SiteAlert) -> Color? {
+        if alert.isAlert { return SR.error }
+        if alert.isWarning || alert.isConnections { return SR.warn }
+        return nil
+    }
+
+    var body: some View {
+        // Rounder than the list clips its sections on any iOS, so the edge
+        // is never cut at the corners — a smaller clip only squares it off.
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        shape
+            .fill(SR.Glass.rowFill)
+            .overlay {
+                if let tone = Self.stroke(alert) {
+                    shape
+                        .fill(tone.opacity(alert.read ? 0.03 : 0.07))
+                    shape
+                        .strokeBorder(tone.opacity(alert.read ? 0.55 : 1), lineWidth: 2)
+                }
+            }
+    }
 }
 
 /// Where each kind of alert goes.
