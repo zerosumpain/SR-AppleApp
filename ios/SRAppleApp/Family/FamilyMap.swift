@@ -148,8 +148,10 @@ struct TodayFamilyCard: View {
                             .foregroundStyle(SR.accentInk)
                             .accessibilityHidden(true)
                     }
+                    // DM Sans, not Archivo Black: the place is a label for
+                    // the circles, and the circles are the headline.
                     Text(place.name)
-                        .font(SR.Text.display(17))
+                        .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
                         .lineLimit(2)
                 }
