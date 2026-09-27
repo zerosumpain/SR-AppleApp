@@ -311,6 +311,27 @@ solid ink area reads as intensity, not editorial. Two colour registers exist
 (`SRRegister.paper` / `.ink`) because a paper token is invisible on an ink band,
 which is what every relighting bug on the website turned out to be.
 
+### Screens: paper under glass
+
+The phone's layer on top of the site's system, and the design system of record
+is the **Strange Ramblings** design-system artifact (tokens, Monogram, glass,
+ink band, component cards). The rules every screen follows:
+
+- **No page titles on a tab's root.** The tab bar already says where you are,
+  the bar carries the `sr.` mark (and, on Today, the date), and the first thing
+  under the bar is the thing the tab is opened for. `SRPageHeader` is for
+  screens whose headline *is* the content — a game's result, a workflow.
+- **Five tabs, family second:** Today, Family, Chat, Health, then More holding
+  Games, News and Flows once the bar is full (`AccessPolicy.tabs`).
+- **Today leads with the family:** the map, a row per person, anyone not
+  sharing in a line. Then the one prominent action (Ask jkai), then *Up next* —
+  the body, the alerts and the workflows as one grouped list, below the fold —
+  then the wire's top story.
+- **One filled control per screen,** in `SR.accentDeep` so its cream label
+  holds 5:1; everything else is paper glass.
+- **The mark is `SRMark`:** `sr` in DM Mono Medium with a drawn accent dot and
+  halo, 26pt in the bar, 20pt on the ink top bar. Never a typed full stop.
+
 The app is light-locked. That is not an omission: the site has no dark mode, and
 the simulator in CI is booted in **dark** appearance on purpose so a regression
 shows up as a screenshot.

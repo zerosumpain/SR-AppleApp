@@ -16,9 +16,9 @@ struct GamesScreen: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: SR.sectionGap) {
                 VStack(alignment: .leading, spacing: 8) {
-                    SRPageHeader(kicker: "Family games", title: "Games")
-                    // The one honest sentence about delivery. No push
-                    // certificate: an invite rings only a phone with the app open.
+                    // No page title: the tab says Games. The one honest
+                    // sentence about delivery. No push certificate: an invite
+                    // rings only a phone with the app open.
                     Text("Invites reach phones with the app open.")
                         .font(SR.Text.mono())
                         .foregroundStyle(SR.inkMuted)

@@ -45,9 +45,8 @@ struct ChatBubble: View {
             HStack(spacing: 8) {
                 // The monogram as jkai's avatar — the one place the brand mark
                 // speaks.
-                (Text("sr").foregroundStyle(SR.paper) + Text(".").foregroundStyle(SR.accentOnDark))
-                    .font(SR.Text.brand(13))
-                    .frame(width: 26, height: 26)
+                SRMark(register: .ink, size: 11)
+                    .frame(width: 28, height: 28)
                     .background(SR.ink, in: Circle())
                     .accessibilityHidden(true)
                 meta

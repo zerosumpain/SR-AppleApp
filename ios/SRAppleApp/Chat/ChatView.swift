@@ -22,10 +22,6 @@ struct ThreadListScreen: View {
 
     var body: some View {
         List {
-            if store.query.isEmpty {
-                SRPageHeader(kicker: "jkai", title: "Threads")
-                    .srBareRow()
-            }
             if !store.pinned.isEmpty && store.query.isEmpty {
                 Section {
                     ForEach(store.pinned) { row($0) }

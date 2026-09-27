@@ -120,10 +120,12 @@ enum AccessPolicy {
     /// Every place this person may open, in its fixed order. Today and Health
     /// are everyone's: Health is at least this phone's own uploads.
     ///
-    /// Games sits straight after Family: a family member given both has four
-    /// and sees it on the bar; the owner, with seven, finds it under More.
+    /// Family is second, beside Today: where everyone is is the thing the app
+    /// is opened for, and Today leads with it, so the tab that goes deeper sits
+    /// next to it. Games sits straight after Family: a family member given both
+    /// sees them side by side; the owner, with seven, finds Games under More.
     static func tabs(for access: AppAccess) -> [Router.Tab] {
-        [Router.Tab.today, .chat, .health, .family, .games, .news, .flows].filter { allows($0, access) }
+        [Router.Tab.today, .family, .games, .chat, .health, .news, .flows].filter { allows($0, access) }
     }
 
     /// The places that fold into More when the bar is full, in order.

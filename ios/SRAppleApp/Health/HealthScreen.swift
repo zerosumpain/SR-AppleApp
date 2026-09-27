@@ -41,8 +41,6 @@ struct HealthScreen: View {
 
     var body: some View {
         List {
-            SRPageHeader(kicker: "Body · \(Date().formatted(.dateTime.weekday(.wide)))", title: "Health")
-                .srBareRow()
             if access.current.owner, let summary = store.summary {
                 // The ink band: readiness and today's figures, /health's hero.
                 HealthHero(summary: summary).srInkRow()

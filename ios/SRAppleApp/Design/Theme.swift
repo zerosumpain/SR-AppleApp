@@ -44,6 +44,11 @@ enum SR {
 
     /// `--accent`, burnt orange. Punchy, not regal. PAPER ONLY.
     static let accent = Color(hex: 0xC4570A)
+    /// The accent one step deeper, for a FILL that carries cream text — the
+    /// Ask button, a selected tab's label. `--accent` under cream measures
+    /// 3.5:1; this holds 5.5:1, and 4.8:1 as text on paper. Not a second
+    /// accent: use it only where the accent itself would fail the text.
+    static let accentDeep = Color(hex: 0xA8470A)
     /// `--accent-on-dark`. `--accent` scores 2.6:1 on `#1a1008`, under the
     /// floor; this is its partner, not a second accent.
     static let accentOnDark = Color(hex: 0xE8863A)
@@ -217,8 +222,12 @@ extension SR {
         /// The mono eyebrow. Never below the 12pt floor before scaling.
         static func label(_ size: CGFloat = 12) -> Font { .custom(Face.monoMedium, size: max(size, labelFloor), relativeTo: .caption) }
         static func mono(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor), relativeTo: .caption) }
-        /// The brand mark.
+        /// DM Mono at the reading weight: the top bar's path, a thread's source.
         static func brand(_ size: CGFloat = 15) -> Font { .custom(Face.brand, size: size, relativeTo: .headline) }
+        /// The `sr` of the mark itself: DM Mono MEDIUM. The regular cut read
+        /// as a caption beside the bar's glass buttons; the mark is the one
+        /// piece of type on a screen that is the brand, so it gets the weight.
+        static func mark(_ size: CGFloat = SRMark.barSize) -> Font { .custom(Face.brandMedium, size: size, relativeTo: .headline) }
     }
 
     // MARK: - Phone metrics
