@@ -130,4 +130,68 @@ final class FamilyTests: XCTestCase {
         XCTAssertNil(PlaceNamer.phrase(street: nil, area: " ", town: nil))
         XCTAssertEqual(PlaceNamer.key(lat: 54.52345, lon: -1.55432), "54.523,-1.554")
     }
+
+    // MARK: - Today's places
+
+    /// A person at a spot, for the grouping tests. `moving` makes them a walker.
+    private func at(_ name: String, _ line: String, status: String = "out", lat: Double = 51, lon: Double = 0,
+                    isSelf: Bool = false, moving: Bool = false) throws -> FamilyPerson {
+        let walk = moving ? #","moving":{"mode":"walking","speedKmh":5,"since":"2026-09-27T08:00:00Z"}"# : ""
+        return try person(#"{"subject":"\#(name.lowercased())","name":"\#(name)","self":\#(isSelf),"status":"\#(status)","line":"\#(line)","batteryPct":80,"lastSeenAt":"2026-09-27T08:10:00Z","position":{"lat":\#(lat),"lon":\#(lon),"at":"2026-09-27T08:10:00Z"},"today":null\#(walk)}"#)
+    }
+
+    func testTheSitesPlaceIsReadFromTheLine() throws {
+        XCTAssertEqual(try at("Sam", "At School · seen 6m ago").placeName, "School")
+        XCTAssertEqual(try at("Alex", "Bethesda Terrace · seen 2m ago").placeName, "Bethesda Terrace")
+        XCTAssertEqual(try at("Robin", "At home · seen 4m ago", status: "home").placeName, "Home")
+        XCTAssertEqual(try at("Kit", "Last at The Reservoir · 2h ago", status: "unknown").placeName, "The Reservoir")
+        XCTAssertNil(try at("Pat", "Not sharing their location.", status: "off").placeName)
+        XCTAssertEqual(try at("Sam", "At School · seen 6m ago").seenLine, "Seen 6m ago")
+    }
+
+    func testTheDemoHouseholdGroupsYouFirstThenHome() {
+        let view = SRDemoFixtures.householdView(now: Date()).view
+        XCTAssertEqual(view?.places().map(\.name), ["Bethesda Terrace", "Home", "School"])
+        XCTAssertEqual(view?.absentLines, ["Kit was last at The Reservoir, 2h ago.", "Pat isn't sharing their location."])
+    }
+
+    func testTwoPeopleAtOneSavedPlaceAreOneGroup() throws {
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [
+            try at("Sam", "At School · seen 6m ago", lat: 51),
+            try at("Kit", "At school · seen 1m ago", lat: 52),
+        ])
+        XCTAssertEqual(view.places().map(\.name), ["School"])
+        XCTAssertEqual(view.places().first?.people.map(\.name), ["Sam", "Kit"])
+    }
+
+    func testPeopleStandingTogetherMergeUnderTheSavedPlacesName() throws {
+        // ~55 m apart: one matched to a saved place, one not.
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [
+            try at("Robin", "Station Road · seen 1m ago", lat: 51.0005, isSelf: true),
+            try at("Sam", "At Café Nero · seen 2m ago", lat: 51.0),
+        ])
+        let places = view.places()
+        XCTAssertEqual(places.map(\.name), ["Café Nero"])
+        XCTAssertEqual(places.first?.people.map(\.name), ["Robin", "Sam"], "you first within a place")
+    }
+
+    func testHomeAndWalkersNeverMergeByDistance() throws {
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [
+            try at("Robin", "At home · seen 4m ago", status: "home", lat: 51.0),
+            try at("Sam", "At The Park · seen 2m ago", lat: 51.0005),
+            try at("Alex", "Park Lane · seen 1m ago", lat: 51.0004, moving: true),
+        ])
+        XCTAssertEqual(view.places().map(\.name), ["Home", "The Park", "Park Lane"])
+        XCTAssertEqual(view.places().last?.isMoving, true)
+    }
+
+    func testFarApartPeopleStaySeparateAndBiggerGroupsComeFirst() throws {
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [
+            try at("Kit", "At The Gym · seen 3m ago", lat: 52),
+            try at("Sam", "At School · seen 6m ago", lat: 51),
+            try at("Pat", "At School · seen 5m ago", lat: 51.0001),
+        ])
+        XCTAssertEqual(view.places().map(\.name), ["School", "The Gym"])
+    }
 }
+
