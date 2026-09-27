@@ -7,12 +7,10 @@ import UIKit
 ///
 /// ## Why these are local notifications and not push
 ///
-/// A push notification needs an `aps-environment` entitlement, which needs a
-/// provisioning profile that carries it, which needs a key generated in Apple's
-/// developer portal. This repository's TestFlight lane holds a distribution
-/// certificate and ONE profile, minted without push; adding the entitlement
-/// without re-minting the profile fails the archive at the signing step. So
-/// there is no APNs certificate, and nothing on the server can wake this phone.
+/// Until 2026-09-27 the app could not receive push at all: the TestFlight
+/// profile was minted without `aps-environment`. It carries it now, and the
+/// server holds an APNs key, but nothing registers for remote notifications
+/// yet, so every alert below still arrives by pulling.
 ///
 /// What there is: a background refresh task the app already registers, and
 /// `UNUserNotificationCenter`, which will post a notification from a running
