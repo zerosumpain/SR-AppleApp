@@ -312,6 +312,11 @@ struct ContentView: View {
         }
         // The deeper accent: the selected tab's label is 10-point text on
         // glass, where `SR.accent` measures 3.5:1 and this holds 4.8:1.
+        // A fresh set of screens whenever "View as" changes: every tab's
+        // stores were loaded as the person before, and a thread list or story
+        // kept from the owner under Katie's tabs is the leak this exists to
+        // rule out. The shared stores (family, alerts) re-apply on their own.
+        .id(access.viewingAs?.email ?? "self")
         .tint(SR.accentDeep)
         // Viewing the app as somebody else: said on every screen, with the way
         // back one tap away, so a look never passes for the real thing.

@@ -9,10 +9,10 @@ import SwiftUI
 /// the rules it previews. The phone only swaps what it obeys: `AccessStore`
 /// holds the choice in memory, and a relaunch is always the owner.
 ///
-/// It is a look, not a sign-in. The site's own lanes (chat, news, games) still
-/// answer as the owner, because the credential on this phone is the owner's;
-/// what changes is what the app OFFERS — which is the thing access groups
-/// decide on a member's phone.
+/// It is a look, not a sign-in. Every site request carries `X-SR-View-As`
+/// (`SiteClient.request`), and SR-Main answers it as that person's own phone —
+/// their threads, their stories, their games — refusing anything but a read.
+/// So posting, starting a thread or acting on a story fails until Exit.
 struct ViewAsScreen: View {
     @ObservedObject private var access = AccessStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -55,7 +55,7 @@ struct ViewAsScreen: View {
             } header: {
                 SRSectionLabel(text: "See the app as")
             } footer: {
-                Text("Their tabs, cards and family view, as their phone would show them. Chat, news and games still read as you. Nothing is saved: relaunching the app, or Exit on the banner, brings you back.")
+                Text("Their tabs, cards, family view, chats and stories, as their phone would show them. Look only: sending a message or starting anything is refused until you exit. Nothing is saved: relaunching the app, or Exit on the banner, brings you back.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
             }
