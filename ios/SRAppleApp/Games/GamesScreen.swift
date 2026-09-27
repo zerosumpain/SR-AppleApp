@@ -35,7 +35,7 @@ struct GamesScreen: View {
                                 join: {
                                     Task {
                                         if await store.join(invite) {
-                                            router.games.append(GameRoomRef(id: invite.roomId, game: invite.game))
+                                            router.push(GameRoomRef(id: invite.roomId, game: invite.game), on: .games)
                                         }
                                     }
                                 },
@@ -54,7 +54,7 @@ struct GamesScreen: View {
                             // glass (the Tap Duel card) does.
                             Button {
                                 SRHaptic.tap()
-                                router.games.append(GameRoomRef(id: room.id, game: room.game))
+                                router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
                             } label: {
                                 GameRoomRow(room: room)
                             }
@@ -87,7 +87,6 @@ struct GamesScreen: View {
         .navigationTitle("Games")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
-        .navigationDestination(for: GameRoomRef.self) { GameRoomScreen(ref: $0).id($0.id) }
         .task {
             if store.lobby == nil { await store.load() }
             await store.askForNotificationsIfUndecided()
@@ -104,7 +103,7 @@ struct GamesScreen: View {
                 switch await store.create(request) {
                 case .created(let room):
                     starting = nil
-                    router.games.append(GameRoomRef(id: room.id, game: room.game))
+                    router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
                     return nil
                 case .refused(let sentence):
                     return sentence
@@ -341,7 +340,7 @@ struct NewGameSheet: View {
                                     invited.formSymmetricDifference([person.id])
                                 }
                             }
-                            Text("Tick nobody to play solo. Invites reach phones with the app open.")
+                            Text("Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -370,7 +369,7 @@ struct NewGameSheet: View {
                             working = false
                         }
                     } label: {
-                        SRButtonLabel(title: invited.isEmpty ? "Start solo" : "Start and invite", icon: "play.fill", fill: true)
+                        SRButtonLabel(title: invited.isEmpty ? "Open the lobby" : "Invite and open the lobby", icon: "arrow.right", fill: true)
                     }
                     .srButton(.prominent)
                     .controlSize(.large)

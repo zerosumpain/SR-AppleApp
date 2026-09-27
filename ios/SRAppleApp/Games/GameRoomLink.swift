@@ -161,6 +161,14 @@ final class GameRoomLink {
     }
 }
 
+extension GameRoomLink {
+    /// The host asks more people into a lobby. A one-off POST: the room that
+    /// answers reaches the lobby over its own stream like any other change.
+    static func invite(_ playerIds: [String], to roomId: String) async -> GamePostOutcome {
+        await GameRoomLink(roomId: roomId).post(GameActionBody(action: "invite", invite: playerIds))
+    }
+}
+
 /// What a `GameRoomLink` has to say.
 enum GameLinkNote: Equatable {
     /// The stream dropped with a room on screen; it is being reopened.

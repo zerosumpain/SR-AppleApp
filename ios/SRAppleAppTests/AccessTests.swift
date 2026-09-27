@@ -142,6 +142,27 @@ final class AccessTests: XCTestCase {
         XCTAssertEqual(AccessPolicy.tabs(for: all).count, 5, "five tabs fit the bar: no More")
     }
 
+    func testTheOwnersOverflowSitsInTheAppsOwnMore() {
+        XCTAssertEqual(AccessPolicy.inMore(for: .everything), [.games, .news, .flows])
+        XCTAssertEqual(AccessPolicy.bar(for: .everything), [.today, .chat, .health, .family, .more])
+        XCTAssertTrue(AccessPolicy.allows(.more, .everything))
+    }
+
+    func testNoMoreWhileEverythingFitsTheBar() {
+        let all = AppAccess(chat: true, news: true, research: true, notes: true, intel: true, family: true)
+        XCTAssertEqual(AccessPolicy.inMore(for: all), [])
+        XCTAssertEqual(AccessPolicy.bar(for: all), AccessPolicy.tabs(for: all))
+        XCTAssertFalse(AccessPolicy.allows(.more, all))
+        XCTAssertFalse(AccessPolicy.allows(.more, AppAccess(family: true, games: true)))
+    }
+
+    func testTheBarNeverHoldsMoreThanFive() {
+        let all = AppAccess(chat: true, news: true, family: true, games: true)
+        XCTAssertEqual(AccessPolicy.tabs(for: all).count, 6)
+        XCTAssertEqual(AccessPolicy.bar(for: all), [.today, .chat, .health, .family, .more])
+        XCTAssertEqual(AccessPolicy.inMore(for: all), [.games, .news])
+    }
+
     // MARK: - Automatic site pairing
 
     func testAMemberWithChatOrNewsAndNoCredentialWantsOne() {

@@ -11,7 +11,7 @@ import CoreSpotlight
 /// write, which is what every one of those entry points needs.
 @MainActor
 final class Router: ObservableObject {
-    enum Tab: String, Hashable { case today, chat, health, family, games, news, flows }
+    enum Tab: String, Hashable { case today, chat, health, family, games, news, flows, more }
 
     @Published var tab: Tab = .today
     @Published var chat = NavigationPath()
@@ -20,6 +20,9 @@ final class Router: ObservableObject {
     @Published var games = NavigationPath()
     @Published var news = NavigationPath()
     @Published var flows = NavigationPath()
+    /// The app's own More tab: its first entry is the place opened from the
+    /// hub (a `Tab`), and that place's own pushes follow it on the same stack.
+    @Published var more = NavigationPath()
     /// The one modal, whichever it currently is.
     ///
     /// NOT two `.sheet(isPresented:)` modifiers on the same view. SwiftUI
@@ -73,6 +76,15 @@ final class Router: ObservableObject {
             self.tab = .today
             return
         }
+        // A place inside More opens as More with that place pushed, so its
+        // back button leads to the hub and the bar stays where it was.
+        if inMore(tab) {
+            var path = NavigationPath()
+            path.append(tab)
+            more = path
+            self.tab = .more
+            return
+        }
         switch tab {
         case .chat: chat = NavigationPath()
         case .health: health = NavigationPath()
@@ -80,19 +92,59 @@ final class Router: ObservableObject {
         case .games: games = NavigationPath()
         case .news: news = NavigationPath()
         case .flows: flows = NavigationPath()
+        case .more: more = NavigationPath()
         case .today: break
         }
         self.tab = tab
     }
 
-    /// Open one game room — a tapped invite notification. Lands on the Games
-    /// tab with the room pushed; somebody without games lands on Today.
+    /// Whether `tab` lives inside More for this person rather than on the bar.
+    func inMore(_ tab: Tab) -> Bool { AccessStore.shared.inMore.contains(tab) }
+
+    /// Push onto a place's stack, wherever that place is on the bar — its own
+    /// tab, or inside More behind the hub. Games, News and Flows push through
+    /// this rather than onto `games`/`news`/`flows` directly.
+    func push<Value: Hashable>(_ value: Value, on tab: Tab) {
+        if inMore(tab) { more.append(value); return }
+        switch tab {
+        case .chat: chat.append(value)
+        case .health: health.append(value)
+        case .family: family.append(value)
+        case .games: games.append(value)
+        case .news: news.append(value)
+        case .flows: flows.append(value)
+        case .more: more.append(value)
+        case .today: break
+        }
+    }
+
+    /// Pop the top of a place's stack, never past the place itself — inside
+    /// More the bottom entry is the place, and popping it would land on the hub.
+    func pop(on tab: Tab) {
+        if inMore(tab) {
+            if more.count > 1 { more.removeLast() }
+            return
+        }
+        switch tab {
+        case .chat: if !chat.isEmpty { chat.removeLast() }
+        case .health: if !health.isEmpty { health.removeLast() }
+        case .family: if !family.isEmpty { family.removeLast() }
+        case .games: if !games.isEmpty { games.removeLast() }
+        case .news: if !news.isEmpty { news.removeLast() }
+        case .flows: if !flows.isEmpty { flows.removeLast() }
+        case .more: if !more.isEmpty { more.removeLast() }
+        case .today: break
+        }
+    }
+
+    /// Open one game room — a tapped invite notification. Lands on Games
+    /// with the room pushed; somebody without games lands on Today.
     /// `game` picks the room's screen at once; without it the room is read
     /// first to find out.
     func openGame(_ roomId: String, game: String? = nil) {
         show(.games)
-        guard tab == .games else { return }
-        games.append(GameRoomRef(id: roomId, game: game))
+        guard AccessStore.shared.allows(.games) else { return }
+        push(GameRoomRef(id: roomId, game: game), on: .games)
     }
 
     func ask(_ question: String) {
@@ -185,8 +237,6 @@ struct ContentView: View {
 
             // Where everyone is. Over the COMPANION pairing, which every phone
             // in the family has — so, unlike Chat or News, not behind `paired`.
-            // A sixth tab: iOS folds the fifth and sixth under "More", and
-            // that is the price John chose over giving a tab up.
             if access.allows(.family) {
                 NavigationStack(path: $router.family) {
                     FamilyScreen(store: family, companion: companion)
@@ -196,37 +246,47 @@ struct ContentView: View {
                 .tag(Router.Tab.family)
             }
 
-            // Family games. Straight after Family so a member given both sees
-            // it on the bar. Its rooms live on the site, hence `paired` — a
-            // games-only member's phone pairs itself for it.
-            if access.allows(.games) {
+            // Games, News and Flows: each its own tab while the bar has room,
+            // otherwise all three behind our own More (see `AccessPolicy.inMore`).
+            // Games straight after Family, so a member given both sees it on the bar.
+            if access.allows(.games) && !router.inMore(.games) {
                 NavigationStack(path: $router.games) {
-                    paired(what: "family games") { GamesScreen(store: games) }
-                        .srConnectionsBanner(connections) { router.openConnections() }
+                    place(.games).placeDestinations()
                 }
                 .tabItem { Label("Games", systemImage: "gamecontroller") }
+                .badge(games.invites.count)
                 .tag(Router.Tab.games)
             }
 
-            if access.allows(.news) {
+            if access.allows(.news) && !router.inMore(.news) {
                 NavigationStack(path: $router.news) {
-                    paired(what: "the news desk") { NewsScreen() }
-                        .srConnectionsBanner(connections) { router.openConnections() }
+                    place(.news).placeDestinations()
                 }
                 .tabItem { Label("News", systemImage: "newspaper") }
                 .tag(Router.Tab.news)
             }
 
-            // The site's workflows: list, run, pause, edit a step, ask jkai to
-            // change one. A place you go back to, which is what earns a tab.
-            // The owner's alone.
-            if access.allows(.flows) {
+            if access.allows(.flows) && !router.inMore(.flows) {
                 NavigationStack(path: $router.flows) {
-                    paired(what: "your workflows") { FlowsScreen() }
-                        .srConnectionsBanner(connections) { router.openConnections() }
+                    place(.flows).placeDestinations()
                 }
                 .tabItem { Label("Flows", systemImage: "point.3.connected.trianglepath.dotted") }
                 .tag(Router.Tab.flows)
+            }
+
+            // One stack for the hub and whatever it opens, so a game has one
+            // bar and one back button, and popping it lands on a screen that
+            // has a tab bar — neither was true of iOS's own More.
+            if access.allows(.more) {
+                NavigationStack(path: $router.more) {
+                    MoreScreen(places: access.inMore, games: games)
+                        .srConnectionsBanner(connections) { router.openConnections() }
+                        .navigationDestination(for: Router.Tab.self) { place($0) }
+                        .placeDestinations()
+                }
+                .tabItem { Label("More", systemImage: "square.grid.3x3.square") }
+                .badge(games.invites.count)
+                .tag(Router.Tab.more)
             }
         }
         .tint(SR.accent)
@@ -238,6 +298,8 @@ struct ContentView: View {
         .environmentObject(alerts)
         .environmentObject(connections)
         .environmentObject(access)
+        // The lobby's "ask more people" reads the family roster from here.
+        .environmentObject(games)
         // An install paired before the household question existed is asked
         // once, here. A phone pairing now is asked by the Connections screen.
         .srSharingQuestion(companion: companion, onPairing: false)
@@ -293,7 +355,8 @@ struct ContentView: View {
         // The site changed its mind about this person, or sent the pairing
         // code a member's phone asked for.
         .onChange(of: access.current) { _, _ in
-            if !access.allows(router.tab) { router.tab = .today }
+            // Also when a place moved between the bar and More: its old tab is gone.
+            if !access.allows(router.tab) || router.inMore(router.tab) { router.tab = .today }
             syncGamesPoll()
             Task { await reconcileSite() }
         }
@@ -430,6 +493,29 @@ struct ContentView: View {
         )
     }
 
+    /// Games, News or Flows — the same screen whether it is a tab of its own
+    /// or opened from More.
+    @ViewBuilder
+    private func place(_ tab: Router.Tab) -> some View {
+        switch tab {
+        case .games:
+            // Its rooms live on the site, hence `paired` — a games-only
+            // member's phone pairs itself for it.
+            paired(what: "family games") { GamesScreen(store: games) }
+                .srConnectionsBanner(connections) { router.openConnections() }
+        case .news:
+            paired(what: "the news desk") { NewsScreen() }
+                .srConnectionsBanner(connections) { router.openConnections() }
+        case .flows:
+            // The site's workflows: list, run, pause, edit a step, ask jkai to
+            // change one. The owner's alone.
+            paired(what: "your workflows") { FlowsScreen() }
+                .srConnectionsBanner(connections) { router.openConnections() }
+        default:
+            EmptyView()
+        }
+    }
+
     /// A tab that needs the site credential, or the one screen that explains
     /// why it does not have it.
     ///
@@ -466,6 +552,18 @@ struct ContentView: View {
 }
 
 private extension View {
+    /// Where Games, News and Flows push to, registered on the ROOT of whichever
+    /// stack holds them. On the root rather than on each screen: inside More the
+    /// screen is itself pushed, and a notification that opens a game sets the
+    /// hub-then-room path in one go — the room's destination must already exist.
+    func placeDestinations() -> some View {
+        self
+            .navigationDestination(for: GameRoomRef.self) { GameRoomScreen(ref: $0).id($0.id) }
+            .navigationDestination(for: NewsStory.self) { NewsStoryScreen(story: $0) }
+            .navigationDestination(for: FlowRef.self) { FlowDetailScreen(ref: $0).id($0.slug) }
+            .navigationDestination(for: FlowRunRef.self) { FlowRunScreen(ref: $0).id($0.runId) }
+    }
+
     @ViewBuilder
     func srTabBarMinimizes() -> some View {
         if #available(iOS 26.0, *) {

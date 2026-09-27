@@ -79,6 +79,9 @@ import UIKit
     private var outingBuffer: [LocationRecord] = []
     private var lastOutingCommit = Date()
     private var outingTimer: Timer?
+    /// The last "still here" check-in, and the one waiting on iOS's answer.
+    private var lastStillHere: Date?
+    private var stillHereWaiter: CheckedContinuation<Bool, Never>?
 
     /// The live settings. Read on every apply rather than cached, so a change
     /// on the settings screen takes effect on the next fix instead of at the
@@ -243,7 +246,8 @@ import UIKit
         let anchor = GateAnchor(latitude: location.coordinate.latitude,
                                 longitude: location.coordinate.longitude,
                                 radius: anchorRadius(for: location),
-                                at: Date())
+                                at: Date(),
+                                accuracy: max(0, location.horizontalAccuracy))
         rearm(anchor: anchor, reason: "Still for \(short(s.sleepAfter))", kind: .armed)
     }
 
@@ -290,6 +294,58 @@ import UIKit
         try? outbox.change { $0.gateState = .armed; $0.anchor = anchor }
         note(kind, reason: reason, detail: "Anchor \(Int(anchor.radius))m")
         status = "Asleep · GPS off within \(Int(anchor.radius))m"
+    }
+
+    // MARK: - Still here
+
+    /// At most one check-in per this long.
+    private static let stillHereEvery: TimeInterval = 10 * 60
+
+    /// While GPS sleeps, tell the family this phone is still where it was.
+    ///
+    /// Asleep, the phone sends no fixes — that is the saving — so the Family
+    /// card's "last seen" froze at the moment it fell asleep and read "12 hours
+    /// ago" for somebody who had been at home all evening with the phone in
+    /// their pocket. Life360 never looks like that because it keeps checking in.
+    ///
+    /// This is the check-in, taken on a wake the app already gets (every
+    /// `Companion.flush`: a HealthKit delivery, a background refresh, the app
+    /// coming forward) and never a wake of its own. It is not a guess: iOS is
+    /// asked whether the phone is inside the anchor now, and only an `inside`
+    /// answer records a point — the anchor's position and the accuracy of the
+    /// fix that placed it, stamped now. `outside` wakes the gate exactly as a
+    /// crossing would have; no answer records nothing.
+    func confirmStillHere() async {
+        guard outbox.state.sharing, gate == .armed, outbox.state.outing == nil,
+              let anchor = outbox.state.anchor, stillHereWaiter == nil,
+              let region = manager.monitoredRegions.first(where: { $0.identifier == Self.anchorID })
+        else { return }
+        if let last = lastStillHere, Date().timeIntervalSince(last) < Self.stillHereEvery { return }
+        lastStillHere = Date()
+        let inside = await withCheckedContinuation { (waiter: CheckedContinuation<Bool, Never>) in
+            stillHereWaiter = waiter
+            manager.requestState(for: region)
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                self?.answerStillHere(false)
+            }
+        }
+        guard inside, gate == .armed, outbox.state.sharing else { return }
+        let here = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: anchor.latitude, longitude: anchor.longitude),
+            altitude: 0,
+            // An older anchor did not keep its fix's accuracy; it was placed
+            // with a radius of at least twice that.
+            horizontalAccuracy: anchor.accuracy ?? anchor.radius / 2,
+            verticalAccuracy: -1,
+            timestamp: Date())
+        // Not `onUpdate`: the flush that asked is about to upload it.
+        record(here, moving: false, notify: false)
+    }
+
+    private func answerStillHere(_ inside: Bool) {
+        stillHereWaiter?.resume(returning: inside)
+        stillHereWaiter = nil
     }
 
     /// Wanted to sleep, could not. Keeps GPS running and says why.
@@ -603,7 +659,8 @@ import UIKit
             let anchor = GateAnchor(latitude: location.coordinate.latitude,
                                     longitude: location.coordinate.longitude,
                                     radius: anchorRadius(for: location),
-                                    at: Date())
+                                    at: Date(),
+                                    accuracy: max(0, location.horizontalAccuracy))
             rearm(anchor: anchor, reason: reason, kind: .slept)
             return
         }
@@ -659,7 +716,7 @@ import UIKit
         return min(100, max(0, Int((level * 100).rounded())))
     }
 
-    private func record(_ location: CLLocation, moving: Bool) {
+    private func record(_ location: CLLocation, moving: Bool, notify: Bool = true) {
         let point = LocationRecord(recorded: timestamp(location.timestamp),
                                    latitude: location.coordinate.latitude,
                                    longitude: location.coordinate.longitude,
@@ -681,7 +738,7 @@ import UIKit
                     ? "Moving · target \(Int(settings.movingInterval))s"
                     : "Stationary · target \(Int(settings.stationaryInterval / 60)) min"
             }
-            onUpdate?()
+            if notify { onUpdate?() }
         } catch { status = "Could not save location. Open the app and retry." }
     }
 
@@ -703,9 +760,12 @@ import UIKit
     }
 
     func locationManager(_ manager: CLLocationManager, didDetermineState state: CLRegionState, for region: CLRegion) {
-        // Only ever asked for after a relaunch. Being outside the stored anchor
-        // means the exit happened while we were not running to hear it.
-        guard region.identifier == Self.anchorID, state == .outside else { return }
+        // Asked for after a relaunch, and by a "still here" check-in. Being
+        // outside the stored anchor means the exit happened while we were not
+        // running to hear it.
+        guard region.identifier == Self.anchorID else { return }
+        answerStillHere(state == .inside)
+        guard state == .outside else { return }
         wake(reason: "Anchor is already behind us")
     }
 

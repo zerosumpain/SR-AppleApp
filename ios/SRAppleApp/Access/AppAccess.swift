@@ -117,18 +117,41 @@ enum AccessPolicy {
         return sitePaired ? .everything : .nothing
     }
 
-    /// The tab bar, in its fixed order, holding only what may be opened.
-    /// Today and Health are everyone's: Health is at least this phone's own
-    /// uploads. iOS adds "More" by itself only past five.
+    /// Every place this person may open, in its fixed order. Today and Health
+    /// are everyone's: Health is at least this phone's own uploads.
     ///
     /// Games sits straight after Family: a family member given both has four
-    /// tabs and sees it on the bar; the owner, with seven, finds it under More.
+    /// and sees it on the bar; the owner, with seven, finds it under More.
     static func tabs(for access: AppAccess) -> [Router.Tab] {
         [Router.Tab.today, .chat, .health, .family, .games, .news, .flows].filter { allows($0, access) }
     }
 
+    /// The places that fold into More when the bar is full, in order.
+    static let overflow: [Router.Tab] = [.games, .news, .flows]
+
+    /// What sits in the app's own More tab: nothing while everything fits on
+    /// the bar (five), else every overflow place this person may open.
+    ///
+    /// Our own More, not iOS's. The system one wraps each tab's
+    /// `NavigationStack` in a navigation controller of its own — two bars, two
+    /// back buttons, one game — and loses the tab bar when a game that hid it
+    /// is popped. See `MoreScreen`.
+    static func inMore(for access: AppAccess) -> [Router.Tab] {
+        let all = tabs(for: access)
+        guard all.count > 5 else { return [] }
+        return all.filter { overflow.contains($0) }
+    }
+
+    /// The tab bar itself: `tabs` with the More places replaced by `.more`.
+    static func bar(for access: AppAccess) -> [Router.Tab] {
+        let more = inMore(for: access)
+        guard !more.isEmpty else { return tabs(for: access) }
+        return tabs(for: access).filter { !more.contains($0) } + [.more]
+    }
+
     static func allows(_ tab: Router.Tab, _ access: AppAccess) -> Bool {
         switch tab {
+        case .more: return !inMore(for: access).isEmpty
         case .today, .health: return true
         case .chat: return access.owner || access.chat
         case .news: return access.owner || access.news
@@ -318,6 +341,8 @@ final class AccessStore: ObservableObject {
     }
 
     var tabs: [Router.Tab] { AccessPolicy.tabs(for: current) }
+    /// The places inside the app's own More tab, in order; empty when they fit on the bar.
+    var inMore: [Router.Tab] { AccessPolicy.inMore(for: current) }
     func allows(_ tab: Router.Tab) -> Bool { AccessPolicy.allows(tab, current) }
 
     /// The owner's site lane: the site is paired AND this is the owner. Every

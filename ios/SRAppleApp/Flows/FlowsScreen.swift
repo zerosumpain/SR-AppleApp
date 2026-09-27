@@ -27,7 +27,7 @@ struct FlowsScreen: View {
                         FlowBuildingRow(
                             build: build,
                             dismiss: { store.dismissBuild(build.slug) },
-                            open: { router.flows.append(FlowRef(slug: build.slug, title: build.title)) },
+                            open: { router.push(FlowRef(slug: build.slug, title: build.title), on: .flows) },
                             answer: { reply in await store.answer(build.slug, reply) }
                         )
                         .srGlassRow()
@@ -88,13 +88,11 @@ struct FlowsScreen: View {
                 )
             }
         }
-        .navigationDestination(for: FlowRef.self) { FlowDetailScreen(ref: $0).id($0.slug) }
-        .navigationDestination(for: FlowRunRef.self) { FlowRunScreen(ref: $0).id($0.runId) }
         .sheet(isPresented: $creating) {
             FlowNewSheet(store: store) { created in
                 creating = false
                 if !created.building, !created.slug.isEmpty {
-                    router.flows.append(FlowRef(slug: created.slug, title: "New workflow"))
+                    router.push(FlowRef(slug: created.slug, title: "New workflow"), on: .flows)
                 }
             }
         }
@@ -126,7 +124,7 @@ struct FlowsScreen: View {
     private func runNow(_ flow: FlowSummary) {
         Task {
             if let runId = await store.run(flow) {
-                router.flows.append(FlowRunRef(runId: runId, title: flow.title))
+                router.push(FlowRunRef(runId: runId, title: flow.title), on: .flows)
             }
         }
     }

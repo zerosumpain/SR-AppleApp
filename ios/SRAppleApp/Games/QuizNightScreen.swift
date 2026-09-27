@@ -87,8 +87,8 @@ struct QuizNightScreen: View {
     private func newQuiz() {
         Task {
             guard let next = await store.playAgain() else { return }
-            if !router.games.isEmpty { router.games.removeLast() }
-            router.games.append(GameRoomRef(id: next.id, game: next.game))
+            router.pop(on: .games)
+            router.push(GameRoomRef(id: next.id, game: next.game), on: .games)
         }
     }
 }
