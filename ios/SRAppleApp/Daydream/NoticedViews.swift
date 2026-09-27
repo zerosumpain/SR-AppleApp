@@ -3,10 +3,10 @@ import SwiftUI
 /// One daydream note: what kind of thing it is, the title (a link to the note
 /// on the site), the body, and the three answers.
 ///
-/// The same row on Today (inside a card) and on the Health tab (a list row),
-/// so every control is its own plain button — inside a `List` row a default
-/// button makes the WHOLE row one tap target, and a thumbs-up would also open
-/// the note.
+/// The same row on the Daydream page (inside a card) and on the Health tab (a
+/// list row), so every control is its own plain button — inside a `List` row
+/// a default button makes the WHOLE row one tap target, and a thumbs-up would
+/// also open the note.
 struct NoticedNoteRow: View {
     let note: DaydreamNote
     @ObservedObject private var feedback = NoticedFeedback.shared
@@ -156,29 +156,5 @@ struct NoticedNoteRow: View {
     private var link: URL {
         if note.url.hasPrefix("https://"), let absolute = URL(string: note.url) { return absolute }
         return SiteClient.shared.webURL(note.url)
-    }
-}
-
-/// Today's "Noticed" card: the latest two notes, in one sheet.
-struct NoticedCard: View {
-    let notes: [DaydreamNote]
-
-    var body: some View {
-        let shown = Array(notes.prefix(2))
-        VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "Noticed")
-                .padding(.horizontal, 4)
-            SRCard {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, note in
-                        NoticedNoteRow(note: note)
-                            .padding(.vertical, 6)
-                        if index < shown.count - 1 {
-                            Rectangle().fill(SR.divider).frame(height: 1).padding(.vertical, 6)
-                        }
-                    }
-                }
-            }
-        }
     }
 }

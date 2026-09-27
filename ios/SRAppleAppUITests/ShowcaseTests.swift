@@ -22,7 +22,7 @@ final class ShowcaseTests: XCTestCase {
     @MainActor func testShowcaseToday() {
         let app = launch()
         soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
-        settle(app, on: app.staticTexts["Primed"])
+        settle(app, on: byId(app, "today-health"))
         attach(app, "Showcase — Today")
 
         app.swipeUp()
@@ -30,17 +30,20 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Today, scrolled")
     }
 
-    /// The daydream loop's Noticed card, under the health slab.
+    /// Daydream: the tile on Today, then the page in More it opens.
     @MainActor func testShowcaseTodayNoticed() {
         let app = launch()
         soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
-        settle(app, on: app.staticTexts["Primed"])
-        // The SECOND note's actions: scrolled to those, the whole card is up,
-        // not just the first row's.
+        let tile = byId(app, "today-daydream")
+        settle(app, on: tile)
+        guard scroll(app, to: tile) else { return soft(false, "no Daydream tile on Today") }
+        tile.tap()
+        settle(app, on: byId(app, "daydream-screen"))
+        // The SECOND note's actions: scrolled to those, two whole cards are up.
         let last = app.buttons.matching(identifier: "noticed-useful").element(boundBy: 1)
-        soft(scroll(app, to: last), "no Noticed card on Today")
+        soft(scroll(app, to: last), "no notes on the Daydream page")
         settle(app)
-        attach(app, "Showcase — Today, noticed")
+        attach(app, "Showcase — Daydream")
     }
 
     // MARK: - Family
@@ -377,12 +380,7 @@ final class ShowcaseTests: XCTestCase {
     @MainActor func testShowcaseSettings() {
         let app = launch()
         soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
-        let cog = app.buttons["open-settings"]
-        if cog.waitForExistence(timeout: 10) {
-            cog.tap()
-        } else {
-            soft(false, "no settings cog on Today")
-        }
+        soft(app.openSettings(), "no way into Settings from Today or More")
         settle(app)
         attach(app, "Showcase — Settings")
 

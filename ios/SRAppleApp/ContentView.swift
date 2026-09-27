@@ -40,6 +40,8 @@ final class Router: ObservableObject {
     @Published var pendingFiles: [URL] = []
 
     enum Sheet: String, Identifiable { case settings, alerts, connections; var id: String { rawValue } }
+    /// Pages that live only inside More — not places with a tab of their own.
+    enum MorePage: String, Hashable { case daydream }
     enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
 
     func openSettings(_ target: SettingsTarget? = nil) {
@@ -53,6 +55,17 @@ final class Router: ObservableObject {
     func openAlerts() {
         guard AccessStore.shared.current.owner else { return }
         sheet = .alerts
+    }
+
+    /// The daydream loop's notes, a page in More — the owner's alone. More
+    /// is always on an owner's bar (seven places, five slots), so there is
+    /// always a stack to push it onto.
+    func openDaydream() {
+        guard AccessStore.shared.current.owner, AccessStore.shared.allows(.more) else { return }
+        var path = NavigationPath()
+        path.append(MorePage.daydream)
+        more = path
+        tab = .more
     }
 
     /// Every site connection that needs the owner — the banner's chevron, and
@@ -285,6 +298,11 @@ struct ContentView: View {
                     MoreScreen(places: access.inMore, games: games)
                         .srConnectionsBanner(connections) { router.openConnections() }
                         .navigationDestination(for: Router.Tab.self) { place($0) }
+                        .navigationDestination(for: Router.MorePage.self) { page in
+                            switch page {
+                            case .daydream: DaydreamScreen()
+                            }
+                        }
                         .placeDestinations()
                 }
                 .tabItem { Label("More", systemImage: "square.grid.3x3.square") }

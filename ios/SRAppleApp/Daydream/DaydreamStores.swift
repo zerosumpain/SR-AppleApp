@@ -109,3 +109,55 @@ final class HealthNoticedStore: ObservableObject {
         }
     }
 }
+
+/// Every note the phone has seen lately, for Today's Daydream tile and the
+/// Daydream page in More: `api/native/daydream?limit=20`.
+///
+/// One instance, because the tile and the page must agree on how many are
+/// new. Today's own payload seeds it (two notes, no second request), and
+/// the page reads the longer list when it opens. Notes are merged by id, not
+/// replaced: Today's five-minute re-read carries only the latest two, and
+/// must not shrink a list the page already fetched.
+@MainActor
+final class DaydreamStore: ObservableObject {
+    static let shared = DaydreamStore()
+
+    @Published private(set) var notes: [DaydreamNote] = []
+    @Published private(set) var loading = false
+    /// Whether the page's own read has answered at least once.
+    @Published private(set) var loaded = false
+
+    static let pageLimit = 20
+    private let client = SiteClient.shared
+
+    /// Newest first, one row per id; a later copy of a note wins (it carries
+    /// the latest verdict).
+    static func merge(_ held: [DaydreamNote], _ incoming: [DaydreamNote]) -> [DaydreamNote] {
+        var byId: [String: DaydreamNote] = [:]
+        for note in held { byId[note.id] = note }
+        for note in incoming { byId[note.id] = note }
+        return byId.values.sorted { lhs, rhs in
+            lhs.createdAt == rhs.createdAt ? lhs.id < rhs.id : lhs.createdAt > rhs.createdAt
+        }
+    }
+
+    func seed(_ feed: DaydreamFeed?) {
+        guard let feed, !feed.notes.isEmpty else { return }
+        notes = Self.merge(notes, feed.notes)
+    }
+
+    /// Silent, like the Health tab's: a failed read keeps what Today seeded.
+    func load() async {
+        guard AccessStore.ownerSite, !loading else { return }
+        loading = true
+        defer { loading = false }
+        do {
+            let feed: DaydreamFeed = try await client.send("api/native/daydream?limit=\(Self.pageLimit)")
+            notes = Self.merge(notes, feed.notes)
+        } catch let error as URLError where error.code == .cancelled {
+        } catch is CancellationError {
+        } catch {
+        }
+        loaded = true
+    }
+}

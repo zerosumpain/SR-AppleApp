@@ -56,9 +56,7 @@ final class OnboardingTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
 
-        let cog = app.buttons["open-settings"]
-        XCTAssertTrue(cog.waitForExistence(timeout: 10), "no settings cog on Today")
-        cog.tap()
+        XCTAssertTrue(app.openSettings(), "no settings cog on Today")
 
         let connections = app.buttons["settings-connections"]
         XCTAssertTrue(connections.waitForExistence(timeout: 10), "no Connections row in settings")
@@ -77,7 +75,7 @@ final class OnboardingTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        app.buttons["open-settings"].tap()
+        XCTAssertTrue(app.openSettings(), "no way into Settings")
         app.buttons["settings-connections"].tap()
         XCTAssertTrue(app.buttons["companion-pair-scan"].waitForExistence(timeout: 10))
 
@@ -92,7 +90,7 @@ final class OnboardingTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        app.buttons["open-settings"].tap()
+        XCTAssertTrue(app.openSettings(), "no way into Settings")
         XCTAssertTrue(app.buttons["settings-connections"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["settings-notifications"].exists,
                        "where the site's alerts go is offered on a phone not known to be the owner's")
@@ -104,7 +102,7 @@ final class OnboardingTests: XCTestCase {
         app.launchArguments = ["-SRDemo"]
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        app.buttons["open-settings"].tap()
+        XCTAssertTrue(app.openSettings(), "no way into Settings")
 
         let notifications = app.buttons["settings-notifications"]
         XCTAssertTrue(notifications.waitForExistence(timeout: 10), "no Notifications row in settings")
@@ -169,9 +167,7 @@ final class SettingsUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
 
-        let cog = app.buttons["open-settings"]
-        XCTAssertTrue(cog.waitForExistence(timeout: 10), "no settings cog on Today")
-        cog.tap()
+        XCTAssertTrue(app.openSettings(), "no settings cog on Today")
 
         let location = app.buttons["settings-location"]
         XCTAssertTrue(location.waitForExistence(timeout: 10), "no Location row in settings")
@@ -220,7 +216,7 @@ final class SettingsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        app.buttons["open-settings"].tap()
+        XCTAssertTrue(app.openSettings(), "no way into Settings")
 
         // The history is its own row now. It used to be a button buried under
         // the motion gate, which is where you look for it only if you already
@@ -245,7 +241,7 @@ final class SettingsUITests: XCTestCase {
 
     @MainActor private func openLocationSettings(_ app: XCUIApplication) {
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        app.buttons["open-settings"].tap()
+        XCTAssertTrue(app.openSettings(), "no way into Settings")
         let location = app.buttons["settings-location"]
         XCTAssertTrue(location.waitForExistence(timeout: 10))
         location.tap()
