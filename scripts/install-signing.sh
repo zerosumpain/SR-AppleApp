@@ -24,7 +24,12 @@ done
 # installed: half a Watch app would fail the archive.
 install_extra_profile() {
   local name="$1" base64="$2"
-  printf '%s' "$base64" | base64 --decode > "$RUNNER_TEMP/$name.mobileprovision"
+  if [ -f "$base64" ]; then
+    # A path: the profile Apple made for this run (asc-watch-profiles.py).
+    cp "$base64" "$RUNNER_TEMP/$name.mobileprovision"
+  else
+    printf '%s' "$base64" | base64 --decode > "$RUNNER_TEMP/$name.mobileprovision"
+  fi
   security cms -D -i "$RUNNER_TEMP/$name.mobileprovision" > "$RUNNER_TEMP/$name.plist"
   local uuid
   uuid=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/$name.plist")
@@ -35,9 +40,18 @@ install_extra_profile() {
 }
 WATCH_UUID=""
 WIDGET_UUID=""
+WATCH_SOURCE=""
+WIDGET_SOURCE=""
 if [ -n "${WATCH_PROVISION_PROFILE_BASE64:-}" ] && [ -n "${WIDGET_PROVISION_PROFILE_BASE64:-}" ]; then
-  WATCH_UUID=$(install_extra_profile watch "$WATCH_PROVISION_PROFILE_BASE64")
-  WIDGET_UUID=$(install_extra_profile widget "$WIDGET_PROVISION_PROFILE_BASE64")
+  WATCH_SOURCE="$WATCH_PROVISION_PROFILE_BASE64"
+  WIDGET_SOURCE="$WIDGET_PROVISION_PROFILE_BASE64"
+elif [ -n "${WATCH_PROFILE_PATH:-}" ] && [ -n "${WIDGET_PROFILE_PATH:-}" ]; then
+  WATCH_SOURCE="$WATCH_PROFILE_PATH"
+  WIDGET_SOURCE="$WIDGET_PROFILE_PATH"
+fi
+if [ -n "$WATCH_SOURCE" ] && [ -n "$WIDGET_SOURCE" ]; then
+  WATCH_UUID=$(install_extra_profile watch "$WATCH_SOURCE")
+  WIDGET_UUID=$(install_extra_profile widget "$WIDGET_SOURCE")
   echo "WATCH_PROFILE_UUID=$WATCH_UUID" >> "$GITHUB_ENV"
   echo "WIDGET_PROFILE_UUID=$WIDGET_UUID" >> "$GITHUB_ENV"
 fi

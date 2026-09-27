@@ -34,6 +34,12 @@ jobs:
             if [ -z "${!name}" ]; then echo "Missing signing setting: $name"; exit 1; fi
           done
       - run: brew install xcodegen
+      # The Watch app's two profiles, made by Apple through the API key above,
+      # so nobody has to make, convert and paste them by hand. Never fails the
+      # job: without them the upload is the iPhone app alone, with a warning
+      # saying what to fix. Secrets, when set, win. See docs/WATCH-SETUP.md.
+      - name: Get the Watch profiles from Apple
+        run: python3 scripts/asc-watch-profiles.py
       - name: Install signing material
         run: bash scripts/install-signing.sh
       - name: Archive and upload
