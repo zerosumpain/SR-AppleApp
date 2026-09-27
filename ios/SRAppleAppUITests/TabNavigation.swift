@@ -44,10 +44,12 @@ extension XCUIApplication {
         }
         guard more.exists else { return false }
         more.tap()
+        // The hub is a lazy stack and Settings is its last row: it is not
+        // built, so it does not exist, until it has been scrolled to.
         let row = buttons["open-settings"]
-        guard row.waitForExistence(timeout: timeout) else { return false }
-        for _ in 0..<6 where !row.isHittable { swipeUp() }
-        guard row.isHittable else { return false }
+        guard descendants(matching: .any)["more-screen"].firstMatch.waitForExistence(timeout: timeout) else { return false }
+        for _ in 0..<8 where !(row.exists && row.isHittable) { swipeUp() }
+        guard row.exists && row.isHittable else { return false }
         row.tap()
         return true
     }

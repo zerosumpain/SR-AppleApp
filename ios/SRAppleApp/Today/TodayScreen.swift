@@ -160,6 +160,8 @@ struct TodayScreen: View {
     /// Urgent alerts waved off the banner this session. Dismissing also marks
     /// the alert read, so this only bridges the moment before the inbox agrees.
     @State private var waved: Set<String> = []
+    /// Today is the tab in front — the bell only rings while it is.
+    @State private var onScreen = false
 
     /// How often the numbers are re-read while Today is on screen. Readiness
     /// and recovery move when a sync lands on the site; five minutes is often
@@ -261,7 +263,10 @@ struct TodayScreen: View {
             // The bell is the site's inbox, which is the owner's.
             if access.current.owner {
                 ToolbarItem(placement: .topBarTrailing) {
-                    TodayBell(unread: alerts.unread) { SRHaptic.tap(); router.openAlerts() }
+                    TodayBell(unread: alerts.unread, active: onScreen && scenePhase == .active) {
+                        SRHaptic.tap()
+                        router.openAlerts()
+                    }
                 }
             }
             // Settings live in More. Without a More (a member with four
@@ -299,6 +304,8 @@ struct TodayScreen: View {
                 await family.load()
             }
         }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             move.start()

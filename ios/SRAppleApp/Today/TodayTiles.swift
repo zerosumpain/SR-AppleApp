@@ -167,9 +167,14 @@ struct TodayCountBadge: View {
 ///
 /// Filled and in the accent while anything is unread, with the count on it,
 /// and every five seconds it rings — once, briefly — until the inbox is read.
-/// Not with Reduce Motion on: then the colour and the count carry it alone.
+/// Only while Today is in front, and not with Reduce Motion on: then the
+/// colour and the count carry it alone.
 struct TodayBell: View {
     let unread: Int
+    /// Today is on screen and the app is in front. Off it, the bell stays
+    /// still: nobody is there to see it, and a view that never settles keeps
+    /// the app from ever going idle.
+    var active = true
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var rings = 0
@@ -191,8 +196,8 @@ struct TodayBell: View {
         .accessibilityLabel(unread > 0 ? "Alerts, \(unread) unread" : "Alerts")
         .accessibilityIdentifier("today-bell")
         // Restarts whenever the inbox goes from read to unread and back.
-        .task(id: unread > 0 && !reduceMotion) {
-            guard unread > 0, !reduceMotion else { return }
+        .task(id: unread > 0 && active && !reduceMotion) {
+            guard unread > 0, active, !reduceMotion else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.interval)
                 guard !Task.isCancelled else { break }
