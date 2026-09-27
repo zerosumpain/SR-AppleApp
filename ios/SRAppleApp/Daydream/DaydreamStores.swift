@@ -132,7 +132,7 @@ final class DaydreamStore: ObservableObject {
 
     /// Newest first, one row per id; a later copy of a note wins (it carries
     /// the latest verdict).
-    static func merge(_ held: [DaydreamNote], _ incoming: [DaydreamNote]) -> [DaydreamNote] {
+    nonisolated static func merge(_ held: [DaydreamNote], _ incoming: [DaydreamNote]) -> [DaydreamNote] {
         var byId: [String: DaydreamNote] = [:]
         for note in held { byId[note.id] = note }
         for note in incoming { byId[note.id] = note }
