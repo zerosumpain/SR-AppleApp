@@ -323,9 +323,10 @@ ink band, component cards). The rules every screen follows:
   screens whose headline *is* the content — a game's result, a workflow.
 - **Five tabs, family second:** Today, Family, Chat, Health, then More holding
   Games, News and Flows once the bar is full (`AccessPolicy.tabs`).
-- **Today leads with the family, grouped by place** — Home, School, wherever
-  two people stand together — a chip per person under each, anyone not seen
-  lately or not sharing in a line. No map on Today; the Family tab has it. Then the one prominent action (Ask jkai), then *Up next* —
+- **Today leads with the family, one row per place** — Home, School, wherever
+  two people stand together — led by overlapping circles of the initials of
+  whoever is there (unique per household: JK, KK, JeK). Anyone not seen lately
+  or not sharing is the last row, dashed. No map on Today; the Family tab has it. Then the one prominent action (Ask jkai), then *Up next* —
   the body, the alerts and the workflows as one grouped list, below the fold —
   then the wire's top story.
 - **One filled control per screen,** in `SR.accentDeep` so its cream label

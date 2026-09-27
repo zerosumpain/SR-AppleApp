@@ -314,3 +314,44 @@ extension HouseholdView {
         return lines
     }
 }
+
+// MARK: - Initials that tell people apart
+
+extension HouseholdView {
+    /// Each person's initials, unique across the household. PURE.
+    ///
+    /// First letter of the first name and of the surname — "John Kelly" is JK,
+    /// "Karen Kelly" KK. A family shares a surname, so two first names with the
+    /// same letter collide, and the later one takes more of its first name
+    /// until it is unique: "Jennifer Kelly" becomes JeK. You keep the plain
+    /// form, then the site's order decides, so the same household always
+    /// reads the same. A one-word name is its first letter ("Alex" → A).
+    var initials: [String: String] {
+        func words(_ name: String) -> [String] {
+            name.split(whereSeparator: { $0 == " " || $0 == "-" }).map(String.init)
+        }
+        func code(_ name: String, letters: Int) -> String {
+            let w = words(name)
+            guard let first = w.first else { return "?" }
+            let head = String(first.prefix(letters))
+            let lead: String = head.prefix(1).uppercased() + head.dropFirst().lowercased()
+            let tail: String = w.count > 1 ? (w.last?.prefix(1).uppercased() ?? "") : ""
+            return lead + tail
+        }
+        let ordered = people.filter { $0.isSelf } + people.filter { !$0.isSelf }
+        var taken: Set<String> = []
+        var out: [String: String] = [:]
+        for person in ordered {
+            let most = max(1, words(person.name).first?.count ?? 1)
+            var letters = 1
+            var candidate = code(person.name, letters: letters)
+            while taken.contains(candidate) && letters < most {
+                letters += 1
+                candidate = code(person.name, letters: letters)
+            }
+            taken.insert(candidate)
+            out[person.subject] = candidate
+        }
+        return out
+    }
+}

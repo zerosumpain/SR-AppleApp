@@ -193,5 +193,28 @@ final class FamilyTests: XCTestCase {
         ])
         XCTAssertEqual(view.places().map(\.name), ["School", "The Gym"])
     }
+
+    // MARK: - Initials
+
+    func testInitialsTellAFamilyApart() throws {
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [
+            try at("Karen Kelly", "At home · seen 4m ago", status: "home"),
+            try at("John Kelly", "At home · seen 2m ago", status: "home", isSelf: true),
+            try at("Jennifer Kelly", "At home · seen 3m ago", status: "home"),
+            try at("Finn Kelly", "At School · seen 6m ago"),
+        ])
+        let initials = view.initials
+        XCTAssertEqual(initials["john kelly"], "JK", "you keep the plain form")
+        XCTAssertEqual(initials["karen kelly"], "KK")
+        XCTAssertEqual(initials["jennifer kelly"], "JeK")
+        XCTAssertEqual(initials["finn kelly"], "FK")
+    }
+
+    func testOneWordNamesAreOneLetterAndTheDemoIsUnique() {
+        let view = SRDemoFixtures.householdView(now: Date()).view
+        let initials = view?.initials ?? [:]
+        XCTAssertEqual(initials["alex"], "A")
+        XCTAssertEqual(Set(initials.values).count, initials.count, "every person reads differently")
+    }
 }
 

@@ -67,27 +67,30 @@ struct FamilyPin: View {
     }
 }
 
-/// Today's hero: where everyone is, as places. Each place is a heading —
-/// "Home", "School", "Bethesda Terrace" — with the people at it under it as
-/// chips; anybody not seen lately or not sharing is a line at the foot.
+/// Today's hero: who is where, one row per place.
 ///
-/// No map. A map on Today was a picture of pins to decode, and on a phone the
-/// pins for two people in the same house sit on top of each other; grouped by
-/// place, the same view reads as a sentence. The Family tab keeps the map, one
-/// tap away from "Map" beside the heading. Draws nothing until there is
-/// somebody to show.
+/// Each row is a place — "Home", "School", "Bethesda Terrace" — led by the
+/// initials of whoever is there, their circles overlapping so a crowd at home
+/// reads as one cluster at a glance. Initials are unique across the household
+/// (`HouseholdView.initials`: JK, KK, JeK), so the circles say who without a
+/// name beside them. Anybody not seen lately or not sharing is the last row,
+/// in dashed circles. The Family tab keeps the map, one tap away from "Map".
+/// Draws nothing until there is somebody to show.
 struct TodayFamilyCard: View {
     @ObservedObject var store: FamilyStore
     @ObservedObject private var places = PlaceNamer.shared
     let open: () -> Void
 
+    /// Past this many, the stack ends in a "+N" circle.
+    private static let stackLimit = 4
+
     var body: some View {
         if let view = store.view, !view.people.isEmpty {
             let groups = view.places()
-            let absent = view.absentLines
+            let initials = view.initials
+            let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
-                    // No counts beside it: the places below are the counts.
                     SRSectionLabel(text: "Family")
                     Button {
                         SRHaptic.tap()
@@ -108,26 +111,19 @@ struct TodayFamilyCard: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(groups.enumerated()), id: \.element.id) { index, place in
-                        if index > 0 {
-                            Rectangle().fill(SR.divider).frame(height: 1)
+                        if index > 0 { divider }
+                        Button {
+                            SRHaptic.tap()
+                            open()
+                        } label: {
+                            placeRow(place, initials: initials, everyone: groups.count == 1 && absent.isEmpty)
                         }
-                        placeSection(place)
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("today-family-\(place.name.lowercased())")
                     }
                     if !absent.isEmpty {
-                        if !groups.isEmpty {
-                            Rectangle().fill(SR.divider).frame(height: 1)
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(absent, id: \.self) { line in
-                                Text(line)
-                                    .font(SR.Text.secondary())
-                                    .foregroundStyle(SR.inkMuted)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, SR.cardPadding)
-                        .padding(.vertical, 12)
+                        if !groups.isEmpty { divider }
+                        absentRow(absent, lines: view.absentLines, initials: initials)
                     }
                 }
                 .srGlassCard(.paper)
@@ -135,116 +131,171 @@ struct TodayFamilyCard: View {
         }
     }
 
-    /// One place: its name, how many are there, and a chip each.
-    private func placeSection(_ place: FamilyPlace) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: place.isHome ? "house" : place.isMoving ? "figure.walk" : "mappin.and.ellipse")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(place.isHome ? SR.accentInk : SR.accentDeep)
-                    .accessibilityHidden(true)
-                Text(place.name)
-                    .font(SR.Text.display(17))
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                Text("\(place.people.count)")
-                    .font(SR.Text.label())
-                    .foregroundStyle(SR.inkMuted)
-                    .accessibilityLabel(place.people.count == 1 ? "1 person" : "\(place.people.count) people")
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-
-            // Two across, one at a large text size — the grid folds rather
-            // than squeezing a name.
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], alignment: .leading, spacing: 8) {
-                ForEach(place.people) { person in
-                    Button {
-                        SRHaptic.tap()
-                        open()
-                    } label: {
-                        chip(person)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("today-family-\(person.subject)")
-                }
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 14)
-        .padding(.bottom, 16)
+    private var divider: some View {
+        Rectangle().fill(SR.divider).frame(height: 1)
     }
 
-    private func chip(_ person: FamilyPerson) -> some View {
-        HStack(spacing: 10) {
-            Text(person.initial)
-                .font(SR.Text.title(15))
-                .foregroundStyle(SR.paper)
-                .frame(width: 36, height: 36)
-                .background(Circle().fill(SR.ink))
-                .overlay {
-                    if person.moving != nil {
-                        Circle().stroke(SR.accent, lineWidth: 2.5).padding(-3)
+    // MARK: Rows
+
+    private func placeRow(_ place: FamilyPlace, initials: [String: String], everyone: Bool) -> some View {
+        HStack(spacing: 14) {
+            stack(place.people, initials: initials)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    if place.isHome {
+                        Image(systemName: "house")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(SR.accentInk)
+                            .accessibilityHidden(true)
                     }
-                }
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(person.name)
-                        .font(SR.Text.title(16))
+                    Text(place.name)
+                        .font(SR.Text.display(17))
                         .foregroundStyle(SR.ink)
-                        .lineLimit(1)
-                    if person.isSelf {
-                        Text("(you)")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                    }
+                        .lineLimit(2)
                 }
                 HStack(spacing: 6) {
-                    if let sub = subline(person) {
-                        Text(sub)
-                            .font(SR.Text.secondary(13))
-                            .foregroundStyle(SR.inkSecondary)
-                            .lineLimit(2)
+                    Text(subline(place, initials: initials, everyone: everyone))
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(place.people.filter(lowBattery)) { person in
+                        Text("\(initials[person.subject] ?? person.initial) \(person.batteryPct ?? 0)%")
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.error)
                     }
-                    if let pct = person.batteryPct, BatteryReading.isLow(pct) {
-                        HStack(spacing: 3) {
-                            Image(systemName: BatteryReading.symbol(pct))
-                            Text("\(pct)%")
-                        }
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.error)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Battery low, \(pct) percent")
-                    }
+                }
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SR.inkGhost)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.vertical, 11)
+        .frame(minHeight: SR.tapTarget + 22)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken(place))
+        .accessibilityHint("Opens Family")
+    }
+
+    private func absentRow(_ people: [FamilyPerson], lines: [String], initials: [String: String]) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            stack(people, initials: initials, ghost: true)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(lines, id: \.self) { line in
+                    Text(line)
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, minHeight: SR.tapTarget + 12, alignment: .leading)
-        .background(SR.Glass.rowFill, in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.6), lineWidth: 0.75)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.vertical, 11)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Opens Family")
     }
 
-    /// "Walking · 5 km/h" on the move — "near Station Road" once the phone has
-    /// a name for the spot — else when they were seen: "Seen 6m ago".
-    private func subline(_ person: FamilyPerson) -> String? {
-        guard let moving = person.moving else { return person.seenLine }
-        let verb: String = moving.verb.prefix(1).uppercased() + String(moving.verb.dropFirst())
-        let speed = "\(Int(moving.speedKmh.rounded())) km/h"
-        if let position = person.position, let name = places.name(lat: position.lat, lon: position.lon) {
-            return "\(verb) near \(name) · \(speed)"
+    // MARK: The cluster
+
+    /// Overlapping circles, the first on top. A ring in the accent for anyone
+    /// on the move, a red dot for a low battery, dashed for someone absent.
+    private func stack(_ people: [FamilyPerson], initials: [String: String], ghost: Bool = false) -> some View {
+        let shown = Array(people.prefix(Self.stackLimit))
+        let extra = people.count - shown.count
+        return HStack(spacing: -12) {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, person in
+                circle(initials[person.subject] ?? person.initial, ghost: ghost,
+                       moving: person.moving != nil, low: lowBattery(person))
+                    .zIndex(Double(shown.count - index))
+            }
+            if extra > 0 {
+                circle("+\(extra)", ghost: ghost, moving: false, low: false)
+            }
         }
-        return "\(verb) · \(speed)"
+        .accessibilityHidden(true)
+    }
+
+    private func circle(_ text: String, ghost: Bool, moving: Bool, low: Bool) -> some View {
+        Text(text)
+            .font(SR.Text.title(text.count > 2 ? 13 : 14))
+            .tracking(-0.3)
+            .foregroundStyle(ghost ? SR.inkMuted : SR.paper)
+            .lineLimit(1)
+            .frame(width: 42, height: 42)
+            .background {
+                if ghost {
+                    Circle()
+                        .fill(SR.surface)
+                        .overlay(Circle().strokeBorder(SR.inkGhost, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
+                } else {
+                    Circle()
+                        .fill(SR.ink)
+                        .overlay(Circle().strokeBorder(moving ? SR.accent : SR.surface, lineWidth: 2.5))
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if low {
+                    Circle()
+                        .fill(SR.error)
+                        .frame(width: 12, height: 12)
+                        .overlay(Circle().stroke(SR.surface, lineWidth: 2))
+                        .offset(x: 2, y: 2)
+                }
+            }
+    }
+
+    // MARK: Words
+
+    private func lowBattery(_ person: FamilyPerson) -> Bool {
+        person.batteryPct.map(BatteryReading.isLow) ?? false
+    }
+
+    /// "You · walking · 5 km/h", "KK and JeK · seen 4m ago", "Everyone ·
+    /// seen 2m ago" — who, then the freshest thing known about them.
+    private func subline(_ place: FamilyPlace, initials: [String: String], everyone: Bool) -> String {
+        let names = place.people.map { $0.isSelf ? "You" : (initials[$0.subject] ?? $0.initial) }
+        let who: String
+        if everyone && place.people.count > 1 {
+            who = "Everyone"
+        } else if names.count <= 1 {
+            who = names.first ?? ""
+        } else {
+            who = names.dropLast().joined(separator: ", ") + " and " + (names.last ?? "")
+        }
+        return "\(who) · \(state(place))"
+    }
+
+    /// "walking · 5 km/h" (near a street, once the phone has a name) for a
+    /// group with somebody moving, else "seen 4m ago" from the site's line.
+    private func state(_ place: FamilyPlace) -> String {
+        if let mover = place.people.first(where: { $0.moving != nil }), let moving = mover.moving {
+            let speed = "\(Int(moving.speedKmh.rounded())) km/h"
+            if let position = mover.position, let name = places.name(lat: position.lat, lon: position.lon),
+               name.lowercased() != place.name.lowercased() {
+                return "\(moving.verb) near \(name) · \(speed)"
+            }
+            return "\(moving.verb) · \(speed)"
+        }
+        guard let seen = place.people.compactMap(\.seenLine).first else { return "here now" }
+        return seen.prefix(1).lowercased() + String(seen.dropFirst())
+    }
+
+    /// "Home: Karen Kelly and Jennifer Kelly, seen 4m ago."
+    private func spoken(_ place: FamilyPlace) -> String {
+        let names = place.people.map { $0.isSelf ? "you" : $0.name }
+        let who: String
+        if names.count <= 1 {
+            who = names.first ?? ""
+        } else {
+            who = names.dropLast().joined(separator: ", ") + " and " + (names.last ?? "")
+        }
+        var sentence = "\(place.name): \(who), \(state(place))."
+        for person in place.people where lowBattery(person) {
+            sentence += " \(person.name)'s battery is low, \(person.batteryPct ?? 0) percent."
+        }
+        return sentence
     }
 }
