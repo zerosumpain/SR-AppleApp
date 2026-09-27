@@ -152,6 +152,12 @@ enum MotionVerdict: Equatable {
 /// part worth having all the judgement in.
 enum MotionAssessment {
 
+    /// Where a wake starts reading the motion log: when this run of sleep
+    /// began, but never more than `historyWindow` ago.
+    static func evidenceStart(asleepFrom: Date, now: Date, historyWindow: TimeInterval) -> Date {
+        max(asleepFrom, now.addingTimeInterval(-historyWindow))
+    }
+
     static func verdict(_ evidence: MotionEvidence, settings: MotionSettings) -> MotionVerdict {
         guard evidence.available else {
             return .unreadable(evidence.note ?? "Motion unreadable — GPS on to be safe")

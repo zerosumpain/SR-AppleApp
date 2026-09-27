@@ -35,6 +35,24 @@ struct GateAnchor: Codable, Equatable {
     /// check-in reports as its accuracy — see `LocationCollector.confirmStillHere`.
     /// Nil on an anchor stored by an older build.
     var accuracy: Double? = nil
+    /// When this run of sleep began — the first anchor's `at`, carried through
+    /// every blip that re-anchors after it. `at` moves on each blip; this does
+    /// not, so a wake reads the motion log back to when GPS went off rather
+    /// than to the last blip. Without it a stop-start walk (a family round a
+    /// garden, 27 Sep 2026) was judged five minutes at a time and never added
+    /// up to walking: four wakes, four blips, 38 minutes lost.
+    /// Nil on the first anchor of a run, and on one stored by an older build.
+    var asleepSince: Date? = nil
+
+    /// When the phone went to sleep, for this run of blips.
+    var asleepFrom: Date { asleepSince ?? at }
+
+    /// `next`, placed after a blip: a new position, the same run of sleep.
+    func followedBy(_ next: GateAnchor) -> GateAnchor {
+        var anchor = next
+        anchor.asleepSince = asleepFrom
+        return anchor
+    }
 }
 
 /// One transition.
