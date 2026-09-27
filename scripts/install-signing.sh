@@ -64,6 +64,7 @@ team, bundle = os.environ['APPLE_TEAM_ID'], os.environ['BUNDLE_ID']
 profile = plistlib.loads(Path(temp, 'profile.plist').read_bytes())
 assert profile['Entitlements'].get('com.apple.developer.healthkit'), 'Profile must enable HealthKit'
 assert profile['Entitlements'].get('com.apple.developer.healthkit.background-delivery'), 'Profile must enable HealthKit background delivery'
+assert profile['Entitlements'].get('aps-environment') == 'production', 'Profile must enable Push Notifications (aps-environment = production); re-mint it in the developer portal'
 assert profile['Entitlements']['application-identifier'] == team + '.' + bundle, 'Profile does not match team/bundle ID'
 profiles = {bundle: profile['UUID']}
 if os.environ.get('WATCH_UUID'):
