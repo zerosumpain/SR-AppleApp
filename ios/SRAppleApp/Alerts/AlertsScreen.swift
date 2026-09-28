@@ -135,24 +135,42 @@ struct AlertEdge: View {
 /// Where each kind of alert goes.
 ///
 /// The one screen the brief asked for by name: a switch per category for
-/// WhatsApp and a switch for this iPhone, and the sentence explaining why one
-/// of them is best-effort.
+/// WhatsApp and a switch for this iPhone, and a way to check the push works.
 struct AlertRoutingScreen: View {
     @ObservedObject var alerts: AlertStore
+    /// What the last "Send a test" came back with.
+    @State private var testResult: String?
+    @State private var testing = false
 
     var body: some View {
         List {
             Section {
                 permissionRow
+                if SiteClient.shared.isPaired, alerts.permission == .authorized || alerts.permission == .provisional {
+                    Button {
+                        SRHaptic.tap()
+                        testing = true
+                        Task {
+                            testResult = await PushRegistration.shared.sendTest()
+                            testing = false
+                        }
+                    } label: {
+                        SRRow(title: testing ? "Sending…" : "Send a test notification",
+                              subtitle: testResult ?? "From the site to this iPhone, through Apple",
+                              icon: "paperplane", tone: SR.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(testing)
+                    .srGlassRow()
+                }
             } header: {
                 SRSectionLabel(text: "On this iPhone")
             } footer: {
                 Text("""
-                     This app has no push certificate, so the site cannot wake it. \
-                     It collects what is waiting whenever iOS grants it a background \
-                     refresh — usually several times a day, and sooner if you open the \
-                     app. Anything that has to arrive the moment it happens should stay \
-                     on WhatsApp.
+                     The site pushes an alert the moment it is raised. Anything a \
+                     push misses — the phone was off, it had not registered yet — \
+                     is collected on the next background refresh or when you open \
+                     the app.
                      """)
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)

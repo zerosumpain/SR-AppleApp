@@ -5,25 +5,23 @@ import UIKit
 
 /// The notification inbox, and the thing that actually raises them.
 ///
-/// ## Why these are local notifications and not push
+/// ## Push first, and this underneath it
 ///
-/// Until 2026-09-27 the app could not receive push at all: the TestFlight
-/// profile was minted without `aps-environment`. It carries it now, and the
-/// server holds an APNs key, but nothing registers for remote notifications
-/// yet, so every alert below still arrives by pulling.
+/// Since 2026-09-28 the site PUSHES each alert routed to the phone
+/// (`PushRegistration`; SR-Main's push dispatcher) and marks it collected when
+/// Apple takes it, so it never appears in the queue below. What is left here
+/// is everything a push did not reach this phone with — no token yet, Apple
+/// down, a phone that was off — and that is still delivered by pulling.
 ///
-/// What there is: a background refresh task the app already registers, and
+/// What the pull has: a background refresh task the app already registers, and
 /// `UNUserNotificationCenter`, which will post a notification from a running
 /// app whether or not it is in the foreground. So the phone PULLS. iOS decides
 /// when a refresh runs — a few times a day for an app opened occasionally, more
 /// for one opened often — and each run drains the server's queue and posts what
 /// it finds.
 ///
-/// **That is a real limitation and it is stated rather than hidden**: an alert
-/// can be minutes or hours late, and the settings screen says so. It is why the
-/// three-hour health floor costs nothing, and it is why anything genuinely
-/// urgent should stay routed to WhatsApp, which has a push certificate of its
-/// own.
+/// **That is a real limitation for anything the push missed**: such an alert
+/// can be minutes or hours late.
 ///
 /// The queue is drained by ACKNOWLEDGEMENT, not by reading. A refresh iOS kills
 /// mid-flight — which is ordinary; the budget is seconds — must not consume

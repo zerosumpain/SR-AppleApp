@@ -204,7 +204,10 @@ final class SiteClient {
     /// `nativeViewAs`, which honours it on the owner's credential alone.
     static let viewAsHeader = "X-SR-View-As"
 
-    func request(_ path: String, method: String = "GET", body: Data? = nil) throws -> URLRequest {
+    /// `asSelf`: never as the person being viewed. For the calls that are
+    /// about THIS phone, not about whose data is on screen — registering for
+    /// push, answering a notification — which View as (look-only) would refuse.
+    func request(_ path: String, method: String = "GET", body: Data? = nil, asSelf: Bool = false) throws -> URLRequest {
         guard let token else { throw SiteError.unpaired }
         var req = URLRequest(url: try url(for: path))
         req.httpMethod = method
@@ -215,7 +218,7 @@ final class SiteClient {
         // phone would be answered — their threads, their stories — and refuses
         // anything but a read. Without it the look showed the OWNER's data
         // under the other person's tabs (SR-Main `nativeViewAs`).
-        if let viewing = AccessStore.shared.viewingAs {
+        if !asSelf, let viewing = AccessStore.shared.viewingAs {
             req.setValue(viewing.email, forHTTPHeaderField: Self.viewAsHeader)
         }
         return req
@@ -223,8 +226,8 @@ final class SiteClient {
 
     private struct APIError: Decodable { let error: String; var field: String? = nil }
 
-    func send<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil) async throws -> T {
-        let (data, response) = try await session.data(for: try request(path, method: method, body: body))
+    func send<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, asSelf: Bool = false) async throws -> T {
+        let (data, response) = try await session.data(for: try request(path, method: method, body: body, asSelf: asSelf))
         try check(response, data)
         do {
             return try JSONDecoder().decode(T.self, from: data)
@@ -345,6 +348,8 @@ final class SiteClient {
         token = result.token
         origin = url
         UserDefaults.standard.set(url, forKey: "site-origin")
+        // A new credential holds no push token yet: hand it this phone's.
+        Task { await PushRegistration.shared.sync() }
     }
 
     func signOut() {

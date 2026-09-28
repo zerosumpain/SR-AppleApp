@@ -3,15 +3,14 @@ import UserNotifications
 
 /// The Games tab: who can be invited, what I am invited to, which rooms I am in.
 ///
-/// ## Invites are PULLED
+/// ## Invites are PUSHED, and polled underneath
 ///
-/// There is no push certificate, so an invite reaches a phone only while the
-/// app is open: `ContentView` runs `setPolling(true)` while the scene is active
-/// and this person may play, and this asks `GET /api/native/games` every five
-/// seconds. An invite whose room id has not been seen before raises a LOCAL
-/// notification — a banner, since `willPresent` shows them in the foreground —
-/// that opens the room when tapped. With the app closed nothing arrives, and
-/// no copy anywhere says otherwise.
+/// The site pushes an invite the moment it is sent (time-sensitive, opens the
+/// room). While the app is open `ContentView` also runs `setPolling(true)`,
+/// asking `GET /api/native/games` every five seconds for the lobby; an invite
+/// whose room id has not been seen before raises a LOCAL banner — unless the
+/// site says a push already reached this phone with it (`pushed`), in which
+/// case one ring was enough. A phone the push missed still rings from the poll.
 @MainActor
 final class GamesStore: ObservableObject {
     @Published private(set) var lobby: GamesLobby?
@@ -139,12 +138,14 @@ final class GamesStore: ObservableObject {
     /// Raise a banner for each invite not seen before. Demo mode never rings:
     /// a UI test must not meet a permission prompt or a banner over its shot.
     private func announce(_ invites: [GameInvite]) async {
-        let fresh = invites.filter { !seen.contains($0.roomId) }
-        guard !fresh.isEmpty else { return }
-        for invite in fresh { seen.insert(invite.roomId) }
+        let unseen = invites.filter { !seen.contains($0.roomId) }
+        guard !unseen.isEmpty else { return }
+        for invite in unseen { seen.insert(invite.roomId) }
+        // A push already rang for these; the lobby lists them without a banner.
+        let fresh = unseen.filter { $0.pushed != true }
         // Room ids are short-lived; the list only needs the recent ones.
         UserDefaults.standard.set(Array(seen.suffix(200)), forKey: Self.seenKey)
-        guard !Self.isDemo else { return }
+        guard !fresh.isEmpty, !Self.isDemo else { return }
 
         let centre = UNUserNotificationCenter.current()
         let status = await centre.notificationSettings().authorizationStatus
@@ -165,9 +166,9 @@ final class GamesStore: ObservableObject {
         content.threadIdentifier = "game"
         // `game` lets the tap open the right screen without a round trip.
         content.userInfo = ["roomId": invite.roomId, "game": invite.game, "category": "game"]
-        // `.timeSensitive` needs an entitlement this profile does not carry;
-        // `.active` is as loud as this app may be.
-        content.interruptionLevel = .active
+        // An invite holds its lobby for two minutes: one that waits out a
+        // Focus is an invite nobody can answer. Matches the pushed one.
+        content.interruptionLevel = .timeSensitive
         content.relevanceScore = 1
         return UNNotificationRequest(identifier: "game-\(invite.roomId)", content: content, trigger: nil)
     }

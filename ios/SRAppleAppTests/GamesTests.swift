@@ -132,8 +132,15 @@ final class GamesTests: XCTestCase {
         XCTAssertEqual(request.content.categoryIdentifier, "game")
         XCTAssertEqual(request.content.threadIdentifier, "game")
         XCTAssertEqual(request.content.userInfo["roomId"] as? String, "g_9")
-        XCTAssertEqual(request.content.interruptionLevel, .active)
+        XCTAssertEqual(request.content.interruptionLevel, .timeSensitive)
         XCTAssertEqual(request.identifier, "game-g_9", "one invite, one banner")
+    }
+
+    func testAnInviteAPushAlreadyRangIsReadAsSuch() throws {
+        let json = #"{"roomId":"g_1","game":"tap-duel","difficulty":"easy","hostName":"Sam","players":["Sam"],"expiresAt":null,"pushed":true}"#
+        XCTAssertEqual(try JSONDecoder().decode(GameInvite.self, from: Data(json.utf8)).pushed, true)
+        let older = #"{"roomId":"g_1","game":"tap-duel","difficulty":"easy","hostName":"Sam","players":["Sam"]}"#
+        XCTAssertNil(try JSONDecoder().decode(GameInvite.self, from: Data(older.utf8)).pushed)
     }
 
     // MARK: - The clock

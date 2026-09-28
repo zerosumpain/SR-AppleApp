@@ -29,6 +29,8 @@ import UIKit
         // not registered when a notification arrives shows it with no buttons,
         // on the phone and on the Watch alike.
         UNUserNotificationCenter.current().setNotificationCategories(AlertActions.categories)
+        // A push token on every launch; the site is handed it once paired.
+        PushRegistration.shared.start(application)
         // Listening before any scene exists: a message from the Watch can wake
         // the app in the background, and must find a session to arrive at.
         WatchBridge.shared.start(companion: companion)
@@ -41,11 +43,11 @@ import UIKit
                 let work = Task {
                     // Two jobs in the seconds iOS grants: push what the phone
                     // has collected up, and bring what the site has been trying
-                    // to say down. The second is the ONLY way a notification
-                    // from this site ever reaches this phone — there is no push
-                    // certificate — so it runs even when the outbox is empty,
-                    // and it runs SECOND so a full outbox cannot starve it of
-                    // the whole budget.
+                    // to say down. The second is the floor under push: anything
+                    // a push did not reach this phone with (no token yet, Apple
+                    // dropped it) is collected here, so it runs even when the
+                    // outbox is empty, and it runs SECOND so a full outbox
+                    // cannot starve it of the whole budget.
                     await companion.sync(collectingFor: 15)
                     await AlertStore.backgroundPass()
                     // The household's arrivals and departures, from the
@@ -100,6 +102,31 @@ import UIKit
 
     // MARK: - Notifications
 
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        PushRegistration.shared.received(deviceToken)
+    }
+
+    /// No token (a simulator, no network at launch). Nothing is lost: the pull
+    /// still delivers everything, and the next launch asks again.
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {}
+
+    /// An answer to a stalled chat turn, from a notification button — often on
+    /// the Watch, with the app in the background. Said only when it did NOT
+    /// land: a notification for every success would be noise over the silence
+    /// that success is.
+    static func answer(_ gate: GateAnswer) async {
+        guard case .failed(let reason) = await gate.send() else { return }
+        let content = UNMutableNotificationContent()
+        content.title = gate.failureTitle
+        content.body = "Open the chat to answer it. (\(reason))"
+        content.sound = .default
+        content.threadIdentifier = "chat"
+        content.userInfo = ["category": "chat"]
+        try? await UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "gate-failed-\(gate.jobId)", content: content, trigger: nil)
+        )
+    }
+
     /// Show a notification even while the app is open — AND keep it.
     ///
     /// The default is to swallow it, which here would mean the one moment the
@@ -108,9 +135,9 @@ import UIKit
     ///
     /// `.list` is the half that was missing. Without it a foreground delivery
     /// shows as a banner and is then gone: it never enters Notification Centre.
-    /// With no push certificate, opening the app is the most common moment the
-    /// queue gets collected, so for most alerts that was the only delivery
-    /// there was.
+    /// Before push, opening the app was the most common moment the queue got
+    /// collected, so for most alerts that was the only delivery there was. A
+    /// push that lands while the app is open takes the same path.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
@@ -135,10 +162,14 @@ import UIKit
         let outcome = AlertActions.outcome(
             action: response.actionIdentifier,
             categoryIdentifier: content.categoryIdentifier,
-            userInfo: content.userInfo
+            userInfo: content.userInfo,
+            text: (response as? UNTextInputNotificationResponse)?.userText
         )
         let category: String
         switch outcome {
+        case .answer(let gate):
+            await Self.answer(gate)
+            return
         case .read(let id):
             await AlertStore.markReadFromNotification(id)
             return
@@ -167,8 +198,8 @@ import UIKit
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
-        // A game invite, raised by this phone's own foreground poll. Opens the
-        // room; `Router.openGame` refuses it for somebody without games.
+        // A game invite, pushed by the site or raised by the foreground poll.
+        // Opens the room; `Router.openGame` refuses it for somebody without games.
         if category == "game" {
             let info = response.notification.request.content.userInfo
             if let room = info["roomId"] as? String {
@@ -255,6 +286,7 @@ import UIKit
                             // than guessed at.
                             battery.sample()
                             if companion.paired { Task { await companion.sync() } }
+                            Task { await PushRegistration.shared.sync() }
                         }
                         if phase == .background {
                             battery.sample()
