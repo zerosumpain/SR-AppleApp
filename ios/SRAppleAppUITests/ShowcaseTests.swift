@@ -56,6 +56,8 @@ final class ShowcaseTests: XCTestCase {
         let mini = byId(app, "today-family")
         soft(mini.waitForExistence(timeout: 15), "no family map on Today")
         settle(app, seconds: 3)
+        // The travel desk card under the map: Kit's quiet phone, then the next moves.
+        soft(byId(app, "today-forecast").waitForExistence(timeout: 5), "no 'Family · next' card on Today")
         attach(app, "Showcase — Today, family map")
 
         if mini.exists && mini.isHittable {

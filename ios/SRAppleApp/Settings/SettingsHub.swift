@@ -33,6 +33,7 @@ struct SettingsScreen: View {
     /// Today's optional family cards — see `TodayCards`.
     @AppStorage(TodayCards.steps) private var todaySteps = false
     @AppStorage(TodayCards.tasks) private var todayTasks = false
+    @AppStorage(TodayCards.forecast) private var todayForecast = true
 
     enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs }
 
@@ -48,10 +49,13 @@ struct SettingsScreen: View {
                     SRSectionLabel(text: "The app")
                 }
 
-                // Cards Today can carry, each off until asked for. Only for
-                // somebody with the family boards (family + the site).
+                // Cards Today can carry. The boards are off until asked for;
+                // "Family · next" is on (it draws nothing on a quiet day). Only
+                // for somebody with the family boards (family + the site).
                 if access.familyBoards && site.paired {
                     Section {
+                        todayToggle("Family · next", "Who is leaving when, and anything that looks off", "clock", $todayForecast)
+                            .accessibilityIdentifier("settings-today-forecast")
                         todayToggle("Family steps", "Your place and the top three", "figure.walk", $todaySteps)
                             .accessibilityIdentifier("settings-today-steps")
                         todayToggle("Family tasks", "What's left, what's waiting, what's owed", "checklist", $todayTasks)
