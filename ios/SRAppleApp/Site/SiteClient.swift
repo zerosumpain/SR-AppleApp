@@ -391,6 +391,8 @@ final class SiteClient {
         // A revoked credential must not leave thread titles behind in iPhone
         // search. The index is a file other system processes read.
         ThreadIndex.clear()
+        // Nor a copy of itself, or a family board, for the widgets.
+        FamilyWidgetBridge.clear()
     }
 
     /// The website's own address for something, for a share sheet or a Link.

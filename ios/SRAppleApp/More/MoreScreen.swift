@@ -19,6 +19,9 @@ struct MoreScreen: View {
     @ObservedObject var games: GamesStore
     @ObservedObject private var daydream = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
+    @ObservedObject private var steps = FamilyStepsStore.shared
+    @ObservedObject private var tasks = FamilyTasksStore.shared
+    @ObservedObject private var access = AccessStore.shared
     @EnvironmentObject private var router: Router
 
     var body: some View {
@@ -47,6 +50,12 @@ struct MoreScreen: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("more-daydream")
                     }
+                    // The family's step board and task list: pages, not tabs,
+                    // for everyone with the family and the site credential.
+                    if access.familyBoards {
+                        familyCard(.steps)
+                        familyCard(.tasks)
+                    }
                     ForEach(places, id: \.self) { place in
                         Button {
                             SRHaptic.tap()
@@ -70,8 +79,55 @@ struct MoreScreen: View {
         .navigationTitle("More")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
-        .task { if games.lobby == nil { await games.load() } }
-        .srRefreshable { await games.load() }
+        .task {
+            if access.familyBoards {
+                if steps.board == nil { await steps.load() }
+                if tasks.board == nil { await tasks.load() }
+            }
+            if games.lobby == nil { await games.load() }
+        }
+        .srRefreshable {
+            if access.familyBoards {
+                await steps.load()
+                await tasks.load()
+            }
+            await games.load()
+        }
+    }
+
+    private func familyCard(_ page: FamilyPage) -> some View {
+        Button {
+            SRHaptic.tap()
+            router.openFamilyPage(page)
+        } label: {
+            switch page {
+            case .steps:
+                MoreCard(
+                    icon: "figure.walk",
+                    fill: SR.good,
+                    title: "Steps",
+                    blurb: "Today's family step board. Top spot is checked every fifteen minutes.",
+                    status: steps.shown.flatMap(FamilySteps.place)
+                )
+            case .tasks:
+                MoreCard(
+                    icon: "checklist",
+                    fill: SR.accentDeep,
+                    title: "Tasks",
+                    blurb: "Jobs for the family, with a reward when a parent confirms them.",
+                    status: tasks.summary.flatMap { taskStatus($0) }
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("more-\(page.rawValue)")
+    }
+
+    private func taskStatus(_ summary: FamilyTasksSummary) -> String? {
+        if summary.parent && summary.awaiting > 0 {
+            return summary.awaiting == 1 ? "1 to confirm" : "\(summary.awaiting) to confirm"
+        }
+        return summary.toDo > 0 ? "\(summary.toDo) to do" : nil
     }
 
     private var freshNotes: Int {

@@ -68,6 +68,26 @@ final class Router: ObservableObject {
         tab = .more
     }
 
+    /// The step board or the task list — a tapped push, a widget, a link.
+    /// Pushed onto More when there is one, else onto the Family tab (a member
+    /// with four places has no More). Somebody without them — no family, or
+    /// no site credential — lands on Today.
+    func openFamilyPage(_ page: FamilyPage) {
+        let access = AccessStore.shared
+        guard access.familyBoards else { show(.today); return }
+        var path = NavigationPath()
+        path.append(page)
+        if access.allows(.more) {
+            more = path
+            tab = .more
+        } else if access.allows(.family) {
+            family = path
+            tab = .family
+        } else {
+            show(.today)
+        }
+    }
+
     /// Every site connection that needs the owner — the banner's chevron, and
     /// a tapped "connections" notification.
     func openConnections() {
@@ -241,6 +261,8 @@ struct ContentView: View {
                 NavigationStack(path: $router.family) {
                     FamilyScreen(store: family, companion: companion)
                         .srConnectionsBanner(connections) { router.openConnections() }
+                        // Steps and Tasks, for a member with no More to hold them.
+                        .navigationDestination(for: FamilyPage.self) { familyPage($0) }
                 }
                 .tabItem { SRTabIcon.label("Family", "person.2.wave.2") }
                 .tag(Router.Tab.family)
@@ -303,6 +325,7 @@ struct ContentView: View {
                             case .daydream: DaydreamScreen()
                             }
                         }
+                        .navigationDestination(for: FamilyPage.self) { familyPage($0) }
                         .placeDestinations()
                 }
                 .tabItem { SRTabIcon.label("More", "square.grid.3x3.square") }
@@ -359,6 +382,7 @@ struct ContentView: View {
             syncGamesPoll()
             await site.check()
             await reconcileSite()
+            syncFamilyWidgets()
             await alerts.refresh()
             await connections.refresh()
         }
@@ -386,6 +410,7 @@ struct ContentView: View {
         // Disconnecting the site clears its connections; connecting fetches them.
         .onChange(of: site.paired) { _, _ in
             syncGamesPoll()
+            syncFamilyWidgets()
             Task {
                 await reconcileSite()
                 await connections.refresh()
@@ -397,11 +422,16 @@ struct ContentView: View {
             // Also when a place moved between the bar and More: its old tab is gone.
             if !access.allows(router.tab) || router.inMore(router.tab) { router.tab = .today }
             syncGamesPoll()
+            syncFamilyWidgets()
             Task { await reconcileSite() }
         }
         // "View as" changed: the family is theirs now, or yours again.
         .onChange(of: access.viewingAs) { _, _ in
             family.applyViewingAs()
+            // The boards were the person before's; the site answers as the
+            // new one on the next read.
+            FamilyStepsStore.shared.reset()
+            FamilyTasksStore.shared.reset()
         }
         .onChange(of: access.offer) { _, _ in
             Task { await reconcileSite() }
@@ -422,6 +452,11 @@ struct ContentView: View {
         // without chat has nowhere for a file to go, and it is dropped —
         // including the copy iOS put in Inbox.
         .onOpenURL { url in
+            // sr://family/steps, sr://family/tasks — a widget tapped, or a link.
+            if let page = FamilyPage.from(url: url) {
+                router.openFamilyPage(page)
+                return
+            }
             guard url.isFileURL else { return }
             guard access.allows(.chat) else {
                 if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
@@ -475,6 +510,22 @@ struct ContentView: View {
     /// active, this person may play, and the site credential exists.
     private func syncGamesPoll() {
         games.setPolling(scenePhase == .active && access.allows(.games) && site.paired)
+    }
+
+    /// Keep the family widgets' credential in step with this person: there
+    /// while they may see the boards, gone the moment they may not.
+    private func syncFamilyWidgets() {
+        guard access.viewingAs == nil else { return }
+        FamilyWidgetBridge.sync(allowed: AccessPolicy.familyBoards(access.current, sitePaired: site.paired))
+    }
+
+    /// The step board or the task list, on whichever stack holds it.
+    @ViewBuilder
+    private func familyPage(_ page: FamilyPage) -> some View {
+        switch page {
+        case .steps: FamilyStepsScreen()
+        case .tasks: FamilyTasksScreen()
+        }
     }
 
     private func drainPending() {

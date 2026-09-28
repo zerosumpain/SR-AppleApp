@@ -19,6 +19,7 @@ struct FamilyScreen: View {
     @ObservedObject var store: FamilyStore
     @ObservedObject var companion: Companion
     @EnvironmentObject private var router: Router
+    @ObservedObject private var access = AccessStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
@@ -39,6 +40,18 @@ struct FamilyScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { SRBarMark() }
+            // Steps and Tasks live in More; with no More (a member with four
+            // places or fewer) they are here instead, or there is no way in.
+            if access.familyBoards && !access.allows(.more) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { SRHaptic.tap(); router.openFamilyPage(.steps) } label: { Image(systemName: "figure.walk") }
+                        .accessibilityLabel("Steps")
+                        .accessibilityIdentifier("family-open-steps")
+                    Button { SRHaptic.tap(); router.openFamilyPage(.tasks) } label: { Image(systemName: "checklist") }
+                        .accessibilityLabel("Tasks")
+                        .accessibilityIdentifier("family-open-tasks")
+                }
+            }
         }
         .navigationDestination(for: FamilyPersonRoute.self) { route in
             FamilyPersonScreen(store: store, subject: route.subject)
