@@ -61,6 +61,9 @@ final class PushRegistration {
     /// Silent on failure: the next launch sends it again, and until then the
     /// phone is exactly as reachable as it was before push existed.
     func sync() async {
+        // The Live Activity start token rides the same credential; it keeps
+        // its own "already sent" mark.
+        await JourneyLive.shared.sync()
         guard !Self.isDemo, let token, let credential = SiteClient.shared.token else { return }
         guard sentFor != credential else { return }
         do {

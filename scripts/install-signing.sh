@@ -49,13 +49,20 @@ elif [ -n "${WATCH_PROFILE_PATH:-}" ] && [ -n "${WIDGET_PROFILE_PATH:-}" ]; then
   WATCH_SOURCE="$WATCH_PROFILE_PATH"
   WIDGET_SOURCE="$WIDGET_PROFILE_PATH"
 fi
+LIVE_UUID=""
 if [ -n "$WATCH_SOURCE" ] && [ -n "$WIDGET_SOURCE" ]; then
   WATCH_UUID=$(install_extra_profile watch "$WATCH_SOURCE")
   WIDGET_UUID=$(install_extra_profile widget "$WIDGET_SOURCE")
   echo "WATCH_PROFILE_UUID=$WATCH_UUID" >> "$GITHUB_ENV"
   echo "WIDGET_PROFILE_UUID=$WIDGET_UUID" >> "$GITHUB_ENV"
+  # The Live Activity extension travels with them (watch.yml): only minted
+  # through the API, never a secret.
+  if [ -n "${LIVE_PROFILE_PATH:-}" ]; then
+    LIVE_UUID=$(install_extra_profile live "$LIVE_PROFILE_PATH")
+    echo "LIVE_PROFILE_UUID=$LIVE_UUID" >> "$GITHUB_ENV"
+  fi
 fi
-export WATCH_UUID WIDGET_UUID
+export WATCH_UUID WIDGET_UUID LIVE_UUID
 python3 - <<'PY'
 import os, plistlib
 from pathlib import Path
@@ -79,6 +86,10 @@ if os.environ.get('WATCH_UUID'):
     assert group in widget['Entitlements'].get('com.apple.security.application-groups', []), 'Complications profile must include the App Group ' + group
     profiles[bundle + '.watchkitapp'] = os.environ['WATCH_UUID']
     profiles[bundle + '.watchkitapp.complications'] = os.environ['WIDGET_UUID']
+if os.environ.get('LIVE_UUID'):
+    live = plistlib.loads(Path(temp, 'live.plist').read_bytes())
+    assert live['Entitlements']['application-identifier'] == team + '.' + bundle + '.live', 'Live Activity profile does not match <bundle>.live'
+    profiles[bundle + '.live'] = os.environ['LIVE_UUID']
 options = {'method': 'app-store-connect', 'destination': 'upload', 'teamID': team, 'signingStyle': 'manual', 'provisioningProfiles': profiles}
 Path(temp, 'ExportOptions.plist').write_bytes(plistlib.dumps(options))
 PY
