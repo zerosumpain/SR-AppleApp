@@ -432,6 +432,7 @@ struct ContentView: View {
             // new one on the next read.
             FamilyStepsStore.shared.reset()
             FamilyTasksStore.shared.reset()
+            FamilyForecastStore.shared.reset()
         }
         .onChange(of: access.offer) { _, _ in
             Task { await reconcileSite() }

@@ -12,6 +12,7 @@ struct FamilyPersonScreen: View {
     @ObservedObject var store: FamilyStore
     let subject: String
     @ObservedObject private var places = PlaceNamer.shared
+    @ObservedObject private var forecast = FamilyForecastStore.shared
     @AppStorage(FamilyTracks.key) private var showTracks = true
     @State private var camera: MapCameraPosition = .automatic
 
@@ -47,6 +48,9 @@ struct FamilyPersonScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
                     header(person)
+                    if let f = forecast.forecast {
+                        FamilyPersonForecast(forecast: f, subject: person.subject)
+                    }
                     if let today = person.today {
                         day(today)
                         if let days = person.days, !days.isEmpty { week(days) }
@@ -74,7 +78,7 @@ struct FamilyPersonScreen: View {
                 .padding(.top, 14)
                 .padding(.bottom, 28)
             }
-            .srRefreshable { await store.load() }
+            .srRefreshable { await store.load(); await forecast.load(force: true) }
         }
     }
 
@@ -243,5 +247,79 @@ struct FamilyPersonScreen: View {
         let item = MKMapItem(placemark: MKPlacemark(coordinate: position.coordinate))
         item.name = person.name
         item.openInMaps()
+    }
+}
+
+
+/// A person's forecast: what they are likely to do next and the regular trips
+/// it is read from — "Home → School, weekdays, usually 08:24, 16 min". Only
+/// what the site sent: a member's phone holds their own and their wards'.
+struct FamilyPersonForecast: View {
+    let forecast: FamilyForecast
+    let subject: String
+
+    var body: some View {
+        let next = forecast.next(for: subject)
+        let routines = forecast.routines(for: subject)
+        let flags = forecast.watch(for: subject)
+        if next != nil || !routines.isEmpty || !flags.isEmpty {
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                if !flags.isEmpty { FamilyWatchCard(items: flags) }
+                if let next {
+                    SRCard(accented: true) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(next.kind == "arriving" ? "ON THE WAY" : "NEXT")
+                                .font(SR.Text.label()).tracking(1.3).foregroundStyle(SR.accent)
+                            Text(ForecastWords.nextLine(next))
+                                .font(SR.Text.title())
+                                .foregroundStyle(SR.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(next.kind == "arriving"
+                                 ? "From \(next.days) similar trips. No live traffic."
+                                 : "Usually, on \(ForecastWords.ofDays(next.days, next.of, next.dayType)).")
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
+                        }
+                    }
+                    .accessibilityIdentifier("family-person-next")
+                }
+                if !routines.isEmpty {
+                    SRSectionLabel(text: "Regular trips", trailing: "last \(forecast.days) days")
+                        .padding(.horizontal, 4)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(routines.enumerated()), id: \.element.id) { index, r in
+                            if index > 0 { Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, SR.cardPadding) }
+                            routineRow(r)
+                        }
+                    }
+                    .srGlassCard(.paper)
+                    .accessibilityIdentifier("family-person-routines")
+                    if let coverage = forecast.coverage(for: subject) {
+                        Text("Learned from their own trips · \(Int((coverage * 100).rounded()))% of the \(forecast.days) days observed.")
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private func routineRow(_ r: FamilyForecast.Routine) -> some View {
+        let time = ForecastWords.routineTime(r)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(r.from) → \(r.to)").font(SR.Text.title()).foregroundStyle(SR.ink)
+                Spacer(minLength: 8)
+                Text(time.headline).font(SR.Text.display(18)).foregroundStyle(SR.ink)
+            }
+            Text(ForecastWords.routineWhen(r)).font(SR.Text.secondary()).foregroundStyle(SR.inkSecondary)
+            Text(time.detail).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+            Text(ForecastWords.leaveAhead(r)).font(SR.Text.mono()).foregroundStyle(SR.accentInk)
+        }
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
     }
 }

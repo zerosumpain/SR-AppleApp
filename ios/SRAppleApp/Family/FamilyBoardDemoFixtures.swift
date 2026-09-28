@@ -20,6 +20,8 @@ extension SRDemoFixtures {
             return familySteps(clock)
         case ("GET", 1, "tasks"):
             return familyTasks(clock)
+        case ("GET", 1, "forecast"):
+            return familyForecast(clock)
         case ("POST", 1, "tasks"):
             let fields = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let title = (fields?["title"] as? String) ?? "New task"
@@ -29,6 +31,42 @@ extension SRDemoFixtures {
         default:
             return nil
         }
+    }
+
+    /// The travel desk's forecast, in the shape SR-Main sends: Alex on the
+    /// way to the office, Sam due home from school, Robin off to swimming, and
+    /// Kit quiet for three hours. Routines carry believable spreads.
+    static func familyForecast(_ clock: DemoClock) -> String {
+        let at = { (m: Double) in clock.iso(minutesAgo: -m) }
+        return """
+        {"generatedAt":"\(clock.iso(minutesAgo: 0))","days":28,
+         "routines":[
+          {"id":"sam:home:school:vehicle:weekday","subject":"sam","person":"Sam","from":"Home","to":"School","mode":"vehicle",
+           "dayType":"weekday","departure":"08:24","window":[497,512],"days":14,"of":18,
+           "minutes":{"median":16.4,"low":13.9,"high":17.9,"p80":17.4}},
+          {"id":"sam:school:home:active:weekday","subject":"sam","person":"Sam","from":"School","to":"Home","mode":"active",
+           "dayType":"weekday","departure":"15:40","window":[930,955],"days":12,"of":18,
+           "minutes":{"median":22,"low":19,"high":27,"p80":25.6}},
+          {"id":"robin:home:pool:vehicle:weekday","subject":"robin","person":"Robin","from":"Home","to":"Leisure Centre","mode":"vehicle",
+           "dayType":"weekday","departure":"17:45","window":[1055,1075],"days":6,"of":8,
+           "minutes":{"median":11,"low":9,"high":14,"p80":13}},
+          {"id":"alex:home:office:vehicle:weekday","subject":"alex","person":"Alex","from":"Home","to":"Office","mode":"vehicle",
+           "dayType":"weekday","departure":"08:30","window":[505,520],"days":9,"of":18,
+           "minutes":{"median":24,"low":20,"high":29,"p80":27}}],
+         "next":[
+          {"subject":"alex","kind":"arriving","routineId":null,"from":"Home","to":"Office","leaveAt":"\(at(-12))",
+           "arriveFrom":"\(at(9))","arriveTo":"\(at(15))","days":9,"of":9,"dayType":null,"confidence":"established"},
+          {"subject":"sam","kind":"routine","routineId":"sam:school:home:active:weekday","from":"School","to":"Home","leaveAt":"\(at(35))",
+           "arriveFrom":"\(at(54))","arriveTo":"\(at(62))","days":12,"of":18,"dayType":"weekday","confidence":"established"},
+          {"subject":"robin","kind":"routine","routineId":"robin:home:pool:vehicle:weekday","from":"Home","to":"Leisure Centre","leaveAt":"\(at(80))",
+           "arriveFrom":"\(at(89))","arriveTo":"\(at(94))","days":6,"of":8,"dayType":"weekday","confidence":"emerging"}],
+         "watch":[
+          {"key":"quiet:kit:demo","kind":"quiet","subject":"kit","severity":"watch","title":"No location from Kit for 3 h 10 m",
+           "detail":"Last seen at The Reservoir. A flat battery or no signal reads the same.","at":"\(clock.iso(minutesAgo: 0))"}],
+         "arrivals":[],"departures":[],
+         "people":[{"subject":"alex","name":"Alex","coverage":0.93},{"subject":"sam","name":"Sam","coverage":0.95},
+                   {"subject":"robin","name":"Robin","coverage":0.91},{"subject":"kit","name":"Kit","coverage":0.62}]}
+        """
     }
 
     static func familySteps(_ clock: DemoClock) -> String {
