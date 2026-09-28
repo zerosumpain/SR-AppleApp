@@ -113,6 +113,21 @@ final class ReviewDemoTests: XCTestCase {
         XCTAssertTrue(Recorder.paths.isEmpty, "the DELETE went to the fixtures, not the site")
     }
 
+    func testDeleteAccountInTheDemoJustLeavesItAndSendsNothing() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
+        let companion = Companion(outbox: outbox)
+        ReviewDemo.shared.enter()
+        let site = SitePairingModel()
+
+        let done = await AccountDeletionStore().delete(lane: .site, companion: companion, site: site)
+
+        XCTAssertTrue(done, "the demo's Delete account should end the demo")
+        XCTAssertFalse(ReviewDemo.isActive)
+        XCTAssertTrue(Recorder.paths.isEmpty, "a demo deletion reached the site")
+    }
+
     // MARK: - Nothing leaves the phone
 
     func testNoSiteRequestReachesTheNetworkInTheDemo() async throws {
