@@ -31,6 +31,10 @@ import UIKit
         UNUserNotificationCenter.current().setNotificationCategories(AlertActions.categories)
         // A push token on every launch; the site is handed it once paired.
         PushRegistration.shared.start(application)
+        // The family journey: a site-started Live Activity wakes the app in
+        // the background, and this must already be listening to report its
+        // update token.
+        JourneyLive.shared.start()
         // Listening before any scene exists: a message from the Watch can wake
         // the app in the background, and must find a session to arrive at.
         WatchBridge.shared.start(companion: companion)

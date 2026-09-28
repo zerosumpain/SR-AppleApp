@@ -1,6 +1,8 @@
-# The Watch app and its complications, added to the iPhone app by
-# `project.yml`. See docs/WATCH.md for what each is and why it holds no
-# credential of its own.
+# The Watch app and its complications, and the iPhone's Live Activity
+# extension, added to the iPhone app by `project.yml`. See docs/WATCH.md for
+# what each Watch target is and why it holds no credential of its own. All
+# three are signed with profiles CI mints through the App Store Connect API
+# (scripts/asc-watch-profiles.py), which is why they travel together.
 targets:
   SRAppleApp:
     # Embedded the way Xcode's own template embeds a single-target watch app:
@@ -12,6 +14,11 @@ targets:
         copy:
           destination: productsDirectory
           subpath: $(CONTENTS_FOLDER_PATH)/Watch
+      # The family journey on the Lock Screen and in the Dynamic Island. An
+      # app extension embeds in PlugIns/, the default for its type.
+      - target: SRAppleLive
+        embed: true
+        codeSign: true
 
   SRAppleWatch:
     type: application
@@ -55,4 +62,27 @@ targets:
         INFOPLIST_FILE: SRAppleWatchWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: SRAppleWatchWidgets/SRAppleWatchWidgets.entitlements
         TARGETED_DEVICE_FAMILY: '4'
+        SKIP_INSTALL: YES
+
+  SRAppleLive:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: '17.0'
+    sources:
+      - SRAppleLive
+      # The activity's shape, shared with the app that reports its tokens.
+      - path: SRAppleApp/Journey/JourneyAttributes.swift
+      # The headline and label faces, as on the Watch.
+      - path: SRAppleApp/Fonts/ArchivoBlack-Regular.ttf
+        buildPhase: resources
+      - path: SRAppleApp/Fonts/JetBrainsMono-Regular.ttf
+        buildPhase: resources
+      - path: SRAppleApp/Fonts/JetBrainsMono-Medium.ttf
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID).live
+        PROVISIONING_PROFILE_SPECIFIER: $(SR_LIVE_PROFILE)
+        INFOPLIST_FILE: SRAppleLive/Info.plist
+        TARGETED_DEVICE_FAMILY: '1'
         SKIP_INSTALL: YES

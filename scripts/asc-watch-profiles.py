@@ -139,12 +139,23 @@ def decode_profile(data: bytes) -> dict:
     return plistlib.loads(out)
 
 
-def find_bundle_id(client: Client, identifier: str) -> str:
+def find_bundle_id(client: Client, identifier: str, register: bool = False) -> str:
     # `filter[identifier]` matches by prefix, so the exact one is picked out.
     reply = client.call("GET", "/bundleIds", query={"filter[identifier]": identifier, "limit": "200"})
     for item in reply.get("data", []):
         if item["attributes"].get("identifier") == identifier:
             return item["id"]
+    if register:
+        # An App ID with no capabilities (the Live Activity extension needs
+        # none), which the API can make on its own — no App Group to attach.
+        created = client.call("POST", "/bundleIds", body={
+            "data": {
+                "type": "bundleIds",
+                "attributes": {"identifier": identifier, "name": "SR " + identifier.split(".")[-1], "platform": "IOS"},
+            }
+        })
+        print(f"Registered the App ID {identifier}.")
+        return created["data"]["id"]
     raise Refused(
         f"There is no App ID {identifier} on the developer account yet. "
         "Do Part A of docs/WATCH-SETUP.md (the App Group and the two App IDs), then run this again."
@@ -166,11 +177,11 @@ def find_certificate(client: Client, app_profile: dict) -> str:
     )
 
 
-def check(profile: dict, team: str, identifier: str, group: str, healthkit: bool) -> None:
+def check(profile: dict, team: str, identifier: str, group: str | None, healthkit: bool) -> None:
     entitlements = profile.get("Entitlements", {})
     if entitlements.get("application-identifier") != f"{team}.{identifier}":
         raise Refused(f"Apple made a profile for {entitlements.get('application-identifier')}, not {team}.{identifier}.")
-    if group not in entitlements.get("com.apple.security.application-groups", []):
+    if group and group not in entitlements.get("com.apple.security.application-groups", []):
         raise Refused(
             f"The App ID {identifier} does not have the App Group {group} attached. "
             "In the developer account open that App ID, Configure App Groups, tick the group and Save "
@@ -212,9 +223,12 @@ def main() -> int:
 
     team, bundle = env["APPLE_TEAM_ID"], env["BUNDLE_ID"]
     group = "group." + bundle
+    # key, App ID, HealthKit, needs the App Group, may be registered here.
     targets = [
-        ("watch", bundle + ".watchkitapp", True),
-        ("widget", bundle + ".watchkitapp.complications", False),
+        ("watch", bundle + ".watchkitapp", True, True, False),
+        ("widget", bundle + ".watchkitapp.complications", False, True, False),
+        # The iPhone's Live Activity extension (the family journey).
+        ("live", bundle + ".live", False, False, True),
     ]
     temp = Path(env["RUNNER_TEMP"])
     try:
@@ -222,10 +236,10 @@ def main() -> int:
         app_profile = decode_profile(base64.b64decode(env["PROVISION_PROFILE_BASE64"]))
         certificate = find_certificate(client, app_profile)
         written = {}
-        for key, identifier, healthkit in targets:
-            bundle_ref = find_bundle_id(client, identifier)
+        for key, identifier, healthkit, grouped, register in targets:
+            bundle_ref = find_bundle_id(client, identifier, register)
             data = fresh_profile(client, bundle_ref, certificate, NAME_PREFIX + identifier)
-            check(decode_profile(data), team, identifier, group, healthkit)
+            check(decode_profile(data), team, identifier, group if grouped else None, healthkit)
             path = temp / f"{key}-api.mobileprovision"
             path.write_bytes(data)
             written[key] = path
@@ -241,6 +255,7 @@ def main() -> int:
     with open(env["GITHUB_ENV"], "a") as out:
         out.write(f"WATCH_PROFILE_PATH={written['watch']}\n")
         out.write(f"WIDGET_PROFILE_PATH={written['widget']}\n")
+        out.write(f"LIVE_PROFILE_PATH={written['live']}\n")
     return 0
 
 

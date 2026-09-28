@@ -141,6 +141,8 @@ struct AlertRoutingScreen: View {
     /// What the last "Send a test" came back with.
     @State private var testResult: String?
     @State private var testing = false
+    @State private var liveResult: String?
+    @State private var liveTesting = false
 
     var body: some View {
         List {
@@ -162,6 +164,23 @@ struct AlertRoutingScreen: View {
                     .buttonStyle(.plain)
                     .disabled(testing)
                     .srGlassRow()
+                    if AccessStore.ownerSite {
+                        Button {
+                            SRHaptic.tap()
+                            liveTesting = true
+                            Task {
+                                liveResult = await JourneyLive.shared.runTest()
+                                liveTesting = false
+                            }
+                        } label: {
+                            SRRow(title: liveTesting ? "Starting…" : "Try a family journey",
+                                  subtitle: liveResult ?? "A pretend journey on the Lock Screen, arriving in a minute",
+                                  icon: "figure.walk", tone: SR.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(liveTesting)
+                        .srGlassRow()
+                    }
                 }
             } header: {
                 SRSectionLabel(text: "On this iPhone")
