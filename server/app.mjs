@@ -419,6 +419,23 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (user.conflict) fail(409, 'This person belongs to another household');
         return send(user.created ? 201 : 200, user);
       }
+      // Move a person to another sign-in address — SR-Main's person page, when
+      // someone who registered from the app with Apple's relay address links
+      // their Google one. Only within the owner's family; never the owner
+      // (their address is configuration); never onto an address already here.
+      // Their id, phones, data and sharing are untouched: only the address moves.
+      if (path === '/api/apple/household/users/email' && method === 'PUT') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['from', 'to']);
+        const member = householdMember(owner, body.from);
+        if (!string(body.to, 320) || !body.to.includes('@')) fail(400, 'A new email is required');
+        const to = body.to.trim().toLowerCase();
+        if (serviceOwner && member.email === serviceOwner.toLowerCase()) fail(409, "The owner's address is set by configuration");
+        if (to === member.email) return send(200, { id: member.id, email: to, name: member.name });
+        if (db.prepare('SELECT 1 FROM users WHERE email=?').get(to)) fail(409, 'That address already has an account here');
+        db.prepare('UPDATE users SET email=? WHERE id=?').run(to, member.id);
+        return send(200, { id: member.id, email: to, name: member.name });
+      }
       if (path === '/api/apple/household/pair-code' && method === 'POST') {
         const owner = householdOwner([]);
         const body = await readJSON(); exactKeys(body, ['email']);
