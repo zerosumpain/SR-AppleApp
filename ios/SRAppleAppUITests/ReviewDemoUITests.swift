@@ -68,7 +68,9 @@ final class ReviewDemoUITests: XCTestCase {
         composer.tap()
         composer.typeText("How did I sleep?")
         app.buttons["chat-send"].tap()
-        let reply = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "Demo mode")).firstMatch
+        // The reply's own sign-off, not the strip's words.
+        let reply = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "generated on this iPhone")).firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 20), "a demo message got no reply")
         attach(app, "Review demo — Chat reply")
         back(app)

@@ -170,11 +170,11 @@ struct PairingCodeSheet: View {
                 }
             }
         }
-        .onAppear { focused = true }
     }
 
     private func submit() async {
         guard !registration.busy else { return }
+        focused = false
         problem = nil
         if let refusal = await registration.submit(code: code) {
             SRHaptic.bad()
