@@ -281,6 +281,14 @@ final class RegistrationStore: ObservableObject {
         reset()
     }
 
+    /// The account was deleted (Settings → Delete account): back to a phone
+    /// nobody has set up, Welcome and all — including the "I have a pairing
+    /// code" choice, which belonged to the account that is gone.
+    func forgetAfterAccountDeletion() {
+        skipped = false
+        reset()
+    }
+
     private func reset() {
         status = nil
         name = nil

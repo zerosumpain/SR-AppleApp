@@ -388,6 +388,26 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             profile = nil; records = []; family = []; updateQueue(); message = "Disconnected. Uploaded health records remain in your private dashboard."
         } catch { message = "Disconnect pending: \(error.localizedDescription). You can revoke this device on the website." }
     }
+    /// Settings → Delete account, for a phone paired to this server alone:
+    /// the server deletes what this phone uploaded, unpairs it, and flags the
+    /// account for the website to finish. Throws on anything but a yes — the
+    /// phone is only reset once the server has said so.
+    func requestAccountDeletion() async throws {
+        guard paired else { throw CompanionError.message("This iPhone is not connected to the companion server.") }
+        let _: API.Acknowledgement = try await api.request("account/delete", method: "POST", data: Data("{}".utf8))
+    }
+    /// The account is gone on the servers; forget it here without asking them
+    /// anything (both credentials are already revoked). The same local steps
+    /// as `disconnect`, none of its server calls.
+    func forgetAfterAccountDeletion() {
+        retryTask?.cancel(); retryTask = nil
+        try? outbox.change { $0.sharing = false }
+        location.stop()
+        try? Keychain.save(nil); api.token = nil; paired = false
+        try? outbox.clear(); AccessStore.shared.attach(outbox); health.startObservers()
+        profile = nil; records = []; family = []; updateQueue()
+        message = "Pair your iPhone to get started."
+    }
     func scheduleRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: "com.strangeramblings.com.appleapp.refresh")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)

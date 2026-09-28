@@ -81,6 +81,14 @@ export function openStore(path) {
   if (!columns.some((c) => c.name === 'site_pair_wanted')) {
     db.exec('ALTER TABLE users ADD COLUMN site_pair_wanted TEXT');
   }
+  // When a person asked, from their own phone, for their account to be
+  // deleted (app.mjs POST /api/apple/account/delete), or NULL. Their uploaded
+  // data is wiped at once; SR-Main reads the flag through the household lane
+  // and deletes the rest — site account and all — then deletes this row
+  // (household/users/delete). Same ALTER-guard as site_pair_wanted above.
+  if (!columns.some((c) => c.name === 'delete_requested')) {
+    db.exec('ALTER TABLE users ADD COLUMN delete_requested TEXT');
+  }
   return db;
 }
 /**
@@ -155,6 +163,30 @@ export function deleteUserData(db, user) {
       credentials: db.prepare("DELETE FROM credentials WHERE user_id=? AND kind IN ('device','pair')").run(user).changes,
     };
     db.prepare('UPDATE users SET sharing=0 WHERE id=?').run(user);
+    db.exec('COMMIT');
+    return deleted;
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+/**
+ * Delete a person outright: everything `deleteUserData` wipes, plus their
+ * pushed Family view, EVERY credential they hold (any kind), and the account
+ * row itself. SR-Main's in-app "Delete account" asks for this over the
+ * household lane (App Store guideline 5.1.1(v)). The caller decides whether
+ * the person may be deleted — the owner never is (app.mjs refuses). Returns
+ * what was removed, per table.
+ */
+export function deleteUser(db, user) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const deleted = {
+      health: db.prepare('DELETE FROM health WHERE user_id=?').run(user).changes,
+      tombstones: db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(user).changes,
+      locations: db.prepare('DELETE FROM locations WHERE user_id=?').run(user).changes,
+      alerts: db.prepare('DELETE FROM alerts WHERE user_id=?').run(user).changes,
+      views: db.prepare('DELETE FROM household_views WHERE user_id=?').run(user).changes,
+      credentials: db.prepare('DELETE FROM credentials WHERE user_id=?').run(user).changes,
+      users: db.prepare('DELETE FROM users WHERE id=?').run(user).changes,
+    };
     db.exec('COMMIT');
     return deleted;
   } catch (error) { db.exec('ROLLBACK'); throw error; }
