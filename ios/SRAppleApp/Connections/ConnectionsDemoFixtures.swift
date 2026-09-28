@@ -18,15 +18,19 @@ extension SRDemoFixtures {
         """
     }
 
+    /// None at all for the App Store screenshots (`-SRStoreShots`): the
+    /// banner would sit across every shot.
     static func connectionsFeed(_ clock: DemoClock) -> String {
-        """
-        {"needsAttention": [\(demoConnectionItem(clock))], "checkedAt": \(s(clock.iso(minutesAgo: 2)))}
+        let items = SRDemo.isStoreShots ? "" : demoConnectionItem(clock)
+        return """
+        {"needsAttention": [\(items)], "checkedAt": \(s(clock.iso(minutesAgo: 2)))}
         """
     }
 
     /// The `connections` block on `/api/native/today`.
     static func todayConnections(_ clock: DemoClock) -> String {
-        """
+        if SRDemo.isStoreShots { return #"{"needsAttention": 0, "items": []}"# }
+        return """
         {"needsAttention": 1, "items": [\(demoConnectionItem(clock))]}
         """
     }

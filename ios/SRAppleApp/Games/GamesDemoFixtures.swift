@@ -54,6 +54,11 @@ extension SRDemoFixtures {
 
     static func ms(_ date: Date) -> String { String(Int64(date.timeIntervalSince1970 * 1000)) }
 
+    /// The Wordle Race room, left out of the lobby for the App Store
+    /// screenshots (`-SRStoreShots`): "Wordle" is another company's mark.
+    static var storeShotsSkipsWordle: Bool { SRDemo.isStoreShots }
+    static let wordleLobbyRow = #"{"id": "g_demo_wordle", "game": "wordle-race", "phase": "playing", "hostName": "Sam"},"#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -65,7 +70,7 @@ extension SRDemoFixtures {
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
          "rooms": [{"id": \(s(demoLobbyRoom)), "game": "tap-duel", "phase": "lobby", "hostName": "Alex"},
-                   {"id": \(s(demoWordleRoom)), "game": "wordle-race", "phase": "playing", "hostName": "Sam"},
+                   \(storeShotsSkipsWordle ? "" : wordleLobbyRow)
                    {"id": \(s(demoQuizRoom)), "game": "quiz-night", "phase": "question", "hostName": "Alex"},
                    {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"},
                    {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "phase": "playing", "hostName": "Alex"},

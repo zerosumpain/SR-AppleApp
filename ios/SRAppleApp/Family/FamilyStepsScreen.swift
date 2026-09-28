@@ -213,7 +213,7 @@ struct FamilyShowOnToday: View {
                 Text("Show on Today")
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
-                Text("A card with \(what). On this iPhone only.")
+                Text("A card with \(what). On this phone only.")
                     .font(SR.Text.secondary(13))
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)

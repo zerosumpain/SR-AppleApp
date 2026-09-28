@@ -113,6 +113,30 @@ Screen Time content restrictions are set on their phone.
 ## 7. Screenshots
 
 App Store Connect needs the **6.9-inch** set (1320 × 2868; any 6.5-inch set is accepted instead). Run the
-**App Store screenshots** workflow (Actions → App Store screenshots → Run workflow). It runs the showcase
-UI tests on an iPhone Pro Max simulator on the demo fixtures (about 40 minutes), and uploads them as the
-`app-store-screenshots` artifact. Upload 6–8 of them: Today, Family map, Steps, Tasks, Health, Chat, Games, widgets.
+**App Store screenshots** workflow (Actions → App Store screenshots → Run workflow, or
+`gh workflow run "App Store screenshots" -R zerosumpain/SR-AppleApp --ref <branch>`). It runs
+`AppStoreShotsTests`, and only that, on the largest iPhone Pro Max simulator: light appearance, status bar
+pinned to 9:41 with full bars. Minutes of test time, not the showcase suite's forty.
+
+The tests launch the demo with `-SRDemo -SRStoreShots` (both DEBUG-only). `-SRStoreShots` keeps the demo
+fixtures but takes out what a listing must not show: no "a connection needs you" banner, no urgent alert
+pinned under Today, no Wordle room in the Games lobby, and every real brand in the fixtures (news desks,
+model names, other companies' products) swapped for a made-up one on the way out (`Site/StoreShots.swift`).
+Each test hard-asserts that its screen is up and waits out spinners before it shoots, so a green run is the
+right eight screens:
+
+| File | Screen |
+| --- | --- |
+| `01-today.png` | Today, with the Steps and Tasks cards switched on |
+| `02-family-map.png` | Family: the map and everyone's row |
+| `03-steps-leaderboard.png` | The family step board |
+| `04-tasks-open.png` | Tasks, Open |
+| `05-tasks-owed.png` | Tasks, Owed |
+| `06-health.png` | Health |
+| `07-chat-thread.png` | A chat thread |
+| `08-games.png` | Games |
+
+The `app-store-screenshots` artifact is those eight, named as above: the workflow picks the `Store NN — …`
+attachments out of the result bundle's export by its `manifest.json`. `store-shots-raw` is the whole export,
+for when a test failed and the set is short. Look at every picture before uploading it. `ShowcaseTests`
+still photographs everything, banners included, for reviewing the look; its pictures are not for the store.
