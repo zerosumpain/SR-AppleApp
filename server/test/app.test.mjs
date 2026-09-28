@@ -36,17 +36,17 @@ test('authentication is required and health cannot be read across users or via f
   assert.equal((await request('health?user=alex', { user: 'sam' })).status, 400);
   const family = (await request('family', { user: 'sam' })).body;
   assert.equal(JSON.stringify(family).includes('heart_rate'), false);
-  assert.deepEqual(family.members.map(x => x.id), ['alex', 'sam']);
+  assert.equal((await request('family', { user: 'sam' })).status, 410);
 });
 test('location sharing is opt in, family scoped, and pause hides the last location', async t => {
   const { request } = await fixture(t);
   assert.equal((await request('sync', { method: 'POST', body: batch([], [location()]) })).status, 409);
   await request('sharing', { method: 'PUT', body: { enabled: true } });
   assert.equal((await request('sync', { method: 'POST', body: batch([], [location()]) })).status, 200);
-  assert.equal((await request('family', { user: 'sam' })).body.members[0].location.latitude, 51);
-  assert.equal((await request('family', { user: 'robin' })).body.members.length, 1);
+  assert.equal((await request('family', { user: 'sam' })).status, 410);
+  assert.equal((await request('family', { user: 'robin' })).status, 410);
   await request('sharing', { method: 'PUT', body: { enabled: false } });
-  assert.equal((await request('family', { user: 'sam' })).body.members[0].location, null);
+  assert.equal((await request('family', { user: 'sam' })).status, 410);
 });
 test('retries are idempotent and deletion only affects the authenticated owner', async t => {
   const { request } = await fixture(t);
@@ -86,7 +86,7 @@ test('delete uploaded data revokes devices and pairing codes without touching an
   await request('sync', { method: 'POST', body: batch([health()]) });
   await request('sync', { user: 'sam', method: 'POST', body: batch([health()]) });
   const code = issue(db, 'alex', 'pair', 'Pending', 600000);
-  assert.equal((await request('data', { method: 'DELETE' })).status, 200);
+  assert.equal((await request('data', { method: 'DELETE' })).status, 202);
   assert.equal((await request('health')).status, 401);
   assert.equal((await request('pair', { user: null, method: 'POST', body: { code, label: 'Phone' } })).status, 401);
   assert.equal((await request('health', { user: 'sam' })).body.records.length, 1);
@@ -96,7 +96,7 @@ test('expired credentials fail and secrets are not returned with profile', async
   const { request, db } = await fixture(t);
   const profile = await request('me');
   assert.equal(profile.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(Object.keys(profile.body).sort(), ['demo', 'email', 'id', 'name', 'owner', 'sharing']);
+  assert.deepEqual(Object.keys(profile.body).sort(), ['deletionPending', 'demo', 'email', 'id', 'name', 'owner', 'sharing', 'stepsSharing']);
   db.prepare('UPDATE credentials SET expires=0').run();
   assert.equal((await request('me')).status, 401);
 });
@@ -345,7 +345,7 @@ test('a family member with sharing off is listed but contributes no fixes', asyn
   await request('sync', { user: 'sam', method: 'POST', body: batch([], [householdFix('sam-1', new Date().toISOString())]) });
   await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: false } });
   const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
-  assert.deepEqual(body.users.find(u => u.email === 'sam@example.test'), { email: 'sam@example.test', name: 'sam', sharing: false, sitePairWanted: null });
+  assert.deepEqual(body.users.find(u => u.email === 'sam@example.test'), { email: 'sam@example.test', name: 'sam', sharing: false, stepsSharing: false, sitePairWanted: null });
   assert.equal(body.fixes.some(f => f.email === 'sam@example.test'), false);
 });
 
@@ -361,7 +361,10 @@ test('a user in another family never appears in the household lane', async t => 
 // --- Household: events in, alerts out ------------------------------------
 
 const householdEvent = (id, recipients, overrides = {}) => ({ id, recipients, title: 'Arrived', body: 'sam arrived home', at: new Date().toISOString(), ...overrides });
-const postEvents = (request, events) => request('household/events', { user: null, method: 'POST', headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` }, body: { events } });
+const postEvents = async (request, events) => {
+  const state = await request('household?limit=1', { user:null,headers:{Authorization:`Bearer ${HOUSEHOLD_TOKEN}`} });
+  return request('household/events', { user:null,method:'POST',headers:{Authorization:`Bearer ${HOUSEHOLD_TOKEN}`},body:{events,revision:state.body.revision} });
+};
 
 test('household events does not exist until APPLE_HOUSEHOLD_TOKEN is configured, and refuses the wrong token', async t => {
   const closed = await fixture(t);
@@ -425,9 +428,9 @@ test('alerts older than 7 days are pruned on every events POST', async t => {
 test("deleting my data removes my alerts, not another user's", async t => {
   const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
   await postEvents(request, [householdEvent('evt-6', ['alex@example.test', 'sam@example.test'])]);
-  assert.equal((await request('data', { method: 'DELETE' })).status, 200);
+  assert.equal((await request('data', { method: 'DELETE' })).status, 202);
   assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='alex'").get().n, 0);
-  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='sam'").get().n, 1);
+  assert.equal(db.prepare("SELECT count(*) n FROM alerts WHERE user_id='sam'").get().n, 0);
 });
 
 // --- Site pairing request: POST /api/apple/site-pair --------------------
@@ -508,7 +511,7 @@ test('a real Auth.js session cookie from the main site authenticates', async (t)
   const secret = 'test-secret-at-least-32-characters-long!!';
   const db = openStore(':memory:');
   createUser(db, { id: 'alex', family: 'one', email: 'alex@example.test', name: 'alex' });
-  const app = createApp(db, { origin: 'https://strangeramblings.com', demo: false, authSecret: secret });
+  const app = createApp(db, { origin: 'https://strangeramblings.com', demo: false, authSecret: secret, policyUrl: 'http://127.0.0.1/policy', policyToken: 'p'.repeat(32), fetchImpl: async () => new Response(JSON.stringify({allowed:true,version:'0'})) });
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await new Promise((resolve) => app.close(resolve)); db.close(); });
   const base = `http://127.0.0.1:${app.address().port}/api/apple`;
@@ -583,7 +586,7 @@ test('reading your own history does not depend on the sharing switch', async t =
   await request('sharing', { method: 'PUT', body: { enabled: false } });
   // Pausing hides you from the family and stops new uploads. It must not lock
   // you out of what you already recorded.
-  assert.equal((await request('family', { user: 'sam' })).body.members[0].location, null);
+  assert.equal((await request('family', { user: 'sam' })).status, 410);
   assert.equal((await request(`track?offset=0&date=${date}`)).body.points.length, 5);
 });
 
@@ -776,12 +779,12 @@ test('re-uploading a deleted id clears its tombstone; deleting an unknown id lea
   await request('sync', { method: 'POST', body: batch([health('A')]) });
   assert.equal(db.prepare('SELECT count(*) n FROM health_deleted').get().n, 0);
 });
-test('delete-my-data removes tombstones too', async t => {
+test('delete-my-data retains tombstones for downstream deletion', async t => {
   const { request, db } = await fixture(t);
   await request('sync', { method: 'POST', body: batch([health('A')]) });
   await request('sync', { method: 'POST', body: batch([], [], ['A']) });
   await request('data', { method: 'DELETE' });
-  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='alex'").get().n, 0);
+  assert.equal(db.prepare("SELECT count(*) n FROM health_deleted WHERE user_id='alex'").get().n, 1);
 });
 test('a tombstone is kept only for the configured service owner\'s deletions (R7)', async t => {
   const { request, db } = await fixture(t);
@@ -817,7 +820,10 @@ test('with no service owner configured, deletions apply but no tombstone is kept
 
 // --- Household: each person's Family view ---------------------------------
 
-const postViews = (request, views, token = HOUSEHOLD_TOKEN) => request('household/views', { user: null, method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: { views } });
+const postViews = async (request, views, token = HOUSEHOLD_TOKEN) => {
+  const current = await request('household?limit=1', { user: null, headers: { Authorization: `Bearer ${token}` } });
+  return request('household/views', { user: null, method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: { views, revision: current.body.revision } });
+};
 const view = (label) => ({ generatedAt: new Date().toISOString(), people: [{ subject: label }] });
 
 test('household views do not exist until APPLE_HOUSEHOLD_TOKEN is configured, and refuse the wrong token', async t => {
@@ -847,7 +853,7 @@ test('a push replaces the family: a person left out loses their view, another fa
   assert.equal(second.body.stored, 1);
   assert.equal((await request('household/view')).body.view.people[0].subject, 'a2');
   assert.equal((await request('household/view', { user: 'sam' })).body.view, null);
-  assert.equal((await request('household/view', { user: 'robin' })).body.view.people[0].subject, 'robin-own');
+  assert.equal((await request('household/view', { user: 'robin' })).body.view, null, 'legacy unversioned views are not served');
 });
 
 test('household views reject a malformed batch', async t => {
@@ -872,8 +878,13 @@ test('a fix may carry a battery percentage, which the household lane passes on',
 
 // --- Household: onboarding (SR-Main /welcome, /admin/access/devices) -------
 
-const household = (request, path, { method = 'GET', body, token = HOUSEHOLD_TOKEN } = {}) =>
-  request(path, { user: null, method, body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+const household = async (request, path, { method = 'GET', body, token = HOUSEHOLD_TOKEN } = {}) => {
+  if (path === 'household/events' && body) {
+    const state=await request('household?limit=1',{user:null,headers:{Authorization:`Bearer ${token}`}});
+    body={...body,revision:state.body.revision};
+  }
+  return request(path, { user:null,method,body,headers:{Authorization:`Bearer ${token}`} });
+};
 
 test('the onboarding routes do not exist until APPLE_HOUSEHOLD_TOKEN is configured, and refuse the wrong token', async t => {
   const closed = await fixture(t);
@@ -1007,16 +1018,16 @@ test('household data delete wipes that person only, unpairs them, and refuses an
   await household(request, 'household/events', { method: 'POST', body: { events: [{ id: 'e1', recipients: ['alex@example.test', 'sam@example.test'], title: 'Home', body: 'Sam got home', at: stamp() }] } });
 
   const response = await household(request, 'household/data/delete', { method: 'POST', body: { email: 'Alex@example.test' } });
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { deleted: { health: 1, tombstones: 1, locations: 1, alerts: 1, credentials: 2 } });
+  assert.equal(response.status, 202);
+  assert.deepEqual(response.body, { deleted: { health: 1, tombstones: 0, locations: 1, alerts: 1, credentials: 2 }, pending: true });
   const count = (table, user) => db.prepare(`SELECT count(*) n FROM ${table} WHERE user_id=?`).get(user).n;
-  for (const table of ['health', 'health_deleted', 'locations', 'alerts', 'credentials']) assert.equal(count(table, 'alex'), 0, table);
+  for (const table of ['health', 'locations', 'alerts', 'credentials']) assert.equal(count(table, 'alex'), 0, table);
   assert.equal(db.prepare("SELECT sharing FROM users WHERE id='alex'").get().sharing, 0);
   assert.equal((await request('me')).status, 401, 'alex\'s phone is unpaired');
   // Sam, in the same family, is untouched.
   assert.equal(count('health', 'sam'), 2);
   assert.equal(count('locations', 'sam'), 1);
-  assert.equal(count('alerts', 'sam'), 1);
+  assert.equal(count('alerts', 'sam'), 0, 'recipient projections are invalidated');
   assert.equal((await request('me', { user: 'sam' })).status, 200);
 
   assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'robin@example.test' } })).status, 404, 'another family');
@@ -1031,7 +1042,7 @@ test('the person\'s own delete-my-data and the household delete are the same wip
   const { request, db } = await fixture(t);
   await request('sharing', { method: 'PUT', body: { enabled: true } });
   await request('sync', { method: 'POST', body: batch([health('A')], [location()]) });
-  assert.deepEqual((await request('data', { method: 'DELETE' })).body, { ok: true });
+  assert.deepEqual((await request('data', { method: 'DELETE' })).body, { ok: true, pending: true });
   assert.equal(db.prepare("SELECT count(*) n FROM health WHERE user_id='alex'").get().n, 0);
   assert.equal(db.prepare("SELECT count(*) n FROM locations WHERE user_id='alex'").get().n, 0);
   assert.equal(db.prepare("SELECT sharing FROM users WHERE id='alex'").get().sharing, 0);

@@ -43,6 +43,7 @@ struct FamilyStepsProvider: TimelineProvider {
                 board = fresh
                 FamilyShelf.save(FamilyStepsSnapshot(board: fresh, savedAt: Date()), .steps)
             }
+            if FamilyShelf.read(.credential) == nil { board = nil }
             let now = Date()
             completion(Timeline(
                 entries: [FamilyStepsEntry(date: now, board: board)],
@@ -55,7 +56,7 @@ struct FamilyStepsProvider: TimelineProvider {
 struct FamilyStepsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: FamilyWidgetKind.steps, provider: FamilyStepsProvider()) { entry in
-            FamilyStepsEntryView(entry: entry)
+            FamilyStepsEntryView(entry: entry).privacySensitive()
         }
         .configurationDisplayName("Family steps")
         .description("Your place on today's family step board.")
@@ -101,6 +102,7 @@ struct FamilyTasksProvider: TimelineProvider {
                 summary = made
                 FamilyShelf.save(FamilyTasksSnapshot(summary: made, savedAt: Date()), .tasks)
             }
+            if FamilyShelf.read(.credential) == nil { summary = nil }
             let now = Date()
             completion(Timeline(
                 entries: [FamilyTasksEntry(date: now, summary: summary)],
@@ -113,7 +115,7 @@ struct FamilyTasksProvider: TimelineProvider {
 struct FamilyTasksWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: FamilyWidgetKind.tasks, provider: FamilyTasksProvider()) { entry in
-            FamilyTasksEntryView(entry: entry)
+            FamilyTasksEntryView(entry: entry).privacySensitive()
         }
         .configurationDisplayName("Family tasks")
         .description("What's left to do, what's waiting on a parent, and what's owed.")

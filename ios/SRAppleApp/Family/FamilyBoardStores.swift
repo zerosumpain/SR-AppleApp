@@ -43,7 +43,10 @@ final class FamilyStepsStore: ObservableObject {
             return
         } catch {
             if (error as? URLError)?.code == .cancelled { return }
-            // A board on screen stays; the next read catches up.
+            // Authentication failures discard the sensitive cached board.
+            if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 {
+                board = nil; FamilyWidgetBridge.clear()
+            }
             message = board == nil ? Self.sentence(for: error) : nil
         }
         if AccessStore.shared.viewingAs == nil { live = await LiveSteps.today() }
@@ -122,6 +125,9 @@ final class FamilyTasksStore: ObservableObject {
             return
         } catch {
             if (error as? URLError)?.code == .cancelled { return }
+            if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 {
+                board = nil; FamilyWidgetBridge.clear()
+            }
             message = board == nil ? Self.sentence(for: error) : nil
         }
     }

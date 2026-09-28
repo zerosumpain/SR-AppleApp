@@ -37,6 +37,7 @@ enum SiteError: LocalizedError {
 
     /// The HTTP status, when the server answered with one.
     var status: Int? {
+        if case .expired = self { return 401 }
         if case .status(let code, _) = self { return code }
         if case .invalid = self { return 422 }
         return nil
@@ -46,11 +47,11 @@ enum SiteError: LocalizedError {
 enum SiteKeychain {
     static let service = "com.strangeramblings.com.appleapp.site"
 
-    static func read() -> String? {
+    static func read(account: String = "device") -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: "device",
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
         ]
         var result: CFTypeRef?
@@ -59,22 +60,27 @@ enum SiteKeychain {
         return String(data: data, encoding: .utf8)
     }
 
-    static func save(_ token: String?) throws {
+    static func save(_ token: String?, account: String = "device") throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: "device",
+            kSecAttrAccount as String: account,
         ]
-        let deleted = SecItemDelete(query as CFDictionary)
-        guard deleted == errSecSuccess || deleted == errSecItemNotFound else {
-            throw SiteError.message("Could not update saved credentials.")
+        guard let token else {
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw SiteError.message("Could not remove saved credentials.")
+            }
+            return
         }
-        guard let token else { return }
-        var values = query
-        values[kSecValueData as String] = Data(token.utf8)
-        // Device-only, and only after a first unlock: a background refresh runs
-        // while the phone is locked, so `WhenUnlocked` would fail those silently.
-        values[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let attrs: [String: Any] = [
+            kSecValueData as String: Data(token.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+        if status == errSecSuccess { return }
+        guard status == errSecItemNotFound else { throw SiteError.message("Could not update saved credentials.") }
+        let values = query.merging(attrs) { _, new in new }
         guard SecItemAdd(values as CFDictionary, nil) == errSecSuccess else {
             throw SiteError.message("Could not save credentials.")
         }
@@ -146,6 +152,7 @@ final class SiteClient {
             token = SRDemo.token
         }
         #endif
+        Task { await retryPendingRevocations() }
     }
 
     private lazy var session: URLSession = {
@@ -378,21 +385,69 @@ final class SiteClient {
         }
     }
 
-    func signOut() {
+    @discardableResult func signOut() -> Bool {
         #if DEBUG
         // A demo sign-out must not delete a real saved credential.
         if SRDemo.isOn {
             token = nil
-            return
+            return true
         }
         #endif
-        try? SiteKeychain.save(nil)
+        // Queue before dropping the active credential. Only the device-only
+        // Keychain holds the retry secret; it can be used solely to revoke.
+        do {
+            if let token {
+                var pending = pendingRevocations()
+                if !pending.contains(where: { $0.token == token && $0.origin == origin }) {
+                    pending.append(Revocation(origin: origin, token: token))
+                }
+                try SiteKeychain.save(String(decoding: JSONEncoder().encode(pending), as: UTF8.self), account: "pending-revocations")
+            }
+            try SiteKeychain.save(nil)
+        } catch { return false }
         token = nil
         // A revoked credential must not leave thread titles behind in iPhone
         // search. The index is a file other system processes read.
         ThreadIndex.clear()
         // Nor a copy of itself, or a family board, for the widgets.
         FamilyWidgetBridge.clear()
+        FamilyStepsStore.shared.reset()
+        FamilyTasksStore.shared.reset()
+        Task {
+            await JourneyLive.shared.endAll()
+            await retryPendingRevocations()
+        }
+        return true
+    }
+
+    private struct Revocation: Codable, Equatable { let origin: URL; let token: String }
+    private var revoking = false
+    private func pendingRevocations() -> [Revocation] {
+        guard let raw = SiteKeychain.read(account: "pending-revocations"),
+              let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([Revocation].self, from: data)) ?? []
+    }
+
+    func retryPendingRevocations() async {
+        guard !revoking else { return }
+        revoking = true
+        defer { revoking = false }
+        let retrySession = URLSession(configuration: .ephemeral, delegate: RevokeRedirectBlocker(), delegateQueue: nil)
+        defer { retrySession.invalidateAndCancel() }
+        for item in pendingRevocations() {
+            guard item.origin.scheme == "https" else { continue }
+            var request = URLRequest(url: item.origin.appendingPathComponent("api/native/session"))
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = 10
+            request.setValue("Bearer \(item.token)", forHTTPHeaderField: "Authorization")
+            do {
+                let (_, response) = try await retrySession.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
+                // Preserve revocations enqueued while this request was in flight.
+                let left = pendingRevocations().filter { $0 != item }
+                try SiteKeychain.save(String(decoding: JSONEncoder().encode(left), as: UTF8.self), account: "pending-revocations")
+            } catch { /* Retry at next launch or foreground; no credential logging. */ }
+        }
     }
 
     /// The website's own address for something, for a share sheet or a Link.
@@ -503,5 +558,12 @@ final class SiteClient {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+}
+
+private final class RevokeRedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

@@ -503,6 +503,23 @@ struct AppleHealthScreen: View {
 
             Section {
                 Toggle(isOn: Binding(
+                    get: { companion.profile?.stepsSharing == true },
+                    set: { value in Task { await companion.setStepsSharing(value) } }
+                )) {
+                    Text("Share daily steps with my family")
+                        .font(SR.Text.body(16))
+                        .foregroundStyle(SR.ink)
+                }
+                .tint(SR.accent)
+                .disabled(companion.busy || !companion.paired)
+                .srGlassRow()
+                Text("Off by default. When enabled, family members can see your daily count and ranking in the app, widgets and step notifications. This is separate from private Health uploads and location sharing.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+            } header: { SRSectionLabel(text: "Family steps consent") }
+
+            Section {
+                Toggle(isOn: Binding(
                     get: { outbox.state.sharing },
                     set: { value in Task { await companion.setSharing(value) } }
                 )) {
@@ -533,7 +550,7 @@ struct AppleHealthScreen: View {
             } header: {
                 SRSectionLabel(text: "Family location")
             } footer: {
-                Text("Family members see the position you share and nothing else. Your health data is never shared with them.")
+                Text("Permitted family members see your shared location and journey status. Parents may see their named wards’ history. Daily steps are shared only if you enable the separate steps option above.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
                     .padding(.vertical, 4)

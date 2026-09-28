@@ -40,7 +40,7 @@ export async function sessionIdentity(cookie, secret) {
     // unprefixed name instead finds nothing and reads as "not signed in".
     secureCookie: true
   });
-  if (!token || typeof token.email !== 'string' || !token.email.trim()) return null;
+  if (!token || (token.registrant != null && token.registrant !== false) || typeof token.email !== 'string' || !token.email.trim()) return null;
   return token.email.trim().toLowerCase();
 }
 

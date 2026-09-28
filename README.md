@@ -12,7 +12,7 @@ views live on the main site: pairing and sharing on `/welcome`, phones on
 - **A history of that:** every time the gate opened or closed, with the cause, the duty cycle it adds up to, and what share of wakes found real movement. An app that switches its own sensor off has to be watchable.
 - **Offline sync:** protected on-device queue, retry, idempotent ingestion, HealthKit change anchors/deletions, and server-side device revocation.
 
-Health is always scoped to the authenticated person. Family membership grants access to shared locations only. No public health projection, family health endpoint, or administrator health-view bypass exists. Server operators with filesystem/database access still technically control the stored data; this is not end-to-end encryption.
+Private Health reads are scoped to the authenticated person. Family steps require a separate, default-off consent and use a minimal steps-only export. Household location views are scoped by Main, consent-versioned and expire after five minutes; the old broad `/family` endpoint is retired. The configured owner's Health export is copied into SR-Health, whose public dashboard can publish selected owner figures. Server operators can access stored data; this is not end-to-end encryption. Main's current family permission is required for companion browser, pairing and device access. All legacy credentials require re-pairing on this security release.
 
 ## The retired dashboard
 
@@ -381,3 +381,11 @@ arrived.
 > every browser signing in while the phone kept working on its device token. Pin
 > it to whatever SR-Main resolves (`0.41.3` as of 2026-09-22) and move both
 > together.
+
+### Security lifecycle (28 September 2026)
+
+Configure a dedicated `APPLE_POLICY_TOKEN` matching Main's `COMPANION_POLICY_TOKEN`, and `APPLE_POLICY_URL` to Main's `/api/native/companion-policy` (HTTPS, or loopback HTTP locally). Never reuse the household or Health export token. Apply Main's security SQL migration before deploying this companion. Missing/unavailable policy denies access.
+
+Locations expire after 30 days independently of uploads; alerts after seven days; household snapshots after five minutes. Health remains until deletion. Delete creates a durable job: raw data, recipient views and credentials are removed immediately; Main and Health acknowledge their derived copies independently. Pairing and uploads remain blocked while either acknowledgement is missing. Deletion manifests and tombstones are retained as retry records (not health values); named places, other-source trail, accounts and separately expiring backups are outside this control.
+
+Website disconnect clears local views/widgets/Live Activities and queues revoke-self in the device-only Keychain. Retries occur at launch/foreground, without retaining an active website login. Companion disconnect is separate: it pauses location collection and revokes that credential.

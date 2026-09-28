@@ -146,7 +146,12 @@ enum FamilyWidgetFetch {
         let session = URLSession(configuration: config)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
+              let http = response as? HTTPURLResponse else { return nil }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            FamilyShelf.clearAll()
+            return nil
+        }
+        guard (200..<300).contains(http.statusCode) else { return nil }
         return try? JSONDecoder().decode(T.self, from: data)
     }
 }
