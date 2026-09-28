@@ -196,6 +196,10 @@ enum SRDemoFixtures {
         if joined == "api/native/games" || joined.hasPrefix("api/native/games/") {
             return gamesRoute(method: method, parts: parts, body: body, clock: clock)
         }
+        // The family step board and task list — `Family/FamilyBoardDemoFixtures.swift`.
+        if joined.hasPrefix("api/native/family/") {
+            return familyRoute(method: method, parts: parts, body: body, clock: clock)
+        }
         // Workflows — `FlowDemoFixtures.swift`.
         if joined == "api/native/workflows" || joined.hasPrefix("api/native/workflows/") {
             return flowRoute(method: method, parts: parts, body: body, clock: clock)

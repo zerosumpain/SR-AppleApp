@@ -283,6 +283,30 @@ locked, with **Mark read** and **Clear from Today** under it. Both run on the
 phone in the background, so there is no watch app yet. What a real one would add,
 and the provisioning profile each step costs, is in [Apple Watch](docs/WATCH.md).
 
+### Family steps and tasks
+
+Two pages under **More** (or, for a member with no More, the Family tab's
+toolbar), for everyone with the family and the site credential:
+
+- **Steps** — today's family step board from `GET /api/native/family/steps`:
+  your place, the gap, everyone ranked, yesterday's winner. Your own row takes
+  this iPhone's Apple Health count when it is ahead of the board's ("live").
+- **Tasks** — `GET/POST /api/native/family/tasks`, `PATCH …/tasks/[id]`:
+  Open / Completed / Owed. Swipe Done; a parent Confirms or Sends back with a
+  note, and marks rewards paid.
+
+Each has an optional **Today** card (off by default: Settings → Today, or
+"Show on Today" on the page) and a **Home Screen widget** (small, medium, Lock
+Screen) in the `SRAppleLive` extension. Pushes and widget taps open the pages
+through `sr://family/steps` and `sr://family/tasks`.
+
+The widgets read what the app leaves in a shared **Keychain access group**
+(`<TEAM>.<bundle>.shared`): a snapshot of each board, and the site credential so
+a widget can refresh itself every twenty minutes. Not an App Group — the team's
+group is attached only to the Watch App IDs, and adding one to the iPhone app
+or the extension would need a hand re-minted profile before TestFlight could
+archive again. Every Apple profile already allows `<TEAM>.*` Keychain groups.
+
 ### Two pairings, deliberately
 
 The app holds two independent credentials:

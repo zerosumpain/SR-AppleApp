@@ -159,6 +159,10 @@ struct TodayScreen: View {
     @State private var waved: Set<String> = []
     /// Today is the tab in front — the bell only rings while it is.
     @State private var onScreen = false
+    /// The family's step board and task list, each a card only when this
+    /// person turned it on (Settings → Today, or the page's own switch).
+    @AppStorage(TodayCards.steps) private var showSteps = false
+    @AppStorage(TodayCards.tasks) private var showTasks = false
 
     /// How often the numbers are re-read while Today is on screen. Readiness
     /// and recovery move when a sync lands on the site; five minutes is often
@@ -177,6 +181,16 @@ struct TodayScreen: View {
                 if access.current.family {
                     TodayFamilyCard(store: family) {
                         router.show(.family)
+                    }
+                }
+
+                // Off unless asked for; over the SITE credential.
+                if access.familyBoards && site.paired {
+                    if showSteps {
+                        TodayStepsCard { router.openFamilyPage(.steps) }
+                    }
+                    if showTasks {
+                        TodayTasksCard { router.openFamilyPage(.tasks) }
                     }
                 }
 
@@ -234,6 +248,7 @@ struct TodayScreen: View {
         .srRefreshable {
             move.start()
             await family.load()
+            await loadFamilyBoards()
             await store.load(fresh: true)
             daydream.seed(store.payload?.daydream)
             await alerts.refresh()
@@ -279,6 +294,7 @@ struct TodayScreen: View {
             // Not awaited before Today's own request: the family is a glance, and
             // the first paint must not wait on a second server.
             Task { await family.load() }
+            Task { await loadFamilyBoards() }
             await store.load()
             daydream.seed(store.payload?.daydream)
             await connections.reconcile(with: store.payload?.connections)
@@ -292,6 +308,7 @@ struct TodayScreen: View {
                 await store.load()
                 daydream.seed(store.payload?.daydream)
                     await family.load()
+                await loadFamilyBoards()
             }
         }
         .onAppear { onScreen = true }
@@ -302,6 +319,7 @@ struct TodayScreen: View {
             Task {
                 await store.load()
                     await family.load()
+                await loadFamilyBoards()
             }
         }
         // The companion just put new health data on the site: re-read, past
@@ -326,6 +344,14 @@ struct TodayScreen: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    /// The boards behind whichever family cards are on. Nothing is read for
+    /// a card that is off.
+    private func loadFamilyBoards() async {
+        guard access.familyBoards else { return }
+        if showSteps { await FamilyStepsStore.shared.load() }
+        if showTasks { await FamilyTasksStore.shared.load() }
     }
 
     // MARK: - Header

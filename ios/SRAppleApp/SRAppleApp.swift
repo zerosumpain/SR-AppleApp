@@ -205,6 +205,15 @@ import UIKit
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
+        // The family's step board or task list: a dethroning, the 4pm
+        // standings, a task done, confirmed or sent back. The site sends
+        // `url: sr://family/…` (and a `family-steps` / `family-tasks`
+        // category); `Router.openFamilyPage` refuses it for somebody without them.
+        if let page = FamilyPage.from(category: category, userInfo: response.notification.request.content.userInfo) {
+            Self.pending.familyPage = page
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
         // A game invite, pushed by the site or raised by the foreground poll.
         // Opens the room; `Router.openGame` refuses it for somebody without games.
         if category == "game" {
@@ -245,6 +254,8 @@ import UIKit
     var gameRoom: String?
     /// Which game that room is, when the notification said.
     var gameKind: String?
+    /// The step board or the task list, from a tapped family notification.
+    var familyPage: FamilyPage?
     var openAlerts = false
     var openConnections = false
     /// A question handed in by Siri or a Shortcut. Put in the composer, never
@@ -262,6 +273,11 @@ import UIKit
             router.openGame(gameRoom, game: gameKind)
             self.gameRoom = nil
             gameKind = nil
+            tab = nil
+        }
+        if let familyPage {
+            router.openFamilyPage(familyPage)
+            self.familyPage = nil
             tab = nil
         }
         if let tab { router.show(tab) }

@@ -163,6 +163,15 @@ enum AccessPolicy {
         }
     }
 
+    /// Whether the family's step board and task list are on offer: family
+    /// (the owner, or Family Circle / Family Admin on the site) AND the site
+    /// credential, because both live on the site (`/api/native/family/*`),
+    /// not on the companion. Somebody without either never sees the pages,
+    /// their cards, their settings or their widgets' data.
+    static func familyBoards(_ access: AppAccess, sitePaired: Bool) -> Bool {
+        (access.owner || access.family) && sitePaired
+    }
+
     /// Whether this phone should ask the site for a member credential: a known
     /// member, entitled to something that needs one, without one yet. An owner
     /// never auto-pairs — the QR flow is theirs.
@@ -383,6 +392,8 @@ final class AccessStore: ObservableObject {
     /// The places inside the app's own More tab, in order; empty when they fit on the bar.
     var inMore: [Router.Tab] { AccessPolicy.inMore(for: current) }
     func allows(_ tab: Router.Tab) -> Bool { AccessPolicy.allows(tab, current) }
+    /// The family's step board and task list — see `AccessPolicy.familyBoards`.
+    var familyBoards: Bool { AccessPolicy.familyBoards(current, sitePaired: SiteClient.shared.isPaired) }
 
     /// The owner's site lane: the site is paired AND this is the owner. Every
     /// store that reads an owner-only endpoint (today, alerts, connections,

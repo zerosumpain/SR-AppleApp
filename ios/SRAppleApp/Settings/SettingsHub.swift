@@ -30,6 +30,9 @@ struct SettingsScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var path = NavigationPath()
+    /// Today's optional family cards — see `TodayCards`.
+    @AppStorage(TodayCards.steps) private var todaySteps = false
+    @AppStorage(TodayCards.tasks) private var todayTasks = false
 
     enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs }
 
@@ -43,6 +46,32 @@ struct SettingsScreen: View {
                     link(.connections, "Connections", connectionsSubtitle, "qrcode")
                 } header: {
                     SRSectionLabel(text: "The app")
+                }
+
+                // Cards Today can carry, each off until asked for. Only for
+                // somebody with the family boards (family + the site).
+                if access.familyBoards && site.paired {
+                    Section {
+                        todayToggle("Family steps", "Your place and the top three", "figure.walk", $todaySteps)
+                            .accessibilityIdentifier("settings-today-steps")
+                        todayToggle("Family tasks", "What's left, what's waiting, what's owed", "checklist", $todayTasks)
+                            .accessibilityIdentifier("settings-today-tasks")
+                        #if DEBUG
+                        // The widgets, drawn in the app: a UI test cannot reach
+                        // the Home Screen, so this is how CI photographs them.
+                        if SRDemo.isOn {
+                            NavigationLink {
+                                FamilyWidgetGallery()
+                            } label: {
+                                SRRow(title: "Widget previews", subtitle: "Demo only", icon: "square.grid.2x2")
+                            }
+                            .srGlassRow()
+                            .accessibilityIdentifier("settings-widget-previews")
+                        }
+                        #endif
+                    } header: {
+                        SRSectionLabel(text: "Today")
+                    }
                 }
 
                 Section {
@@ -124,6 +153,14 @@ struct SettingsScreen: View {
 
     private var draft: String {
         outbox.state.location.matchingPreset?.label ?? "Custom"
+    }
+
+    private func todayToggle(_ title: String, _ subtitle: String, _ icon: String, _ isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            SRRow(title: title, subtitle: subtitle, icon: icon)
+        }
+        .tint(SR.accent)
+        .srGlassRow()
     }
 
     @ViewBuilder

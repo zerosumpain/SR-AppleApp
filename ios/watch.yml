@@ -72,6 +72,10 @@ targets:
       - SRAppleLive
       # The activity's shape, shared with the app that reports its tokens.
       - path: SRAppleApp/Journey/JourneyAttributes.swift
+      # The family widgets' boards, rules, Keychain shelf and faces, shared
+      # with the app that fills them.
+      - path: SRAppleApp/Family/FamilyBoardModels.swift
+      - path: SRAppleApp/Family/FamilyWidgetShared.swift
       # The headline and label faces, as on the Watch.
       - path: SRAppleApp/Fonts/ArchivoBlack-Regular.ttf
         buildPhase: resources
@@ -79,10 +83,17 @@ targets:
         buildPhase: resources
       - path: SRAppleApp/Fonts/JetBrainsMono-Medium.ttf
         buildPhase: resources
+      # Names on the family widgets.
+      - path: SRAppleApp/Fonts/DMSans-Medium.ttf
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID).live
         PROVISIONING_PROFILE_SPECIFIER: $(SR_LIVE_PROFILE)
         INFOPLIST_FILE: SRAppleLive/Info.plist
+        # One Keychain ACCESS group shared with the app, for the family
+        # widgets. Not an App Group: every profile already allows
+        # `<TEAM>.*` Keychain groups, so this needs no portal change.
+        CODE_SIGN_ENTITLEMENTS: SRAppleLive/SRAppleLive.entitlements
         TARGETED_DEVICE_FAMILY: '1'
         SKIP_INSTALL: YES

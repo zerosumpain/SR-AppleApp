@@ -32,6 +32,10 @@
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSSupportsLiveActivitiesFrequentUpdates</key><true/>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
+<!-- The Keychain group the family widgets read (FamilyWidgetShared.swift). -->
+<key>SRSharedKeychainGroup</key><string>$(AppIdentifierPrefix)$(SR_BUNDLE_ID).shared</string>
+<!-- sr://family/steps and sr://family/tasks: widget taps and pushed links. -->
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleURLSchemes</key><array><string>sr</string></array></dict></array>
 <key>NSSpeechRecognitionUsageDescription</key><string>Turn your voice notes into text on this iPhone, so jkai reads what you said.</string>
 <key>NSMicrophoneUsageDescription</key><string>Record a voice note to send to jkai. Nothing is recorded unless you hold the microphone button.</string>
 <key>LSSupportsOpeningDocumentsInPlace</key><false/>

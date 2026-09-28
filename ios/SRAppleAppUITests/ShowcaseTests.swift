@@ -76,6 +76,97 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Family, scrolled")
     }
 
+    // MARK: - Family steps and tasks
+
+    /// Both optional Today cards (switched on through the launch arguments,
+    /// which `@AppStorage` reads), then the step board they open.
+    @MainActor func testShowcaseFamilySteps() {
+        let app = launch(["-today-card-steps", "YES", "-today-card-tasks", "YES"])
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-steps")
+        settle(app, on: card, seconds: 2)
+        soft(scroll(app, to: card), "no steps card on Today")
+        attach(app, "Showcase — Today, family steps and tasks")
+
+        openTab(app, "Steps")
+        settle(app, on: byId(app, "steps-hero"), seconds: 2)
+        attach(app, "Showcase — Steps")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Steps, scrolled")
+    }
+
+    /// The task list: Open (waiting for a parent, to do), Completed, Owed,
+    /// and the add sheet with a reward.
+    @MainActor func testShowcaseFamilyTasks() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        openTab(app, "Tasks")
+        settle(app, on: byId(app, "task-row-t_dishes"), seconds: 2)
+        attach(app, "Showcase — Tasks")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Tasks, scrolled")
+        app.swipeDown()
+
+        let completed = app.segmentedControls.buttons["Completed"]
+        if completed.waitForExistence(timeout: 5) {
+            completed.tap()
+            settle(app, on: byId(app, "task-row-t_hoover"))
+            attach(app, "Showcase — Tasks, completed")
+        } else {
+            soft(false, "no Completed segment")
+        }
+
+        let owed = app.segmentedControls.buttons["Owed"]
+        if owed.waitForExistence(timeout: 5) {
+            owed.tap()
+            settle(app, on: byId(app, "tasks-owed-total"))
+            attach(app, "Showcase — Tasks, owed")
+        } else {
+            soft(false, "no Owed segment")
+        }
+
+        let add = byId(app, "tasks-add")
+        guard add.waitForExistence(timeout: 5) else { return soft(false, "no add button") }
+        add.tap()
+        let title = byId(app, "task-title")
+        settle(app, on: title)
+        if title.exists {
+            title.tap()
+            title.typeText("Take the recycling out")
+        }
+        let reward = app.switches["task-reward"].firstMatch
+        if reward.waitForExistence(timeout: 5) {
+            // The switch itself, not the middle of the row.
+            reward.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        } else {
+            soft(false, "no reward switch")
+        }
+        let pounds = byId(app, "task-pounds")
+        if pounds.waitForExistence(timeout: 5) {
+            pounds.tap()
+            pounds.typeText("2.50")
+        }
+        settle(app)
+        attach(app, "Showcase — Tasks, new task")
+    }
+
+    /// The Home Screen widgets, drawn in the app (Settings → Today → Widget
+    /// previews, demo only): a UI test cannot reach the Home Screen.
+    @MainActor func testShowcaseFamilyWidgets() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        guard app.openSettings() else { return soft(false, "no way into Settings") }
+        let link = byId(app, "settings-widget-previews")
+        guard scroll(app, to: link) else { return soft(false, "no widget previews row") }
+        link.tap()
+        settle(app, on: byId(app, "widget-gallery"), seconds: 2)
+        attach(app, "Showcase — Widgets")
+    }
+
     // MARK: - Chat
 
     @MainActor func testShowcaseChatList() {
@@ -620,9 +711,9 @@ final class ShowcaseTests: XCTestCase {
 
     // MARK: - Helpers
 
-    @MainActor private func launch() -> XCUIApplication {
+    @MainActor private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-SRDemo"]
+        app.launchArguments = ["-SRDemo"] + extra
         app.launch()
         return app
     }

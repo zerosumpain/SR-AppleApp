@@ -5,11 +5,17 @@ import ActivityKit
 // The family journey, drawn. Nothing here fetches: every word and figure
 // arrives in the push (`JourneyAttributes.ContentState`), and the site decides
 // what they say. See SR-Main `$lib/home/presence/live-journey`.
+//
+// The same extension carries the family's Home Screen widgets — the step
+// board and the task list (`FamilyWidgets.swift`) — so they ride on the
+// profile CI already mints for it rather than needing a target of their own.
 
 @main
 struct SRLiveBundle: WidgetBundle {
     var body: some Widget {
         JourneyLiveActivity()
+        FamilyStepsWidget()
+        FamilyTasksWidget()
     }
 }
 
