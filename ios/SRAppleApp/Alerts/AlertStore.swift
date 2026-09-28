@@ -299,7 +299,8 @@ final class AlertStore: ObservableObject {
     /// `@Published` state that a torn-down view hierarchy is not watching, and
     /// must finish inside the seconds iOS grants it. It asks for the queue only.
     static func backgroundPass() async {
-        guard AccessStore.ownerSite else { return }
+        // A demo's alerts are made up: raised in the app, never in the background.
+        guard AccessStore.ownerSite, !SRDemo.isOn else { return }
         do {
             let feed: AlertFeed = try await SiteClient.shared.send("api/native/notifications?limit=20&inbox=1")
             await AlertStore().raise(feed.pending)

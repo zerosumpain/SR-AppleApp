@@ -431,14 +431,8 @@ struct HealthScreen: View {
         }
     }
 
-    /// Demo mode, as a plain Bool a Release build can compile.
-    static var demo: Bool {
-        #if DEBUG
-        return SRDemo.isOn
-        #else
-        return false
-        #endif
-    }
+    /// Demo mode: the review demo, or `-SRDemo`.
+    static var demo: Bool { SRDemo.isOn }
 
     /// The four figures the ink hero draws from the summary.
     static let heroKeys: Set<String> = ["recovery", "hrv", "rhr", "sleep"]

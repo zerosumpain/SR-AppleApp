@@ -143,33 +143,59 @@ final class SiteClient {
     private init() {
         origin = UserDefaults.standard.url(forKey: "site-origin") ?? Self.defaultOrigin
         token = SiteKeychain.read()
-        #if DEBUG
-        // Demo mode (`-SRDemo`, DEBUG only): paired with a pretend credential
-        // that lives in memory and is never written to the Keychain, against
-        // the default origin, with every request answered by `SRDemoFixtures`.
+        demoChanged()
+    }
+
+    /// Demo mode — the review demo, or `-SRDemo` in DEBUG: paired with a
+    /// pretend credential that lives in memory and is never written to the
+    /// Keychain, against the default origin, with every request answered by
+    /// `SRDemoFixtures`. Out of it, the real credential again (if any).
+    func demoChanged() {
         if SRDemo.isOn {
             origin = Self.defaultOrigin
             token = SRDemo.token
+        } else if token == SRDemo.token {
+            origin = UserDefaults.standard.url(forKey: "site-origin") ?? Self.defaultOrigin
+            token = SiteKeychain.read()
         }
-        #endif
         Task { await retryPendingRevocations() }
     }
 
-    private lazy var session: URLSession = {
+    /// The session for this request: in a demo, one whose only transport is
+    /// the fixtures, so no request made in a demo can reach the network.
+    /// Chosen per request, because the review demo starts and stops at run time.
+    private var session: URLSession { SRDemo.isOn ? demoSession : liveSession }
+
+    private lazy var liveSession: URLSession = Self.makeSession(demo: false)
+    private lazy var demoSession: URLSession = Self.makeSession(demo: true)
+
+    private static func makeSession(demo: Bool, transport: [AnyClass] = []) -> URLSession {
         let config = URLSessionConfiguration.default
         config.urlCache = nil
         config.timeoutIntervalForRequest = 30
         // A chat turn can think for a long time before its first token. The
         // stream's own idle timeout is what ends a dead connection, not this.
         config.timeoutIntervalForResource = 600
+        var first: [AnyClass] = transport
+        if demo { first = [SRDemoURLProtocol.self] }
         #if DEBUG
-        if SRDemo.isOn {
-            let demo: [AnyClass] = [SRDemoURLProtocol.self]
-            config.protocolClasses = demo + (config.protocolClasses ?? [])
+        // UI tests: a stand-in for the site's answers to the few calls made
+        // BEFORE a demo exists (the review code). Never in a Release build.
+        if !demo, ProcessInfo.processInfo.arguments.contains("-SRStubNetwork") {
+            first.insert(SRStubURLProtocol.self, at: 0)
         }
         #endif
+        config.protocolClasses = first + (config.protocolClasses ?? [])
         return URLSession(configuration: config)
-    }()
+    }
+
+    #if DEBUG
+    /// Tests: put a recording transport under the LIVE session, to prove a
+    /// demo never uses it.
+    func useLiveTransport(_ transport: [AnyClass]) {
+        liveSession = Self.makeSession(demo: false, transport: transport)
+    }
+    #endif
 
     /// Build an absolute URL from a path that may carry a query string.
     ///
@@ -343,10 +369,8 @@ final class SiteClient {
     /// a member's automatic pairing, or a sign-in from Welcome (which is why it
     /// defaults to the saved origin: the code came from there).
     func redeem(code: String, at server: URL? = nil) async throws {
-        #if DEBUG
         // Never let a demo session reach the Keychain.
-        if SRDemo.isOn { throw SiteError.message("Demo mode: pairing is switched off.") }
-        #endif
+        if SRDemo.isOn { throw SiteError.message("Demo mode: pairing is switched off. Leave the demo in Settings first.") }
         let url = server ?? origin
         guard url.scheme == "https" else { throw SiteError.message("A pairing code must name an HTTPS address.") }
         var req = URLRequest(url: url.appending(path: "api/native/pair"))
@@ -368,6 +392,20 @@ final class SiteClient {
         Task { await PushRegistration.shared.sync() }
     }
 
+    /// Is this the App Review code? `POST api/native/review-demo {code}`,
+    /// answered `{demo: true}` by the site for the one code it holds. Never
+    /// throws: anything but that answer — wrong code, route switched off,
+    /// offline — is "no", and the caller treats the code as a pairing code.
+    func isReviewDemoCode(_ code: String) async -> Bool {
+        guard !SRDemo.isOn, let body = try? JSONEncoder().encode(["code": code]) else { return false }
+        var req = URLRequest(url: origin.appending(path: "api/native/review-demo"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        guard let answer = try? await liveSession.data(for: req) else { return false }
+        return ReviewDemo.switchesOn(status: (answer.1 as? HTTPURLResponse)?.statusCode ?? 0, body: answer.0)
+    }
+
     /// A POST with NO credential — the one route that takes a sign-in from a
     /// phone nobody knows yet (`api/native/register/apple`). Everything else
     /// goes through `request`, which refuses to run unpaired.
@@ -386,13 +424,14 @@ final class SiteClient {
     }
 
     @discardableResult func signOut() -> Bool {
-        #if DEBUG
-        // A demo sign-out must not delete a real saved credential.
+        if ReviewDemo.isActive {
+            ReviewDemo.shared.leave()
+            return true
+        }
         if SRDemo.isOn {
             token = nil
             return true
         }
-        #endif
         // Queue before dropping the active credential. Only the device-only
         // Keychain holds the retry secret; it can be used solely to revoke.
         do {
@@ -429,7 +468,7 @@ final class SiteClient {
     }
 
     func retryPendingRevocations() async {
-        guard !revoking else { return }
+        guard !SRDemo.isOn, !revoking else { return }
         revoking = true
         defer { revoking = false }
         let retrySession = URLSession(configuration: .ephemeral, delegate: RevokeRedirectBlocker(), delegateQueue: nil)

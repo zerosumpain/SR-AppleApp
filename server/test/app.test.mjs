@@ -345,7 +345,7 @@ test('a family member with sharing off is listed but contributes no fixes', asyn
   await request('sync', { user: 'sam', method: 'POST', body: batch([], [householdFix('sam-1', new Date().toISOString())]) });
   await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: false } });
   const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
-  assert.deepEqual(body.users.find(u => u.email === 'sam@example.test'), { email: 'sam@example.test', name: 'sam', sharing: false, stepsSharing: false, sitePairWanted: null });
+  assert.deepEqual(body.users.find(u => u.email === 'sam@example.test'), { email: 'sam@example.test', name: 'sam', sharing: false, stepsSharing: false, sitePairWanted: null, deleteRequested: null });
   assert.equal(body.fixes.some(f => f.email === 'sam@example.test'), false);
 });
 
@@ -464,6 +464,38 @@ test('the household lane lists who wants a site pairing', async t => {
   assert.equal(byEmail['alex@example.test'].sitePairWanted, null);
   assert.ok(!Number.isNaN(Date.parse(byEmail['sam@example.test'].sitePairWanted)));
   assert.equal(byEmail['robin@example.test'], undefined);
+});
+
+test('a phone deletes its own account: its data goes now, the row is flagged for SR-Main, and the owner cannot', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  for (const user of ['alex', 'sam']) {
+    await request('sharing', { user, method: 'PUT', body: { enabled: true } });
+    await request('sync', { user, method: 'POST', body: batch([health('A')], [location()]) });
+  }
+  const response = await request('account/delete', { user: 'sam', method: 'POST', body: {} });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.deleted, { health: 1, tombstones: 0, locations: 1, alerts: 0, credentials: 1 });
+  const count = (table, user) => db.prepare(`SELECT count(*) n FROM ${table} WHERE user_id=?`).get(user).n;
+  for (const table of ['health', 'locations', 'credentials']) assert.equal(count(table, 'sam'), 0, table);
+  assert.equal((await request('me', { user: 'sam' })).status, 401, 'sam\'s phone is unpaired');
+  const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  const byEmail = Object.fromEntries(body.users.map(u => [u.email, u]));
+  assert.ok(!Number.isNaN(Date.parse(byEmail['sam@example.test'].deleteRequested)), 'SR-Main sees the request');
+  assert.equal(byEmail['alex@example.test'].deleteRequested, null);
+  // Then SR-Main finishes it, and the row (with its flag) is gone.
+  assert.equal((await household(request, 'household/users/delete', { method: 'POST', body: { email: 'sam@example.test' } })).status, 200);
+  assert.equal(db.prepare("SELECT count(*) n FROM users WHERE id='sam'").get().n, 0);
+  const pending = await household(request, 'household/deletions');
+  assert.equal(pending.body.jobs.length, 1, 'job survives account row removal');
+  assert.equal(pending.body.jobs[0].email, 'sam@example.test');
+  assert.equal((await household(request, 'household/deletions', { method: 'POST', body: { id: pending.body.jobs[0].id } })).status, 200);
+  assert.equal((await household(request, 'household/deletions')).body.jobs.length, 0);
+
+  const owner = await request('account/delete', { method: 'POST', body: {} });
+  assert.equal(owner.status, 409);
+  assert.equal(count('health', 'alex'), 1, 'the owner keeps everything');
+  assert.equal((await request('account/delete', { method: 'POST', body: { email: 'sam@example.test' } })).status, 400, 'names nobody');
+  assert.equal((await request('account/delete', { user: null, method: 'POST', body: {} })).status, 401);
 });
 
 test('an existing database gains site_pair_wanted, and opening it twice is fine', async (t) => {
@@ -896,6 +928,7 @@ test('the onboarding routes do not exist until APPLE_HOUSEHOLD_TOKEN is configur
     [`household/devices/${'0'.repeat(64)}`, 'DELETE', undefined],
     ['household/sharing', 'PUT', { email: 'sam@example.test', enabled: true }],
     ['household/users/email', 'PUT', { from: 'sam@example.test', to: 'sam2@example.test' }],
+    ['household/users/delete', 'POST', { email: 'sam@example.test' }],
   ];
   for (const [path, method, body] of routes) {
     assert.equal((await household(closed.request, path, { method, body })).status, 404, `${method} ${path} unset`);
@@ -903,6 +936,7 @@ test('the onboarding routes do not exist until APPLE_HOUSEHOLD_TOKEN is configur
     assert.equal((await household(open.request, path, { method, body, token: null })).status, 401, `${method} ${path} no token`);
   }
   assert.equal(open.db.prepare("SELECT count(*) n FROM users WHERE email='new@example.test'").get().n, 0);
+  assert.equal(open.db.prepare("SELECT count(*) n FROM users WHERE id='sam'").get().n, 1, 'sam survives every refused delete');
 });
 
 test('adding a person puts them in the owner\'s family once, lower-cased, sharing off; another family\'s person is refused', async t => {
@@ -1036,6 +1070,40 @@ test('household data delete wipes that person only, unpairs them, and refuses an
   assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'sam@example.test' }, token: 'wrong' })).status, 401);
   assert.equal((await household(request, 'household/data/delete', { method: 'POST', body: { email: 'sam@example.test', extra: 1 } })).status, 400);
   assert.equal(count('health', 'sam'), 2);
+});
+
+test('household user delete removes the person, every row of theirs and every credential; never the owner or another family', async t => {
+  const { request, db, tokens } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  for (const user of ['alex', 'sam']) {
+    await request('sharing', { user, method: 'PUT', body: { enabled: true } });
+    await request('sync', { user, method: 'POST', body: batch([health('A'), health('B')], [location()]) });
+  }
+  await request('sync', { user: 'sam', method: 'POST', body: batch([], [], ['B']) });
+  await household(request, 'household/pair-code', { method: 'POST', body: { email: 'sam@example.test' } });
+  await household(request, 'household/events', { method: 'POST', body: { events: [{ id: 'e1', recipients: ['alex@example.test', 'sam@example.test'], title: 'Home', body: 'Alex got home', at: stamp() }] } });
+  await household(request, 'household/views', { method: 'POST', body: { views: [{ email: 'alex@example.test', view: { a: 1 } }, { email: 'sam@example.test', view: { s: 1 } }] } });
+  const count = (table, column, value) => db.prepare(`SELECT count(*) n FROM ${table} WHERE ${column}=?`).get(value).n;
+
+  const response = await household(request, 'household/users/delete', { method: 'POST', body: { email: 'Sam@Example.test' } });
+  assert.equal(response.status, 200);
+  // health B was tombstoned (the owner's rule keeps tombstones for the owner only), so sam has one health row.
+  assert.deepEqual(response.body, { deleted: { health: 1, tombstones: 0, locations: 1, alerts: 1, views: 1, credentials: 2, users: 1 } });
+  for (const table of ['health', 'health_deleted', 'locations', 'alerts', 'household_views', 'credentials']) assert.equal(count(table, 'user_id', 'sam'), 0, table);
+  assert.equal(count('users', 'id', 'sam'), 0, 'the account row is gone');
+  assert.equal((await request('me', { user: 'sam' })).status, 401, 'sam\'s phone is signed out');
+  // Alex (the owner) and robin (another family) are untouched.
+  assert.equal(count('health', 'user_id', 'alex'), 2);
+  assert.equal(count('household_views', 'user_id', 'alex'), 0, 'recipient views invalidated');
+  assert.equal((await request('me')).status, 200);
+  assert.ok(tokens.robin);
+
+  assert.equal((await household(request, 'household/users/delete', { method: 'POST', body: { email: 'sam@example.test' } })).status, 404, 'already gone');
+  assert.equal((await household(request, 'household/users/delete', { method: 'POST', body: { email: 'alex@example.test' } })).status, 409, 'never the owner');
+  assert.equal(count('users', 'id', 'alex'), 1);
+  assert.equal((await household(request, 'household/users/delete', { method: 'POST', body: { email: 'robin@example.test' } })).status, 404, 'another family');
+  assert.equal(count('users', 'id', 'robin'), 1);
+  assert.equal((await household(request, 'household/users/delete', { method: 'POST', body: { email: 'robin@example.test', extra: 1 } })).status, 400);
+  assert.equal((await household(request, 'household/users/delete', { method: 'POST', body: { email: 'alex@example.test' }, token: 'wrong' })).status, 401);
 });
 
 test('the person\'s own delete-my-data and the household delete are the same wipe', async t => {

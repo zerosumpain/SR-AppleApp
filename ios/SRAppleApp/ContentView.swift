@@ -228,6 +228,8 @@ struct ContentView: View {
     /// What this person may use. Every tab below, and most of what is in them,
     /// is built from it — see `AccessPolicy`.
     @ObservedObject private var access = AccessStore.shared
+    /// The App Review demo: a strip on every screen while it runs.
+    @ObservedObject private var reviewDemo = ReviewDemo.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
@@ -241,7 +243,17 @@ struct ContentView: View {
         _family = StateObject(wrappedValue: FamilyStore(companion: companion))
     }
 
+    /// The review demo, said above every screen so made-up data never passes
+    /// for the real thing. Stacked ABOVE the tabs rather than inset into them:
+    /// iOS 26's transparent bars ignore a TabView's inset and draw under it.
     var body: some View {
+        VStack(spacing: 0) {
+            if reviewDemo.active { DemoBanner() }
+            tabs
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: tabBinding) {
             NavigationStack {
                 TodayScreen(companion: companion, alerts: alerts, site: site, family: family)
@@ -432,6 +444,7 @@ struct ContentView: View {
             // new one on the next read.
             FamilyStepsStore.shared.reset()
             FamilyTasksStore.shared.reset()
+            FamilyForecastStore.shared.reset()
         }
         .onChange(of: access.offer) { _, _ in
             Task { await reconcileSite() }
@@ -554,10 +567,8 @@ struct ContentView: View {
     /// An owner is never touched: the QR flow is theirs.
     private func reconcileSite() async {
         UIApplication.shared.shortcutItems = AccessPolicy.quickActions(for: access.current).map { $0.item }
-        #if DEBUG
         // Demo mode's credential is pretend and its access fixed.
         if SRDemo.isOn { return }
-        #endif
         access.siteChanged(paired: site.paired)
         // Not while viewing as somebody: that is a look, and the Spotlight
         // index is the owner's own.

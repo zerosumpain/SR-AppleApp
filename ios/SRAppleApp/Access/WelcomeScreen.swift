@@ -11,6 +11,7 @@ import UserNotifications
 struct WelcomeScreen: View {
     @ObservedObject var registration: RegistrationStore
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @State private var enteringCode = false
 
     var body: some View {
         ScrollView {
@@ -62,7 +63,7 @@ struct WelcomeScreen: View {
                     SRLabel(text: "Already invited?")
                     Button {
                         SRHaptic.select()
-                        registration.skipToPairing()
+                        enteringCode = true
                     } label: {
                         Text("I have a pairing code")
                             .font(SR.Text.bodyMedium())
@@ -79,6 +80,109 @@ struct WelcomeScreen: View {
             .frame(maxWidth: .infinity)
         }
         .srPaper()
+        .sheet(isPresented: $enteringCode) {
+            PairingCodeSheet(registration: registration)
+        }
+    }
+}
+
+/// "I have a pairing code": type it, or go on without one.
+///
+/// A typed code is asked of the site first as the App Review code, then
+/// redeemed as an ordinary one-time pairing code (`RegistrationStore.submit`).
+/// "Continue without a code" is the old way in — the app, unconnected, with
+/// the QR scanner under Settings → Connections.
+struct PairingCodeSheet: View {
+    @ObservedObject var registration: RegistrationStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var code = ""
+    @State private var problem: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    SRPageHeader(
+                        kicker: "Already invited",
+                        title: "Enter your code",
+                        strap: "Type the pairing code you were given. Codes from a QR can be scanned instead, from Settings once you are in."
+                    )
+
+                    TextField("Pairing code", text: $code)
+                        .font(SR.Text.mono(17))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.oneTimeCode)
+                        .submitLabel(.go)
+                        .focused($focused)
+                        .onSubmit { Task { await submit() } }
+                        .padding(14)
+                        .srGlassCard()
+                        .accessibilityIdentifier("code-field")
+
+                    if let problem {
+                        Text(problem)
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.error)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("code-error")
+                    }
+
+                    Button {
+                        SRHaptic.tap()
+                        Task { await submit() }
+                    } label: {
+                        SRButtonLabel(title: "Continue", icon: "arrow.right", fill: true)
+                    }
+                    .srButton(.prominent)
+                    .controlSize(.large)
+                    .disabled(registration.busy || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("code-submit")
+
+                    if registration.busy {
+                        ProgressView().frame(maxWidth: .infinity)
+                    }
+
+                    Button {
+                        SRHaptic.select()
+                        dismiss()
+                        registration.skipToPairing()
+                    } label: {
+                        Text("Continue without a code")
+                            .font(SR.Text.bodyMedium())
+                            .foregroundStyle(SR.accentInk)
+                            .underline()
+                    }
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("code-skip")
+                }
+                .padding(.horizontal, SR.gutter)
+                .padding(.vertical, 24)
+                .frame(maxWidth: 520, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .srPaper()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .accessibilityIdentifier("code-cancel")
+                }
+            }
+        }
+    }
+
+    private func submit() async {
+        guard !registration.busy else { return }
+        focused = false
+        problem = nil
+        if let refusal = await registration.submit(code: code) {
+            SRHaptic.bad()
+            problem = refusal
+        } else {
+            SRHaptic.ok()
+            dismiss()
+        }
     }
 }
 
@@ -151,7 +255,7 @@ struct ReviewScreen: View {
                         .font(SR.Text.bodyMedium(15))
                         .foregroundStyle(SR.accentInk)
                         .accessibilityIdentifier("review-sign-out")
-                    Button(status == .declined ? "Delete my request" : "Withdraw my request") { confirmWithdraw = true }
+                    Button("Delete my account") { confirmWithdraw = true }
                         .font(SR.Text.bodyMedium(15))
                         .foregroundStyle(SR.error)
                         .accessibilityIdentifier("review-withdraw")
@@ -165,10 +269,12 @@ struct ReviewScreen: View {
         }
         .srRefreshable { await registration.refresh() }
         .srPaper()
-        .confirmationDialog("Delete your request?", isPresented: $confirmWithdraw, titleVisibility: .visible) {
-            Button("Delete request", role: .destructive) { Task { await registration.withdraw() } }
+        // App Store 5.1.1(v): a registrant's account IS the request and this
+        // phone's sign-in, and withdrawing deletes both on the site.
+        .confirmationDialog("Delete your account?", isPresented: $confirmWithdraw, titleVisibility: .visible) {
+            Button("Delete account", role: .destructive) { Task { await registration.withdraw() } }
         } message: {
-            Text("Your request and your sign-in on this iPhone are removed. You can ask again later.")
+            Text("Your request, your name and email with it, and your sign-in on this iPhone are deleted. You can ask again later.")
         }
         .task { await registration.refresh() }
         .onChange(of: scenePhase) { _, phase in

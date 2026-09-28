@@ -100,7 +100,7 @@ export function openStore(path) {
     db.exec("ALTER TABLE alerts ADD COLUMN revision TEXT NOT NULL DEFAULT ''");
   }
   db.exec(`CREATE TABLE IF NOT EXISTS deletion_jobs (
-    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), email TEXT NOT NULL,
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, email TEXT NOT NULL, family TEXT NOT NULL,
     created TEXT NOT NULL, main_done INTEGER NOT NULL DEFAULT 0,
     health_done INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS deletion_items (job_id TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, start TEXT NOT NULL, deleted TEXT NOT NULL, PRIMARY KEY(job_id,id));
@@ -109,6 +109,25 @@ export function openStore(path) {
       UPDATE users SET privacy_version=privacy_version+1 WHERE id=NEW.id;
       DELETE FROM household_views; DELETE FROM alerts;
     END;`);
+  // Jobs must outlive account deletion. Earlier previews referenced users;
+  // retain every job while removing that FK and snapshotting its family.
+  if (db.prepare('PRAGMA foreign_key_list(deletion_jobs)').all().length) {
+    db.exec(`BEGIN IMMEDIATE;
+      ALTER TABLE deletion_jobs RENAME TO deletion_jobs_old;
+      CREATE TABLE deletion_jobs (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,email TEXT NOT NULL,
+        family TEXT NOT NULL,created TEXT NOT NULL,main_done INTEGER NOT NULL DEFAULT 0,health_done INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO deletion_jobs SELECT j.id,j.user_id,j.email,u.family,j.created,j.main_done,j.health_done
+        FROM deletion_jobs_old j JOIN users u ON u.id=j.user_id;
+      DROP TABLE deletion_jobs_old; COMMIT;`);
+  }
+  // When a person asked, from their own phone, for their account to be
+  // deleted (app.mjs POST /api/apple/account/delete), or NULL. Their uploaded
+  // data is wiped at once; SR-Main reads the flag through the household lane
+  // and deletes the rest — site account and all — then deletes this row
+  // (household/users/delete). Same ALTER-guard as site_pair_wanted above.
+  if (!columns.some((c) => c.name === 'delete_requested')) {
+    db.exec('ALTER TABLE users ADD COLUMN delete_requested TEXT');
+  }
   return db;
 }
 /**
@@ -175,10 +194,10 @@ export function mintPairCode(db, user) {
 export function deleteUserData(db, user, ownerEmail) {
   db.exec('BEGIN IMMEDIATE');
   try {
-    const account = db.prepare('SELECT email FROM users WHERE id=?').get(user);
+    const account = db.prepare('SELECT email,family FROM users WHERE id=?').get(user);
     const pending = db.prepare('SELECT id FROM deletion_jobs WHERE user_id=? AND (main_done=0 OR health_done=0)').get(user);
-    if (!pending) db.prepare('INSERT INTO deletion_jobs(id,user_id,email,created,health_done) VALUES(?,?,?,?,?)')
-      .run(randomUUID(), user, account.email, new Date().toISOString(), Number(account.email !== ownerEmail?.toLowerCase()));
+    if (!pending) db.prepare('INSERT INTO deletion_jobs(id,user_id,email,family,created,health_done) VALUES(?,?,?,?,?,?)')
+      .run(randomUUID(), user, account.email, account.family, new Date().toISOString(), Number(account.email !== ownerEmail?.toLowerCase()));
     // Tombstones survive deletion until the downstream consumer acknowledges.
     db.prepare(`INSERT OR REPLACE INTO health_deleted(user_id,id,kind,start,deleted)
       SELECT user_id,id,kind,start,? FROM health WHERE user_id=?`).run(new Date().toISOString(), user);
@@ -194,6 +213,33 @@ export function deleteUserData(db, user, ownerEmail) {
     db.prepare('DELETE FROM household_views').run();
     db.prepare('DELETE FROM alerts').run();
     db.prepare('UPDATE users SET sharing=0,steps_sharing=0,privacy_version=privacy_version+1,site_pair_wanted=NULL WHERE id=?').run(user);
+    db.exec('COMMIT');
+    return deleted;
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+/**
+ * Delete a person outright: everything `deleteUserData` wipes, plus their
+ * pushed Family view, EVERY credential they hold (any kind), and the account
+ * row itself. SR-Main's in-app "Delete account" asks for this over the
+ * household lane (App Store guideline 5.1.1(v)). The caller decides whether
+ * the person may be deleted — the owner never is (app.mjs refuses). Returns
+ * what was removed, per table.
+ */
+export function deleteUser(db, user) {
+  const views = db.prepare('SELECT count(*) n FROM household_views WHERE user_id=?').get(user).n;
+  const raw = deleteUserData(db, user);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const deleted = {
+      health: db.prepare('DELETE FROM health WHERE user_id=?').run(user).changes,
+      tombstones: db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(user).changes,
+      locations: db.prepare('DELETE FROM locations WHERE user_id=?').run(user).changes,
+      alerts: db.prepare('DELETE FROM alerts WHERE user_id=?').run(user).changes,
+      views: db.prepare('DELETE FROM household_views WHERE user_id=?').run(user).changes,
+      credentials: db.prepare('DELETE FROM credentials WHERE user_id=?').run(user).changes,
+      users: db.prepare('DELETE FROM users WHERE id=?').run(user).changes,
+      ...raw, views,
+    };
     db.exec('COMMIT');
     return deleted;
   } catch (error) { db.exec('ROLLBACK'); throw error; }

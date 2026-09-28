@@ -93,37 +93,56 @@ final class RegistrationStore: ObservableObject {
         name = saved?.name
         email = saved?.email
         skipped = saved?.skipped ?? false
-        #if DEBUG
         if SRDemo.isRegistrant {
             status = .pending
             name = "Sam"
             email = "sam@example.com"
         }
-        #endif
     }
 
     private func persist() {
-        #if DEBUG
         if SRDemo.isOn || SRDemo.isRegistrant { return }
-        #endif
         let saved = Saved(status: status, name: name, email: email, skipped: skipped)
         if let data = try? JSONEncoder().encode(saved) { UserDefaults.standard.set(data, forKey: Self.key) }
     }
 
     func entry(companionPaired: Bool) -> AppEntry {
-        #if DEBUG
         if SRDemo.isRegistrant { return .reviewing(.pending) }
         return EntryPolicy.entry(status: status, sitePaired: SiteClient.shared.isPaired,
                                  companionPaired: companionPaired, skipped: skipped, demo: SRDemo.isOn)
-        #else
-        return EntryPolicy.entry(status: status, sitePaired: SiteClient.shared.isPaired,
-                                 companionPaired: companionPaired, skipped: skipped)
-        #endif
     }
 
     func skipToPairing() {
         skipped = true
         persist()
+    }
+
+    // MARK: - A code typed on Welcome
+
+    /// "I have a pairing code", typed. First asked of the site as the App
+    /// Review code (`api/native/review-demo`): a yes starts the review demo
+    /// and nothing else happens. Otherwise it is an ordinary one-time pairing
+    /// code, redeemed on the site like a scanned one. Nil when it worked;
+    /// otherwise the sentence for the sheet.
+    func submit(code raw: String) async -> String? {
+        let code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else { return "Type the code you were given." }
+        busy = true
+        message = nil
+        defer { busy = false }
+        if await SiteClient.shared.isReviewDemoCode(code) {
+            ReviewDemo.shared.enter()
+            return nil
+        }
+        do {
+            try await SiteClient.shared.redeem(code: code)
+        } catch {
+            return "That code did not work. Check it and try again, or continue without one and scan a QR code in Settings → Connections."
+        }
+        skipped = true
+        persist()
+        await refresh()
+        return nil
     }
 
     // MARK: - Signing in
@@ -278,6 +297,14 @@ final class RegistrationStore: ObservableObject {
     /// Sign out on this phone only; the request stays with the owner.
     func signOut() {
         SiteClient.shared.signOut()
+        reset()
+    }
+
+    /// The account was deleted (Settings → Delete account): back to a phone
+    /// nobody has set up, Welcome and all — including the "I have a pairing
+    /// code" choice, which belonged to the account that is gone.
+    func forgetAfterAccountDeletion() {
+        skipped = false
         reset()
     }
 

@@ -138,6 +138,8 @@ struct AlertEdge: View {
 /// WhatsApp and a switch for this iPhone, and a way to check the push works.
 struct AlertRoutingScreen: View {
     @ObservedObject var alerts: AlertStore
+    /// Leave-by reminders from Coming up, scheduled on this phone.
+    @AppStorage(LeaveByReminders.key) private var leaveBy = true
     /// What the last "Send a test" came back with.
     @State private var testResult: String?
     @State private var testing = false
@@ -180,6 +182,22 @@ struct AlertRoutingScreen: View {
                         .buttonStyle(.plain)
                         .disabled(liveTesting)
                         .srGlassRow()
+                    }
+                }
+                if AccessStore.ownerSite {
+                    Toggle(isOn: $leaveBy) {
+                        SRRow(title: "Leave-by reminders",
+                              subtitle: "Ten minutes before it's time to leave for something in your diary",
+                              icon: "clock.badge")
+                    }
+                    .tint(SR.accent)
+                    .srGlassRow()
+                    .accessibilityIdentifier("settings-leave-by")
+                    .onChange(of: leaveBy) { _, _ in
+                        Task { @MainActor in
+                            let f = FamilyForecastStore.shared.forecast
+                            await LeaveByReminders.sync(f?.upcoming, names: f?.names ?? [:])
+                        }
                     }
                 }
             } header: {

@@ -2,7 +2,7 @@ import { accessPolicy } from './access.mjs';
 import QRCode from 'qrcode';
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { DEVICE_TTL, PAIR_CODE_TTL, deleteUserData, ensureUser, hash, issue, mintPairCode } from './store.mjs';
+import { DEVICE_TTL, PAIR_CODE_TTL, deleteUser, deleteUserData, ensureUser, hash, issue, mintPairCode } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
 import { ASLEEP_STAGES, SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf, unionSeconds } from './movement.mjs';
 import { KINDS, catalogue, validateHealthRecord } from './catalogue.mjs';
@@ -315,14 +315,19 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if ([...url.searchParams.keys()].some(k => !allowedParams.includes(k))) fail(400, 'Unexpected query parameter');
         return serviceOwner ? db.prepare('SELECT family FROM users WHERE email=?').get(serviceOwner.toLowerCase()) : null;
       };
+      if (path === '/api/apple/household/account-deletions' && method === 'GET') {
+        const owner = householdOwner([]);
+        if (!owner) fail(404, 'Not found');
+        return send(200, { users: db.prepare('SELECT email,delete_requested AS deleteRequested FROM users WHERE family=? AND delete_requested IS NOT NULL').all(owner.family) });
+      }
       if (path === '/api/apple/household/deletions') {
         const owner = householdOwner([]);
         if (!owner) fail(404, 'Not found');
-        if (method === 'GET') return send(200, { jobs: db.prepare('SELECT j.id,j.email,j.created FROM deletion_jobs j JOIN users u ON u.id=j.user_id WHERE u.family=? AND main_done=0').all(owner.family) });
+        if (method === 'GET') return send(200, { jobs: db.prepare('SELECT id,email,created FROM deletion_jobs WHERE family=? AND main_done=0').all(owner.family) });
         if (method === 'POST') {
           const body = await readJSON(); exactKeys(body, ['id']);
           if (!string(body.id)) fail(400, 'Job required');
-          db.prepare('UPDATE deletion_jobs SET main_done=1 WHERE id=? AND user_id IN (SELECT id FROM users WHERE family=?)').run(body.id, owner.family);
+          db.prepare('UPDATE deletion_jobs SET main_done=1 WHERE id=? AND family=?').run(body.id, owner.family);
           return send(200, { ok: true });
         }
         fail(405, 'Method not allowed');
@@ -368,7 +373,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         });
         const last = page.at(-1);
         const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;
-        return send(200, { cursor, revision, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing, stepsSharing: !!m.steps_sharing, sitePairWanted: m.site_pair_wanted ?? null })), fixes });
+        return send(200, { cursor, revision, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing, stepsSharing: !!m.steps_sharing, sitePairWanted: m.site_pair_wanted ?? null, deleteRequested: m.delete_requested ?? null })), fixes });
       }
       // Arrivals/departures forwarded from SR-Main, same token as the read
       // side above. Fanned out to `alerts` rows keyed (recipient, event id)
@@ -495,6 +500,20 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (db.prepare('SELECT 1 FROM users WHERE email=?').get(to)) fail(409, 'That address already has an account here');
         db.prepare('UPDATE users SET email=? WHERE id=?').run(to, member.id);
         return send(200, { id: member.id, email: to, name: member.name });
+      }
+      // Delete a person and ALL their data — SR-Main's in-app "Delete account"
+      // (App Store 5.1.1(v)), called BEFORE SR-Main forgets them so a failure
+      // here stops the whole deletion and a retry does both. Health, its
+      // tombstones, locations, alerts, their Family view, every credential and
+      // the account row go. Only within the owner's family; never the owner.
+      // The email travels in the body, not the path, so it stays out of
+      // access logs — the same shape as `household/data/delete`.
+      if (path === '/api/apple/household/users/delete' && method === 'POST') {
+        const owner = householdOwner([]);
+        const body = await readJSON(); exactKeys(body, ['email']);
+        const member = householdMember(owner, body.email);
+        if (serviceOwner && member.email === serviceOwner.toLowerCase()) fail(409, 'The owner cannot be deleted');
+        return send(200, { deleted: deleteUser(db, member.id) });
       }
       if (path === '/api/apple/household/pair-code' && method === 'POST') {
         const owner = householdOwner([]);
@@ -687,6 +706,20 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (typeof body.enabled !== 'boolean') fail(400, 'enabled must be boolean');
         db.prepare('UPDATE users SET steps_sharing=? WHERE id=?').run(Number(body.enabled), auth.user_id);
         return send(200, { stepsSharing: body.enabled });
+      }
+      // "Delete account" from a phone paired to this server only (a family
+      // member with no website credential; App Store 5.1.1(v)). Everything
+      // they uploaded goes NOW, and the phone is unpaired, through the same
+      // wipe as "delete my data"; the row is flagged so SR-Main — which holds
+      // the rest of their account — deletes that too on its next household
+      // pull, and then this row (household/users/delete). Never the owner.
+      if (path === '/api/apple/account/delete' && method === 'POST') {
+        const body = await readJSON(); exactKeys(body, []);
+        const me = db.prepare('SELECT email FROM users WHERE id=?').get(auth.user_id);
+        if (serviceOwner && me?.email === serviceOwner.toLowerCase()) fail(409, 'The owner account is managed on the website');
+        const deleted = deleteUserData(db, auth.user_id, serviceOwner);
+        db.prepare('UPDATE users SET delete_requested=? WHERE id=?').run(new Date().toISOString(), auth.user_id);
+        return send(200, { deleted });
       }
       if (path === '/api/apple/sharing' && method === 'PUT') {
         const body = await readJSON(); exactKeys(body, ['enabled']);

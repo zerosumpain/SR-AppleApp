@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// The Family tab's demo household. Central Park, never a real address: the
@@ -72,4 +71,3 @@ extension SRDemoFixtures {
         }
     }
 }
-#endif

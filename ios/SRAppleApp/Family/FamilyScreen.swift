@@ -20,6 +20,9 @@ struct FamilyScreen: View {
     @ObservedObject var companion: Companion
     @EnvironmentObject private var router: Router
     @ObservedObject private var access = AccessStore.shared
+    /// The travel desk's forecast: next moves and what looks off. Optional —
+    /// a phone without the site credential sees the positions alone.
+    @ObservedObject private var forecast = FamilyForecastStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
@@ -58,15 +61,18 @@ struct FamilyScreen: View {
         }
         .task {
             await store.load()
+            await forecast.load()
             while !Task.isCancelled {
                 try? await Task.sleep(for: FamilyStore.refreshInterval)
                 guard !Task.isCancelled else { break }
                 await store.load()
+                // At most once a minute: the store keeps its own clock.
+                await forecast.load()
             }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            Task { await store.load() }
+            Task { await store.load(); await forecast.load() }
         }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }
@@ -83,6 +89,15 @@ struct FamilyScreen: View {
                 .accessibilityIdentifier("family-map")
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
+                    if let items = forecast.forecast?.watch, !items.isEmpty {
+                        FamilyWatchCard(items: items)
+                            .padding(.top, 14)
+                    }
+                    // The owner's phone only (null for anyone else).
+                    if let f = forecast.forecast, let upcoming = f.upcoming {
+                        FamilyUpcomingCard(upcoming: upcoming, names: f.names)
+                            .padding(.top, f.watch.isEmpty ? 14 : 0)
+                    }
                     // The counts, not a headline: the map above is the page's
                     // title, and the tab says where you are.
                     SRSectionLabel(text: "Everyone", trailing: view.summary)
@@ -94,7 +109,7 @@ struct FamilyScreen: View {
                                 Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 52)
                             }
                             NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
-                                FamilyPersonRow(person: person)
+                                FamilyPersonRow(person: person, next: forecast.forecast?.next(for: person.subject))
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("family-person-\(person.subject)")
@@ -106,7 +121,7 @@ struct FamilyScreen: View {
                 .padding(.horizontal, SR.gutter)
                 .padding(.bottom, 28)
             }
-            .srRefreshable { await store.load() }
+            .srRefreshable { await store.load(); await forecast.load(force: true) }
         }
     }
 
@@ -195,9 +210,36 @@ struct FamilyTracksToggle: View {
 /// wraps, so every person costs the same height.
 struct FamilyPersonRow: View {
     let person: FamilyPerson
+    /// Their next likely move, from the forecast — a second line only when
+    /// there is one, so a quiet day costs no height.
+    var next: FamilyForecast.NextMove? = nil
     @ObservedObject private var places = PlaceNamer.shared
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            row
+            if let next {
+                HStack(spacing: 5) {
+                    Image(systemName: next.kind == "arriving" ? "location.north.fill" : "clock")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(ForecastWords.nextLine(next))
+                        .font(SR.Text.mono())
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundStyle(SR.accentInk)
+                .padding(.leading, 52)
+                .padding(.trailing, SR.cardPadding)
+                .padding(.bottom, 8)
+                .accessibilityIdentifier("family-next-\(person.subject)")
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Shows their day and week")
+    }
+
+    private var row: some View {
         HStack(alignment: .center, spacing: 10) {
             FamilyPin(person: person)
             HStack(spacing: 5) {
@@ -224,9 +266,43 @@ struct FamilyPersonRow: View {
         }
         .padding(.horizontal, SR.cardPadding)
         .frame(minHeight: SR.tapTarget + 8)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Shows their day and week")
+    }
+}
+
+/// What looks different from someone's own routine right now — a missed
+/// departure, a long journey, a phone gone quiet away from home. Read, not
+/// alarmed: every item needs a dependable routine AND a fresh reading that
+/// contradicts it, so a dead phone or a thin history is silence.
+struct FamilyWatchCard: View {
+    let items: [FamilyForecast.WatchItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SRSectionLabel(text: "What looks off").padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 44) }
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Image(systemName: ForecastWords.symbol(item))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(item.severity == "alert" ? SR.error : SR.warn)
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title).font(SR.Text.title()).foregroundStyle(SR.ink)
+                            Text(item.detail)
+                                .font(SR.Text.secondary())
+                                .foregroundStyle(SR.inkSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.horizontal, SR.cardPadding)
+                    .padding(.vertical, 12)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .srGlassCard(.paper)
+        }
+        .accessibilityIdentifier("family-watch")
     }
 }
 

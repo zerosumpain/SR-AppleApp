@@ -1,14 +1,13 @@
-#if DEBUG
 import SwiftUI
 
 // MARK: - Demo family boards
 //
 // `-SRDemo` answers for `/api/native/family/steps` and `/api/native/family/tasks`.
-// Synthetic throughout — the repository is public. John is the caller and a
-// parent; Sam leads the step board with John second (the demo's own Apple
-// Health figure, 9,120, is laid over John's 8,412, so the "live" row shows);
+// Synthetic throughout — the repository is public. Alex is the caller and a
+// parent; Sam leads the step board with Alex second (the demo's own Apple
+// Health figure, 9,120, is laid over Alex's 8,412, so the "live" row shows);
 // Pat is on the board with no steps yet. The task list has something in every
-// state: to do (one overdue, one sent back), two done and waiting for John,
+// state: to do (one overdue, one sent back), two done and waiting for Alex,
 // three confirmed — one paid — and £12 plus a day out owed.
 
 extension SRDemoFixtures {
@@ -18,17 +17,62 @@ extension SRDemoFixtures {
         switch (method, rest.count, rest.first ?? "") {
         case ("GET", 1, "steps"):
             return familySteps(clock)
+        // The task list keeps state for the demo session: add, done, confirm,
+        // send back, paid and delete all change what the next read returns,
+        // in memory only (`SRDemoSession`).
         case ("GET", 1, "tasks"):
-            return familyTasks(clock)
+            return SRDemoSession.shared.tasksJSON(clock: clock)
+        case ("GET", 1, "forecast"):
+            return familyForecast(clock)
         case ("POST", 1, "tasks"):
-            let fields = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            let title = (fields?["title"] as? String) ?? "New task"
-            return "{\"task\": \(taskJSON(id: "t_new", title: title, createdBy: "f_john", created: clock.iso(minutesAgo: 0)))}"
+            return SRDemoSession.shared.createTask(body: body, clock: clock)
         case ("PATCH", 2, "tasks"):
-            return "{\"task\": \(taskJSON(id: rest[1], title: "Updated", createdBy: "f_john", created: clock.iso(minutesAgo: 0)))}"
+            return SRDemoSession.shared.actOnTask(id: rest[1], body: body, clock: clock)
         default:
             return nil
         }
+    }
+
+    /// The travel desk's forecast, in the shape SR-Main sends: Alex on the
+    /// way to the office, Sam due home from school, Robin off to swimming, and
+    /// Kit quiet for three hours. Routines carry believable spreads.
+    static func familyForecast(_ clock: DemoClock) -> String {
+        let at = { (m: Double) in clock.iso(minutesAgo: -m) }
+        return """
+        {"generatedAt":"\(clock.iso(minutesAgo: 0))","days":28,
+         "routines":[
+          {"id":"sam:home:school:vehicle:weekday","subject":"sam","person":"Sam","from":"Home","to":"School","mode":"vehicle",
+           "dayType":"weekday","departure":"08:24","window":[497,512],"days":14,"of":18,
+           "minutes":{"median":16.4,"low":13.9,"high":17.9,"p80":17.4}},
+          {"id":"sam:school:home:active:weekday","subject":"sam","person":"Sam","from":"School","to":"Home","mode":"active",
+           "dayType":"weekday","departure":"15:40","window":[930,955],"days":12,"of":18,
+           "minutes":{"median":22,"low":19,"high":27,"p80":25.6}},
+          {"id":"robin:home:pool:vehicle:weekday","subject":"robin","person":"Robin","from":"Home","to":"Leisure Centre","mode":"vehicle",
+           "dayType":"weekday","departure":"17:45","window":[1055,1075],"days":6,"of":8,
+           "minutes":{"median":11,"low":9,"high":14,"p80":13}},
+          {"id":"alex:home:office:vehicle:weekday","subject":"alex","person":"Alex","from":"Home","to":"Office","mode":"vehicle",
+           "dayType":"weekday","departure":"08:30","window":[505,520],"days":9,"of":18,
+           "minutes":{"median":24,"low":20,"high":29,"p80":27}}],
+         "next":[
+          {"subject":"alex","kind":"arriving","routineId":null,"from":"Home","to":"Office","leaveAt":"\(at(-12))",
+           "arriveFrom":"\(at(9))","arriveTo":"\(at(15))","days":9,"of":9,"dayType":null,"confidence":"established"},
+          {"subject":"sam","kind":"routine","routineId":"sam:school:home:active:weekday","from":"School","to":"Home","leaveAt":"\(at(35))",
+           "arriveFrom":"\(at(54))","arriveTo":"\(at(62))","days":12,"of":18,"dayType":"weekday","confidence":"established"},
+          {"subject":"robin","kind":"routine","routineId":"robin:home:pool:vehicle:weekday","from":"Home","to":"Leisure Centre","leaveAt":"\(at(80))",
+           "arriveFrom":"\(at(89))","arriveTo":"\(at(94))","days":6,"of":8,"dayType":"weekday","confidence":"emerging"}],
+         "watch":[
+          {"key":"quiet:kit:demo","kind":"quiet","subject":"kit","severity":"watch","title":"No location from Kit for 3 h 10 m",
+           "detail":"Last seen at The Reservoir. A flat battery or no signal reads the same.","at":"\(clock.iso(minutesAgo: 0))"}],
+         "upcoming":{"available":true,"items":[
+          {"id":"demo-swim","title":"Swimming","start":"\(at(100))","end":"\(at(160))","place":"Leisure Centre","subjects":["robin"],
+           "leaveBy":"\(at(87))","from":"Home","travel":{"source":"person","median":11,"p80":13,"samples":6,"mode":"vehicle"},"issue":null},
+          {"id":"demo-dentist","title":"Dentist","start":"\(at(1500))","end":"\(at(1530))","place":"Castle Clinic","subjects":["sam"],
+           "leaveBy":"\(at(1482))","from":"School","travel":{"source":"routed","median":14,"p80":18,"samples":0,"mode":"vehicle"},
+           "issue":{"kind":"tight","text":"10 min after “School play” ends; the trip usually needs 18."}}]},
+         "arrivals":[],"departures":[],
+         "people":[{"subject":"alex","name":"Alex","coverage":0.93},{"subject":"sam","name":"Sam","coverage":0.95},
+                   {"subject":"robin","name":"Robin","coverage":0.91},{"subject":"kit","name":"Kit","coverage":0.62}]}
+        """
     }
 
     static func familySteps(_ clock: DemoClock) -> String {
@@ -37,7 +81,7 @@ extension SRDemoFixtures {
         return """
         {"day":"\(day)","updatedAt":"\(updated)","people":[
           {"id":"f_sam","name":"Sam","steps":11204,"rank":1,"me":false,"updatedAt":"\(updated)"},
-          {"id":"f_john","name":"John","steps":8412,"rank":2,"me":true,"updatedAt":"\(updated)"},
+          {"id":"f_alex","name":"Alex","steps":8412,"rank":2,"me":true,"updatedAt":"\(updated)"},
           {"id":"f_robin","name":"Robin","steps":6530,"rank":3,"me":false,"updatedAt":"\(updated)"},
           {"id":"f_kit","name":"Kit","steps":3020,"rank":4,"me":false,"updatedAt":"\(clock.iso(minutesAgo: 40))"},
           {"id":"f_pat","name":"Pat","steps":0,"rank":5,"me":false,"updatedAt":null}
@@ -69,36 +113,36 @@ extension SRDemoFixtures {
         let ago = { (minutes: Double) in clock.iso(minutesAgo: minutes) }
 
         let bins = taskJSON(id: "t_bins", title: "Bins out for collection", deadline: day(-1),
-                            createdBy: "f_john", created: ago(3_000))
+                            createdBy: "f_alex", created: ago(3_000))
         let dishes = taskJSON(id: "t_dishes", title: "Empty the dishwasher", deadline: day(0), assignee: "f_sam",
-                              createdBy: "f_john", reward: ("cash", 200, nil, nil), created: ago(600))
+                              createdBy: "f_alex", reward: ("cash", 200, nil, nil), created: ago(600))
         let bedroom = taskJSON(id: "t_bedroom", title: "Tidy the bedroom", notes: "Clothes away, bed made, floor clear.",
-                               deadline: day(1), assignee: "f_robin", createdBy: "f_john",
+                               deadline: day(1), assignee: "f_robin", createdBy: "f_alex",
                                reward: ("game_time", nil, "An hour on Saturday", nil), created: ago(900))
-        let car = taskJSON(id: "t_car", title: "Wash the car", assignee: "f_kit", createdBy: "f_john",
+        let car = taskJSON(id: "t_car", title: "Wash the car", assignee: "f_kit", createdBy: "f_alex",
                            sentBackNote: "The wheels still need doing.", reward: ("cash", 500, nil, nil), created: ago(2_000))
         let reading = taskJSON(id: "t_reading", title: "Reading log signed", deadline: day(2), assignee: "f_sam",
                                createdBy: "f_sam", status: "done", doneBy: "f_sam", doneAt: ago(35),
                                reward: ("lunch_out", nil, "Pizza on Friday", nil), created: ago(1_500))
-        let lawn = taskJSON(id: "t_lawn", title: "Mow the lawn", assignee: "f_robin", createdBy: "f_john",
+        let lawn = taskJSON(id: "t_lawn", title: "Mow the lawn", assignee: "f_robin", createdBy: "f_alex",
                             status: "done", doneBy: "f_robin", doneAt: ago(80), reward: ("cash", 300, nil, nil), created: ago(4_000))
 
-        let hoover = taskJSON(id: "t_hoover", title: "Hoover the stairs", assignee: "f_sam", createdBy: "f_john",
-                              status: "confirmed", doneBy: "f_sam", doneAt: ago(1_600), confirmedBy: "f_john",
+        let hoover = taskJSON(id: "t_hoover", title: "Hoover the stairs", assignee: "f_sam", createdBy: "f_alex",
+                              status: "confirmed", doneBy: "f_sam", doneAt: ago(1_600), confirmedBy: "f_alex",
                               confirmedAt: ago(1_500), reward: ("cash", 200, nil, nil), created: ago(5_000))
-        let shop = taskJSON(id: "t_shop", title: "Help with the big shop", createdBy: "f_john",
-                            status: "confirmed", doneBy: "f_robin", doneAt: ago(2_900), confirmedBy: "f_john",
+        let shop = taskJSON(id: "t_shop", title: "Help with the big shop", createdBy: "f_alex",
+                            status: "confirmed", doneBy: "f_robin", doneAt: ago(2_900), confirmedBy: "f_alex",
                             confirmedAt: ago(2_880), reward: ("day_out", nil, "The zoo", nil), created: ago(6_000))
-        let garage = taskJSON(id: "t_garage", title: "Clear the garage", assignee: "f_kit", createdBy: "f_john",
-                              status: "confirmed", doneBy: "f_kit", doneAt: ago(4_400), confirmedBy: "f_john",
+        let garage = taskJSON(id: "t_garage", title: "Clear the garage", assignee: "f_kit", createdBy: "f_alex",
+                              status: "confirmed", doneBy: "f_kit", doneAt: ago(4_400), confirmedBy: "f_alex",
                               confirmedAt: ago(4_300), reward: ("cash", 1_000, nil, nil), created: ago(9_000))
-        let plants = taskJSON(id: "t_plants", title: "Water the plants", assignee: "f_kit", createdBy: "f_john",
-                              status: "confirmed", doneBy: "f_kit", doneAt: ago(8_000), confirmedBy: "f_john",
+        let plants = taskJSON(id: "t_plants", title: "Water the plants", assignee: "f_kit", createdBy: "f_alex",
+                              status: "confirmed", doneBy: "f_kit", doneAt: ago(8_000), confirmedBy: "f_alex",
                               confirmedAt: ago(7_900), reward: ("cash", 200, nil, ago(7_000)), created: ago(10_000))
 
         return """
-        {"me":{"id":"f_john","parent":true},
-         "people":[{"id":"f_john","name":"John"},{"id":"f_sam","name":"Sam"},{"id":"f_robin","name":"Robin"},{"id":"f_kit","name":"Kit"}],
+        {"me":{"id":"f_alex","parent":true},
+         "people":[{"id":"f_alex","name":"Alex"},{"id":"f_sam","name":"Sam"},{"id":"f_robin","name":"Robin"},{"id":"f_kit","name":"Kit"}],
          "open":[\([bins, dishes, bedroom, reading, car, lawn].joined(separator: ","))],
          "completed":[\([hoover, shop, garage, plants].joined(separator: ","))],
          "owed":{"totalPence":1200,"items":[\([garage, hoover, shop].joined(separator: ","))]}}
@@ -155,4 +199,3 @@ struct FamilyWidgetGallery: View {
             )
     }
 }
-#endif

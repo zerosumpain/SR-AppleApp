@@ -56,6 +56,8 @@ final class ShowcaseTests: XCTestCase {
         let mini = byId(app, "today-family")
         soft(mini.waitForExistence(timeout: 15), "no family map on Today")
         settle(app, seconds: 3)
+        // The travel desk card under the map: Kit's quiet phone, then the next moves.
+        soft(byId(app, "today-forecast").waitForExistence(timeout: 5), "no 'Family · next' card on Today")
         attach(app, "Showcase — Today, family map")
 
         if mini.exists && mini.isHittable {
@@ -64,11 +66,16 @@ final class ShowcaseTests: XCTestCase {
             openTab(app, "Family")
         }
         settle(app, on: byId(app, "family-person-sam"), seconds: 3)
+        // The travel desk forecast: Sam's next move under the row, Kit's quiet phone above the list.
+        soft(byId(app, "family-next-sam").waitForExistence(timeout: 5), "no forecast line for Sam")
+        soft(byId(app, "family-watch").exists, "no 'what looks off' card")
+        soft(byId(app, "family-upcoming").exists, "no 'Coming up' card on the owner's Family tab")
         attach(app, "Showcase — Family")
 
         let sam = byId(app, "family-person-sam")
         if sam.exists && sam.isHittable { sam.tap() }
         settle(app, seconds: 3)
+        soft(byId(app, "family-person-next").waitForExistence(timeout: 5), "no next move on Sam's page")
         attach(app, "Showcase — Family, one person")
 
         app.swipeUp()

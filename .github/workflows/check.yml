@@ -104,7 +104,10 @@ jobs:
     runs-on: macos-26
     # Was 35, and green runs took ~30. The Watch app adds a build of its own,
     # and the UI suite covers six games (35 was hit by it alone, 2026-09-26).
-    timeout-minutes: 50
+    # Was 50: the Release build (a few minutes) and the review-demo UI walk
+    # (~4) took a green run past it on 2026-09-28 with the last showcase
+    # tests still going. A timeout is for a wedged simulator, not the suite.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - name: Verify current Apple toolchain
@@ -135,6 +138,16 @@ jobs:
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl ui "$DEVICE_ID" appearance dark
           xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
+      # The TestFlight archive builds RELEASE; everything above is Debug. The
+      # App Review demo runs on fixtures that compile in both, and a reference
+      # that exists only in Debug is green above and fails at upload (the
+      # Health hub, #29). So compile exactly what the archive compiles — for
+      # the simulator, unsigned: the configuration is the point, not the device.
+      - name: Build Release (what TestFlight archives)
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee release-build.log
       - name: Export simulator screenshots
         if: ${{ !cancelled() }}
         run: |
@@ -148,6 +161,7 @@ jobs:
           path: |
             build.log
             watch-build.log
+            release-build.log
             artifacts/Tests.xcresult
             artifacts/screenshots
             DerivedData/Build/Products/Debug-iphonesimulator/SRAppleApp.app

@@ -90,11 +90,5 @@ final class PushRegistration {
         }
     }
 
-    private static var isDemo: Bool {
-        #if DEBUG
-        return SRDemo.isOn
-        #else
-        return false
-        #endif
-    }
+    private static var isDemo: Bool { SRDemo.isOn }
 }

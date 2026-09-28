@@ -33,12 +33,16 @@ struct SettingsScreen: View {
     /// Today's optional family cards — see `TodayCards`.
     @AppStorage(TodayCards.steps) private var todaySteps = false
     @AppStorage(TodayCards.tasks) private var todayTasks = false
+    @AppStorage(TodayCards.forecast) private var todayForecast = true
 
-    enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs }
+    enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs, deleteAccount }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                // The App Review demo, and the way out of it. Empty otherwise.
+                ReviewDemoSettingsSection()
+
                 Section {
                     if access.current.owner {
                         link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
@@ -48,10 +52,13 @@ struct SettingsScreen: View {
                     SRSectionLabel(text: "The app")
                 }
 
-                // Cards Today can carry, each off until asked for. Only for
-                // somebody with the family boards (family + the site).
+                // Cards Today can carry. The boards are off until asked for;
+                // "Family · next" is on (it draws nothing on a quiet day). Only
+                // for somebody with the family boards (family + the site).
                 if access.familyBoards && site.paired {
                     Section {
+                        todayToggle("Family · next", "Who is leaving when, and anything that looks off", "clock", $todayForecast)
+                            .accessibilityIdentifier("settings-today-forecast")
                         todayToggle("Family steps", "Your place and the top three", "figure.walk", $todaySteps)
                             .accessibilityIdentifier("settings-today-steps")
                         todayToggle("Family tasks", "What's left, what's waiting, what's owed", "checklist", $todayTasks)
@@ -59,7 +66,7 @@ struct SettingsScreen: View {
                         #if DEBUG
                         // The widgets, drawn in the app: a UI test cannot reach
                         // the Home Screen, so this is how CI photographs them.
-                        if SRDemo.isOn {
+                        if SRDemo.isShowcase {
                             NavigationLink {
                                 FamilyWidgetGallery()
                             } label: {
@@ -95,6 +102,31 @@ struct SettingsScreen: View {
                 Section {
                     link(.about, "About", "Version, licences and what this holds", "info.circle")
                 }
+
+                // Last, and apart: App Store 5.1.1(v). Never for the owner,
+                // whose account is the website's to manage.
+                switch deletionLane {
+                case .ownerManaged:
+                    Section {
+                        SRRow(title: "Your account", subtitle: "The owner account is managed on the website, not from the app.", icon: "person.crop.circle")
+                            .srGlassRow()
+                            .accessibilityIdentifier("settings-owner-account")
+                    } header: {
+                        SRSectionLabel(text: "Account")
+                    }
+                case .site, .companion:
+                    Section {
+                        NavigationLink(value: Route.deleteAccount) {
+                            SRRow(title: "Delete account", subtitle: "Your account and its data, for good", icon: "trash", tone: SR.error)
+                        }
+                        .srGlassRow()
+                        .accessibilityIdentifier("settings-deleteAccount")
+                    } header: {
+                        SRSectionLabel(text: "Account")
+                    }
+                case .unpaired:
+                    EmptyView()
+                }
             }
             .listStyle(.insetGrouped)
             .srPaper()
@@ -121,6 +153,10 @@ struct SettingsScreen: View {
                 case .about: AboutScreen()
                 case .viewAs:
                     if access.isRealOwner { ViewAsScreen() }
+                case .deleteAccount:
+                    if deletionLane == .site || deletionLane == .companion {
+                        DeleteAccountScreen(companion: companion, site: site, lane: deletionLane)
+                    }
                 }
             }
         }
@@ -149,6 +185,10 @@ struct SettingsScreen: View {
         return site.paired && companion.paired
             ? "Both connected"
             : site.paired ? "Website connected" : companion.paired ? "Companion connected" : "Not connected"
+    }
+
+    private var deletionLane: AccountDeletionLane {
+        AccountDeletionPolicy.lane(isOwner: access.isRealOwner, sitePaired: site.paired, companionPaired: companion.paired)
     }
 
     private var draft: String {
@@ -615,9 +655,9 @@ struct AboutScreen: View {
 
             Section {
                 Text("""
-                     Health is scoped to you. Family membership grants access to shared \
-                     locations only — there is no public health projection, no family \
-                     health endpoint and no administrator view that bypasses it.
+                     Your Health uploads are stored on the server for your dashboard. \
+                     Family steps are shared only when you turn on the separate steps \
+                     option. The site owner's Health dashboard may publish selected figures.
 
                      Your own recorded track is more tightly scoped still: the family tab \
                      shares a latest position, a track is a history, and a month of \
