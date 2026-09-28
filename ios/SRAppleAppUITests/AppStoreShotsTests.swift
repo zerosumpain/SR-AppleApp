@@ -83,7 +83,9 @@ final class AppStoreShotsTests: XCTestCase {
         let app = launch()
         require(app.tabBars.buttons["Today"], "the Today tab")
         XCTAssertTrue(app.openTab("Health"), "no way to the Health tab")
-        require(app.staticTexts["Primed"], "the readiness verdict on Health")
+        // The verdict draws uppercased ("PRIMED"): match its label, any case.
+        require(app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Primed")).firstMatch,
+                "the readiness verdict on Health")
         noBanners(app)
         shoot(app, "Store 06 — Health")
     }
