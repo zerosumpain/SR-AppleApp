@@ -193,3 +193,59 @@ final class FamilyForecastStore: ObservableObject {
         lastLoad = nil
     }
 }
+
+/// Today's line on the family's day ahead: what looks off, then the next few
+/// moves by time — "Sam · Leaves 15:40 for Home · there 16:02–16:10". Draws
+/// NOTHING when nobody has a move due and nothing looks off, so a quiet day
+/// costs Today no space. Tap → the Family tab.
+struct TodayForecastCard: View {
+    @ObservedObject private var store = FamilyForecastStore.shared
+    let open: () -> Void
+
+    static let movesShown = 3
+    static let flagsShown = 2
+
+    var body: some View {
+        if let f = store.forecast, !(f.next.isEmpty && f.watch.isEmpty) {
+            let names = Dictionary(f.people.map { ($0.subject, $0.name) }, uniquingKeysWith: { a, _ in a })
+            let moves = f.next.sorted { (parseTimestamp($0.leaveAt) ?? .distantFuture) < (parseTimestamp($1.leaveAt) ?? .distantFuture) }
+            Button {
+                SRHaptic.tap()
+                open()
+            } label: {
+                SRCard(interactive: true) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SRSectionLabel(text: "Family · next", trailing: f.watch.isEmpty ? nil : "\(f.watch.count) to look at")
+                        ForEach(f.watch.prefix(Self.flagsShown)) { item in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Image(systemName: ForecastWords.symbol(item))
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(item.severity == "alert" ? SR.error : SR.warn)
+                                Text(item.title)
+                                    .font(SR.Text.bodyMedium(15))
+                                    .foregroundStyle(SR.ink)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        ForEach(Array(moves.prefix(Self.movesShown).enumerated()), id: \.offset) { _, move in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(names[move.subject] ?? move.subject.capitalized)
+                                    .font(SR.Text.bodyMedium(15))
+                                    .foregroundStyle(SR.ink)
+                                    .frame(minWidth: 52, alignment: .leading)
+                                Text(ForecastWords.nextLine(move))
+                                    .font(SR.Text.mono(13))
+                                    .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Opens Family")
+            .accessibilityIdentifier("today-forecast")
+        }
+    }
+}

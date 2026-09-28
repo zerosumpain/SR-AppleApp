@@ -163,6 +163,7 @@ struct TodayScreen: View {
     /// person turned it on (Settings → Today, or the page's own switch).
     @AppStorage(TodayCards.steps) private var showSteps = false
     @AppStorage(TodayCards.tasks) private var showTasks = false
+    @AppStorage(TodayCards.forecast) private var showForecast = true
 
     /// How often the numbers are re-read while Today is on screen. Readiness
     /// and recovery move when a sync lands on the site; five minutes is often
@@ -182,6 +183,13 @@ struct TodayScreen: View {
                     TodayFamilyCard(store: family) {
                         router.show(.family)
                     }
+                }
+
+                // The family's next moves and anything that looks off, from
+                // the travel desk. On unless switched off; over the SITE
+                // credential; nothing drawn on a quiet day.
+                if access.familyBoards && site.paired && showForecast {
+                    TodayForecastCard { router.show(.family) }
                 }
 
                 // Off unless asked for; over the SITE credential.
@@ -352,6 +360,7 @@ struct TodayScreen: View {
         guard access.familyBoards else { return }
         if showSteps { await FamilyStepsStore.shared.load() }
         if showTasks { await FamilyTasksStore.shared.load() }
+        if showForecast { await FamilyForecastStore.shared.load() }
     }
 
     // MARK: - Header
