@@ -134,7 +134,7 @@ final class RegistrationStore: ObservableObject {
         message = nil
         defer { busy = false }
         do {
-            let start = SiteClient.shared.webURL("native/register?provider=google")
+            let start = SiteClient.shared.webURL("welcome/app")
             let callback = try await session.authenticate(
                 using: start,
                 callbackURLScheme: Self.callbackScheme,
