@@ -50,6 +50,9 @@ import UIKit
                     // cannot starve it of the whole budget.
                     await companion.sync(collectingFor: 15)
                     await AlertStore.backgroundPass()
+                    // Someone waiting on the owner: approval while the app is
+                    // shut is told once, as a local notification.
+                    await RegistrationStore.backgroundPass()
                     // The household's arrivals and departures, from the
                     // companion server (members have no site lane). `sync`
                     // already asked if it ran; this covers a sync skipped
@@ -273,8 +276,7 @@ import UIKit
     var body: some Scene {
         WindowGroup {
             if let companion = delegate.companion, let battery = delegate.battery {
-                ContentView(companion: companion, outbox: companion.outbox,
-                            location: companion.location, battery: battery)
+                EntryGate(companion: companion, battery: battery)
                     .task {
                         battery.start()
                         if companion.paired { await companion.sync() }
@@ -298,6 +300,30 @@ import UIKit
                         }
                     }
             } else { ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(delegate.startupError ?? "Starting…")) }
+        }
+    }
+}
+
+/// Welcome, the review screen, or the app — decided by `EntryPolicy` from
+/// what this phone holds. Re-read on every change to the registration and
+/// the companion pairing, so an approval swaps the whole window over.
+private struct EntryGate: View {
+    @ObservedObject var companion: Companion
+    let battery: BatteryMonitor
+    @ObservedObject private var registration = RegistrationStore.shared
+
+    var body: some View {
+        switch registration.entry(companionPaired: companion.paired) {
+        case .welcome:
+            WelcomeScreen(registration: registration)
+        case .reviewing(let status):
+            ReviewScreen(registration: registration, status: status)
+        case .app:
+            ContentView(companion: companion, outbox: companion.outbox,
+                        location: companion.location, battery: battery)
+                // Approved from Welcome: health and location connect through
+                // the site, no QR. A no-op for every other phone.
+                .task(id: registration.status) { await registration.connectCompanion(companion) }
         }
     }
 }

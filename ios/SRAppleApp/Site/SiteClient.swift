@@ -326,17 +326,26 @@ final class SiteClient {
     private struct PairResponse: Decodable { let token: String; let expiresAt: String }
 
     func pair(_ payload: SitePairing) async throws {
+        guard let url = URL(string: payload.server), url.scheme == "https" else {
+            throw SiteError.message("A pairing code must name an HTTPS address.")
+        }
+        try await redeem(code: payload.code, at: url)
+    }
+
+    /// Spend a one-time code for this phone's credential — from a scanned QR,
+    /// a member's automatic pairing, or a sign-in from Welcome (which is why it
+    /// defaults to the saved origin: the code came from there).
+    func redeem(code: String, at server: URL? = nil) async throws {
         #if DEBUG
         // Never let a demo session reach the Keychain.
         if SRDemo.isOn { throw SiteError.message("Demo mode: pairing is switched off.") }
         #endif
-        guard let url = URL(string: payload.server), url.scheme == "https" else {
-            throw SiteError.message("A pairing code must name an HTTPS address.")
-        }
+        let url = server ?? origin
+        guard url.scheme == "https" else { throw SiteError.message("A pairing code must name an HTTPS address.") }
         var req = URLRequest(url: url.appending(path: "api/native/pair"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(["code": payload.code, "label": deviceLabel()])
+        req.httpBody = try JSONEncoder().encode(["code": code, "label": deviceLabel()])
 
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -350,6 +359,23 @@ final class SiteClient {
         UserDefaults.standard.set(url, forKey: "site-origin")
         // A new credential holds no push token yet: hand it this phone's.
         Task { await PushRegistration.shared.sync() }
+    }
+
+    /// A POST with NO credential — the one route that takes a sign-in from a
+    /// phone nobody knows yet (`api/native/register/apple`). Everything else
+    /// goes through `request`, which refuses to run unpaired.
+    func sendAnonymous<T: Decodable>(_ path: String, body: Data) async throws -> T {
+        var req = URLRequest(url: try url(for: path))
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await session.data(for: req)
+        try check(response, data)
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw SiteError.message("The server sent something this version of the app cannot read.")
+        }
     }
 
     func signOut() {
