@@ -48,6 +48,9 @@ enum Keychain {
     /// escapes a `?`, so "timeline?from=…" would ask for a path no route has —
     /// the same bug the site client once shipped (see `SiteClient.url(for:)`).
     func request<T: Decodable>(_ path: String, method: String = "GET", data: Data? = nil, query: [URLQueryItem] = [], timeout: TimeInterval = 25) async throws -> T {
+        // A demo sends nothing to the companion server — no health, no
+        // location, not even a read — and refuses before a request exists.
+        if SRDemo.isOn { throw CompanionError.message(Self.demoRefusal) }
         guard let baseURL else { throw CompanionError.message("Pair your iPhone first.") }
         var url = baseURL.appendingPathComponent("api/apple/" + path)
         if !query.isEmpty, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
@@ -68,6 +71,7 @@ enum Keychain {
         }
         return try JSONDecoder().decode(T.self, from: body)
     }
+    static let demoRefusal = "Demo mode: nothing is sent from this iPhone. Leave the demo in Settings to connect."
     struct APIError: Decodable { var error: String }
     struct Acknowledgement: Decodable { var accepted: Int? }
     struct PairResponse: Decodable { var token: String; var userId: String }

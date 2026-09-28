@@ -33,9 +33,8 @@ final class FamilyStore: ObservableObject {
 
     func load() async {
         guard !loading else { return }
-        #if DEBUG
-        // DEBUG only, like every demo path: `SRDemo` does not exist in a
-        // Release build, and the companion lane has no fixture protocol.
+        // Demo mode (the review demo, or `-SRDemo`): the companion lane has
+        // no fixture protocol, and a demo sends nothing to it.
         if SRDemo.isOn {
             let demo = SRDemoFixtures.householdView(now: Date())
             view = demo.view
@@ -43,7 +42,6 @@ final class FamilyStore: ObservableObject {
             loaded = true
             return
         }
-        #endif
         guard companion.paired else {
             real = nil
             view = nil

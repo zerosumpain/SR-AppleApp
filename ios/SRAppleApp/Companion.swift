@@ -254,7 +254,8 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         // the family's "last seen" does not freeze while the phone sits still.
         await location.confirmStillHere()
         updateQueue()
-        guard paired, !sending else { return }
+        // A demo uploads nothing, whatever is queued.
+        guard paired, !sending, !SRDemo.isOn else { return }
         sending = true; defer { sending = false; updateQueue() }
         // A stale error must not sit on screen for the minutes a backfill can
         // take: show the queue's size now, and count it down as it drains.

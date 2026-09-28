@@ -20,12 +20,12 @@
 <key>UIUserInterfaceStyle</key><string>Light</string>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
 <key>NSHealthUpdateUsageDescription</key><string>SR Companion reads your selected Apple Health data for your private dashboard. It does not write or change data in Apple Health.</string>
-<key>NSCameraUsageDescription</key><string>Scan the pairing QR code at strangeramblings.com/welcome to connect this iPhone, and take photos to send to jkai.</string>
+<key>NSCameraUsageDescription</key><string>SR Companion uses the camera to scan the pairing QR code shown on the Strange Ramblings website when you connect this iPhone, and to take a photo you choose to attach to a chat message. Nothing is recorded unless you press the shutter.</string>
 <key>NSHealthShareUsageDescription</key><string>Sync the Apple Health categories you choose — activity, heart, overnight vitals, fitness, workouts with their routes, sleep, mobility, body and lifestyle — to your private Strange Ramblings health dashboard. Nothing is shared with anyone else.</string>
-<key>NSLocationWhenInUseUsageDescription</key><string>Share your current location with members of your Strange Ramblings family.</string>
-<key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>Keep your family location updated when the app is closed, using more frequent records while moving. You can pause sharing at any time.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>SR Companion uses your location to show where you are on the Family map to the people in your family group, and to record the route of a walk or run for your own activity history. Sharing is off until you turn it on in Settings, and you can pause it at any time.</string>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>SR Companion uses your location in the background so the Family map stays current when the app is closed, for example to show your family that you have arrived home. It records more often while you are moving and rests while you are still. You can pause sharing at any time in Settings.</string>
 <key>NSMotionUsageDescription</key><string>Read the movement your iPhone has already recorded, so location can be switched off while you are sitting still and switched back on when you actually go somewhere. It is only read to decide that.</string>
-<key>NSLocalNetworkUsageDescription</key><string>Connect to your Strange Ramblings test server on your local network.</string>
+<key>NSLocalNetworkUsageDescription</key><string>SR Companion connects to a Strange Ramblings server on your local network only if you pair it with one, for example a home test server. It does not scan or contact other devices.</string>
 <key>UIBackgroundModes</key><array><string>location</string><string>fetch</string><string>processing</string></array>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.strangeramblings.com.appleapp.refresh</string></array>
 <key>UIAppFonts</key><array><string>ArchivoBlack-Regular.ttf</string><string>DMSans-Regular.ttf</string><string>DMSans-Medium.ttf</string><string>DMSans-Bold.ttf</string><string>DMMono-Regular.ttf</string><string>DMMono-Medium.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string><string>JetBrainsMono-Bold.ttf</string></array>
@@ -36,8 +36,8 @@
 <key>SRSharedKeychainGroup</key><string>$(AppIdentifierPrefix)$(SR_BUNDLE_ID).shared</string>
 <!-- sr://family/steps and sr://family/tasks: widget taps and pushed links. -->
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleURLSchemes</key><array><string>sr</string></array></dict></array>
-<key>NSSpeechRecognitionUsageDescription</key><string>Turn your voice notes into text on this iPhone, so jkai reads what you said.</string>
-<key>NSMicrophoneUsageDescription</key><string>Record a voice note to send to jkai. Nothing is recorded unless you hold the microphone button.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>SR Companion turns a voice note you record in chat into text, so the assistant can read what you said.</string>
+<key>NSMicrophoneUsageDescription</key><string>SR Companion uses the microphone to record a voice note to send in a chat message. Nothing is recorded unless you hold the microphone button.</string>
 <key>LSSupportsOpeningDocumentsInPlace</key><false/>
 <key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>Files for jkai</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.image</string><string>com.adobe.pdf</string><string>public.plain-text</string><string>public.comma-separated-values-text</string><string>public.json</string><string>net.daringfireball.markdown</string><string>org.openxmlformats.wordprocessingml.document</string><string>org.openxmlformats.spreadsheetml.sheet</string><string>public.rtf</string><string>public.mpeg-4-audio</string></array></dict></array>
 </dict></plist>

@@ -76,11 +76,9 @@ enum LiveSteps {
     private static let store = HKHealthStore()
 
     static func today(now: Date = Date()) async -> Int? {
-        #if DEBUG
         // The demo's own figure, above the board's, so the screenshot shows
-        // the "live" row.
+        // the "live" row — and a reviewer's own steps stay out of a made-up board.
         if SRDemo.isOn { return 9_120 }
-        #endif
         guard HKHealthStore.isHealthDataAvailable(),
               let type = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return nil }
         let start = Calendar.current.startOfDay(for: now)
@@ -195,9 +193,7 @@ final class FamilyTasksStore: ObservableObject {
 @MainActor
 enum FamilyWidgetBridge {
     private static var active: Bool {
-        #if DEBUG
         if SRDemo.isOn { return false }
-        #endif
         return AccessStore.shared.viewingAs == nil
     }
 
@@ -237,9 +233,7 @@ enum FamilyWidgetBridge {
 
     /// Signed out, or no longer family: nothing left behind for a widget.
     static func clear() {
-        #if DEBUG
         if SRDemo.isOn { return }
-        #endif
         guard FamilyShelf.read(.credential) != nil || FamilyShelf.read(.steps) != nil || FamilyShelf.read(.tasks) != nil else { return }
         FamilyShelf.clearAll()
         WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.steps)

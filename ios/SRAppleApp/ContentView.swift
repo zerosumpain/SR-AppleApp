@@ -228,6 +228,8 @@ struct ContentView: View {
     /// What this person may use. Every tab below, and most of what is in them,
     /// is built from it — see `AccessPolicy`.
     @ObservedObject private var access = AccessStore.shared
+    /// The App Review demo: a strip on every screen while it runs.
+    @ObservedObject private var reviewDemo = ReviewDemo.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
@@ -351,6 +353,11 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 64)
             }
+        }
+        // The review demo, said above every screen — an inset, so it covers
+        // nothing — so made-up data never passes for the real thing.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if reviewDemo.active { DemoBanner() }
         }
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
         // comes back when you scroll up — the content gets the screen.
@@ -555,10 +562,8 @@ struct ContentView: View {
     /// An owner is never touched: the QR flow is theirs.
     private func reconcileSite() async {
         UIApplication.shared.shortcutItems = AccessPolicy.quickActions(for: access.current).map { $0.item }
-        #if DEBUG
         // Demo mode's credential is pretend and its access fixed.
         if SRDemo.isOn { return }
-        #endif
         access.siteChanged(paired: site.paired)
         // Not while viewing as somebody: that is a look, and the Spotlight
         // index is the owner's own.

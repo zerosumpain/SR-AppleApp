@@ -13,6 +13,9 @@ import UIKit
     static let pending = PendingEntry()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Before anything reads `SRDemo.isOn` (the site client, access):
+        // a UI test's fresh install must not inherit an earlier review demo.
+        ReviewDemo.prepareLaunch()
         // Teach UIKit the palette before the first view is laid out. Doing it
         // later leaves one system-grey navigation bar on screen for a frame.
         SRChrome.install()
@@ -331,6 +334,9 @@ private struct EntryGate: View {
     @ObservedObject var companion: Companion
     let battery: BatteryMonitor
     @ObservedObject private var registration = RegistrationStore.shared
+    /// The App Review demo: entered from Welcome's code box, left from
+    /// Settings. Either way the whole window swaps.
+    @ObservedObject private var reviewDemo = ReviewDemo.shared
 
     var body: some View {
         switch registration.entry(companionPaired: companion.paired) {
@@ -341,6 +347,9 @@ private struct EntryGate: View {
         case .app:
             ContentView(companion: companion, outbox: companion.outbox,
                         location: companion.location, battery: battery)
+                // A fresh set of screens into and out of the demo: nothing
+                // loaded from fixtures survives into the real app, or back.
+                .id(reviewDemo.active)
                 // Approved from Welcome: health and location connect through
                 // the site, no QR. A no-op for every other phone.
                 .task(id: registration.status) { await registration.connectCompanion(companion) }

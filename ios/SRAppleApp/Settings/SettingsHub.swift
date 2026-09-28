@@ -39,6 +39,9 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                // The App Review demo, and the way out of it. Empty otherwise.
+                ReviewDemoSettingsSection()
+
                 Section {
                     if access.current.owner {
                         link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
@@ -59,7 +62,7 @@ struct SettingsScreen: View {
                         #if DEBUG
                         // The widgets, drawn in the app: a UI test cannot reach
                         // the Home Screen, so this is how CI photographs them.
-                        if SRDemo.isOn {
+                        if SRDemo.isShowcase {
                             NavigationLink {
                                 FamilyWidgetGallery()
                             } label: {

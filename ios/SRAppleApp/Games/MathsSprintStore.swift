@@ -73,7 +73,7 @@ final class MathsSprintStore: ObservableObject, GameRoomStoring {
         room = next
         #if DEBUG
         // Demo mode: an answer half typed, so the screenshot shows the keypad in use.
-        if SRDemo.isOn, next.phase == .playing, previous == nil, input.isEmpty {
+        if SRDemo.isShowcase, next.phase == .playing, previous == nil, input.isEmpty {
             input.press(5)
         }
         #endif

@@ -428,20 +428,21 @@ final class AccessStore: ObservableObject {
         applyDemo()
     }
 
-    private static var isDemo: Bool {
-        #if DEBUG
-        return SRDemo.isOn
-        #else
-        return false
-        #endif
+    private static var isDemo: Bool { SRDemo.isOn }
+
+    /// The review demo started or stopped: re-read what this phone holds.
+    func demoChanged() {
+        viewingAs = nil
+        previews = []
+        sitePaired = SiteClient.shared.isPaired
+        if !sitePaired { siteRole = nil }
+        recompute()
     }
 
-    /// Demo mode (`-SRDemo`, DEBUG only) is the owner, unless `-SRDemoMember`
-    /// asks for a family member with neither chat nor news — the screenshot
-    /// that proves those tabs are not there at all.
+    /// Demo mode (the review demo, or `-SRDemo`) is the owner, unless
+    /// `-SRDemoMember` asks for a family member with neither chat nor news —
+    /// the screenshot that proves those tabs are not there at all.
     private func applyDemo() {
-        #if DEBUG
         if SRDemo.isOn { current = SRDemo.access }
-        #endif
     }
 }

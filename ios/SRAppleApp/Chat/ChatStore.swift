@@ -41,7 +41,7 @@ final class ThreadListStore: ObservableObject {
             // and re-indexing on every scroll would write the index all day.
             // Not while viewing as somebody: Spotlight on this phone is the
             // owner's, and their threads must not land in it.
-            if reset && term.isEmpty && AccessStore.shared.viewingAs == nil { ThreadIndex.update(conversations) }
+            if reset && term.isEmpty && AccessStore.shared.viewingAs == nil && !SRDemo.isOn { ThreadIndex.update(conversations) }
         } catch SiteError.expired {
             message = "This iPhone needs pairing again."
         } catch {
