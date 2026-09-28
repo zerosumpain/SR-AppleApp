@@ -11,7 +11,9 @@ import Foundation
 // of Sam's on a reveal, so both screens can be shot. Anagram Blitz, Quick
 // Maths Sprint and Sequence Memory: one room each, mid-play — Alex's word list
 // and the tiles, Alex's problem and keypad on a bonus streak, and a Sequence
-// Memory round waiting on Alex's taps with Robin already out. The room stream has no
+// Memory round waiting on Alex's taps with Robin already out. Boggle: a 4×4
+// mid-play with a word half traced, and one finished with a shared word
+// crossed out and a missed word lit. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -26,6 +28,8 @@ extension SRDemoFixtures {
     static let demoAnagramRoom = "g_demo_anagram"
     static let demoSprintRoom = "g_demo_sprint"
     static let demoMemoryRoom = "g_demo_memory"
+    static let demoBoggleRoom = "g_demo_boggle"
+    static let demoBoggleDoneRoom = "g_demo_boggle_done"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -75,7 +79,9 @@ extension SRDemoFixtures {
                    {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"},
                    {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "phase": "playing", "hostName": "Alex"},
                    {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
-                   {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
+                   {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"},
+                   {"id": \(s(demoBoggleRoom)), "game": "boggle", "phase": "playing", "hostName": "Alex"},
+                   {"id": \(s(demoBoggleDoneRoom)), "game": "boggle", "phase": "finished", "hostName": "Sam"}],
          "serverNow": \(ms(now))}
         """
     }
@@ -87,6 +93,8 @@ extension SRDemoFixtures {
         if id == demoAnagramRoom { return anagramRoom(clock) }
         if id == demoSprintRoom { return sprintRoom(clock) }
         if id == demoMemoryRoom { return memoryRoom(clock) }
+        if id == demoBoggleRoom { return boggleRoom(finished: false, clock: clock) }
+        if id == demoBoggleDoneRoom { return boggleRoom(finished: true, clock: clock) }
         if id == demoQuizInviteRoom {
             return quizLobby(id: id, fields: ["topic": "space", "audience": "kids", "difficulty": "easy"],
                              invited: [], hostIsMe: false, meJoined: meJoined, prep: "writing", clock: clock)
@@ -320,6 +328,72 @@ extension SRDemoFixtures {
                    "inputEndsAt": \(ms(inputEndsAt)), "closesAt": \(ms(inputEndsAt.addingTimeInterval(1))),
                    "answeredIds": ["p_sam"], "attempts": null, "survivorIds": null},
          "standings": null, "winnerIds": [],
+         "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Boggle
+
+    /// Boggle, 4×4, medium, classic scoring. Playing: 52 seconds in, Alex has
+    /// five words and is halfway through tracing another. Finished (Sam's
+    /// game): TRAP was found by both and crossed out; ALIEN is lit, one of the
+    /// words nobody found.
+    static func boggleRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let grid = #"["t","r","a","p","s","e","n","d","l","i","o","qu","a","m","e","s"]"#
+        func word(_ w: String, _ points: Int, _ path: [Int], shared: String = "null") -> String {
+            "{\"word\": \(s(w)), \"points\": \(points), \"shared\": \(shared), \"path\": \(path)}"
+        }
+        let points = #"{"3": 1, "4": 1, "5": 2, "6": 3, "7": 5, "8": 11}"#
+        if !finished {
+            let alex = [word("send", 1, [4, 5, 6, 7]), word("trap", 1, [0, 1, 2, 3]), word("tern", 1, [0, 1, 5, 6]),
+                        word("lime", 1, [8, 9, 13, 14]), word("noise", 2, [6, 10, 9, 4, 5])]
+            return """
+            {"id": \(s(demoBoggleRoom)), "game": "boggle", "difficulty": "medium", "phase": "playing",
+             "hostId": "p_alex", "meId": "p_alex", "size": 4, "scoring": "classic", "minLength": 3,
+             "points": \(points), "timeLimitMs": 120000,
+             "startedAt": \(ms(now.addingTimeInterval(-52))), "phaseEndsAt": \(ms(now.addingTimeInterval(68))),
+             "grid": \(grid),
+             "players": [
+               {"id": "p_alex", "name": "Alex", "status": "joined", "isHost": true, "wordCount": 5, "score": 6,
+                "words": \(list(alex))},
+               {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": false, "wordCount": 4, "score": 5, "words": null},
+               {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "wordCount": 7, "score": 8, "words": null}
+             ],
+             "found": null, "missed": null, "possible": null, "standings": null, "winnerIds": [],
+             "serverNow": \(ms(now))}
+            """
+        }
+        let alex = [word("trap", 0, [0, 1, 2, 3], shared: "true"), word("noise", 2, [6, 10, 9, 4, 5], shared: "false"),
+                    word("lime", 1, [8, 9, 13, 14], shared: "false")]
+        let sam = [word("trap", 0, [0, 1, 2, 3], shared: "true"), word("send", 1, [4, 5, 6, 7], shared: "false")]
+        return """
+        {"id": \(s(demoBoggleDoneRoom)), "game": "boggle", "difficulty": "medium", "phase": "finished",
+         "hostId": "p_sam", "meId": "p_alex", "size": 4, "scoring": "classic", "minLength": 3,
+         "points": \(points), "timeLimitMs": 120000,
+         "startedAt": \(ms(now.addingTimeInterval(-160))), "phaseEndsAt": \(ms(now.addingTimeInterval(560))),
+         "grid": \(grid),
+         "players": [
+           {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": true, "wordCount": 2, "score": 1,
+            "words": \(list(sam))},
+           {"id": "p_alex", "name": "Alex", "status": "joined", "isHost": false, "wordCount": 3, "score": 3,
+            "words": \(list(alex))}
+         ],
+         "found": [
+           {"word": "noise", "points": 2, "finderIds": ["p_alex"], "shared": false, "path": [6, 10, 9, 4, 5]},
+           {"word": "lime", "points": 1, "finderIds": ["p_alex"], "shared": false, "path": [8, 9, 13, 14]},
+           {"word": "send", "points": 1, "finderIds": ["p_sam"], "shared": false, "path": [4, 5, 6, 7]},
+           {"word": "trap", "points": 0, "finderIds": ["p_alex", "p_sam"], "shared": true, "path": [0, 1, 2, 3]}
+         ],
+         "missed": [
+           {"word": "alien", "points": 2, "path": [12, 8, 9, 5, 6]},
+           {"word": "mien", "points": 1, "path": [13, 9, 5, 6]},
+           {"word": "rend", "points": 1, "path": [1, 5, 6, 7]}
+         ],
+         "possible": {"words": 38, "points": 49},
+         "standings": [{"id": "p_alex", "name": "Alex", "score": 3, "words": 3, "longest": "noise"},
+                       {"id": "p_sam", "name": "Sam", "score": 1, "words": 2, "longest": "trap"}],
+         "winnerIds": ["p_alex"],
          "serverNow": \(ms(now))}
         """
     }

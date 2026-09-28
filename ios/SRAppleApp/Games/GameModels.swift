@@ -29,6 +29,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case anagramBlitz = "anagram-blitz"
     case mathsSprint = "maths-sprint"
     case sequenceMemory = "sequence-memory"
+    case boggle
 
     var id: String { rawValue }
 
@@ -40,6 +41,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .anagramBlitz: return "Anagram Blitz"
         case .mathsSprint: return "Quick Maths Sprint"
         case .sequenceMemory: return "Sequence Memory"
+        case .boggle: return "Boggle"
         }
     }
 
@@ -52,6 +54,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .anagramBlitz: return "Seven letters. Find as many words as you can."
         case .mathsSprint: return "Sixty seconds of mental arithmetic."
         case .sequenceMemory: return "Watch the tiles flash, then play them back."
+        case .boggle: return "A grid of dice. Trace words through touching letters."
         }
     }
 
@@ -70,6 +73,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Sixty seconds, the same problems for everyone. Right moves you on; every fifth in a row is a bonus."
         case .sequenceMemory:
             return "The tiles flash a sequence; tap it back. One more step each round. Miss and you are out."
+        case .boggle:
+            return "The same roll of letter dice for everyone. Drag through touching letters to make words before the sand runs out."
         }
     }
 
@@ -81,6 +86,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .anagramBlitz: return "textformat.abc"
         case .mathsSprint: return "plus.forwardslash.minus"
         case .sequenceMemory: return "square.grid.3x3.fill"
+        case .boggle: return "square.grid.4x3.fill"
         }
     }
 }
@@ -123,6 +129,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.sequenceMemory, .easy): return "4 tiles. Slow flashes."
         case (.sequenceMemory, .medium): return "6 tiles. Quicker flashes."
         case (.sequenceMemory, .hard): return "9 tiles. Fast flashes."
+        case (.boggle, .easy): return "A generous roll, rich in common words. 3 letters or more."
+        case (.boggle, .medium): return "The dice as they fall. 3 letters or more."
+        case (.boggle, .hard): return "The dice as they fall. 4 letters or more."
         }
     }
 
@@ -135,7 +144,7 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
 /// Where a room is in its life.
 enum GamePhase: String, Decodable {
     /// `armed` and `result` are Tap Duel's (`result` Sequence Memory's too);
-    /// `playing` is Wordle Race's, Anagram Blitz's and Quick Maths Sprint's;
+    /// `playing` is Wordle Race's, Anagram Blitz's, Quick Maths Sprint's and Boggle's;
     /// `question` and `reveal` are Quiz Night's; `show` and `input` are
     /// Sequence Memory's.
     case lobby, countdown, armed, result, playing, question, reveal, show, input, finished, closed
@@ -270,6 +279,10 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
     /// Mine always, everyone's once finished; nil for another player mid-game.
     let words: [AnagramWord]?
 
+    // Boggle: the same `words` key, with each word's path and whether it was
+    // shared. `wordCount` and `score` as Anagram Blitz's.
+    let boggleWords: [BoggleWord]?
+
     // Quick Maths Sprint. `score` is points; `answered` is problems solved.
     let answered: Int
 
@@ -307,6 +320,7 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
         done = (try? c.decodeIfPresent(Bool.self, forKey: .done)) ?? false
         solveMs = ((try? c.decodeIfPresent(Double.self, forKey: .solveMs)) ?? nil).map { Int($0.rounded()) }
         words = (try? c.decodeIfPresent([AnagramWord].self, forKey: .words)) ?? nil
+        boggleWords = (try? c.decodeIfPresent([BoggleWord].self, forKey: .words)) ?? nil
         wordCount = (try? c.decodeIfPresent(Int.self, forKey: .wordCount)) ?? words?.count ?? 0
         answered = (try? c.decodeIfPresent(Int.self, forKey: .answered)) ?? 0
         seated = (try? c.decodeIfPresent(Bool.self, forKey: .playing)) ?? false
@@ -509,6 +523,22 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// The round (`round` on the wire — Tap Duel's round is a different shape).
     let memory: SequenceRound?
 
+    // Boggle. `timeLimitMs`, `startedAt`, `minLength`, `points` as Anagram
+    // Blitz's (Boggle's "8" row means eight letters or more).
+    /// Tiles a side: 4, 5 or 6.
+    let size: Int
+    /// classic | every.
+    let scoring: String?
+    /// size × size faces, row-major, lower-case ("qu", "th"). Nil before play.
+    let grid: [String]?
+    /// Every word anyone found, with its path, once finished (`found` on the wire).
+    let boggleFound: [BoggleFound]?
+    /// The best words nobody found, once finished (`missed` on the wire —
+    /// Anagram Blitz's `missed` is plain strings).
+    let boggleMissed: [BoggleMissed]?
+    /// Every valid word the board held, once finished.
+    let possible: BogglePossible?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
@@ -516,6 +546,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         case letterCount, minLength, points, letters, seed, found, missed
         case problemCount, streakBonus, me, recaps
         case tiles, startLength, maxLength
+        case size, scoring, grid, possible
     }
 
     init(from decoder: Decoder) throws {
@@ -564,6 +595,12 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         startLength = (try? c.decodeIfPresent(Int.self, forKey: .startLength)) ?? 3
         maxLength = (try? c.decodeIfPresent(Int.self, forKey: .maxLength)) ?? 20
         memory = (try? c.decodeIfPresent(SequenceRound.self, forKey: .round)) ?? nil
+        size = min(8, max(1, (try? c.decodeIfPresent(Int.self, forKey: .size)) ?? 4))
+        scoring = (try? c.decodeIfPresent(String.self, forKey: .scoring)) ?? nil
+        grid = ((try? c.decodeIfPresent([String].self, forKey: .grid)) ?? nil)?.map { $0.lowercased() }
+        boggleFound = (try? c.decodeIfPresent([BoggleFound].self, forKey: .found)) ?? nil
+        boggleMissed = (try? c.decodeIfPresent([BoggleMissed].self, forKey: .missed)) ?? nil
+        possible = (try? c.decodeIfPresent(BogglePossible.self, forKey: .possible)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -602,6 +639,10 @@ struct CreateGameBody: Encodable, Equatable {
     /// Quiz Night: what about (nil = jkai picks), and who for.
     var topic: String? = nil
     var audience: String? = nil
+    /// Boggle: tiles a side (4–6), seconds on the clock, classic | every.
+    var size: Int? = nil
+    var seconds: Int? = nil
+    var scoring: String? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -620,6 +661,8 @@ struct GameActionBody: Encodable {
     var value: Int? = nil
     /// Sequence Memory: `{action:"attempt", round, taps:[tile,…]}`.
     var taps: [Int]? = nil
+    /// Boggle: `{action:"word", word, path:[tile,…]}` — the tiles traced.
+    var path: [Int]? = nil
     /// The host asking more people into the lobby: `{action:"invite", invite:[playerId]}`.
     var invite: [String]? = nil
 }

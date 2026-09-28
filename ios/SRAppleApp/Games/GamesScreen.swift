@@ -252,6 +252,7 @@ struct GameCard: View {
         case .anagramBlitz: return SR.warn
         case .mathsSprint: return SR.ink
         case .sequenceMemory: return SR.error
+        case .boggle: return SR.accentDeep
         }
     }
 }
@@ -272,6 +273,10 @@ struct NewGameSheet: View {
     // Quiz Night.
     @State private var topic = ""
     @State private var audience: QuizAudience = .family
+    // Boggle.
+    @State private var boggleSize = 4
+    @State private var boggleSeconds = 120
+    @State private var boggleScoring: BoggleScoring = .classic
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -307,6 +312,10 @@ struct NewGameSheet: View {
 
                     if game == .quizNight {
                         quizSettings
+                    }
+
+                    if game == .boggle {
+                        boggleSettings
                     }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -398,7 +407,68 @@ struct NewGameSheet: View {
         if game == .quizNight {
             return QuizNightSettings(difficulty: difficulty, topic: topic, audience: audience).createBody(invite: invite)
         }
+        if game == .boggle {
+            return BoggleSettings(difficulty: difficulty, size: boggleSize, seconds: boggleSeconds, scoring: boggleScoring)
+                .createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// Grid, clock and scoring — Boggle's round.
+    private var boggleSettings: some View {
+        VStack(alignment: .leading, spacing: SR.sectionGap) {
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                SRSectionLabel(text: "Round")
+                segments(
+                    title: "Grid",
+                    options: BoggleSettings.sizes.map { (value: $0, label: BoggleSettings.sizeLabel($0)) },
+                    selected: $boggleSize,
+                    id: "games-boggle-size"
+                )
+                segments(
+                    title: "Time",
+                    options: BoggleSettings.times.map { (value: $0, label: BoggleSettings.timeLabel($0)) },
+                    selected: $boggleSeconds,
+                    id: "games-boggle-time"
+                )
+                Text(BoggleSettings.line(size: boggleSize, seconds: boggleSeconds))
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("games-boggle-line")
+            }
+
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                SRSectionLabel(text: "Scoring")
+                ForEach(BoggleScoring.allCases) { rule in
+                    choice(
+                        title: rule.label,
+                        line: rule.line,
+                        selected: boggleScoring == rule,
+                        id: "games-boggle-scoring-\(rule.rawValue)"
+                    ) { boggleScoring = rule }
+                }
+            }
+        }
+    }
+
+    /// A labelled segmented picker, sized for a thumb.
+    private func segments(title: String, options: [(value: Int, label: String)], selected: Binding<Int>,
+                          id: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(SR.Text.label())
+                .tracking(SR.kickerTracking)
+                .foregroundStyle(SR.inkSecondary)
+            Picker(title, selection: selected) {
+                ForEach(options, id: \.value) { option in
+                    Text(option.label).tag(option.value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: selected.wrappedValue) { _, _ in SRHaptic.select() }
+            .accessibilityIdentifier(id)
+        }
     }
 
     /// Topic and audience — Quiz Night's own questions.
