@@ -31,7 +31,7 @@ struct CommissionList: View {
                             Text("Next: \(commission.nextActor)").font(SR.Text.secondary()).foregroundStyle(SR.inkMuted)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }.buttonStyle(.plain)
+                }.buttonStyle(.plain).accessibilityIdentifier("commission-\(commission.id)")
             }
         }
     }
@@ -79,7 +79,7 @@ struct CommissionDetailScreen: View {
                         Button("Update after a correction") { Task { await store.prepare(thoughtId: c.thoughtId) } }.srButton().disabled(store.busy)
                     }
                     if let result = c.result {
-                        block("Evidence report", [result.summary])
+                        block("Evidence report", [result.summary]).accessibilityIdentifier("commission-evidence-report")
                         ForEach(Array(result.evidence.enumerated()), id: \.offset) { _, evidence in
                             DisclosureGroup("\(evidence.tool) · \(evidence.status)") {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -121,5 +121,6 @@ struct CommissionDetailScreen: View {
     private func action(_ title: String, _ decision: String, _ c: DaydreamCommission, prominent: Bool = false) -> some View {
         Button { Task { await store.decide(c, decision: decision) } } label: { SRButtonLabel(title: title, icon: decision == "approve" ? "checkmark" : "arrow.right") }
             .srButton(prominent ? .prominent : .regular).disabled(store.busy)
+            .accessibilityLabel(title).accessibilityIdentifier("commission-\(decision)")
     }
 }
