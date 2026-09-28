@@ -34,7 +34,10 @@ final class AlertActionsTests: XCTestCase {
     func testNoButtonOpensTheApp() {
         // A foreground action from a wrist can only be passed on, not done.
         let actions = AlertActions.categories.flatMap(\.actions)
-        XCTAssertEqual(Set(actions.map(\.identifier)), [AlertActions.read, AlertActions.clear])
+        XCTAssertEqual(
+            Set(actions.map(\.identifier)),
+            [AlertActions.read, AlertActions.clear, AlertActions.approve, AlertActions.reject, AlertActions.reply]
+        )
         for action in actions {
             XCTAssertFalse(action.options.contains(.foreground), action.identifier)
         }
@@ -107,6 +110,61 @@ final class AlertActionsTests: XCTestCase {
             userInfo: ["category": "connections", "id": "x"]
         )
         XCTAssertEqual(outcome, .open(category: "connections"))
+    }
+
+    // MARK: - Answering a stalled chat turn
+
+    private let confirmInfo: [AnyHashable: Any] = [
+        "id": "a1", "category": "chat", "gate": "confirm", "jobId": "job-1", "confirmId": "c-1",
+    ]
+
+    func testApproveAnswersTheConfirmationThePushNamed() {
+        let outcome = AlertActions.outcome(action: AlertActions.approve, categoryIdentifier: AlertActions.confirmCategory, userInfo: confirmInfo)
+        XCTAssertEqual(outcome, .answer(GateAnswer(jobId: "job-1", kind: .confirm(id: "c-1", approved: true))))
+        guard case .answer(let answer) = outcome else { return XCTFail() }
+        XCTAssertEqual(answer.path, "api/workflows/orchestrator/chat?jobId=job-1")
+        XCTAssertEqual(answer.body["type"] as? String, "confirm_ack")
+        XCTAssertEqual(answer.body["decision"] as? String, "approved")
+    }
+
+    func testRejectingAPlanSendsAPlanAck() {
+        let info: [AnyHashable: Any] = ["gate": "plan", "jobId": "job-2", "planId": "p-1", "category": "chat"]
+        let outcome = AlertActions.outcome(action: AlertActions.reject, categoryIdentifier: AlertActions.planCategory, userInfo: info)
+        guard case .answer(let answer) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(answer.body["type"] as? String, "plan_ack")
+        XCTAssertEqual(answer.body["planId"] as? String, "p-1")
+        XCTAssertEqual(answer.body["decision"] as? String, "rejected")
+    }
+
+    func testAReplyAnswersTheOneQuestion() {
+        let info: [AnyHashable: Any] = ["gate": "clarify", "jobId": "job-3", "clarifyId": "q-set", "questionId": "q1"]
+        let outcome = AlertActions.outcome(action: AlertActions.reply, categoryIdentifier: AlertActions.clarifyCategory, userInfo: info, text: "  Tuesday  ")
+        guard case .answer(let answer) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(answer.body["type"] as? String, "clarify_ack")
+        XCTAssertEqual(answer.body["answers"] as? [String: String], ["q1": "Tuesday"])
+    }
+
+    func testAnEmptyReplyOrAMissingIdSendsNothing() {
+        let info: [AnyHashable: Any] = ["gate": "clarify", "jobId": "job-3", "clarifyId": "q-set", "questionId": "q1"]
+        XCTAssertEqual(AlertActions.outcome(action: AlertActions.reply, categoryIdentifier: "", userInfo: info, text: "   "), .ignore)
+        var noJob = confirmInfo
+        noJob.removeValue(forKey: "jobId")
+        XCTAssertEqual(AlertActions.outcome(action: AlertActions.approve, categoryIdentifier: "", userInfo: noJob), .ignore)
+    }
+
+    func testApprovingNeedsAnUnlockedPhoneAndRejectingDoesNot() throws {
+        for category in [AlertActions.confirmCategory, AlertActions.planCategory] {
+            let registered = try XCTUnwrap(AlertActions.categories.first { $0.identifier == category })
+            let approve = try XCTUnwrap(registered.actions.first { $0.identifier == AlertActions.approve })
+            let reject = try XCTUnwrap(registered.actions.first { $0.identifier == AlertActions.reject })
+            XCTAssertTrue(approve.options.contains(.authenticationRequired), category)
+            XCTAssertFalse(reject.options.contains(.authenticationRequired), category)
+        }
+    }
+
+    func testATapOnAGateStillOpensChat() {
+        let outcome = AlertActions.outcome(action: UNNotificationDefaultActionIdentifier, categoryIdentifier: AlertActions.confirmCategory, userInfo: confirmInfo)
+        XCTAssertEqual(outcome, .open(category: "chat"))
     }
 
     // MARK: - Clearing from a notification

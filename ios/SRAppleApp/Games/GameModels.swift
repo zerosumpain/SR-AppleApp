@@ -167,16 +167,19 @@ struct GameInvite: Decodable, Equatable, Identifiable {
     /// Night's "The Solar System · for kids". Null (or absent, from an older
     /// site) for games with nothing to add.
     let about: String?
+    /// True when the site's push already rang this phone for it (absent from
+    /// an older site: then the poll rings, as it always did).
+    var pushed: Bool? = nil
 
     var id: String { roomId }
 
-    private enum CodingKeys: String, CodingKey { case roomId, game, difficulty, hostName, players, expiresAt, about }
+    private enum CodingKeys: String, CodingKey { case roomId, game, difficulty, hostName, players, expiresAt, about, pushed }
 
     init(roomId: String, game: String, difficulty: String, hostName: String, players: [String], expiresAt: Double?,
-         about: String? = nil) {
+         about: String? = nil, pushed: Bool? = nil) {
         self.roomId = roomId; self.game = game; self.difficulty = difficulty
         self.hostName = hostName; self.players = players; self.expiresAt = expiresAt
-        self.about = about
+        self.about = about; self.pushed = pushed
     }
 
     init(from decoder: Decoder) throws {
@@ -190,6 +193,7 @@ struct GameInvite: Decodable, Equatable, Identifiable {
         let line = ((try? c.decodeIfPresent(String.self, forKey: .about)) ?? nil)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         about = (line?.isEmpty ?? true) ? nil : line
+        pushed = (try? c.decodeIfPresent(Bool.self, forKey: .pushed)) ?? nil
     }
 
     /// The notification's title and body. Pure, so the copy is a test.
