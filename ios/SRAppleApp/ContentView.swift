@@ -243,7 +243,17 @@ struct ContentView: View {
         _family = StateObject(wrappedValue: FamilyStore(companion: companion))
     }
 
+    /// The review demo, said above every screen so made-up data never passes
+    /// for the real thing. Stacked ABOVE the tabs rather than inset into them:
+    /// iOS 26's transparent bars ignore a TabView's inset and draw under it.
     var body: some View {
+        VStack(spacing: 0) {
+            if reviewDemo.active { DemoBanner() }
+            tabs
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: tabBinding) {
             NavigationStack {
                 TodayScreen(companion: companion, alerts: alerts, site: site, family: family)
@@ -353,11 +363,6 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 64)
             }
-        }
-        // The review demo, said above every screen — an inset, so it covers
-        // nothing — so made-up data never passes for the real thing.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if reviewDemo.active { DemoBanner() }
         }
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
         // comes back when you scroll up — the content gets the screen.

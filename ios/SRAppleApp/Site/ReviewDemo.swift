@@ -93,8 +93,8 @@ final class ReviewDemo: ObservableObject {
 }
 
 /// Said on every screen while the review demo runs, so a look at made-up data
-/// never passes for the real thing. A strip above the bars, not an overlay:
-/// it covers nothing.
+/// never passes for the real thing. A strip stacked above the tabs, not an
+/// overlay: it covers nothing.
 struct DemoBanner: View {
     var body: some View {
         HStack(spacing: 6) {
@@ -112,7 +112,7 @@ struct DemoBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity)
-        .background(SR.accentDeep)
+        .background(SR.accentDeep.ignoresSafeArea(edges: .top))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Demo mode. Sample data; nothing leaves this iPhone.")
         .accessibilityIdentifier("demo-badge")
