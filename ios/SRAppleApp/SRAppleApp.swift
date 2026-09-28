@@ -177,6 +177,10 @@ import UIKit
         )
         let category: String
         switch outcome {
+        case .openCommission(let id):
+            Self.pending.daydreamCommission = id
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
         case .answer(let gate):
             await Self.answer(gate)
             return
@@ -267,6 +271,7 @@ import UIKit
     var familyPage: FamilyPage?
     var openAlerts = false
     var openConnections = false
+    var daydreamCommission: String?
     /// A question handed in by Siri or a Shortcut. Put in the composer, never
     /// sent: a turn sent from a locked phone is a turn you cannot see go wrong.
     var question: String?
