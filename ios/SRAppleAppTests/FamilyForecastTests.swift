@@ -24,6 +24,13 @@ final class FamilyForecastTests: XCTestCase {
         { "key": "quiet:kit:2026-09-28T02:00:00.000Z", "kind": "quiet", "subject": "kit", "severity": "watch",
           "title": "No location from Kit for 4 h 45 m", "detail": "Last seen 03:00. A flat battery or no signal reads the same.",
           "at": "2026-09-28T06:45:00.000Z" } ],
+      "upcoming": { "available": true, "items": [
+        { "id": "ev1", "title": "Dentist", "start": "2026-09-28T14:30:00.000Z", "end": null, "place": "Clinic", "subjects": ["sam"],
+          "leaveBy": "2026-09-28T14:12:00.000Z", "from": "School",
+          "travel": { "source": "routed", "median": 14, "p80": 18, "samples": 0, "mode": "vehicle" }, "issue": null },
+        { "id": "ev2", "title": "Call", "start": "2026-09-28T16:00:00.000Z", "end": null, "place": "Nowhere placeable", "subjects": ["alex"],
+          "leaveBy": null, "from": null, "travel": null,
+          "issue": { "kind": "unplaced", "text": "“Nowhere placeable” could not be placed on the map." } } ] },
       "arrivals": [], "departures": [[0,0,0]],
       "people": [ { "subject": "sam", "name": "Sam", "coverage": 0.94 }, { "subject": "alex", "name": "Alex", "coverage": 0.9 } ] }
     """#
@@ -78,6 +85,53 @@ final class FamilyForecastTests: XCTestCase {
         XCTAssertEqual(f.next(for: "alex")?.kind, "arriving")
         XCTAssertEqual(f.routines(for: "sam").count, 2)
         XCTAssertEqual(f.watch.first?.subject, "kit")
+        XCTAssertEqual(f.upcoming?.items.count, 2)
     }
     #endif
+
+    // MARK: - Coming up and leave-by reminders
+
+    func testDecodesComingUp() throws {
+        let up = try XCTUnwrap(try forecast().upcoming)
+        XCTAssertTrue(up.available)
+        XCTAssertEqual(up.items.map(\.id), ["ev1", "ev2"])
+        XCTAssertNil(up.items[1].leaveBy)
+        XCTAssertEqual(ForecastWords.travelLine(up.items[0], names: ["sam": "Sam"]), "14 min by car · routed, nobody has made this trip yet")
+    }
+
+    func testAnOlderSiteWithoutComingUpStillDecodes() throws {
+        let older = json.replacingOccurrences(of: #""upcoming""#, with: #""upcomingIgnored""#)
+        XCTAssertNil(try JSONDecoder().decode(FamilyForecast.self, from: Data(older.utf8)).upcoming)
+    }
+
+    func testRemindersFireTenMinutesBeforeLeaveBy() throws {
+        let items = try XCTUnwrap(try forecast().upcoming).items
+        let now = try XCTUnwrap(parseTimestamp("2026-09-28T13:00:00Z"))
+        let plan = LeaveByReminders.plan(items, names: ["sam": "Sam"], now: now)
+        XCTAssertEqual(plan.count, 1, "an item with no leave-by time gets no reminder")
+        XCTAssertEqual(plan[0].fireAt, try XCTUnwrap(parseTimestamp("2026-09-28T14:02:00Z")))
+        XCTAssertTrue(plan[0].title.hasPrefix("Leave by "))
+        XCTAssertTrue(plan[0].title.hasSuffix(" for Dentist"))
+        XCTAssertTrue(plan[0].body.hasPrefix("Sam · Clinic at "))
+        XCTAssertTrue(plan[0].body.contains("(routed)"))
+    }
+
+    func testALateListFiresOnceNowAndNeverAfterTheLeaveBy() throws {
+        let items = try XCTUnwrap(try forecast().upcoming).items
+        let late = try XCTUnwrap(parseTimestamp("2026-09-28T14:05:00Z"))
+        let first = LeaveByReminders.plan(items, names: [:], now: late)
+        XCTAssertEqual(first.count, 1)
+        XCTAssertEqual(first[0].fireAt, late.addingTimeInterval(5))
+        XCTAssertTrue(LeaveByReminders.plan(items, names: [:], now: late, sent: [first[0].id]).isEmpty)
+        let gone = try XCTUnwrap(parseTimestamp("2026-09-28T14:13:00Z"))
+        XCTAssertTrue(LeaveByReminders.plan(items, names: [:], now: gone).isEmpty)
+    }
+
+    func testTodayShowsTheNextLeaveByWithinSixHours() throws {
+        let up = try XCTUnwrap(try forecast().upcoming)
+        let now = try XCTUnwrap(parseTimestamp("2026-09-28T13:00:00Z"))
+        XCTAssertEqual(TodayForecastCard.nextLeave(up, now: now)?.id, "ev1")
+        XCTAssertNil(TodayForecastCard.nextLeave(up, now: try XCTUnwrap(parseTimestamp("2026-09-28T06:00:00Z"))))
+        XCTAssertNil(TodayForecastCard.nextLeave(.init(available: false, items: up.items), now: now))
+    }
 }
