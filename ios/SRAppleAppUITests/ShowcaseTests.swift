@@ -739,7 +739,6 @@ final class ShowcaseTests: XCTestCase {
             soft(false, "no Boggle to resume")
         }
     }
-    }
 
     // MARK: - A member
 
