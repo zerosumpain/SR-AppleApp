@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AuthenticationServices
 import UserNotifications
+import CryptoKit
 
 /// Joining from the app: sign in with Google or Apple, then wait for the owner.
 ///
@@ -158,6 +159,20 @@ final class RegistrationStore: ObservableObject {
         }
     }
 
+    /// The nonce for the Apple sign-in in flight. Apple signs its SHA-256 into
+    /// the identity token and the site gets the nonce itself, so a token
+    /// lifted from anywhere else arrives without the secret that matches it.
+    private var appleNonce: String?
+
+    /// Called from the button's request: a fresh nonce, returned hashed for Apple.
+    func startAppleSignIn() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let nonce = Data(bytes).base64EncodedString()
+        appleNonce = nonce
+        return SHA256.hash(data: Data(nonce.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Sign in with Apple, natively. The site checks the identity token against
     /// Apple's public keys and answers with the same one-time code.
     func signInWithApple(_ result: Result<ASAuthorization, Error>) async {
@@ -168,7 +183,8 @@ final class RegistrationStore: ObservableObject {
         case .success(let authorization):
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                   let tokenData = credential.identityToken,
-                  let token = String(data: tokenData, encoding: .utf8) else {
+                  let token = String(data: tokenData, encoding: .utf8),
+                  let nonce = appleNonce else {
                 message = "Apple did not send a sign-in. Try again."
                 return
             }
@@ -183,7 +199,8 @@ final class RegistrationStore: ObservableObject {
             defer { busy = false }
             do {
                 struct Code: Decodable { let code: String }
-                var body = ["identityToken": token]
+                var body = ["identityToken": token, "nonce": nonce]
+                appleNonce = nil
                 if !given.isEmpty { body["name"] = given }
                 let reply: Code = try await SiteClient.shared.sendAnonymous(
                     "api/native/register/apple", body: try JSONEncoder().encode(body)

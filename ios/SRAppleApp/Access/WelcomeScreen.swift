@@ -26,6 +26,7 @@ struct WelcomeScreen: View {
                 VStack(spacing: 12) {
                     SignInWithAppleButton(.continue) { request in
                         request.requestedScopes = [.fullName, .email]
+                        request.nonce = registration.startAppleSignIn()
                     } onCompletion: { result in
                         Task { await registration.signInWithApple(result) }
                     }
