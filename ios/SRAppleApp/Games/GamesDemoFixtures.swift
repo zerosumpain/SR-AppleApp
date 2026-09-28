@@ -62,6 +62,12 @@ extension SRDemoFixtures {
     /// screenshots (`-SRStoreShots`): "Wordle" is another company's mark.
     static var storeShotsSkipsWordle: Bool { SRDemo.isStoreShots }
     static let wordleLobbyRow = #"{"id": "g_demo_wordle", "game": "wordle-race", "phase": "playing", "hostName": "Sam"},"#
+    /// Boggle's two rooms, left out of the store shots for the same reason
+    /// ("Boggle" is Hasbro's). First in the list, so the showcase reaches them.
+    static let boggleLobbyRows = #"""
+    {"id": "g_demo_boggle", "game": "boggle", "phase": "playing", "hostName": "Alex"},
+                       {"id": "g_demo_boggle_done", "game": "boggle", "phase": "finished", "hostName": "Sam"},
+    """#
 
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
@@ -73,15 +79,14 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [{"id": \(s(demoLobbyRoom)), "game": "tap-duel", "phase": "lobby", "hostName": "Alex"},
+         "rooms": [\(storeShotsSkipsWordle ? "" : boggleLobbyRows)
+                   {"id": \(s(demoLobbyRoom)), "game": "tap-duel", "phase": "lobby", "hostName": "Alex"},
                    \(storeShotsSkipsWordle ? "" : wordleLobbyRow)
                    {"id": \(s(demoQuizRoom)), "game": "quiz-night", "phase": "question", "hostName": "Alex"},
                    {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"},
                    {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "phase": "playing", "hostName": "Alex"},
                    {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
-                   {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"},
-                   {"id": \(s(demoBoggleRoom)), "game": "boggle", "phase": "playing", "hostName": "Alex"},
-                   {"id": \(s(demoBoggleDoneRoom)), "game": "boggle", "phase": "finished", "hostName": "Sam"}],
+                   {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
          "serverNow": \(ms(now))}
         """
     }
