@@ -21,7 +21,7 @@ code goes in App Store Connect's review notes and nowhere else.
 
 | Field | Value |
 | --- | --- |
-| Name (30) | `SR Companion` (fallback if taken: `Strange Ramblings Companion`) |
+| Name (30) | `Strange Rambler` (the Home Screen name stays `SR Companion`, from `CFBundleDisplayName`) |
 | Subtitle (30) | `Family, health and chat` |
 | Primary category | Health & Fitness |
 | Secondary category | Lifestyle |
@@ -36,7 +36,7 @@ code goes in App Store Connect's review notes and nowhere else.
 
 **Description**
 
-> SR Companion is the phone half of strangeramblings.com, my personal site, and it's for my family and a few people I've invited. You can't sign up without an invitation, and every account is checked by hand before it opens.
+> Strange Rambler (SR Companion on your Home Screen) is the phone half of strangeramblings.com, my personal site, and it's for my family and a few people I've invited. You can't sign up without an invitation, and every account is checked by hand before it opens.
 >
 > Family. Everyone who shares their location shows up on one map with their battery, where they are and what they've been up to today. When someone leaves home the app keeps a closer track until they get where they're going, and the journey can sit on the Lock Screen while it's happening.
 >
@@ -65,7 +65,7 @@ code goes in App Store Connect's review notes and nowhere else.
 
 **Notes** (replace `<CODE>` with the value of `APP_REVIEW_DEMO_CODE` on the VPS):
 
-> SR Companion is a private companion app for one family and a small number of invited people. Accounts are invitation-only and approved by hand, and the app is being submitted for Unlisted App Distribution.
+> Strange Rambler (shown as SR Companion under the icon) is a private companion app for one family and a small number of invited people. Accounts are invitation-only and approved by hand, and the app is being submitted for Unlisted App Distribution.
 >
 > Because real accounts show real family members' live locations, we have provided a full demo mode instead of a demo account. On the first screen, tap "I have a pairing code" and enter <CODE>. The app then runs on made-up demo data (a demo family, health figures, chat, steps leaderboard and task list) and makes no uploads. Settings → Leave demo returns to the first screen.
 >
