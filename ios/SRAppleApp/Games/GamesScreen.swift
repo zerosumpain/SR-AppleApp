@@ -461,8 +461,8 @@ struct NewGameSheet: View {
                 .tracking(SR.kickerTracking)
                 .foregroundStyle(SR.inkSecondary)
             Picker(title, selection: selected) {
-                ForEach(options, id: \.value) { option in
-                    Text(option.label).tag(option.value)
+                ForEach(options.indices, id: \.self) { index in
+                    Text(options[index].label).tag(options[index].value)
                 }
             }
             .pickerStyle(.segmented)
