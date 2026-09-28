@@ -301,7 +301,9 @@ struct BoggleTimeBar: View {
     @ObservedObject var store: BoggleStore
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+        // Ticks, not an animation: a bar that is always animating keeps the app
+        // from ever going idle, and UI tests then cannot read the screen.
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             let left = fraction
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -309,7 +311,6 @@ struct BoggleTimeBar: View {
                     Capsule()
                         .fill(left < 0.17 ? SR.error : left < 0.34 ? SR.accent : SR.good)
                         .frame(width: geo.size.width * left)
-                        .animation(.linear(duration: 0.25), value: left)
                 }
             }
             .frame(height: 5)

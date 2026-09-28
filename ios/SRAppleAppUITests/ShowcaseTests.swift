@@ -695,30 +695,13 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
-    /// Boggle mid-play — the 4×4 board with a word half traced, the clock,
-    /// Rotate and Enter — and a finished one: a shared word crossed out and a
-    /// missed word lit on the board.
+    /// Boggle finished — a shared word crossed out and a missed word lit on
+    /// the board — then mid-play: the 4×4 board with a word half traced, the
+    /// clock, Rotate and Enter.
     @MainActor func testShowcaseBoggle() {
         let app = launch()
         openTab(app, "Games")
         settle(app, on: byId(app, "games-invite-g_demo_invite"))
-
-        let playing = byId(app, "games-room-g_demo_boggle")
-        if scroll(app, to: playing) {
-            playing.tap()
-            settle(app, on: byId(app, "boggle-board"), seconds: 2)
-            soft(byId(app, "boggle-tile-15").exists, "fewer than sixteen tiles on a 4×4")
-            soft(byId(app, "boggle-word").exists, "no word row")
-            soft(byId(app, "boggle-rotate").exists, "no Rotate")
-            soft(byId(app, "boggle-enter").exists, "no Enter")
-            soft(byId(app, "boggle-timer").exists, "no clock")
-            soft(byId(app, "boggle-other-p_sam").exists, "Sam is not in the strip")
-            soft(byId(app, "boggle-my-words").exists, "no list of my words")
-            attach(app, "Showcase — Boggle, playing")
-            back(app)
-        } else {
-            soft(false, "no Boggle to resume")
-        }
 
         let finished = byId(app, "games-room-g_demo_boggle_done")
         if scroll(app, to: finished) {
@@ -738,6 +721,24 @@ final class ShowcaseTests: XCTestCase {
         } else {
             soft(false, "no finished Boggle")
         }
+
+        let playing = byId(app, "games-room-g_demo_boggle")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "boggle-board"), seconds: 2)
+            soft(byId(app, "boggle-tile-15").exists, "fewer than sixteen tiles on a 4×4")
+            soft(byId(app, "boggle-word").exists, "no word row")
+            soft(byId(app, "boggle-rotate").exists, "no Rotate")
+            soft(byId(app, "boggle-enter").exists, "no Enter")
+            soft(byId(app, "boggle-timer").exists, "no clock")
+            soft(byId(app, "boggle-other-p_sam").exists, "Sam is not in the strip")
+            soft(byId(app, "boggle-my-words").exists, "no list of my words")
+            attach(app, "Showcase — Boggle, playing")
+            back(app)
+        } else {
+            soft(false, "no Boggle to resume")
+        }
+    }
     }
 
     // MARK: - A member
