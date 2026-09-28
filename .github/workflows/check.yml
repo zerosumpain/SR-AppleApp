@@ -104,7 +104,10 @@ jobs:
     runs-on: macos-26
     # Was 35, and green runs took ~30. The Watch app adds a build of its own,
     # and the UI suite covers six games (35 was hit by it alone, 2026-09-26).
-    timeout-minutes: 50
+    # Was 50: the Release build (a few minutes) and the review-demo UI walk
+    # (~4) took a green run past it on 2026-09-28 with the last showcase
+    # tests still going. A timeout is for a wedged simulator, not the suite.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - name: Verify current Apple toolchain
