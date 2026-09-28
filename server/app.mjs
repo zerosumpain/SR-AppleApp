@@ -1,3 +1,4 @@
+import { accessPolicy } from './access.mjs';
 import QRCode from 'qrcode';
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
@@ -108,7 +109,7 @@ function alertEvent(e) {
   if (!string(e.id, 100) || !Array.isArray(e.recipients) || !e.recipients.every(r => string(r, 320)) || !string(e.title, 120) || !string(e.body, 300) || !iso(e.at)) fail(400, 'Invalid event');
   return e;
 }
-export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, householdToken = process.env.APPLE_HOUSEHOLD_TOKEN, publicOrigin = process.env.APPLE_PUBLIC_ORIGIN || 'https://strangeramblings.com', doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch } = {}) {
+export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, householdToken = process.env.APPLE_HOUSEHOLD_TOKEN, publicOrigin = process.env.APPLE_PUBLIC_ORIGIN || 'https://strangeramblings.com', doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch, policyUrl = process.env.APPLE_POLICY_URL, policyToken = process.env.APPLE_POLICY_TOKEN } = {}) {
   const rate = new Map();
   // Its OWN ring-only secret, never the service token — that token can READ
   // the owner's export, and this URL is not guaranteed to stay on loopback the
@@ -134,6 +135,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
   // The exact string a pairing QR encodes, whoever minted it.
   const pairPayload = (server, code) => JSON.stringify({ type: 'sr-companion-pair', version: 1, server, code });
   const secure = csrfOrigin.startsWith('https:');
+  const policy = accessPolicy(db, { url: policyUrl, token: [serviceToken, householdToken, doorbellToken].includes(policyToken) ? undefined : policyToken, demo, secure, fetchImpl });
+  const pendingDeletion = id => !!db.prepare('SELECT id FROM deletion_jobs WHERE user_id=? AND (main_done=0 OR health_done=0)').get(id);
+  const requireReady = id => { if (pendingDeletion(id)) fail(409, 'Deletion is still being completed. Pair again when it finishes.'); };
+
   function limit(key) {
     const now = Date.now();
     for (const [k, v] of rate) if (now > v.until) rate.delete(k);
@@ -192,6 +197,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         limit(req.socket.remoteAddress);
         const body = await readJSON(); exactKeys(body, ['code', 'label']);
         if (!string(body.code) || !string(body.label, 80)) fail(400, 'Pairing code and device name required');
+        const candidate = db.prepare("SELECT c.*,u.email,u.access_version AS current_version FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.hash=? AND c.kind='pair' AND c.expires>?").get(hash(body.code), Date.now());
+        if (!candidate) fail(401, 'Pairing code expired or invalid');
+        await policy.requireUser({ id: candidate.user_id, email: candidate.email, access_version: candidate.current_version }, candidate.access_version);
+        requireReady(candidate.user_id);
         db.exec('BEGIN IMMEDIATE');
         try {
           const code = db.prepare("SELECT * FROM credentials WHERE hash=? AND kind='pair' AND expires>?").get(hash(body.code), Date.now());
@@ -261,7 +270,26 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { from, to, retentionDays: RETENTION_DAYS, journeys, workouts, truncated: rows.length > TRACK_LIMIT });
       }
       // A COPY, unlike journeys (spec E1, E14). Health figures only — location
-      // never leaves through here, and "delete my data" does not reach the copy.
+      // never leaves through here. Deletion reaches the copy through the durable
+      // export/deletions manifest and acknowledgement lane.
+      if (path === '/api/apple/export/deletions') {
+        const ownerId = serviceOwnerId(['id','after']);
+        if (method === 'GET' && url.searchParams.has('id')) {
+          const id=url.searchParams.get('id'), after=Number(url.searchParams.get('after') || 0);
+          if (!Number.isSafeInteger(after) || after<0) fail(400,'Invalid cursor');
+          if (!db.prepare('SELECT id FROM deletion_jobs WHERE id=? AND user_id=? AND health_done=0').get(id,ownerId)) fail(404,'Not found');
+          const rows=db.prepare('SELECT rowid AS cursor,id,kind,start,deleted FROM deletion_items WHERE job_id=? AND rowid>? ORDER BY rowid LIMIT 1000').all(id,after);
+          return send(200,{ tombstones:rows, next:rows.at(-1)?.cursor ?? after, more:rows.length===1000 });
+        }
+        if (method === 'GET') return send(200, { jobs: db.prepare('SELECT id,created FROM deletion_jobs WHERE user_id=? AND health_done=0').all(ownerId) });
+        if (method === 'POST') {
+          const body = await readJSON(); exactKeys(body, ['id']);
+          if (!string(body.id)) fail(400, 'Job required');
+          db.prepare('UPDATE deletion_jobs SET health_done=1 WHERE id=? AND user_id=?').run(body.id, ownerId);
+          return send(200, { ok: true });
+        }
+        fail(405, 'Method not allowed');
+      }
       if (path === '/api/apple/export' && method === 'GET') {
         const ownerId = serviceOwnerId(['after', 'limit']);
         const after = Number(url.searchParams.get('after') ?? 0), limit = Number(url.searchParams.get('limit') ?? 2000);
@@ -287,6 +315,43 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if ([...url.searchParams.keys()].some(k => !allowedParams.includes(k))) fail(400, 'Unexpected query parameter');
         return serviceOwner ? db.prepare('SELECT family FROM users WHERE email=?').get(serviceOwner.toLowerCase()) : null;
       };
+      if (path === '/api/apple/household/account-deletions') {
+        const owner = householdOwner([]);
+        if (!owner) fail(404, 'Not found');
+        if (method === 'GET') return send(200, { users: db.prepare(`
+          SELECT NULL AS jobId,email,delete_requested AS deleteRequested FROM users WHERE family=? AND delete_requested IS NOT NULL
+          UNION ALL SELECT id AS jobId,email,created AS deleteRequested FROM deletion_jobs WHERE family=? AND account_requested=1 AND account_done=0
+        `).all(owner.family,owner.family) });
+        if (method === 'POST') {
+          const body = await readJSON(); exactKeys(body, ['id']);
+          if (!string(body.id, 100)) fail(400, 'Deletion id required');
+          db.prepare('UPDATE deletion_jobs SET account_done=1 WHERE id=? AND family=?').run(body.id, owner.family);
+          return send(200, { ok: true });
+        }
+        fail(405, 'Method not allowed');
+      }
+      if (path === '/api/apple/household/deletions') {
+        const owner = householdOwner([]);
+        if (!owner) fail(404, 'Not found');
+        if (method === 'GET') return send(200, { jobs: db.prepare('SELECT id,email,created FROM deletion_jobs WHERE family=? AND main_done=0').all(owner.family) });
+        if (method === 'POST') {
+          const body = await readJSON(); exactKeys(body, ['id']);
+          if (!string(body.id)) fail(400, 'Job required');
+          db.prepare('UPDATE deletion_jobs SET main_done=1 WHERE id=? AND family=?').run(body.id, owner.family);
+          return send(200, { ok: true });
+        }
+        fail(405, 'Method not allowed');
+      }
+      if (path === '/api/apple/household/steps' && method === 'GET') {
+        const owner = householdOwner(['email','from','to']);
+        const member = householdMemberForSteps(owner, url.searchParams.get('email'));
+        await policy.requireUser(member);
+        if (!db.prepare('SELECT steps_sharing FROM users WHERE id=?').get(member.id).steps_sharing || pendingDeletion(member.id)) fail(403, 'Steps sharing is off');
+        const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+        if (!iso(from) || !iso(to) || Date.parse(to)<=Date.parse(from) || Date.parse(to)-Date.parse(from)>48*3600000) fail(400, 'Invalid window');
+        const rows = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='steps' AND start<? AND end>? ORDER BY start").all(member.id,to,from);
+        return send(200, { steps: rows.map(r => { const p=JSON.parse(r.payload); return { start:p.start,end:p.end,value:p.value }; }) });
+      }
       if (path === '/api/apple/household' && method === 'GET') {
         const owner = householdOwner(['since', 'limit']);
         const since = url.searchParams.get('since') ?? '';
@@ -294,7 +359,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const pageLimit = rawLimit === null || rawLimit === '' ? 2000 : Number(rawLimit);
         if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > 5000) fail(400, 'Invalid limit');
         if (!owner) return send(200, { cursor: since, users: [], fixes: [], more: false });
-        const members = db.prepare('SELECT email, name, sharing, site_pair_wanted, delete_requested FROM users WHERE family=? ORDER BY email').all(owner.family);
+        const { users: members, revision } = await policy.household(owner.family);
         // The cursor is opaque to callers but is really a tuple: (received,
         // user_id, location id). It is split on the first two '|'s so a
         // location id containing one — unlikely, but ids are caller-chosen —
@@ -314,11 +379,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const page = rows.slice(0, pageLimit);
         const fixes = page.map(r => {
           const p = JSON.parse(r.payload);
-          return { email: r.email, id: r.id, recorded: r.recorded, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving, battery: Number.isInteger(p.battery) ? p.battery : null };
+          return { email: r.email, id: r.id, recorded: r.recorded, received: r.received, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving, battery: Number.isInteger(p.battery) ? p.battery : null };
         });
         const last = page.at(-1);
         const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;
-        return send(200, { cursor, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing, sitePairWanted: m.site_pair_wanted ?? null, deleteRequested: m.delete_requested ?? null })), fixes });
+        return send(200, { cursor, revision, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing, stepsSharing: !!m.steps_sharing, sitePairWanted: m.site_pair_wanted ?? null, deleteRequested: m.delete_requested ?? null })), fixes });
       }
       // Arrivals/departures forwarded from SR-Main, same token as the read
       // side above. Fanned out to `alerts` rows keyed (recipient, event id)
@@ -332,7 +397,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // address in a batch must not sink every other recipient's alert.
       if (path === '/api/apple/household/events' && method === 'POST') {
         const owner = householdOwner([]);
-        const body = await readJSON(); exactKeys(body, ['events']);
+        const body = await readJSON(); exactKeys(body, ['events', 'revision']);
+        const state = owner ? await policy.household(owner.family) : null;
+        if (state && body.revision !== state.revision) fail(409, 'Household consent changed; rebuild events');
         if (!Array.isArray(body.events) || body.events.length > 200) fail(400, 'At most 200 events per batch');
         const events = body.events.map(alertEvent);
         const cutoff = new Date(Date.now() - ALERT_RETENTION_DAYS * 86400000).toISOString();
@@ -343,13 +410,13 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           db.prepare('DELETE FROM alerts WHERE created<?').run(cutoff);
           if (owner) {
             const member = db.prepare('SELECT id FROM users WHERE email=? AND family=?');
-            const insert = db.prepare('INSERT OR IGNORE INTO alerts (user_id,id,payload,created) VALUES (?,?,?,?)');
+            const insert = db.prepare('INSERT OR IGNORE INTO alerts (user_id,id,payload,created,revision) VALUES (?,?,?,?,?)');
             for (const event of events) {
               const payload = JSON.stringify({ id: event.id, title: event.title, body: event.body, at: event.at });
               for (const email of event.recipients) {
                 const recipient = member.get(email.toLowerCase(), owner.family);
                 if (!recipient) continue;
-                accepted += insert.run(recipient.id, event.id, payload, created).changes;
+                accepted += insert.run(recipient.id, event.id, payload, created, state.revision).changes;
               }
             }
           }
@@ -369,7 +436,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // everyone. An email outside the family is skipped, like the events.
       if (path === '/api/apple/household/views' && method === 'POST') {
         const owner = householdOwner([]);
-        const body = await readJSON(); exactKeys(body, ['views']);
+        const body = await readJSON(); exactKeys(body, ['views', 'revision']);
+        const state = owner ? await policy.household(owner.family) : null;
+        if (state && body.revision !== state.revision) fail(409, 'Household consent changed; rebuild the view');
         if (!Array.isArray(body.views) || body.views.length > 50) fail(400, 'At most 50 views per batch');
         const views = body.views.map(v => {
           exactKeys(v, ['email', 'view']);
@@ -383,11 +452,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           if (owner) {
             db.prepare('DELETE FROM household_views WHERE user_id IN (SELECT id FROM users WHERE family=?)').run(owner.family);
             const member = db.prepare('SELECT id FROM users WHERE email=? AND family=?');
-            const insert = db.prepare('INSERT OR REPLACE INTO household_views (user_id,payload,updated) VALUES (?,?,?)');
+            const insert = db.prepare('INSERT OR REPLACE INTO household_views (user_id,payload,updated,revision) VALUES (?,?,?,?)');
             for (const view of views) {
               const recipient = member.get(view.email, owner.family);
               if (!recipient) continue;
-              stored += insert.run(recipient.id, view.payload, updated).changes;
+              stored += insert.run(recipient.id, view.payload, updated, state.revision).changes;
             }
           }
           db.exec('COMMIT');
@@ -402,9 +471,15 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // and nowhere else. A person named by email who is not in that family —
       // unknown, or real but in another family — is a 404 here (409 when
       // adding them), never a way to reach them.
+      function householdMemberForSteps(owner, email) {
+        if (!string(email,320)) fail(400, 'Email required');
+        const member = owner ? db.prepare('SELECT * FROM users WHERE email=? AND family=?').get(email.toLowerCase(), owner.family) : null;
+        if (!member) fail(404, 'No such person in this household');
+        return member;
+      }
       const householdMember = (owner, email) => {
         if (!string(email, 320)) fail(400, 'Email required');
-        const member = owner ? db.prepare('SELECT id,email,name,sharing FROM users WHERE email=? AND family=?').get(email.toLowerCase(), owner.family) : null;
+        const member = owner ? db.prepare('SELECT * FROM users WHERE email=? AND family=?').get(email.toLowerCase(), owner.family) : null;
         if (!member) fail(404, 'No such person in this household');
         return member;
       };
@@ -454,6 +529,8 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const owner = householdOwner([]);
         const body = await readJSON(); exactKeys(body, ['email']);
         const member = householdMember(owner, body.email);
+        await policy.requireUser(member);
+        requireReady(member.id);
         const code = mintPairCode(db, member.id);
         return send(200, { code, payload: pairPayload(pairServer, code), expiresIn: PAIR_CODE_TTL / 1000 });
       }
@@ -491,7 +568,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const owner = householdOwner([]);
         const body = await readJSON(); exactKeys(body, ['email']);
         const member = householdMember(owner, body.email);
-        return send(200, { deleted: deleteUserData(db, member.id) });
+        const deleted = deleteUserData(db, member.id, serviceOwner);
+        ring();
+        return send(202, { deleted, pending: true });
       }
       // One person's day for SR-Main's /home/people "Your day": the same track
       // and timeline the retired dashboard's Movement tab built from `/track`
@@ -538,14 +617,14 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
       let auth = null;
       if (bearer) {
-        auth = db.prepare('SELECT c.*, u.email,u.name,u.family,u.sharing FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.hash=? AND c.expires>? AND c.kind=?')
+        auth = db.prepare('SELECT c.*, u.email,u.name,u.family,u.sharing,u.steps_sharing FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.hash=? AND c.expires>? AND c.kind=?')
           .get(hash(bearer), Date.now(), 'device') ?? null;
         if (!auth) fail(401, 'Pair this iPhone again');
       } else {
         const email = demoIdentity(req.headers.cookie, { demo, secure })
-          ?? (authSecret ? await sessionIdentity(req.headers.cookie, authSecret) : null);
+          ?? ((authSecret || process.env.SESSION_INTROSPECTION_URL) ? await sessionIdentity(req.headers.cookie, authSecret) : null);
         if (!email) fail(401, 'Sign in at strangeramblings.com');
-        const user = db.prepare('SELECT id,email,name,family,sharing FROM users WHERE email=?').get(email);
+        const user = db.prepare('SELECT * FROM users WHERE email=?').get(email);
         if (!user) fail(403, 'This account is not set up on the companion. Ask the owner to add it.');
         // Shaped like a credential row so every handler below reads the same
         // fields whichever lane it arrived on. There is no credential row for a
@@ -573,22 +652,30 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         }
         return send(200, { ok: true, signOutAt: `${csrfOrigin}/auth/signout` });
       }
+      const account = db.prepare('SELECT * FROM users WHERE id=?').get(auth.user_id);
+      await policy.requireUser(account, auth.kind === 'device' ? auth.access_version : undefined);
+      // Policy changes may have reset consent during the awaited check.
+      const current = db.prepare('SELECT sharing,steps_sharing FROM users WHERE id=?').get(auth.user_id);
+      auth.sharing = current.sharing; auth.steps_sharing = current.steps_sharing;
+      if (path !== '/api/apple/data' && path !== '/api/apple/me') requireReady(auth.user_id);
       // `owner` is derived here rather than stored, so re-pointing
       // APPLE_SERVICE_OWNER at a different family member changes who the app
       // treats as owner on the next request, with nothing to migrate.
-      if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, demo, owner: !!serviceOwner && auth.email === serviceOwner.toLowerCase() });
+      if (path === '/api/apple/me' && method === 'GET') return send(200, { id: auth.user_id, name: auth.name, email: auth.email, sharing: !!auth.sharing, stepsSharing: !!auth.steps_sharing, deletionPending: pendingDeletion(auth.user_id), demo, owner: !!serviceOwner && auth.email === serviceOwner.toLowerCase() });
       // The caller's own Family view, and nobody else's: there is no
       // parameter, so there is no way to ask for another person's. `view` is
       // null until SR-Main has pushed one (or after it stopped building one).
       if (path === '/api/apple/household/view' && method === 'GET') {
-        const row = db.prepare('SELECT payload, updated FROM household_views WHERE user_id=?').get(auth.user_id);
+        const state = await policy.household(auth.family);
+        const row = db.prepare('SELECT payload, updated FROM household_views WHERE user_id=? AND revision=? AND updated>?').get(auth.user_id, state.revision, new Date(Date.now() - 5 * 60_000).toISOString());
         return send(200, { view: row ? JSON.parse(row.payload) : null, updated: row?.updated ?? null });
       }
       // The phone's drain of its own queue — same drain-by-acknowledgement
       // contract as /api/native/notifications, so a member never needs the
       // owner-only native lane just to hear about a household arrival.
       if (path === '/api/apple/alerts' && method === 'GET') {
-        const rows = db.prepare('SELECT payload FROM alerts WHERE user_id=? AND acked IS NULL ORDER BY created LIMIT 50').all(auth.user_id);
+        const state = await policy.household(auth.family);
+        const rows = db.prepare('SELECT payload FROM alerts WHERE user_id=? AND revision=? AND acked IS NULL ORDER BY created LIMIT 50').all(auth.user_id, state.revision);
         return send(200, { alerts: rows.map(r => JSON.parse(r.payload)) });
       }
       if (path === '/api/apple/alerts/ack' && method === 'POST') {
@@ -624,6 +711,12 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         db.prepare('UPDATE users SET site_pair_wanted=? WHERE id=?').run(body.wanted ? new Date().toISOString() : null, auth.user_id);
         return send(200, { ok: true });
       }
+      if (path === '/api/apple/steps-sharing' && method === 'PUT') {
+        const body = await readJSON(); exactKeys(body, ['enabled']);
+        if (typeof body.enabled !== 'boolean') fail(400, 'enabled must be boolean');
+        db.prepare('UPDATE users SET steps_sharing=? WHERE id=?').run(Number(body.enabled), auth.user_id);
+        return send(200, { stepsSharing: body.enabled });
+      }
       // "Delete account" from a phone paired to this server only (a family
       // member with no website credential; App Store 5.1.1(v)). Everything
       // they uploaded goes NOW, and the phone is unpaired, through the same
@@ -634,7 +727,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const body = await readJSON(); exactKeys(body, []);
         const me = db.prepare('SELECT email FROM users WHERE id=?').get(auth.user_id);
         if (serviceOwner && me?.email === serviceOwner.toLowerCase()) fail(409, 'The owner account is managed on the website');
-        const deleted = deleteUserData(db, auth.user_id);
+        const deleted = deleteUserData(db, auth.user_id, serviceOwner);
         db.prepare('UPDATE users SET delete_requested=? WHERE id=?').run(new Date().toISOString(), auth.user_id);
         return send(200, { deleted });
       }
@@ -714,13 +807,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!Number.isInteger(bins) || bins < 1 || bins > 1440) fail(400, 'Invalid bin count');
         return send(200, timelineWindow(db, auth.user_id, from, to, bins));
       }
-      if (path === '/api/apple/family' && method === 'GET') {
-        const members = db.prepare('SELECT id,name,sharing FROM users WHERE family=? ORDER BY name').all(auth.family);
-        return send(200, { members: members.map(u => {
-          const row = u.sharing ? db.prepare('SELECT payload,received FROM locations WHERE user_id=? ORDER BY recorded DESC LIMIT 1').get(u.id) : null;
-          return { id: u.id, name: u.name, sharing: !!u.sharing, location: row ? { ...JSON.parse(row.payload), received: row.received } : null };
-        }) });
-      }
+      if (path === '/api/apple/family' && method === 'GET') fail(410, 'Use the scoped household view');
       if (path === '/api/apple/sync' && method === 'POST' && auth.kind === 'device') {
         const body = await readJSON(); exactKeys(body, ['health', 'locations', 'deleted']);
         if (![body.health, body.locations, body.deleted].every(Array.isArray) || body.health.length + body.locations.length + body.deleted.length > 500) fail(400, 'Maximum 500 records per batch');
@@ -767,8 +854,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { accepted: health.length + locations.length + body.deleted.length, received });
       }
       if (path === '/api/apple/data' && method === 'DELETE') {
-        deleteUserData(db, auth.user_id);
-        return send(200, { ok: true });
+        deleteUserData(db, auth.user_id, serviceOwner);
+        ring();
+        return send(202, { ok: true, pending: true });
       }
       fail(404, 'Not found');
     } catch (error) {

@@ -119,6 +119,19 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             await refreshHealthReview()
         }
     }
+    func setStepsSharing(_ enabled: Bool) async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let _: API.Acknowledgement = try await api.request("steps-sharing", method: "PUT", data: JSONEncoder().encode(["enabled": enabled]))
+            profile?.stepsSharing = enabled
+            FamilyStepsStore.shared.reset()
+            FamilyWidgetBridge.clear()
+            message = enabled ? "Your daily steps are shared with the family." : "Family steps sharing is off."
+        } catch { message = error.localizedDescription }
+    }
+
     /// Returns whether the server acknowledged the change.
     @discardableResult func setSharing(_ enabled: Bool) async -> Bool {
         guard !busy else { return false }
@@ -216,7 +229,8 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             location.start()
         }
         profile = me
-        let f: FamilyResponse = try await api.request("family"); family = f.members
+        // Family locations are read only through the scoped FamilyStore view.
+        family = []
         // The watched places ride in the household view. Read on every sync
         // (including background wakes), so a place flagged on the site is
         // watched by the phone without anybody opening the Family tab.
@@ -333,6 +347,18 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             message = health.needsPermissionReview ? reviewPrompt : withHealthNotes("Up to date with the server.", dropped: dropped)
             retryTask?.cancel(); retryTask = nil
         } catch {
+            if case .response(let status, _)? = error as? CompanionError, status == 401 || status == 403 {
+                location.stop()
+                try? outbox.change { $0.sharing = false; $0.pendingSharing = nil; $0.batches = []; $0.healthEnabled.removeAll() }
+                try? Keychain.save(nil)
+                api.token = nil; paired = false; profile = nil; records = []; family = []
+                health.startObservers()
+                retryTask?.cancel(); retryTask = nil
+                FamilyWidgetBridge.clear()
+                message = "Access ended. Collection and uploads are stopped; pair again after access is restored."
+                updateQueue()
+                return
+            }
             uploadFailed = true
             message = isTransientUploadFailure(error)
                 ? withHealthNotes("Upload paused — \(queueCount) record\(queueCount == 1 ? "" : "s") left; it will resume automatically.", dropped: dropped)

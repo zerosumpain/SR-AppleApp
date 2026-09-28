@@ -317,7 +317,7 @@ import UIKit
                             // than guessed at.
                             battery.sample()
                             if companion.paired { Task { await companion.sync() } }
-                            Task { await PushRegistration.shared.sync() }
+                            Task { await SiteClient.shared.retryPendingRevocations(); await PushRegistration.shared.sync() }
                         }
                         if phase == .background {
                             battery.sample()

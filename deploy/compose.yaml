@@ -4,13 +4,15 @@ services:
     build:
       context: ..
     environment:
+      SESSION_INTROSPECTION_URL: ${SESSION_INTROSPECTION_URL:-https://strangeramblings.com/api/internal/session}
+      SESSION_INTROSPECTION_TOKEN: ${SESSION_INTROSPECTION_TOKEN:?dedicated session authority key required}
+      SESSION_INTROSPECTION_AUDIENCE: sr-companion
       APP_ORIGIN: ${APP_ORIGIN:?Set the HTTPS origin for the companion}
       DATABASE_PATH: /app/data/apple.sqlite
-      # The main site's Auth.js secret. Browsers sign in with the site's own
-      # Google session and this is how that cookie is verified; the container
-      # refuses to start on an https origin without it. DEMO_MODE is
-      # deliberately not set here — it only works on a non-https origin anyway.
-      AUTH_SECRET: ${AUTH_SECRET:?Copy AUTH_SECRET from the main site's environment}
+      APPLE_POLICY_URL: ${APPLE_POLICY_URL:-https://strangeramblings.com/api/native/companion-policy}
+      APPLE_POLICY_TOKEN: ${APPLE_POLICY_TOKEN:?Set a dedicated Main companion-policy secret}
+      # Main validates browser sessions using this companion's dedicated key.
+      # DEMO_MODE is deliberately absent; production requires HTTPS authority.
       # The service lane /health reads the owner's journeys through — see
       # docs/INTEGRATION.md. Both empty = the endpoint 404s, which is the right
       # state for anywhere that has not opted in. The token is shared with
@@ -40,6 +42,8 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5295/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

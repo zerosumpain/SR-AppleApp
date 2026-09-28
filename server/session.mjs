@@ -1,37 +1,10 @@
 import { getToken } from '@auth/core/jwt';
 
-/**
- * Who is signed in to strangeramblings.com.
- *
- * The companion used to keep its own email-and-password login, its own
- * `sr_apple` cookie and its own scrypt hashes. It does not any more: the site
- * already has an identity — Google via Auth.js — and a second one meant a second
- * password to set, lose and reset, on a login reachable from the whole internet.
- *
- * ## Why this reads the cookie directly, rather than sitting behind the kit's gateway
- *
- * Every EXTRACTED application (Policy, Drive, Health, JKAI) sits behind the
- * ~60-line gateway in `~/sr-infra/gateway/`, which validates this same cookie at
- * the edge and re-issues a 30-second HMAC assertion. That design exists because
- * those apps are a separate trust domain reached through a proxy: the gateway's
- * job is to STRIP every client-supplied identity header before the app sees one,
- * so the app can trust a header at all.
- *
- * There is no header to strip here. Identity comes from an encrypted JWE that
- * cannot be forged without `AUTH_SECRET`, so the cryptography does the work the
- * assertion would have done. Both designs need `AUTH_SECRET` in this container
- * either way, so the gateway would have bought process separation and nothing
- * else — at the cost of a second port, a second image, a release lane of its
- * own, and an ingress change. The companion is also not in
- * `registry/apps.json`: it is a single-container pilot with no release slots,
- * and the kit's blue/green machinery has nothing to act on.
- *
- * `sessionIdentity` itself is taken UNCHANGED from `sr-infra/gateway/session.mjs`
- * so the two cannot drift on the part that matters.
- *
- * @returns the lower-cased email, or null.
+/** Browser sessions use Main's audience-bound authority in production.
+ * Direct decoding remains only for isolated legacy-format tests.
  */
 export async function sessionIdentity(cookie, secret) {
+  if (process.env.SESSION_INTROSPECTION_URL || process.env.SESSION_INTROSPECTION_TOKEN) return (await sessionContext(cookie)).email;
   if (!secret) throw new Error('AUTH_SECRET is required');
   const token = await getToken({
     req: { headers: new Headers({ cookie: cookie ?? '' }) },
@@ -40,7 +13,7 @@ export async function sessionIdentity(cookie, secret) {
     // unprefixed name instead finds nothing and reads as "not signed in".
     secureCookie: true
   });
-  if (!token || typeof token.email !== 'string' || !token.email.trim()) return null;
+  if (!token || (token.registrant != null && token.registrant !== false) || typeof token.email !== 'string' || !token.email.trim()) return null;
   return token.email.trim().toLowerCase();
 }
 
@@ -71,4 +44,25 @@ export function demoIdentity(cookie, { demo, secure }) {
   } catch {
     return null;
   }
+}
+
+/** Ask Main to verify a browser session without distributing its signing key. */
+export async function sessionContext(cookie, {
+  url = process.env.SESSION_INTROSPECTION_URL,
+  token = process.env.SESSION_INTROSPECTION_TOKEN,
+  audience = process.env.SESSION_INTROSPECTION_AUDIENCE,
+  fetchImpl = fetch,
+} = {}) {
+  if (!url || !audience || (token?.length ?? 0) < 32) throw new Error('Session authority configuration required');
+  const target = new URL(url);
+  if (target.protocol !== 'https:' && !(target.protocol === 'http:' && ['localhost','127.0.0.1','[::1]'].includes(target.hostname))) throw new Error('Unsafe session authority URL');
+  const response = await fetchImpl(target, { method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'x-sr-session-audience': audience, cookie: cookie ?? '' },
+    redirect: 'error', signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) throw new Error('Session authority unavailable');
+  const value = await response.json();
+  if (value.email !== null && (typeof value.email !== 'string' || !value.email.includes('@'))) throw new Error('Invalid session authority response');
+  if (value.viewingAs != null && (typeof value.viewingAs !== 'string' || !value.email)) throw new Error('Invalid view-as response');
+  return { email: value.email, viewingAs: value.viewingAs ?? null };
 }

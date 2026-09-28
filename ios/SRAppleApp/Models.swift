@@ -55,7 +55,7 @@ struct UploadBatch: Codable, Identifiable {
 }
 /// `owner` is optional so a pilot that predates it still decodes; nil means
 /// "not told", which nothing treats as either answer.
-struct Profile: Codable { var id: String; var name: String; var sharing: Bool; var owner: Bool? }
+struct Profile: Codable { var id: String; var name: String; var sharing: Bool; var owner: Bool?; var stepsSharing: Bool?; var deletionPending: Bool? }
 struct FamilyMember: Codable, Identifiable {
     var id: String
     var name: String

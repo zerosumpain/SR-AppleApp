@@ -62,9 +62,12 @@ final class SitePairingModel: ObservableObject {
     }
 
     func signOut() {
-        SiteClient.shared.signOut()
+        guard SiteClient.shared.signOut() else {
+            message = "Could not save the disconnect request securely. Please try again."
+            return
+        }
         paired = false
         ownerEmail = nil
-        message = "Disconnected on this iPhone. Revoke it on the website too if it was lost."
+        message = "Disconnected on this iPhone. Server revocation is queued and retries automatically when online."
     }
 }

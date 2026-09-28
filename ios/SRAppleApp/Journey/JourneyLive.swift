@@ -52,6 +52,13 @@ final class JourneyLive {
         if await post(["liveActivityStartToken": startToken]) { startSentFor = credential }
     }
 
+    func endAll() async {
+        startSentFor = nil
+        for activity in Activity<JourneyAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
     private func watch(_ activity: Activity<JourneyAttributes>) {
         guard watched.insert(activity.id).inserted else { return }
         let journey = activity.attributes.journeyId

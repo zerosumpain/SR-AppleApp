@@ -44,7 +44,7 @@ code goes in App Store Connect's review notes and nowhere else.
 >
 > Tasks. Anyone can add a job, with a deadline and a reward if there is one — cash, a day out, game time, lunch out — and a parent confirms it's done before it comes off the list. Everyone can see what they've finished and what they're owed.
 >
-> Health. The Apple Health figures you choose go to your own private health dashboard on the site. Nobody else sees them, apart from your daily step total on the family leaderboard.
+> Health. The Apple Health figures you choose go to your own private health dashboard on the site. Family steps appear on the leaderboard only after separate opt-in. The site owner may publish selected figures on their public Health page; server operators administer the stored data.
 >
 > Chat. Talk to jkai, the site's assistant, by text, photo or voice note.
 >
@@ -71,7 +71,7 @@ code goes in App Store Connect's review notes and nowhere else.
 >
 > Background location: family members choose to share their location with each other. The app uses background location so that the family map stays current, and records a journey more closely after the person leaves a place they have chosen. Motion data is read only to switch GPS off while the phone is still, to save battery. Sharing can be paused from Settings → Location & battery.
 >
-> HealthKit: the app reads only the Apple Health categories the person chooses, and uploads them to their own private dashboard. It does not write to Apple Health, and health data is not used for advertising or shared with third parties.
+> HealthKit: the app reads only the Apple Health categories the person chooses, and uploads them to their own private dashboard. It does not write to Apple Health, and health data is not used for advertising. Optional family steps and the configured owner’s public Health projection are explained in Settings and the privacy policy.
 >
 > Sign in with Apple is offered on the first screen alongside Google. Accounts can be deleted from Settings → Delete account.
 

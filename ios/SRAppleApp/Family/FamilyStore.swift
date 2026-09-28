@@ -60,8 +60,14 @@ final class FamilyStore: ObservableObject {
             updated = response.updated
             message = nil
         } catch {
-            // Keep the last view: a map that vanishes on a dropped connection
-            // is worse than one labelled with its age.
+            if case .response(let status, _)? = error as? CompanionError, status == 401 || status == 403 {
+                real = nil; view = nil; updated = nil
+                companion.adoptWatch(nil)
+                AccessStore.shared.adopt(previews: nil)
+                FamilyWidgetBridge.clear()
+            } else if let updated, let date = ISO8601DateFormatter().date(from: updated), Date().timeIntervalSince(date) > 300 {
+                real = nil; view = nil
+            }
             message = error.localizedDescription
         }
     }
