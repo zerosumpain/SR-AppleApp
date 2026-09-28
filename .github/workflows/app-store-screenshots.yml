@@ -2,7 +2,8 @@ name: App Store screenshots
 
 # By hand, when the listing needs new pictures. The showcase UI tests on the
 # largest iPhone simulator (the 6.9-inch set App Store Connect asks for), with
-# a clean status bar, in light and then dark. See docs/APP-STORE.md.
+# a clean status bar. Light only: the app is light-locked, and one pass of
+# the showcase suite is ~31 min on the hosted runner. See docs/APP-STORE.md.
 on:
   workflow_dispatch:
 permissions:
@@ -10,14 +11,14 @@ permissions:
 jobs:
   screenshots:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate --spec ios/project.yml
-      - name: Shoot light and dark
+      - name: Shoot
         run: |
           set -o pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); xs=[x for g in d["devices"].values() for x in g if x["name"].startswith("iPhone") and "Pro Max" in x["name"]]; print(sorted(xs, key=lambda x: x["name"])[-1]["udid"])')
@@ -25,16 +26,19 @@ jobs:
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl status_bar "$DEVICE_ID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
-          for look in light dark; do
-            xcrun simctl ui "$DEVICE_ID" appearance "$look"
-            xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp \
-              -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData \
-              -only-testing:SRAppleAppUITests/ShowcaseTests \
-              -resultBundlePath "artifacts/$look.xcresult" CODE_SIGNING_ALLOWED=NO | tail -40
-            xcrun xcresulttool export attachments --path "artifacts/$look.xcresult" --output-path "artifacts/screenshots/$look"
-          done
+          xcrun simctl ui "$DEVICE_ID" appearance light
+          xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData \
+            -only-testing:SRAppleAppUITests/ShowcaseTests \
+            -resultBundlePath artifacts/Showcase.xcresult CODE_SIGNING_ALLOWED=NO | tail -40
+      - name: Export screenshots
+        if: always()
+        run: |
+          if [ -d artifacts/Showcase.xcresult ]; then
+            xcrun xcresulttool export attachments --path artifacts/Showcase.xcresult --output-path artifacts/screenshots
+          fi
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: always()
         with:
           name: app-store-screenshots
           path: artifacts/screenshots

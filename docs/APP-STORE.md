@@ -114,5 +114,5 @@ Screen Time content restrictions are set on their phone.
 
 App Store Connect needs the **6.9-inch** set (1320 × 2868; any 6.5-inch set is accepted instead). Run the
 **App Store screenshots** workflow (Actions → App Store screenshots → Run workflow). It runs the showcase
-UI tests on an iPhone Pro Max simulator in demo mode, in light and dark, and uploads them as the
+UI tests on an iPhone Pro Max simulator on the demo fixtures (about 40 minutes), and uploads them as the
 `app-store-screenshots` artifact. Upload 6–8 of them: Today, Family map, Steps, Tasks, Health, Chat, Games, widgets.
