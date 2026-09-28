@@ -56,7 +56,7 @@ struct AlertDetailScreen: View {
                 VStack(spacing: 10) {
                     if let id = alert.commissionId {
                         NavigationLink { CommissionDetailScreen(id: id) } label: {
-                            SRButtonLabel(title: "Open Daydream improvement", icon: "sparkles", fill: true)
+                            SRButtonLabel(title: "Open the double-check", icon: "sparkles", fill: true)
                         }.srButton(.prominent)
                     }
                     if let path = alert.url {

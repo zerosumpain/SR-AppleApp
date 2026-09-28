@@ -552,6 +552,9 @@ struct ContentView: View {
         AppDelegate.pending.drain(into: router, companion: companion)
         if let id = AppDelegate.pending.daydreamCommission, AccessStore.ownerSite {
             AppDelegate.pending.daydreamCommission = nil
+            // "All": the note the double-check belongs to is on screen
+            // behind the sheet, whichever list it sits in.
+            DaydreamStore.shared.requestedFilter = .all
             router.openDaydream()
             CommissionStore.shared.destination = CommissionDestination(id: id)
         }

@@ -19,6 +19,7 @@ struct MoreScreen: View {
     @ObservedObject var games: GamesStore
     @ObservedObject private var daydream = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
+    @ObservedObject private var commissions = CommissionStore.shared
     @ObservedObject private var steps = FamilyStepsStore.shared
     @ObservedObject private var tasks = FamilyTasksStore.shared
     @ObservedObject private var access = AccessStore.shared
@@ -43,8 +44,8 @@ struct MoreScreen: View {
                                 icon: "sparkles",
                                 fill: SR.accentInk,
                                 title: "Daydream",
-                                blurb: "What jkai noticed about your days, and your verdict on each.",
-                                status: freshNotes > 0 ? "\(freshNotes) new" : nil
+                                blurb: "What jkai spotted in your days, and your call on each.",
+                                status: toDecide > 0 ? "\(toDecide) to decide" : nil
                             )
                         }
                         .buttonStyle(.plain)
@@ -130,8 +131,8 @@ struct MoreScreen: View {
         return summary.toDo > 0 ? "\(summary.toDo) to do" : nil
     }
 
-    private var freshNotes: Int {
-        daydream.notes.filter { feedback.verdict(for: $0) == nil }.count
+    private var toDecide: Int {
+        daydream.toDecide(feedback: feedback, commissions: commissions)
     }
 
     /// Settings, moved off Today's bar: a row, not a card — it is where you
