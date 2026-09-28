@@ -11,10 +11,8 @@ services:
       DATABASE_PATH: /app/data/apple.sqlite
       APPLE_POLICY_URL: ${APPLE_POLICY_URL:-https://strangeramblings.com/api/native/companion-policy}
       APPLE_POLICY_TOKEN: ${APPLE_POLICY_TOKEN:?Set a dedicated Main companion-policy secret}
-      # The main site's Auth.js secret. Browsers sign in with the site's own
-      # Google session and this is how that cookie is verified; the container
-      # refuses to start on an https origin without it. DEMO_MODE is
-      # deliberately not set here — it only works on a non-https origin anyway.
+      # Main validates browser sessions using this companion's dedicated key.
+      # DEMO_MODE is deliberately absent; production requires HTTPS authority.
       # The service lane /health reads the owner's journeys through — see
       # docs/INTEGRATION.md. Both empty = the endpoint 404s, which is the right
       # state for anywhere that has not opted in. The token is shared with
