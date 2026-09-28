@@ -92,7 +92,9 @@ final class ReviewDemoUITests: XCTestCase {
 
         // Tasks: confirm one waiting for a parent, and it moves on.
         XCTAssertTrue(app.openTab("Tasks"))
-        let confirm = byId(app, "task-confirm-t_reading")
+        // By label: the row's own identifier (`task-row-…`) is what its
+        // children report, the button's included.
+        let confirm = app.buttons["Confirm: Reading log signed"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 15), "no task waiting to be confirmed")
         confirm.tap()
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: confirm)
