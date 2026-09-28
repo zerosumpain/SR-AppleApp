@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 // MARK: - Demo daydream notes
@@ -76,4 +75,3 @@ extension SRDemoFixtures {
         return "{\"notes\": \(list(notes.map { noteJSON($0, clock: clock) }))}"
     }
 }
-#endif

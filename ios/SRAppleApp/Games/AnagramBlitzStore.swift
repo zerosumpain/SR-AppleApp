@@ -78,7 +78,7 @@ final class AnagramBlitzStore: ObservableObject, GameRoomStoring {
         room = next
         #if DEBUG
         // Demo mode: a word half built, so the screenshot shows the word row.
-        if SRDemo.isOn, next.phase == .playing, previous == nil, input.isEmpty {
+        if SRDemo.isShowcase, next.phase == .playing, previous == nil, input.isEmpty {
             for letter in "pai" { input.add(letter) }
         }
         #endif

@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 // MARK: - Demo workflows
@@ -283,4 +282,3 @@ extension SRDemoFixtures {
      "warnings": ["The trains step needs a departure board URL before it can run."]}
     """
 }
-#endif

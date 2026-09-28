@@ -248,15 +248,12 @@ final class HeartTimelineStore: ObservableObject {
 
     func load(companion: Companion) async {
         guard !loading else { return }
-        // DEBUG only, like every demo path: `SRDemo` does not exist in a
-        // Release build, and an unguarded reference fails the TestFlight
-        // archive while every Debug CI run stays green.
-        #if DEBUG
+        // Demo mode (the review demo, or `-SRDemo`): the companion lane has
+        // no fixture protocol, and a demo sends nothing to it.
         if SRDemo.isOn {
             timeline = SRDemoFixtures.heartTimeline(now: Date())
             return
         }
-        #endif
         guard companion.paired else { return }
         loading = true
         defer { loading = false }

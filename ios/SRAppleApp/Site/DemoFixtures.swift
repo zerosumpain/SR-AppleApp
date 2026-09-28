@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -6,36 +5,70 @@ import FoundationNetworking
 
 // MARK: - Demo mode
 //
-// A DEBUG-only way to see every tab full. CI's UI tests only ever run the app
-// unpaired, so the screenshots they attach are empty states — useless for
-// reviewing a redesign. Launched with `-SRDemo`, the site client pretends to be
-// paired and answers every `/api/native/...` request from the canned JSON below,
-// in-process, without touching the network or the Keychain.
+// Two ways in, one set of fixtures.
 //
-// EVERYTHING HERE IS SYNTHETIC. The repository is public: no real names beyond
-// "John", no phone numbers, no addresses, no real routes. The tracks are drawn
-// around Central Park, New York, which the unit tests already use for the same
-// reason, and segment names are the made-up word triples the tests use.
+//  * `-SRDemo` (DEBUG launch argument): the screenshot harness. CI's UI tests
+//    launch with it so every tab is photographed FULL rather than empty.
+//  * The App Review demo (`ReviewDemo`, Release too): a reviewer types the
+//    review code into Welcome → "I have a pairing code", the site says
+//    `{demo: true}`, and the app runs on these same fixtures until "Leave demo".
+//
+// Either way the site client pretends to be paired and answers every request
+// from the canned JSON below, in-process, without touching the network or the
+// Keychain; the companion lane refuses outright (`API.request`).
+//
+// EVERYTHING HERE IS SYNTHETIC. The repository is public and an App Store
+// reviewer reads it: made-up names (Alex, Sam, Robin, Kit, Pat), no phone
+// numbers, no addresses, no real routes. The tracks are drawn around Central
+// Park, New York, which the unit tests already use for the same reason, and
+// segment names are the made-up word triples the tests use.
 //
 // Dates are generated relative to NOW at request time, so "2h ago" reads live.
+//
+// This file compiles in Release (the review demo needs it). What must NOT is
+// a launch argument: `scripts/check-demo-guard.mjs` fails any `-SR…` launch
+// flag outside `#if DEBUG`, and CI builds the Release configuration.
 
 enum SRDemo {
-    /// On when the app was launched with `-SRDemo` (a UI test's launch argument,
-    /// or a scheme argument). Never on in a Release build — this whole file is
-    /// compiled out.
-    static var isOn: Bool { ProcessInfo.processInfo.arguments.contains("-SRDemo") }
+    /// Either demo: the review demo a reviewer entered (persisted, any build),
+    /// or `-SRDemo` (DEBUG only).
+    static var isOn: Bool { isShowcase || ReviewDemo.isActive }
 
-    /// The pretend credential. Held in memory only; never written anywhere.
+    /// `-SRDemo`: the DEBUG screenshot harness. Always false in Release. Used
+    /// on its own only for touches that exist for a screenshot (a half-typed
+    /// guess, a widget gallery) and would puzzle a person using the demo.
+    static var isShowcase: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-SRDemo")
+        #else
+        return false
+        #endif
+    }
+
+    /// The pretend credential. Held in memory only; never written anywhere,
+    /// and never sent anywhere: the demo session answers every request itself.
     static let token = "demo"
 
     /// `-SRDemoMember` as well: a family member the owner gave the Family and
     /// Games tabs and nothing else — no chat, no news. The screenshot that
     /// proves a feature somebody lacks is absent rather than disabled.
-    static var isMember: Bool { ProcessInfo.processInfo.arguments.contains("-SRDemoMember") }
+    static var isMember: Bool {
+        #if DEBUG
+        return isShowcase && ProcessInfo.processInfo.arguments.contains("-SRDemoMember")
+        #else
+        return false
+        #endif
+    }
 
     /// `-SRDemoRegistrant`: someone who signed in from Welcome and is waiting
     /// for the owner. Shows the review screen with no network at all.
-    static var isRegistrant: Bool { ProcessInfo.processInfo.arguments.contains("-SRDemoRegistrant") }
+    static var isRegistrant: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-SRDemoRegistrant")
+        #else
+        return false
+        #endif
+    }
 
     /// What demo mode may use: everything, as the owner, unless a member.
     static var access: AppAccess {
@@ -45,13 +78,20 @@ enum SRDemo {
 
 /// Answers the site client's requests from `SRDemoFixtures`.
 ///
-/// Registered only on `SiteClient`'s own session, and only in demo mode, so it
-/// takes every request that session makes.
+/// Registered only on `SiteClient`'s demo session, which is the session in use
+/// whenever `SRDemo.isOn`, so it takes every request the client makes in a
+/// demo: nothing reaches the network. `served` counts them, for the tests.
 final class SRDemoURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+    private static let counter = NSLock()
+    private static var count = 0
+    /// Requests answered in-process since launch.
+    static var served: Int { counter.lock(); defer { counter.unlock() }; return count }
+
     override func startLoading() {
+        Self.counter.lock(); Self.count += 1; Self.counter.unlock()
         guard let url = request.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
@@ -147,8 +187,15 @@ enum SRDemoFixtures {
         case ("POST", "api/native/chat/conversations"):
             return newConversation(clock)
         case ("POST", "api/workflows/orchestrator/chat"):
-            // Calm, not clever: the composer shows this as the turn's error.
-            return #"{"jobId":null,"error":"Demo mode: sending is switched off."}"#
+            // A canned turn: the message and its reply are remembered for this
+            // demo session, and the stream below plays the reply back.
+            return SRDemoSession.shared.startTurn(body: body, clock: clock)
+        case ("GET", "api/workflows/orchestrator/chat/stream"):
+            return SRDemoSession.shared.stream(jobId: query["jobId"] ?? "")
+        case ("DELETE", "api/native/account"):
+            // Deleting "the account" in a demo deletes nothing anywhere: the
+            // app leaves the demo (`SiteClient.signOut`), and that is all.
+            return #"{"ok":true}"#
         case ("GET", "api/native/chat/conversations/demo-thread-training/model"),
              ("GET", "api/native/chat/conversations/demo-thread-new/model"):
             return demoModel(locked: path.contains("training"))
@@ -267,7 +314,7 @@ enum SRDemoFixtures {
 
     static func me(_ clock: DemoClock) -> String {
         """
-        {"ownerEmail": "john@example.com", "label": "iPhone (demo)", "expiresAt": \(s(clock.iso(minutesAgo: -60 * 24 * 80)))}
+        {"ownerEmail": "alex@example.com", "label": "iPhone (demo)", "expiresAt": \(s(clock.iso(minutesAgo: -60 * 24 * 80)))}
         """
     }
 
@@ -766,7 +813,11 @@ enum SRDemoFixtures {
         default:
             messages = genericMessages(thread?.preview ?? "", clock)
         }
-        return "{\"conversation\": \(head), \"hasOlder\": false, \"cursor\": null, \"messages\": \(messages)}"
+        // Anything sent in this demo session, after the canned history.
+        let sent = SRDemoSession.shared.sentMessages(conversation: id)
+        let all = sent.isEmpty ? messages : String(messages.trimmingCharacters(in: .whitespacesAndNewlines).dropLast())
+            + (messages.contains("{") ? ", " : "") + sent.joined(separator: ", ") + "]"
+        return "{\"conversation\": \(head), \"hasOlder\": false, \"cursor\": null, \"messages\": \(all)}"
     }
 
     static func trainingMessages(_ clock: DemoClock) -> String {
@@ -2349,4 +2400,3 @@ extension SRDemoFixtures {
 }
 """#
 }
-#endif

@@ -129,7 +129,7 @@ final class SequenceMemoryStore: ObservableObject, GameRoomStoring {
         }
         #if DEBUG
         // Demo mode: two taps in, so the screenshot shows an attempt under way.
-        if SRDemo.isOn, next.phase == .input, previous == nil, var demo = taps, demo.taps.isEmpty {
+        if SRDemo.isShowcase, next.phase == .input, previous == nil, var demo = taps, demo.taps.isEmpty {
             _ = demo.tap(2)
             _ = demo.tap(0)
             taps = demo

@@ -47,12 +47,10 @@ final class ConnectionsStore: ObservableObject {
     init(outbox: Outbox?, defaults: UserDefaults = .standard) {
         self.outbox = outbox
         self.defaults = defaults
-        var persists = true
-        #if DEBUG
         // The demo's banner is the showcase: a dismissal in one UI test must
-        // not hide it from the next launch on the same simulator.
-        if SRDemo.isOn { persists = false }
-        #endif
+        // not hide it from the next launch on the same simulator, and the
+        // review demo's dismissals are not the real phone's.
+        let persists = !SRDemo.isOn
         self.persistsDismissals = persists
         dismissed = persists ? Set(defaults.stringArray(forKey: Self.dismissedKey) ?? []) : []
         // Only while the site is paired, and paired as the owner: a cache left
@@ -164,7 +162,8 @@ final class ConnectionsStore: ObservableObject {
     /// the health upload queue and a write is the whole queue, so a refresh on
     /// every foreground must not rewrite it for a timestamp.
     static func persist(_ snapshot: ConnectionsSnapshot, in outbox: Outbox?) {
-        guard let outbox, (outbox.state.connections?.items ?? []) != snapshot.items else { return }
+        // A demo's connections are made up: never into the real state file.
+        guard !SRDemo.isOn, let outbox, (outbox.state.connections?.items ?? []) != snapshot.items else { return }
         try? outbox.change { $0.connections = snapshot }
     }
 
@@ -173,7 +172,7 @@ final class ConnectionsStore: ObservableObject {
     /// Static, like `AlertStore.backgroundPass`: a wake has no view hierarchy
     /// watching `@Published` state, and seconds to finish in.
     static func backgroundPass(outbox: Outbox?) async {
-        guard AccessStore.ownerSite else { return }
+        guard AccessStore.ownerSite, !SRDemo.isOn else { return }
         do {
             let feed: ConnectionsFeed = try await SiteClient.shared.send("api/native/connections")
             let fresh = Self.snapshot(of: feed)

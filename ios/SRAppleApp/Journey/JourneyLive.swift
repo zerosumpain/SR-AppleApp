@@ -95,11 +95,5 @@ final class JourneyLive {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static var isDemo: Bool {
-        #if DEBUG
-        return SRDemo.isOn
-        #else
-        return false
-        #endif
-    }
+    private static var isDemo: Bool { SRDemo.isOn }
 }

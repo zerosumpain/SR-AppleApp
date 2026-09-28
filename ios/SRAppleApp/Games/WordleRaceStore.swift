@@ -74,7 +74,7 @@ final class WordleRaceStore: ObservableObject, GameRoomStoring {
         #if DEBUG
         // Demo mode: a fourth guess half typed, so the screenshot shows the
         // typing row as well as the scored ones.
-        if SRDemo.isOn, next.phase == .playing, previous == nil, input.isEmpty {
+        if SRDemo.isShowcase, next.phase == .playing, previous == nil, input.isEmpty {
             for letter in "gr" { input.add(letter) }
         }
         #endif

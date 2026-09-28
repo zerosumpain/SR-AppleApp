@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 // MARK: - Demo connections
@@ -32,4 +31,3 @@ extension SRDemoFixtures {
         """
     }
 }
-#endif

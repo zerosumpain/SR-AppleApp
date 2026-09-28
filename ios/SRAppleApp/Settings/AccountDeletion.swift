@@ -70,6 +70,14 @@ final class AccountDeletionStore: ObservableObject {
     /// True when the account is gone and the phone has been reset.
     func delete(lane: AccountDeletionLane, companion: Companion, site: SitePairingModel) async -> Bool {
         guard !busy else { return false }
+        // The App Review demo has no account: "deleting" it is leaving the
+        // demo — back to Welcome, nothing sent, nothing on the phone touched.
+        // (The `-SRDemo` screenshot harness does nothing at all.)
+        if ReviewDemo.isActive {
+            ReviewDemo.shared.leave()
+            return true
+        }
+        if SRDemo.isOn { return false }
         busy = true
         error = nil
         defer { busy = false }
