@@ -8,6 +8,7 @@ import SwiftUI
 struct DaydreamScreen: View {
     @ObservedObject private var store = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
+    @ObservedObject private var commissions = CommissionStore.shared
 
     var body: some View {
         ScrollView {
@@ -21,6 +22,9 @@ struct DaydreamScreen: View {
                 }
                 .padding(.horizontal, 4)
                 .padding(.bottom, 6)
+
+                if commissions.enabled { CommissionList() }
+                else if let error = commissions.error { Text(error).font(SR.Text.secondary()).foregroundStyle(SR.inkMuted) }
 
                 if store.notes.isEmpty {
                     if store.loaded {
@@ -36,6 +40,13 @@ struct DaydreamScreen: View {
                     ForEach(store.notes) { note in
                         SRCard {
                             NoticedNoteRow(note: note)
+                            if commissions.enabled {
+                                if let existing = commissions.commissions.first(where: { $0.thoughtId == note.id }) {
+                                    Button("View improvement") { commissions.destination = CommissionDestination(id: existing.id) }.srButton()
+                                } else {
+                                    Button("Investigate first") { Task { await commissions.prepare(thoughtId: note.id) } }.srButton().disabled(commissions.busy)
+                                }
+                            }
                         }
                     }
                 }
@@ -49,8 +60,9 @@ struct DaydreamScreen: View {
         .navigationTitle("Daydream")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
-        .task { await store.load() }
-        .srRefreshable { await store.load() }
+        .task { await store.load(); await commissions.load() }
+        .srRefreshable { await store.load(); await commissions.load() }
+        .sheet(item: $commissions.destination) { destination in NavigationStack { CommissionDetailScreen(id: destination.id) } }
     }
 
     /// Unrated: what the tile calls new.

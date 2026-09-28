@@ -121,6 +121,7 @@ enum AlertActions {
     enum Outcome: Equatable {
         /// The notification itself was tapped: go to the tab owning `category`.
         case open(category: String)
+        case openCommission(id: String)
         /// Mark this alert read on the site.
         case read(id: String)
         /// Take this alert off the Today card.
@@ -155,6 +156,9 @@ enum AlertActions {
             guard let id else { return .ignore }
             return .clear(id: id)
         default:
+            if let commissionId = userInfo["commissionId"] as? String, UUID(uuidString: commissionId) != nil {
+                return .openCommission(id: commissionId)
+            }
             return .open(category: category)
         }
     }

@@ -114,6 +114,14 @@ final class AlertActionsTests: XCTestCase {
 
     // MARK: - Answering a stalled chat turn
 
+    func testCommissionTapOpensItsHistoryButCannotApproveFromThePush() {
+        let id = "22222222-2222-4222-8222-222222222222"
+        let info: [AnyHashable: Any] = ["id": "event", "category": "daydream", "commissionId": id]
+        XCTAssertEqual(AlertActions.outcome(action: UNNotificationDefaultActionIdentifier, categoryIdentifier: AlertActions.alertCategory, userInfo: info), .openCommission(id: id))
+        XCTAssertEqual(AlertActions.outcome(action: AlertActions.approve, categoryIdentifier: AlertActions.alertCategory, userInfo: info), .ignore)
+        XCTAssertEqual(AlertActions.outcome(action: AlertActions.read, categoryIdentifier: AlertActions.alertCategory, userInfo: info), .read(id: "event"))
+    }
+
     private let confirmInfo: [AnyHashable: Any] = [
         "id": "a1", "category": "chat", "gate": "confirm", "jobId": "job-1", "confirmId": "c-1",
     ]

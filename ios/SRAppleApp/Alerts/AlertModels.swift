@@ -2,10 +2,7 @@ import Foundation
 
 /// Something the site wanted to tell you.
 ///
-/// The `data` field the server can attach is deliberately not decoded. It is
-/// free-form JSON whose shape is the producer's business, `Decodable` has no
-/// pleasant representation for that, and nothing on this screen reads it — the
-/// title and the body are the notification.
+/// Typed optional destinations preserve compatibility with older notifications.
 struct SiteAlert: Decodable, Identifiable, Hashable {
     let id: String
     let category: String
@@ -15,6 +12,13 @@ struct SiteAlert: Decodable, Identifiable, Hashable {
     let severity: String
     let createdAt: String
     var read: Bool
+    var data: JSONValue? = nil
+
+    var commissionId: String? {
+        guard data?["destination"]?.string == "daydream_commission", data?["schemaVersion"]?.number == 1,
+              let id = data?["commissionId"]?.string, UUID(uuidString: id) != nil else { return nil }
+        return id
+    }
 
     /// `alert` is the notification ledger's loudest level — and what SR-Main's
     /// connection monitor sends for a lapsed authorisation. `high` is accepted
@@ -41,6 +45,7 @@ struct SiteAlert: Decodable, Identifiable, Hashable {
         }
     }
 }
+
 
 struct AlertFeed: Decodable {
     let pending: [SiteAlert]

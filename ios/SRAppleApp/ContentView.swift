@@ -421,24 +421,28 @@ struct ContentView: View {
         }
         // Disconnecting the site clears its connections; connecting fetches them.
         .onChange(of: site.paired) { _, _ in
+            if !AccessStore.ownerSite { CommissionStore.shared.clear() }
             syncGamesPoll()
             syncFamilyWidgets()
             Task {
                 await reconcileSite()
                 await connections.refresh()
+                drainPending()
             }
         }
         // The site changed its mind about this person, or sent the pairing
         // code a member's phone asked for.
         .onChange(of: access.current) { _, _ in
+            if !AccessStore.ownerSite { CommissionStore.shared.clear() }
             // Also when a place moved between the bar and More: its old tab is gone.
             if !access.allows(router.tab) || router.inMore(router.tab) { router.tab = .today }
             syncGamesPoll()
             syncFamilyWidgets()
-            Task { await reconcileSite() }
+            Task { await reconcileSite(); drainPending() }
         }
         // "View as" changed: the family is theirs now, or yours again.
         .onChange(of: access.viewingAs) { _, _ in
+            CommissionStore.shared.clear()
             family.applyViewingAs()
             // The boards were the person before's; the site answers as the
             // new one on the next read.
@@ -546,6 +550,11 @@ struct ContentView: View {
         // without chat, a hidden tab, the owner's inbox — so a stale entry
         // lands on Today rather than on a screen that is not there.
         AppDelegate.pending.drain(into: router, companion: companion)
+        if let id = AppDelegate.pending.daydreamCommission, AccessStore.ownerSite {
+            AppDelegate.pending.daydreamCommission = nil
+            router.openDaydream()
+            CommissionStore.shared.destination = CommissionDestination(id: id)
+        }
         if AppDelegate.pending.openAlerts {
             AppDelegate.pending.openAlerts = false
             router.openAlerts()

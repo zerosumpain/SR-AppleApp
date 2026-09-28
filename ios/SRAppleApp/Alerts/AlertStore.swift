@@ -239,7 +239,7 @@ final class AlertStore: ObservableObject {
             content.sound = .default
             // Connections get a thread of their own, so a lapsed Gmail never
             // stacks under a pile of health nudges in Notification Centre.
-            content.threadIdentifier = alert.isConnections ? "connections" : alert.category
+            content.threadIdentifier = alert.commissionId.map { "commission:\($0)" } ?? (alert.isConnections ? "connections" : alert.category)
             // One of two fixed identifiers, so every alert gets its buttons
             // whatever the site calls its category. The site's own category
             // rides in `userInfo` below. See `AlertActions`.
@@ -261,6 +261,7 @@ final class AlertStore: ObservableObject {
             content.relevanceScore = alert.isConnections ? 1 : (loud ? 0.8 : 0.2)
             var info: [String: String] = ["id": alert.id, "category": alert.category]
             if let url = alert.url { info["url"] = url }
+            if let id = alert.commissionId { info["commissionId"] = id }
             content.userInfo = info
             // nil trigger means "as soon as this returns". The alert is already
             // late by however long iOS sat on the refresh; scheduling it further
