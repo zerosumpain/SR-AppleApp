@@ -315,10 +315,20 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if ([...url.searchParams.keys()].some(k => !allowedParams.includes(k))) fail(400, 'Unexpected query parameter');
         return serviceOwner ? db.prepare('SELECT family FROM users WHERE email=?').get(serviceOwner.toLowerCase()) : null;
       };
-      if (path === '/api/apple/household/account-deletions' && method === 'GET') {
+      if (path === '/api/apple/household/account-deletions') {
         const owner = householdOwner([]);
         if (!owner) fail(404, 'Not found');
-        return send(200, { users: db.prepare('SELECT email,delete_requested AS deleteRequested FROM users WHERE family=? AND delete_requested IS NOT NULL').all(owner.family) });
+        if (method === 'GET') return send(200, { users: db.prepare(`
+          SELECT NULL AS jobId,email,delete_requested AS deleteRequested FROM users WHERE family=? AND delete_requested IS NOT NULL
+          UNION ALL SELECT id AS jobId,email,created AS deleteRequested FROM deletion_jobs WHERE family=? AND account_requested=1 AND account_done=0
+        `).all(owner.family,owner.family) });
+        if (method === 'POST') {
+          const body = await readJSON(); exactKeys(body, ['id']);
+          if (!string(body.id, 100)) fail(400, 'Deletion id required');
+          db.prepare('UPDATE deletion_jobs SET account_done=1 WHERE id=? AND family=?').run(body.id, owner.family);
+          return send(200, { ok: true });
+        }
+        fail(405, 'Method not allowed');
       }
       if (path === '/api/apple/household/deletions') {
         const owner = householdOwner([]);

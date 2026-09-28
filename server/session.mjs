@@ -1,35 +1,7 @@
 import { getToken } from '@auth/core/jwt';
 
-/**
- * Who is signed in to strangeramblings.com.
- *
- * The companion used to keep its own email-and-password login, its own
- * `sr_apple` cookie and its own scrypt hashes. It does not any more: the site
- * already has an identity — Google via Auth.js — and a second one meant a second
- * password to set, lose and reset, on a login reachable from the whole internet.
- *
- * ## Why this reads the cookie directly, rather than sitting behind the kit's gateway
- *
- * Every EXTRACTED application (Policy, Drive, Health, JKAI) sits behind the
- * ~60-line gateway in `~/sr-infra/gateway/`, which validates this same cookie at
- * the edge and re-issues a 30-second HMAC assertion. That design exists because
- * those apps are a separate trust domain reached through a proxy: the gateway's
- * job is to STRIP every client-supplied identity header before the app sees one,
- * so the app can trust a header at all.
- *
- * There is no header to strip here. Identity comes from an encrypted JWE that
- * cannot be forged without `AUTH_SECRET`, so the cryptography does the work the
- * assertion would have done. Both designs need `AUTH_SECRET` in this container
- * either way, so the gateway would have bought process separation and nothing
- * else — at the cost of a second port, a second image, a release lane of its
- * own, and an ingress change. The companion is also not in
- * `registry/apps.json`: it is a single-container pilot with no release slots,
- * and the kit's blue/green machinery has nothing to act on.
- *
- * `sessionIdentity` itself is taken UNCHANGED from `sr-infra/gateway/session.mjs`
- * so the two cannot drift on the part that matters.
- *
- * @returns the lower-cased email, or null.
+/** Browser sessions use Main's audience-bound authority in production.
+ * Direct decoding remains only for isolated legacy-format tests.
  */
 export async function sessionIdentity(cookie, secret) {
   if (process.env.SESSION_INTROSPECTION_URL || process.env.SESSION_INTROSPECTION_TOKEN) return (await sessionContext(cookie)).email;

@@ -55,7 +55,7 @@ Two lanes reach the API, and only two:
 
 | Caller | Credential | Notes |
 | --- | --- | --- |
-| Browser | the site's Auth.js session cookie | verified with `AUTH_SECRET`, the same way every extracted SR app's gateway does it |
+| Browser | the site's Auth.js session cookie | verified by Main through the audience-bound session introspection endpoint; the companion does not receive the signing secret |
 | Paired iPhone | a device token from a pairing code | unchanged; background sync runs while the phone is locked and has no browser session |
 
 **Authentication says who; the `users` table says whether.** Somebody the site
@@ -66,9 +66,7 @@ inferred from a successful Google login.
 A family member therefore needs two things: the ability to sign in to
 strangeramblings.com (owner, or a guest on the allow-list), and a row here.
 
-The container refuses to start on an https origin without `AUTH_SECRET`. Without
-that check a missing secret would 401 every browser while the phone kept syncing
-on its device token, hiding the fault for days.
+The container requires `SESSION_INTROSPECTION_URL`, `SESSION_INTROSPECTION_TOKEN` and `SESSION_INTROSPECTION_AUDIENCE` on HTTPS. Main alone keeps `AUTH_SECRET`; the companion presents a separate key scoped to the `sr-companion` audience. An unavailable authority denies browser access.
 
 ### Where a phone is paired
 
@@ -81,21 +79,17 @@ A phone can hold two credentials, and both are minted on the main site:
 
 This server never mints, stores or sees the site token.
 
-### Why not the SR-Infra gateway
+### Browser session authority
 
-Every *extracted* application (Policy, Drive, Health, JKAI) sits behind the
-~60-line gateway in `~/sr-infra/gateway/`, which validates this same cookie at the
-edge and re-issues a 30-second HMAC assertion. That exists so the app can trust
-an identity **header** — the gateway's real job is stripping every client-supplied
-one first.
+Main validates browser sessions. The companion and extracted-application gateways
+send the cookie to Main using separate, audience-bound introspection keys. Neither
+needs Main's session-signing secret. Main rejects registration-only sessions and
+removed users; an unavailable authority denies access. The companion also checks
+current family membership and access versions before serving personal data.
 
-There is no header to strip here: identity comes from an encrypted JWE that
-cannot be forged without `AUTH_SECRET`. Both designs need that secret in this
-container, so a gateway would have bought process separation and nothing else, at
-the cost of a second port, image, release lane and ingress change. The companion
-is also not in `registry/apps.json` — one container, no release slots, nothing for
-the kit's blue/green machinery to act on. `sessionIdentity` is copied from the kit
-unchanged so the part that matters cannot drift.
+The companion handles its own device-token requests, so it does not need a separate
+identity-header gateway. Extracted applications retain gateways that strip supplied
+identity headers and issue short-lived assertions for their own audiences.
 
 ## Repository
 
@@ -138,7 +132,7 @@ socket. Its host, paths and volume name are deliberately not published here.
 | --- | --- | --- |
 | `APP_ORIGIN` | yes | the HTTPS origin the companion is served on |
 | `DATABASE_PATH` | no | SQLite file path; defaults to `./data/apple.sqlite`, and Compose pins it to `/app/data/apple.sqlite` in the mounted volume rather than leaving it operator-settable through `pilot.env` |
-| `AUTH_SECRET` | yes on https | verifies the main site's Auth.js session cookie; copied from the site's own environment. Only enforced when `APP_ORIGIN` is https — a non-https `APP_ORIGIN` (e.g. the local preview) can start without it |
+| `SESSION_INTROSPECTION_TOKEN` | yes on https | distinct key for Main session validation; never copy `AUTH_SECRET` here |
 | `APPLE_SERVICE_TOKEN` | no | shared bearer token for /health's service lane; empty = both service-lane reads 404 |
 | `APPLE_SERVICE_OWNER` | no | the fixed owner (an email already in `users`) those reads are scoped to |
 | `APPLE_HOUSEHOLD_TOKEN` | no | SR-Main's household lane (`/api/apple/household`, `/api/apple/household/events`, `/api/apple/household/views`, the onboarding routes `/api/apple/household/users`, `/pair-code`, `/devices`, `/sharing`, and `/data/delete` + `/day` — see docs/INTEGRATION.md), scoped to the owner's family; empty = all 404; must differ from `APPLE_SERVICE_TOKEN` |
@@ -375,12 +369,8 @@ Fonts are the four OFL families, instanced to static cuts and bundled under
 missing face, so `SiteTests.testEveryNamedFontIsRegistered` asserts all nine
 arrived.
 
-> `@auth/core` is pinned **exactly**, not with a caret. The session token is a
-> cross-service contract with the main site — both must derive the same key from
-> `AUTH_SECRET` — so a minor bump that changed the JWE format would silently stop
-> every browser signing in while the phone kept working on its device token. Pin
-> it to whatever SR-Main resolves (`0.41.3` as of 2026-09-22) and move both
-> together.
+`@auth/core` remains pinned for the legacy session-decoding tests. Production browser
+sessions are validated by Main; the companion never receives Main's signing key.
 
 ### Security lifecycle (28 September 2026)
 
@@ -389,3 +379,5 @@ Configure a dedicated `APPLE_POLICY_TOKEN` matching Main's `COMPANION_POLICY_TOK
 Locations expire after 30 days independently of uploads; alerts after seven days; household snapshots after five minutes. Health remains until deletion. Delete creates a durable job: raw data, recipient views and credentials are removed immediately; Main and Health acknowledge their derived copies independently. Pairing and uploads remain blocked while either acknowledgement is missing. Deletion manifests and tombstones are retained as retry records (not health values); named places, other-source trail, accounts and separately expiring backups are outside this control.
 
 Website disconnect clears local views/widgets/Live Activities and queues revoke-self in the device-only Keychain. Retries occur at launch/foreground, without retaining an active website login. Companion disconnect is separate: it pauses location collection and revokes that credential.
+
+Lock Screen details and journey Live Activities are off by default on each new site pairing. Everyone can change their own device choices in Settings → Lock Screen privacy.

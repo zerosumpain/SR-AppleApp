@@ -1,6 +1,11 @@
 name: Upload to TestFlight
 on:
   workflow_dispatch:
+    inputs:
+      verify_only:
+        description: 'Verify a signed archive without uploading to TestFlight'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -9,6 +14,7 @@ jobs:
     environment: testflight
     timeout-minutes: 35
     env:
+      VERIFY_ONLY: ${{ inputs.verify_only }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       BUNDLE_ID: ${{ vars.APPLE_BUNDLE_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -57,7 +63,12 @@ jobs:
             xcodegen generate --spec ios/app.yml
             xcodebuild archive -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/SRAppleApp.xcarchive" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" MARKETING_VERSION="0.1.$GITHUB_RUN_NUMBER" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID"
           fi
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/SRAppleApp.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          apps=("$RUNNER_TEMP"/SRAppleApp.xcarchive/Products/Applications/*.app)
+          test "${#apps[@]}" -eq 1
+          codesign --verify --deep --strict "${apps[0]}"
+          if [ "$VERIFY_ONLY" != 'true' ]; then
+            xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/SRAppleApp.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          fi
       - name: Remove signing material
         if: always()
         run: |

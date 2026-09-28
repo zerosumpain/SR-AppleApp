@@ -120,6 +120,11 @@ export function openStore(path) {
         FROM deletion_jobs_old j JOIN users u ON u.id=j.user_id;
       DROP TABLE deletion_jobs_old; COMMIT;`);
   }
+  for (const column of ['account_requested', 'account_done']) {
+    if (!db.prepare('PRAGMA table_info(deletion_jobs)').all().some(c => c.name === column)) {
+      db.exec(`ALTER TABLE deletion_jobs ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+    }
+  }
   // When a person asked, from their own phone, for their account to be
   // deleted (app.mjs POST /api/apple/account/delete), or NULL. Their uploaded
   // data is wiped at once; SR-Main reads the flag through the household lane
@@ -230,12 +235,14 @@ export function deleteUser(db, user) {
   const raw = deleteUserData(db, user);
   db.exec('BEGIN IMMEDIATE');
   try {
+    // The Main account deletion may fail after this account row disappears.
+    // Keep a separate acknowledgement so its independent timer can retry.
+    db.prepare('UPDATE deletion_jobs SET account_requested=1 WHERE user_id=? AND main_done=0').run(user);
     const deleted = {
       health: db.prepare('DELETE FROM health WHERE user_id=?').run(user).changes,
       tombstones: db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(user).changes,
       locations: db.prepare('DELETE FROM locations WHERE user_id=?').run(user).changes,
       alerts: db.prepare('DELETE FROM alerts WHERE user_id=?').run(user).changes,
-      views: db.prepare('DELETE FROM household_views WHERE user_id=?').run(user).changes,
       credentials: db.prepare('DELETE FROM credentials WHERE user_id=?').run(user).changes,
       users: db.prepare('DELETE FROM users WHERE id=?').run(user).changes,
       ...raw, views,

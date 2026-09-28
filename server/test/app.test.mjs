@@ -490,6 +490,11 @@ test('a phone deletes its own account: its data goes now, the row is flagged for
   assert.equal(pending.body.jobs[0].email, 'sam@example.test');
   assert.equal((await household(request, 'household/deletions', { method: 'POST', body: { id: pending.body.jobs[0].id } })).status, 200);
   assert.equal((await household(request, 'household/deletions')).body.jobs.length, 0);
+  const accounts = await household(request, 'household/account-deletions');
+  assert.equal(accounts.body.users.length, 1, 'Main account erasure still needs its own acknowledgement');
+  assert.equal(accounts.body.users[0].email, 'sam@example.test');
+  assert.equal((await household(request, 'household/account-deletions', { method: 'POST', body: { id: accounts.body.users[0].jobId } })).status, 200);
+  assert.equal((await household(request, 'household/account-deletions')).body.users.length, 0);
 
   const owner = await request('account/delete', { method: 'POST', body: {} });
   assert.equal(owner.status, 409);
