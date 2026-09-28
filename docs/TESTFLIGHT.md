@@ -29,6 +29,21 @@ Add these environment secrets:
 - `DISTRIBUTION_P12_PASSWORD`
 - `PROVISION_PROFILE_BASE64`: base64-encoded App Store profile.
 
+### Sign In with Apple (registering from the app)
+
+Welcome offers Sign in with Apple, so the app carries
+`com.apple.developer.applesignin` and the App Store profile must too — the
+upload job refuses a profile without it (`install-signing.sh`).
+
+1. developer.apple.com → Certificates, IDs & Profiles → Identifiers →
+   `com.strangeramblings.com.appleapp` → tick **Sign In with Apple**
+   ("Enable as a primary App ID") → Save → Confirm.
+2. Profiles → the App Store profile for the app → Edit → Save → Download.
+3. `base64 -i NAME.mobileprovision | gh secret set PROVISION_PROFILE_BASE64 --env testflight -R zerosumpain/SR-AppleApp`
+
+No Services ID, key or return URL: the app signs in natively and SR-Main
+verifies the identity token against Apple's public keys.
+
 ### The Apple Watch app (optional)
 
 Until it is set up, the upload is the iPhone app alone and the run logs a

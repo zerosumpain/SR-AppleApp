@@ -53,3 +53,15 @@ extension XCUIApplication {
         return true
     }
 }
+
+extension XCUIApplication {
+    /// A fresh install opens on Welcome now. Tests of the app behind it go the
+    /// way an invited person does: "I have a pairing code".
+    @MainActor
+    func launchPastWelcome() {
+        launchArguments += ["-SRFreshInstall"]
+        launch()
+        let skip = buttons["welcome-have-code"]
+        if skip.waitForExistence(timeout: 20) { skip.tap() }
+    }
+}

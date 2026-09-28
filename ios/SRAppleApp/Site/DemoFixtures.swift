@@ -33,6 +33,10 @@ enum SRDemo {
     /// proves a feature somebody lacks is absent rather than disabled.
     static var isMember: Bool { ProcessInfo.processInfo.arguments.contains("-SRDemoMember") }
 
+    /// `-SRDemoRegistrant`: someone who signed in from Welcome and is waiting
+    /// for the owner. Shows the review screen with no network at all.
+    static var isRegistrant: Bool { ProcessInfo.processInfo.arguments.contains("-SRDemoRegistrant") }
+
     /// What demo mode may use: everything, as the owner, unless a member.
     static var access: AppAccess {
         isMember ? AppAccess(family: true, games: true) : .everything
