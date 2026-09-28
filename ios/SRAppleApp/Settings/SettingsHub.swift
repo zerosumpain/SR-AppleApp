@@ -34,7 +34,7 @@ struct SettingsScreen: View {
     @AppStorage(TodayCards.steps) private var todaySteps = false
     @AppStorage(TodayCards.tasks) private var todayTasks = false
 
-    enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs }
+    enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs, deleteAccount }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -95,6 +95,31 @@ struct SettingsScreen: View {
                 Section {
                     link(.about, "About", "Version, licences and what this holds", "info.circle")
                 }
+
+                // Last, and apart: App Store 5.1.1(v). Never for the owner,
+                // whose account is the website's to manage.
+                switch deletionLane {
+                case .ownerManaged:
+                    Section {
+                        SRRow(title: "Your account", subtitle: "The owner account is managed on the website, not from the app.", icon: "person.crop.circle")
+                            .srGlassRow()
+                            .accessibilityIdentifier("settings-owner-account")
+                    } header: {
+                        SRSectionLabel(text: "Account")
+                    }
+                case .site, .companion:
+                    Section {
+                        NavigationLink(value: Route.deleteAccount) {
+                            SRRow(title: "Delete account", subtitle: "Your account and its data, for good", icon: "trash", tone: SR.error)
+                        }
+                        .srGlassRow()
+                        .accessibilityIdentifier("settings-deleteAccount")
+                    } header: {
+                        SRSectionLabel(text: "Account")
+                    }
+                case .unpaired:
+                    EmptyView()
+                }
             }
             .listStyle(.insetGrouped)
             .srPaper()
@@ -121,6 +146,10 @@ struct SettingsScreen: View {
                 case .about: AboutScreen()
                 case .viewAs:
                     if access.isRealOwner { ViewAsScreen() }
+                case .deleteAccount:
+                    if deletionLane == .site || deletionLane == .companion {
+                        DeleteAccountScreen(companion: companion, site: site, lane: deletionLane)
+                    }
                 }
             }
         }
@@ -149,6 +178,10 @@ struct SettingsScreen: View {
         return site.paired && companion.paired
             ? "Both connected"
             : site.paired ? "Website connected" : companion.paired ? "Companion connected" : "Not connected"
+    }
+
+    private var deletionLane: AccountDeletionLane {
+        AccountDeletionPolicy.lane(isOwner: access.isRealOwner, sitePaired: site.paired, companionPaired: companion.paired)
     }
 
     private var draft: String {

@@ -151,7 +151,7 @@ struct ReviewScreen: View {
                         .font(SR.Text.bodyMedium(15))
                         .foregroundStyle(SR.accentInk)
                         .accessibilityIdentifier("review-sign-out")
-                    Button(status == .declined ? "Delete my request" : "Withdraw my request") { confirmWithdraw = true }
+                    Button("Delete my account") { confirmWithdraw = true }
                         .font(SR.Text.bodyMedium(15))
                         .foregroundStyle(SR.error)
                         .accessibilityIdentifier("review-withdraw")
@@ -165,10 +165,12 @@ struct ReviewScreen: View {
         }
         .srRefreshable { await registration.refresh() }
         .srPaper()
-        .confirmationDialog("Delete your request?", isPresented: $confirmWithdraw, titleVisibility: .visible) {
-            Button("Delete request", role: .destructive) { Task { await registration.withdraw() } }
+        // App Store 5.1.1(v): a registrant's account IS the request and this
+        // phone's sign-in, and withdrawing deletes both on the site.
+        .confirmationDialog("Delete your account?", isPresented: $confirmWithdraw, titleVisibility: .visible) {
+            Button("Delete account", role: .destructive) { Task { await registration.withdraw() } }
         } message: {
-            Text("Your request and your sign-in on this iPhone are removed. You can ask again later.")
+            Text("Your request, your name and email with it, and your sign-in on this iPhone are deleted. You can ask again later.")
         }
         .task { await registration.refresh() }
         .onChange(of: scenePhase) { _, phase in
