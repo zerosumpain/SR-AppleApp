@@ -60,6 +60,19 @@ enum SRDemo {
         #endif
     }
 
+    /// `-SRStoreShots` as well: the App Store screenshot run
+    /// (`AppStoreShotsTests`). The same fixtures, minus what a store listing
+    /// must not show: no "a connection needs you" banner, no urgent alert
+    /// pinned under Today's bar, and no real brand names (news sources, the
+    /// model picker, other companies' products) — `SRStoreShots.scrub`.
+    static var isStoreShots: Bool {
+        #if DEBUG
+        return isShowcase && ProcessInfo.processInfo.arguments.contains("-SRStoreShots")
+        #else
+        return false
+        #endif
+    }
+
     /// `-SRDemoRegistrant`: someone who signed in from Welcome and is waiting
     /// for the owner. Shows the review screen with no network at all.
     static var isRegistrant: Bool {
@@ -153,7 +166,8 @@ enum SRDemoFixtures {
         }
         let clock = DemoClock(now: now)
         if let json = route(method: method.uppercased(), path: path, query: query, body: body, clock: clock) {
-            return SRDemoReply(status: 200, body: Data(json.utf8))
+            let text = SRDemo.isStoreShots ? SRStoreShots.scrub(json) : json
+            return SRDemoReply(status: 200, body: Data(text.utf8))
         }
         return SRDemoReply(status: 404, body: Data(#"{"error":"demo: no fixture"}"#.utf8))
     }
@@ -1051,6 +1065,14 @@ enum SRDemoFixtures {
     }
 
     static func demoAlerts(_ clock: DemoClock) -> [DemoAlert] {
+        let all = everyDemoAlert(clock)
+        // A store screenshot has no urgent banner: nothing unread at the
+        // loudest level, so `TodayAlerts.urgent` finds nothing to pin.
+        guard SRDemo.isStoreShots else { return all }
+        return all.filter { !($0.severity == "alert" && !$0.read) }
+    }
+
+    private static func everyDemoAlert(_ clock: DemoClock) -> [DemoAlert] {
         [
             // Unread at the loudest level: the banner across Today.
             DemoAlert(id: "demo-alert-0", category: "home", title: "Front door has been open 10 minutes", body: "The hall sensor has read open since 08:32 and every phone is away.",

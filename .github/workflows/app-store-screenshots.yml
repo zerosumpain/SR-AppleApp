@@ -1,9 +1,9 @@
 name: App Store screenshots
 
-# By hand, when the listing needs new pictures. The showcase UI tests on the
-# largest iPhone simulator (the 6.9-inch set App Store Connect asks for), with
-# a clean status bar. Light only: the app is light-locked, and one pass of
-# the showcase suite is ~31 min on the hosted runner. See docs/APP-STORE.md.
+# By hand, when the listing needs new pictures. `AppStoreShotsTests` — eight
+# screens, each asserted before it is shot — on the largest iPhone simulator
+# (the 6.9-inch set App Store Connect asks for), with a clean status bar.
+# Light only: the app is light-locked. See docs/APP-STORE.md §7.
 on:
   workflow_dispatch:
 permissions:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   screenshots:
     runs-on: macos-26
-    timeout-minutes: 75
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -29,16 +29,43 @@ jobs:
           xcrun simctl ui "$DEVICE_ID" appearance light
           xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData \
-            -only-testing:SRAppleAppUITests/ShowcaseTests \
-            -resultBundlePath artifacts/Showcase.xcresult CODE_SIGNING_ALLOWED=NO | tail -40
+            -only-testing:SRAppleAppUITests/AppStoreShotsTests \
+            -resultBundlePath artifacts/Store.xcresult CODE_SIGNING_ALLOWED=NO | tail -40
       - name: Export screenshots
         if: always()
         run: |
-          if [ -d artifacts/Showcase.xcresult ]; then
-            xcrun xcresulttool export attachments --path artifacts/Showcase.xcresult --output-path artifacts/screenshots
+          if [ -d artifacts/Store.xcresult ]; then
+            xcrun xcresulttool export attachments --path artifacts/Store.xcresult --output-path artifacts/attachments
           fi
+      # "Store 03 — Steps leaderboard" -> artifacts/store/03-steps-leaderboard.png,
+      # by the suggested names in the export's manifest.json.
+      - name: Name the store set
+        if: always()
+        run: |
+          mkdir -p artifacts/store
+          [ -f artifacts/attachments/manifest.json ] || exit 0
+          python3 - <<'PY'
+          import json, re, shutil, os
+          src = 'artifacts/attachments'
+          for test in json.load(open(os.path.join(src, 'manifest.json'))):
+              for a in test.get('attachments', []):
+                  name = a.get('suggestedHumanReadableName', '')
+                  m = re.match(r'Store (\d+)\s*\S\s*(.+?)(?:_\d+)?(?:_[0-9A-Fa-f-]{36})?\.\w+$', name)
+                  if not m:
+                      continue
+                  slug = re.sub(r'[^a-z0-9]+', '-', m.group(2).lower()).strip('-')
+                  out = f'artifacts/store/{m.group(1)}-{slug}.png'
+                  shutil.copy(os.path.join(src, a['exportedFileName']), out)
+                  print(name, '->', out)
+          PY
+          ls -l artifacts/store
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: app-store-screenshots
-          path: artifacts/screenshots
+          path: artifacts/store
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: store-shots-raw
+          path: artifacts/attachments
