@@ -884,6 +884,7 @@ test('the onboarding routes do not exist until APPLE_HOUSEHOLD_TOKEN is configur
     ['household/devices', 'GET', undefined],
     [`household/devices/${'0'.repeat(64)}`, 'DELETE', undefined],
     ['household/sharing', 'PUT', { email: 'sam@example.test', enabled: true }],
+    ['household/users/email', 'PUT', { from: 'sam@example.test', to: 'sam2@example.test' }],
   ];
   for (const [path, method, body] of routes) {
     assert.equal((await household(closed.request, path, { method, body })).status, 404, `${method} ${path} unset`);
@@ -1122,4 +1123,18 @@ test('the dashboard is retired: every /apple-app path 308s to the public /welcom
   assert.equal((await fetch(`${base}/apple-appx`, { redirect: 'manual' })).status, 404);
   assert.equal((await fetch(`${base}/api/apple/me`)).status, 401);
   assert.equal((await fetch(`${base}/healthz`)).status, 200);
+});
+
+test('a person moves to another address in place; never the owner, never onto a taken address, never across families', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const moved = await household(request, 'household/users/email', { method: 'PUT', body: { from: 'SAM@example.test', to: ' Sam.Google@Example.test ' } });
+  assert.equal(moved.status, 200);
+  assert.deepEqual(moved.body, { id: 'sam', email: 'sam.google@example.test', name: moved.body.name });
+  assert.equal(db.prepare("SELECT email FROM users WHERE id='sam'").get().email, 'sam.google@example.test');
+  const taken = await household(request, 'household/users/email', { method: 'PUT', body: { from: 'sam.google@example.test', to: 'robin@example.test' } });
+  assert.equal(taken.status, 409, 'an address already here');
+  assert.equal((await household(request, 'household/users/email', { method: 'PUT', body: { from: 'robin@example.test', to: 'x@example.test' } })).status, 404, 'another family');
+  assert.equal((await household(request, 'household/users/email', { method: 'PUT', body: { from: 'alex@example.test', to: 'someone-new@example.test' } })).status, 409, 'the owner');
+  assert.equal(db.prepare("SELECT count(*) n FROM users WHERE email='someone-new@example.test'").get().n, 0);
+  assert.equal((await household(request, 'household/users/email', { method: 'PUT', body: { from: 'sam.google@example.test', to: 'no-at' } })).status, 400);
 });
