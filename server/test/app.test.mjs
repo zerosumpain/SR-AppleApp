@@ -911,7 +911,7 @@ test('a fix may carry a battery percentage, which the household lane passes on',
 // --- Household: onboarding (SR-Main /welcome, /admin/access/devices) -------
 
 const household = async (request, path, { method = 'GET', body, token = HOUSEHOLD_TOKEN } = {}) => {
-  if (path === 'household/events' && body) {
+  if (['household/events', 'household/views'].includes(path) && body) {
     const state=await request('household?limit=1',{user:null,headers:{Authorization:`Bearer ${token}`}});
     body={...body,revision:state.body.revision};
   }

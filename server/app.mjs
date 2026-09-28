@@ -612,7 +612,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!auth) fail(401, 'Pair this iPhone again');
       } else {
         const email = demoIdentity(req.headers.cookie, { demo, secure })
-          ?? (authSecret ? await sessionIdentity(req.headers.cookie, authSecret) : null);
+          ?? ((authSecret || process.env.SESSION_INTROSPECTION_URL) ? await sessionIdentity(req.headers.cookie, authSecret) : null);
         if (!email) fail(401, 'Sign in at strangeramblings.com');
         const user = db.prepare('SELECT * FROM users WHERE email=?').get(email);
         if (!user) fail(403, 'This account is not set up on the companion. Ask the owner to add it.');

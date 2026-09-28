@@ -32,6 +32,7 @@ import { getToken } from '@auth/core/jwt';
  * @returns the lower-cased email, or null.
  */
 export async function sessionIdentity(cookie, secret) {
+  if (process.env.SESSION_INTROSPECTION_URL || process.env.SESSION_INTROSPECTION_TOKEN) return (await sessionContext(cookie)).email;
   if (!secret) throw new Error('AUTH_SECRET is required');
   const token = await getToken({
     req: { headers: new Headers({ cookie: cookie ?? '' }) },
@@ -71,4 +72,25 @@ export function demoIdentity(cookie, { demo, secure }) {
   } catch {
     return null;
   }
+}
+
+/** Ask Main to verify a browser session without distributing its signing key. */
+export async function sessionContext(cookie, {
+  url = process.env.SESSION_INTROSPECTION_URL,
+  token = process.env.SESSION_INTROSPECTION_TOKEN,
+  audience = process.env.SESSION_INTROSPECTION_AUDIENCE,
+  fetchImpl = fetch,
+} = {}) {
+  if (!url || !audience || (token?.length ?? 0) < 32) throw new Error('Session authority configuration required');
+  const target = new URL(url);
+  if (target.protocol !== 'https:' && !(target.protocol === 'http:' && ['localhost','127.0.0.1','[::1]'].includes(target.hostname))) throw new Error('Unsafe session authority URL');
+  const response = await fetchImpl(target, { method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'x-sr-session-audience': audience, cookie: cookie ?? '' },
+    redirect: 'error', signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) throw new Error('Session authority unavailable');
+  const value = await response.json();
+  if (value.email !== null && (typeof value.email !== 'string' || !value.email.includes('@'))) throw new Error('Invalid session authority response');
+  if (value.viewingAs != null && (typeof value.viewingAs !== 'string' || !value.email)) throw new Error('Invalid view-as response');
+  return { email: value.email, viewingAs: value.viewingAs ?? null };
 }
