@@ -17,6 +17,43 @@ struct FamilyForecast: Decodable, Equatable {
     let next: [NextMove]
     let watch: [WatchItem]
     let people: [Person]
+    /// The owner's next two days with leave-by times — null on anyone else's
+    /// phone (it is the owner's calendar), and absent from an older site.
+    let upcoming: Upcoming?
+
+    struct Upcoming: Decodable, Equatable {
+        /// False when the diary could not be read: say so, never "nothing on".
+        let available: Bool
+        let items: [UpcomingItem]
+    }
+
+    struct UpcomingItem: Decodable, Equatable, Identifiable {
+        let id: String
+        let title: String
+        let start: String
+        let end: String?
+        let place: String
+        let subjects: [String]
+        let leaveBy: String?
+        let from: String?
+        let travel: Travel?
+        let issue: Issue?
+
+        struct Travel: Decodable, Equatable {
+            /// `person`, `household` or `routed`.
+            let source: String
+            let median: Double
+            let p80: Double
+            let samples: Int
+            let mode: String
+        }
+        struct Issue: Decodable, Equatable {
+            let kind: String
+            let text: String
+        }
+    }
+
+    var names: [String: String] { Dictionary(people.map { ($0.subject, $0.name) }, uniquingKeysWith: { a, _ in a }) }
 
     struct Person: Decodable, Equatable {
         let subject: String
@@ -145,6 +182,19 @@ enum ForecastWords {
         "Leave \(Int(r.minutes.p80.rounded(.up))) min ahead to be on time four trips in five."
     }
 
+    /// "16 min · from 11 of Sam's trips", "12 min by car · routed, nobody has made this trip yet".
+    static func travelLine(_ item: FamilyForecast.UpcomingItem, names: [String: String]) -> String? {
+        guard let t = item.travel else { return nil }
+        let minutes = "\(Int(t.median.rounded())) min"
+        switch t.source {
+        case "person":
+            let who = item.subjects.first.map { names[$0] ?? $0.capitalized } ?? "their"
+            return "\(minutes) · from \(t.samples) of \(who)'s trips"
+        case "household": return "\(minutes) · from the family's trips"
+        default: return "\(minutes) \(t.mode == "vehicle" ? "by car" : "on foot") · routed, nobody has made this trip yet"
+        }
+    }
+
     static func symbol(_ w: FamilyForecast.WatchItem) -> String {
         switch w.kind {
         case "overdue": return "clock.badge.exclamationmark"
@@ -180,6 +230,11 @@ final class FamilyForecastStore: ObservableObject {
             let fetched: FamilyForecast = try await SiteClient.shared.send("api/native/family/forecast")
             forecast = fetched
             lastLoad = Date()
+            // Only this phone's own view: "View as" is somebody else's seat,
+            // and their diary is not yours to be reminded of.
+            if AccessStore.shared.viewingAs == nil {
+                await LeaveByReminders.sync(fetched.upcoming, names: fetched.names)
+            }
         } catch {
             // The forecast is an extra over the positions: a failed read keeps
             // the last one (or none) and says nothing — the tab stands without it.
@@ -202,12 +257,24 @@ struct TodayForecastCard: View {
     @ObservedObject private var store = FamilyForecastStore.shared
     let open: () -> Void
 
+    /// The next leave-by in the coming six hours, if there is one.
+    static func nextLeave(_ upcoming: FamilyForecast.Upcoming?, now: Date = Date()) -> FamilyForecast.UpcomingItem? {
+        guard let upcoming, upcoming.available else { return nil }
+        return upcoming.items
+            .compactMap { item -> (FamilyForecast.UpcomingItem, Date)? in
+                guard let t = item.leaveBy.flatMap(parseTimestamp), t > now, t.timeIntervalSince(now) <= 6 * 3600 else { return nil }
+                return (item, t)
+            }
+            .min { $0.1 < $1.1 }?.0
+    }
+
     static let movesShown = 3
     static let flagsShown = 2
 
     var body: some View {
-        if let f = store.forecast, !(f.next.isEmpty && f.watch.isEmpty) {
-            let names = Dictionary(f.people.map { ($0.subject, $0.name) }, uniquingKeysWith: { a, _ in a })
+        let soon = store.forecast.flatMap { Self.nextLeave($0.upcoming) }
+        if let f = store.forecast, !(f.next.isEmpty && f.watch.isEmpty && soon == nil) {
+            let names = f.names
             let moves = f.next.sorted { (parseTimestamp($0.leaveAt) ?? .distantFuture) < (parseTimestamp($1.leaveAt) ?? .distantFuture) }
             Button {
                 SRHaptic.tap()
@@ -216,6 +283,18 @@ struct TodayForecastCard: View {
                 SRCard(interactive: true) {
                     VStack(alignment: .leading, spacing: 10) {
                         SRSectionLabel(text: "Family · next", trailing: f.watch.isEmpty ? nil : "\(f.watch.count) to look at")
+                        if let soon, let leave = soon.leaveBy.flatMap(ForecastWords.clock) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("Leave \(leave)")
+                                    .font(SR.Text.display(18))
+                                    .foregroundStyle(SR.accent)
+                                Text("\(soon.title) · \(soon.place)")
+                                    .font(SR.Text.bodyMedium(15))
+                                    .foregroundStyle(SR.ink)
+                                    .lineLimit(2)
+                            }
+                            .accessibilityIdentifier("today-leave-by")
+                        }
                         ForEach(f.watch.prefix(Self.flagsShown)) { item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Image(systemName: ForecastWords.symbol(item))
@@ -247,5 +326,74 @@ struct TodayForecastCard: View {
             .accessibilityHint("Opens Family")
             .accessibilityIdentifier("today-forecast")
         }
+    }
+}
+
+/// Coming up, on the owner's phone: the next two days of diary events with a
+/// location, each with who is going, when to leave and what the time stands on.
+/// A diary that could not be read says so — an empty list would read as a free
+/// day.
+struct FamilyUpcomingCard: View {
+    let upcoming: FamilyForecast.Upcoming
+    let names: [String: String]
+    static let shown = 5
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SRSectionLabel(text: "Coming up", trailing: "next two days").padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                if !upcoming.available {
+                    note("Your calendar could not be read just now, so nothing is planned and no reminder is set. That is not the same as a free diary.")
+                } else if upcoming.items.isEmpty {
+                    note("Nothing with a location in the next two days.")
+                } else {
+                    ForEach(Array(upcoming.items.prefix(Self.shown).enumerated()), id: \.element.id) { index, item in
+                        if index > 0 { Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, SR.cardPadding) }
+                        row(item)
+                    }
+                }
+            }
+            .srGlassCard(.paper)
+        }
+        .accessibilityIdentifier("family-upcoming")
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(SR.Text.secondary())
+            .foregroundStyle(SR.inkSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(SR.cardPadding)
+    }
+
+    private func row(_ item: FamilyForecast.UpcomingItem) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(ForecastWords.clock(item.start) ?? "")  \(item.title)")
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(item.subjects.map { names[$0] ?? $0.capitalized }.joined(separator: ", ")) · \(item.place)\(item.from.map { " · from \($0)" } ?? "")")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+                if let line = ForecastWords.travelLine(item, names: names) {
+                    Text(line).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                }
+                if let issue = item.issue {
+                    Text(issue.text).font(SR.Text.mono()).foregroundStyle(SR.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 6)
+            if let leave = item.leaveBy.flatMap(ForecastWords.clock) {
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(leave).font(SR.Text.display(20)).foregroundStyle(SR.accent)
+                    Text("LEAVE BY").font(SR.Text.label()).tracking(1.1).foregroundStyle(SR.inkMuted)
+                }
+            }
+        }
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
     }
 }

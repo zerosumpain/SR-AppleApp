@@ -200,6 +200,12 @@ import UIKit
         }
         // A household arrival is not in the site's inbox (a member has no site
         // pairing at all), so opening the inbox for it would show nothing.
+        // A leave-by reminder, scheduled on this phone from Coming up.
+        if category == LeaveByReminders.category {
+            Self.pending.tab = .family
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
         if category == "household" {
             Self.pending.tab = .today
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)

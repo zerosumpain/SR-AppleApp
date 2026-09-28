@@ -93,6 +93,11 @@ struct FamilyScreen: View {
                         FamilyWatchCard(items: items)
                             .padding(.top, 14)
                     }
+                    // The owner's phone only (null for anyone else).
+                    if let f = forecast.forecast, let upcoming = f.upcoming {
+                        FamilyUpcomingCard(upcoming: upcoming, names: f.names)
+                            .padding(.top, f.watch.isEmpty ? 14 : 0)
+                    }
                     // The counts, not a headline: the map above is the page's
                     // title, and the tab says where you are.
                     SRSectionLabel(text: "Everyone", trailing: view.summary)

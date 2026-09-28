@@ -63,6 +63,12 @@ extension SRDemoFixtures {
          "watch":[
           {"key":"quiet:kit:demo","kind":"quiet","subject":"kit","severity":"watch","title":"No location from Kit for 3 h 10 m",
            "detail":"Last seen at The Reservoir. A flat battery or no signal reads the same.","at":"\(clock.iso(minutesAgo: 0))"}],
+         "upcoming":{"available":true,"items":[
+          {"id":"demo-swim","title":"Swimming","start":"\(at(100))","end":"\(at(160))","place":"Leisure Centre","subjects":["robin"],
+           "leaveBy":"\(at(87))","from":"Home","travel":{"source":"person","median":11,"p80":13,"samples":6,"mode":"vehicle"},"issue":null},
+          {"id":"demo-dentist","title":"Dentist","start":"\(at(1500))","end":"\(at(1530))","place":"Castle Clinic","subjects":["sam"],
+           "leaveBy":"\(at(1482))","from":"School","travel":{"source":"routed","median":14,"p80":18,"samples":0,"mode":"vehicle"},
+           "issue":{"kind":"tight","text":"10 min after “School play” ends; the trip usually needs 18."}}]},
          "arrivals":[],"departures":[],
          "people":[{"subject":"alex","name":"Alex","coverage":0.93},{"subject":"sam","name":"Sam","coverage":0.95},
                    {"subject":"robin","name":"Robin","coverage":0.91},{"subject":"kit","name":"Kit","coverage":0.62}]}

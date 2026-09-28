@@ -69,6 +69,7 @@ final class ShowcaseTests: XCTestCase {
         // The travel desk forecast: Sam's next move under the row, Kit's quiet phone above the list.
         soft(byId(app, "family-next-sam").waitForExistence(timeout: 5), "no forecast line for Sam")
         soft(byId(app, "family-watch").exists, "no 'what looks off' card")
+        soft(byId(app, "family-upcoming").exists, "no 'Coming up' card on the owner's Family tab")
         attach(app, "Showcase — Family")
 
         let sam = byId(app, "family-person-sam")
