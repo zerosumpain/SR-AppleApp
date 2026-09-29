@@ -284,12 +284,12 @@ struct BogglePlaying: View {
         }
     }
 
-    /// "3+ letters · 3–4→1 5→2 6→3 7→5 8+→11 · shared words cross out".
+    /// "3+ letters · 3→1 4→2 5→3 6→4 … · shared words cross out".
     private var rulesLine: String {
         let t = { (n: Int) in BoggleRules.points(for: String(repeating: "a", count: n), table: room.points) }
-        var table = room.minLength <= 3 ? ["3–4→\(t(3))"] : ["4→\(t(4))"]
-        table += ["5→\(t(5))", "6→\(t(6))", "7→\(t(7))", "8+→\(t(8))"]
-        var line = "\(room.minLength)+ letters · " + table.joined(separator: " ")
+        let first = max(room.minLength, 3)
+        let table = (first..<first + 4).map { "\($0)→\(t($0))" }
+        var line = "\(room.minLength)+ letters · " + table.joined(separator: " ") + " …"
         if BoggleScoring.from(room.scoring) == .classic, !room.solo { line += " · shared words cross out" }
         return line
     }

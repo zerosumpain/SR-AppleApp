@@ -181,16 +181,13 @@ struct BoggleSettings: Equatable {
 // MARK: - The rules
 
 enum BoggleRules {
-    /// The spec's points, for a room that did not send them. "8" means 8+.
-    static let fallbackPoints: [Int: Int] = [3: 1, 4: 1, 5: 2, 6: 3, 7: 5, 8: 11]
-
     /// A word's points by its length in letters (`qu` is two), from the room's
-    /// table. Anything of eight or more is the "8" row.
+    /// table; a room that did not send that row gets the spec's rule, a point
+    /// a letter past two.
     static func points(for word: String, table: [String: Int]) -> Int {
         let length = word.count
         if length < 3 { return 0 }
-        let row = min(length, 8)
-        return table[String(row)] ?? fallbackPoints[row] ?? 0
+        return table[String(length)] ?? length - 2
     }
 
     /// Row and column of a tile on a `size`-wide grid.
