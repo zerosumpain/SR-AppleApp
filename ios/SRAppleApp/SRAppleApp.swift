@@ -308,10 +308,17 @@ import UIKit
 
 @main struct SRAppleApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @Environment(\.scenePhase) private var scenePhase
-
     var body: some Scene {
-        WindowGroup {
+        WindowGroup { StartupContent(delegate: delegate) }
+    }
+}
+
+/// Observe the asynchronous bootstrap from a View. Reading the adaptor only
+/// from App's Scene builder does not subscribe the launch placeholder to changes.
+private struct StartupContent: View {
+    @ObservedObject var delegate: AppDelegate
+    @Environment(\.scenePhase) private var scenePhase
+    var body: some View {
             if let companion = delegate.companion, let battery = delegate.battery {
                 EntryGate(companion: companion, battery: battery)
                     .task {
@@ -336,8 +343,10 @@ import UIKit
                             Task { try? await companion.outbox.persistIfDirty() }
                         }
                     }
-            } else { ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(delegate.startupError ?? "Starting…")) }
-        }
+            } else if let error = delegate.startupError {
+                ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(error))
+                    .accessibilityIdentifier("startup-error")
+            } else { ProgressView("Opening saved data…").accessibilityIdentifier("startup-loading") }
     }
 }
 

@@ -234,7 +234,7 @@ final class AccessTests: XCTestCase {
 
     // MARK: - The store
 
-    @MainActor func testTheStoreAdoptsAViewAndPersistsIt() throws {
+    @MainActor func testTheStoreAdoptsAViewAndPersistsIt() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("access-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
         let outbox = try Outbox(url: url)
@@ -247,6 +247,7 @@ final class AccessTests: XCTestCase {
         store.adopt(view: ViewAccess(flags: AppAccess(chat: true, family: true),
                                      sitePair: SitePairOffer(server: "https://strangeramblings.com", code: "c1", expiresAt: nil)))
         XCTAssertEqual(store.current, AppAccess(chat: true, family: true))
+        await store.flushPersistence()
         XCTAssertEqual(outbox.state.access?.source, "view")
         XCTAssertEqual(store.takeOffer()?.code, "c1")
         XCTAssertNil(store.takeOffer(), "a code is spent once")

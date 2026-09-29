@@ -292,6 +292,7 @@ final class AccessStore: ObservableObject {
     @Published private(set) var viewingAs: ViewPreview?
 
     private weak var outbox: Outbox?
+    private var persistence: Task<Void, Never>?
     private var sitePaired: Bool
     private var lastPairRequest: Date?
     /// Codes already tried, so a code the site refused is not retried every
@@ -404,11 +405,21 @@ final class AccessStore: ObservableObject {
 
     private func store(_ answer: AppAccess) {
         if let outbox, outbox.state.access != answer {
-            Task { try? await outbox.change { $0.access = answer } }
+            let previous = persistence
+            persistence = Task { [weak self] in
+                await previous?.value
+                guard let self else { return }
+                try? await outbox.change {
+                    guard self.outbox === outbox, self.known == answer else { return }
+                    $0.access = answer
+                }
+            }
         }
         known = answer
         recompute()
     }
+
+    func flushPersistence() async { await persistence?.value }
 
     private func recompute() {
         var next = AccessPolicy.resolve(known: known, sitePaired: sitePaired)

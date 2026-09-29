@@ -130,14 +130,24 @@ jobs:
             xcodebuild -downloadPlatform watchOS
           fi
           xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleWatch -destination 'generic/platform=watchOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee watch-build.log
-      - name: Build and test on iPhone simulator
+      - name: Build and test iPhone logic
         run: |
           set -o pipefail
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl ui "$DEVICE_ID" appearance dark
-          xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
+          echo "SR_TEST_DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -only-testing:SRAppleAppTests -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
+      # Stop before the long UI suite if launch itself is broken.
+      - name: Verify fresh and demo launch
+        run: |
+          set -o pipefail
+          xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$SR_TEST_DEVICE_ID" -derivedDataPath DerivedData -only-testing:SRAppleAppUITests/OnboardingTests/testAFreshInstallOpensOnWelcome -only-testing:SRAppleAppUITests/AppStoreShotsTests/testStore01Today -resultBundlePath artifacts/Launch.xcresult CODE_SIGNING_ALLOWED=NO | tee launch-test.log
+      - name: Test iPhone interface
+        run: |
+          set -o pipefail
+          xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$SR_TEST_DEVICE_ID" -derivedDataPath DerivedData -only-testing:SRAppleAppUITests -resultBundlePath artifacts/UITests.xcresult CODE_SIGNING_ALLOWED=NO | tee ui-test.log
       # The TestFlight archive builds RELEASE; everything above is Debug. The
       # App Review demo runs on fixtures that compile in both, and a reference
       # that exists only in Debug is green above and fails at upload (the
@@ -151,18 +161,22 @@ jobs:
       - name: Export simulator screenshots
         if: ${{ !cancelled() }}
         run: |
-          if [ -d artifacts/Tests.xcresult ]; then
-            xcrun xcresulttool export attachments --path artifacts/Tests.xcresult --output-path artifacts/screenshots
-          fi
+          for result in artifacts/*.xcresult; do
+            if [ -d "$result" ]; then
+              xcrun xcresulttool export attachments --path "$result" --output-path "artifacts/screenshots/$(basename "$result" .xcresult)"
+            fi
+          done
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
           name: ios-simulator-results
           path: |
             build.log
+            launch-test.log
+            ui-test.log
             watch-build.log
             release-build.log
-            artifacts/Tests.xcresult
+            artifacts/*.xcresult
             artifacts/screenshots
             DerivedData/Build/Products/Debug-iphonesimulator/SRAppleApp.app
           retention-days: 7
