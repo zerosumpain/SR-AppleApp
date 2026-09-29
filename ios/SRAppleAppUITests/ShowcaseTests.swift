@@ -789,6 +789,53 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Liar's Dice: my turn to bid (my dice, the table, the bid picker), a
+    /// call with every cup up, and the finish.
+    @MainActor func testShowcaseLiarsDice() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let bidding = byId(app, "games-room-g_demo_liars")
+        if scroll(app, to: bidding) {
+            bidding.tap()
+            settle(app, on: byId(app, "liars-playing"), seconds: 2)
+            soft(byId(app, "liars-bid").exists, "no standing bid")
+            soft(byId(app, "liars-my-dice").exists, "no dice of mine")
+            soft(byId(app, "liars-seat-p_sam").exists, "Sam is not at the table")
+            soft(byId(app, "liars-call").exists, "no Liar! button")
+            soft(byId(app, "liars-bid-send").exists, "no Bid button")
+            soft(byId(app, "liars-face-6").exists, "no face picker")
+            attach(app, "Showcase — Liar's Dice, my turn")
+            back(app)
+        } else {
+            soft(false, "no Liar's Dice to resume")
+        }
+
+        let reveal = byId(app, "games-room-g_demo_liars_reveal")
+        if scroll(app, to: reveal) {
+            reveal.tap()
+            settle(app, on: byId(app, "liars-reveal"), seconds: 2)
+            soft(byId(app, "liars-reveal-line").exists, "no sentence for the call")
+            soft(byId(app, "liars-cup-p_sam").exists, "Sam's cup is not up")
+            attach(app, "Showcase — Liar's Dice, cups up")
+            back(app)
+        } else {
+            soft(false, "no Liar's Dice reveal")
+        }
+
+        let finished = byId(app, "games-room-g_demo_liars_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "liars-finished"), seconds: 2)
+            soft(byId(app, "liars-standings").exists, "no standings")
+            attach(app, "Showcase — Liar's Dice, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Liar's Dice")
+        }
+    }
+
     // MARK: - A member
 
     /// A family member given Family and Games and nothing else. Chat, News and

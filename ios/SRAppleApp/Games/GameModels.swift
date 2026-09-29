@@ -31,6 +31,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case sequenceMemory = "sequence-memory"
     case boggle
     case categories
+    case liarsDice = "liars-dice"
 
     var id: String { rawValue }
 
@@ -44,6 +45,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .sequenceMemory: return "Sequence Memory"
         case .boggle: return "Boggle"
         case .categories: return "Categories"
+        case .liarsDice: return "Liar's Dice"
         }
     }
 
@@ -58,6 +60,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .sequenceMemory: return "Watch the tiles flash, then play them back."
         case .boggle: return "A grid of dice. Trace words through touching letters."
         case .categories: return "One letter, a card of categories. Fill every line."
+        case .liarsDice: return "Hidden dice, bold bids. Call the liar."
         }
     }
 
@@ -80,6 +83,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "The same roll of letter dice for everyone. Drag through touching letters to make words before the sand runs out."
         case .categories:
             return "Everyone gets the same letter and card. Answer each category with that letter; an answer somebody else also wrote scores nothing, and the family can veto a cheeky one."
+        case .liarsDice:
+            return "Everyone rolls in secret. Bid on what the whole table holds, or call the last bid a lie. Lose a call, lose a die; last one with dice wins."
         }
     }
 
@@ -93,6 +98,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .sequenceMemory: return "square.grid.3x3.fill"
         case .boggle: return "square.grid.4x3.fill"
         case .categories: return "list.bullet.rectangle.fill"
+        case .liarsDice: return "dice.fill"
         }
     }
 }
@@ -141,6 +147,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.categories, .easy): return "16 friendly letters. No Q, X or Z."
         case (.categories, .medium): return "22 letters, some awkward vowels."
         case (.categories, .hard): return "Any letter but X and Z."
+        case (.liarsDice, .easy): return "Ones are just ones. 45 seconds a turn."
+        case (.liarsDice, .medium): return "Ones are wild. 45 seconds a turn."
+        case (.liarsDice, .hard): return "Ones are wild. 30 seconds a turn."
         }
     }
 
@@ -570,6 +579,9 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     let letter: String?
     /// The card. Nil before play.
     let categories: [String]?
+    /// Liar's Dice: its whole side of the room (dice, bids, the reveal),
+    /// decoded from the same JSON by `LiarsDiceState`. Nil in other games.
+    let liarsDice: LiarsDiceState?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -639,6 +651,8 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         maxAnswer = max(1, (try? c.decodeIfPresent(Int.self, forKey: .maxAnswer)) ?? 40)
         letter = ((try? c.decodeIfPresent(String.self, forKey: .letter)) ?? nil)?.lowercased()
         categories = (try? c.decodeIfPresent([String].self, forKey: .categories)) ?? nil
+        let isLiarsDice = (try? c.decodeIfPresent(String.self, forKey: .game)) == GameKind.liarsDice.rawValue
+        liarsDice = isLiarsDice ? (try? LiarsDiceState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -683,6 +697,8 @@ struct CreateGameBody: Encodable, Equatable {
     var scoring: String? = nil
     /// Categories: 6, 8 or 10 on the card (`seconds` as Boggle's).
     var categoryCount: Int? = nil
+    /// Liar's Dice: dice each (3 | 5).
+    var dice: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -707,6 +723,9 @@ struct GameActionBody: Encodable {
     /// `{action:"veto"|"unveto", playerId, index}`.
     var text: String? = nil
     var playerId: String? = nil
+    /// Liar's Dice: `{action:"bid", quantity, face}` (`liar` takes nothing).
+    var quantity: Int? = nil
+    var face: Int? = nil
     /// The host asking more people into the lobby: `{action:"invite", invite:[playerId]}`.
     var invite: [String]? = nil
 }

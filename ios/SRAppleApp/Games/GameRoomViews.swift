@@ -44,6 +44,8 @@ struct GameRoomScreen: View {
                 BoggleScreen(roomId: ref.id)
             case .categories?:
                 CategoriesScreen(roomId: ref.id)
+            case .liarsDice?:
+                LiarsDiceScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",
