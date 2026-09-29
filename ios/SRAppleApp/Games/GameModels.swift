@@ -30,6 +30,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case mathsSprint = "maths-sprint"
     case sequenceMemory = "sequence-memory"
     case boggle
+    case categories
 
     var id: String { rawValue }
 
@@ -42,6 +43,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .mathsSprint: return "Quick Maths Sprint"
         case .sequenceMemory: return "Sequence Memory"
         case .boggle: return "Boggle"
+        case .categories: return "Categories"
         }
     }
 
@@ -55,6 +57,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .mathsSprint: return "Sixty seconds of mental arithmetic."
         case .sequenceMemory: return "Watch the tiles flash, then play them back."
         case .boggle: return "A grid of dice. Trace words through touching letters."
+        case .categories: return "One letter, a card of categories. Fill every line."
         }
     }
 
@@ -75,6 +78,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "The tiles flash a sequence; tap it back. One more step each round. Miss and you are out."
         case .boggle:
             return "The same roll of letter dice for everyone. Drag through touching letters to make words before the sand runs out."
+        case .categories:
+            return "Everyone gets the same letter and card. Answer each category with that letter; an answer somebody else also wrote scores nothing, and the family can veto a cheeky one."
         }
     }
 
@@ -87,6 +92,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .mathsSprint: return "plus.forwardslash.minus"
         case .sequenceMemory: return "square.grid.3x3.fill"
         case .boggle: return "square.grid.4x3.fill"
+        case .categories: return "list.bullet.rectangle.fill"
         }
     }
 }
@@ -132,6 +138,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.boggle, .easy): return "A generous roll, rich in common words. 3 letters or more."
         case (.boggle, .medium): return "The dice as they fall. 3 letters or more."
         case (.boggle, .hard): return "The dice as they fall. 4 letters or more."
+        case (.categories, .easy): return "16 friendly letters. No Q, X or Z."
+        case (.categories, .medium): return "22 letters, some awkward vowels."
+        case (.categories, .hard): return "Any letter but X and Z."
         }
     }
 
@@ -146,8 +155,8 @@ enum GamePhase: String, Decodable {
     /// `armed` and `result` are Tap Duel's (`result` Sequence Memory's too);
     /// `playing` is Wordle Race's, Anagram Blitz's, Quick Maths Sprint's and Boggle's;
     /// `question` and `reveal` are Quiz Night's; `show` and `input` are
-    /// Sequence Memory's.
-    case lobby, countdown, armed, result, playing, question, reveal, show, input, finished, closed
+    /// Sequence Memory's; `review` is Categories' (answers shown, vetoes open).
+    case lobby, countdown, armed, result, playing, question, reveal, show, input, review, finished, closed
     /// A phase this version of the app has not heard of. Shown as "waiting",
     /// never a thrown decode — a newer site must not blank an open game.
     case unknown
@@ -283,6 +292,12 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
     // shared. `wordCount` and `score` as Anagram Blitz's.
     let boggleWords: [BoggleWord]?
 
+    // Categories: slots answered (the others' only figure mid-game), and the
+    // answers themselves (`answers` on the wire) — mine while playing,
+    // everyone's judged from the review on. `done` is the review's "seen enough".
+    let filled: Int
+    let categoryAnswers: [CategoriesAnswer]?
+
     // Quick Maths Sprint. `score` is points; `answered` is problems solved.
     let answered: Int
 
@@ -305,6 +320,7 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
         case wordCount, words, answered
         case playing, alive, best, roundsSurvived, outRound
         case sawInvite
+        case filled, answers
     }
 
     init(from decoder: Decoder) throws {
@@ -329,6 +345,9 @@ struct GamePlayer: Decodable, Equatable, Identifiable {
         roundsSurvived = (try? c.decodeIfPresent(Int.self, forKey: .roundsSurvived)) ?? 0
         outRound = (try? c.decodeIfPresent(Int.self, forKey: .outRound)) ?? nil
         sawInvite = (try? c.decodeIfPresent(Bool.self, forKey: .sawInvite)) ?? false
+        categoryAnswers = (try? c.decodeIfPresent([CategoriesAnswer].self, forKey: .answers)) ?? nil
+        filled = (try? c.decodeIfPresent(Int.self, forKey: .filled))
+            ?? categoryAnswers?.filter { !$0.text.isEmpty }.count ?? 0
     }
 
     var joined: Bool { status == "joined" }
@@ -539,6 +558,19 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// Every valid word the board held, once finished.
     let possible: BogglePossible?
 
+    // Categories. `timeLimitMs`, `startedAt` as Boggle's; `phaseEndsAt` is the
+    // review's end while reviewing.
+    /// Categories on the card: 6, 8 or 10.
+    let categoryCount: Int
+    /// How long the review runs, unless everyone is done first.
+    let reviewMs: Double?
+    /// Longest answer the server keeps.
+    let maxAnswer: Int
+    /// The round's letter, lower-case. Nil before play.
+    let letter: String?
+    /// The card. Nil before play.
+    let categories: [String]?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
@@ -547,6 +579,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         case problemCount, streakBonus, me, recaps
         case tiles, startLength, maxLength
         case size, scoring, grid, possible
+        case categoryCount, reviewMs, maxAnswer, letter, categories
     }
 
     init(from decoder: Decoder) throws {
@@ -601,6 +634,11 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         boggleFound = (try? c.decodeIfPresent([BoggleFound].self, forKey: .found)) ?? nil
         boggleMissed = (try? c.decodeIfPresent([BoggleMissed].self, forKey: .missed)) ?? nil
         possible = (try? c.decodeIfPresent(BogglePossible.self, forKey: .possible)) ?? nil
+        categoryCount = max(1, (try? c.decodeIfPresent(Int.self, forKey: .categoryCount)) ?? 8)
+        reviewMs = (try? c.decodeIfPresent(Double.self, forKey: .reviewMs)) ?? nil
+        maxAnswer = max(1, (try? c.decodeIfPresent(Int.self, forKey: .maxAnswer)) ?? 40)
+        letter = ((try? c.decodeIfPresent(String.self, forKey: .letter)) ?? nil)?.lowercased()
+        categories = (try? c.decodeIfPresent([String].self, forKey: .categories)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -643,6 +681,8 @@ struct CreateGameBody: Encodable, Equatable {
     var size: Int? = nil
     var seconds: Int? = nil
     var scoring: String? = nil
+    /// Categories: 6, 8 or 10 on the card (`seconds` as Boggle's).
+    var categoryCount: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -663,6 +703,10 @@ struct GameActionBody: Encodable {
     var taps: [Int]? = nil
     /// Boggle: `{action:"word", word, path:[tile,…]}` — the tiles traced.
     var path: [Int]? = nil
+    /// Categories: `{action:"answer", index, text}` and
+    /// `{action:"veto"|"unveto", playerId, index}`.
+    var text: String? = nil
+    var playerId: String? = nil
     /// The host asking more people into the lobby: `{action:"invite", invite:[playerId]}`.
     var invite: [String]? = nil
 }

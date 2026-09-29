@@ -13,7 +13,9 @@ import Foundation
 // and the tiles, Alex's problem and keypad on a bonus streak, and a Sequence
 // Memory round waiting on Alex's taps with Robin already out. Boggle: a 4×4
 // mid-play with a word half traced, and one finished with a shared word
-// crossed out and a missed word lit. The room stream has no
+// crossed out and a missed word lit. Categories: a card of eight mid-play
+// with a half-typed answer on the wrong letter, and a review with a shared
+// answer, a wrong letter and an answer Alex has vetoed out. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -30,6 +32,8 @@ extension SRDemoFixtures {
     static let demoMemoryRoom = "g_demo_memory"
     static let demoBoggleRoom = "g_demo_boggle"
     static let demoBoggleDoneRoom = "g_demo_boggle_done"
+    static let demoCategoriesRoom = "g_demo_categories"
+    static let demoCategoriesReviewRoom = "g_demo_categories_review"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -69,6 +73,13 @@ extension SRDemoFixtures {
                        {"id": "g_demo_boggle_done", "game": "boggle", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Categories' two rooms, left out of the store shots so those stay as
+    /// they were approved. First in the list, so the showcase reaches them.
+    static let categoriesLobbyRows = #"""
+    {"id": "g_demo_categories", "game": "categories", "phase": "playing", "hostName": "Alex"},
+                       {"id": "g_demo_categories_review", "game": "categories", "phase": "review", "hostName": "Sam"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -79,7 +90,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : boggleLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    {"id": \(s(demoLobbyRoom)), "game": "tap-duel", "phase": "lobby", "hostName": "Alex"},
                    \(storeShotsSkipsWordle ? "" : wordleLobbyRow)
                    {"id": \(s(demoQuizRoom)), "game": "quiz-night", "phase": "question", "hostName": "Alex"},
@@ -100,6 +112,8 @@ extension SRDemoFixtures {
         if id == demoMemoryRoom { return memoryRoom(clock) }
         if id == demoBoggleRoom { return boggleRoom(finished: false, clock: clock) }
         if id == demoBoggleDoneRoom { return boggleRoom(finished: true, clock: clock) }
+        if id == demoCategoriesRoom { return categoriesRoom(review: false, clock: clock) }
+        if id == demoCategoriesReviewRoom { return categoriesRoom(review: true, clock: clock) }
         if id == demoQuizInviteRoom {
             return quizLobby(id: id, fields: ["topic": "space", "audience": "kids", "difficulty": "easy"],
                              invited: [], hostIsMe: false, meJoined: meJoined, prep: "writing", clock: clock)
@@ -400,6 +414,76 @@ extension SRDemoFixtures {
                        {"id": "p_sam", "name": "Sam", "score": 1, "words": 2, "longest": "trap"}],
          "winnerIds": ["p_alex"],
          "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Categories
+
+    /// Categories, letter B, eight categories, easy. Playing: 40 seconds in,
+    /// Alex has four answers (the screen adds a half-typed "Pumpkin" on the
+    /// last line, so its warning shows). Review (Sam's game): BEAR is shared by
+    /// Alex and Sam, Robin's "Dog" is the wrong letter, and Robin's "Bogey"
+    /// has Alex's veto — one of two others, so it is struck.
+    static func categoriesRoom(review: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let card = ["An animal", "A food", "A country", "A girl's name", "Something in a kitchen",
+                    "A sport", "Something cold", "A TV show"]
+        func answer(_ index: Int, _ text: String, _ status: String = "null", points: Int = 0,
+                    vetoes: Int = 0, strikeAt: Int = 0, vetoed: Bool = false) -> String {
+            "{\"index\": \(index), \"text\": \(s(text)), \"status\": \(status), \"points\": \(points), "
+                + "\"vetoes\": \(vetoes), \"strikeAt\": \(strikeAt), \"vetoed\": \(vetoed)}"
+        }
+        func q(_ status: String) -> String { "\"\(status)\"" }
+        let categories = list(card.map { s($0) })
+        if !review {
+            let alex = [answer(0, "Badger"), answer(1, "Bagel"), answer(2, "Brazil"), answer(3, "Bella"),
+                        answer(4, ""), answer(5, ""), answer(6, ""), answer(7, "")]
+            return """
+            {"id": \(s(demoCategoriesRoom)), "game": "categories", "difficulty": "easy", "phase": "playing",
+             "hostId": "p_alex", "meId": "p_alex", "categoryCount": 8, "timeLimitMs": 120000, "reviewMs": 60000,
+             "maxAnswer": 40, "startedAt": \(ms(now.addingTimeInterval(-40))), "phaseEndsAt": \(ms(now.addingTimeInterval(80))),
+             "letter": "b", "categories": \(categories),
+             "players": [
+               {"id": "p_alex", "name": "Alex", "status": "joined", "isHost": true, "filled": 4, "done": false,
+                "score": 0, "answers": \(list(alex))},
+               {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": false, "filled": 5, "done": false,
+                "score": 0, "answers": null},
+               {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "filled": 3, "done": false,
+                "score": 0, "answers": null}
+             ],
+             "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+            """
+        }
+        let empty = (0..<8).map { $0 }
+        func row(_ given: [Int: String]) -> [String] {
+            empty.map { given[$0] ?? answer($0, "", q("empty"), strikeAt: 1) }
+        }
+        let alex = row([0: answer(0, "Bear", q("shared"), strikeAt: 1),
+                        1: answer(1, "Banana bread", q("ok"), points: 1, strikeAt: 1),
+                        2: answer(2, "Belgium", q("ok"), points: 1, strikeAt: 1),
+                        3: answer(3, "Bella", q("ok"), points: 1, strikeAt: 1),
+                        5: answer(5, "Badminton", q("ok"), points: 1, strikeAt: 1)])
+        let sam = row([0: answer(0, "the bear", q("shared"), strikeAt: 1),
+                       1: answer(1, "Burrito", q("ok"), points: 1, strikeAt: 1),
+                       4: answer(4, "Blender", q("ok"), points: 1, strikeAt: 1),
+                       6: answer(6, "Blizzard", q("ok"), points: 1, strikeAt: 1)])
+        let robin = row([0: answer(0, "Dog", q("wrong-letter"), strikeAt: 1),
+                         2: answer(2, "Bhutan", q("ok"), points: 1, strikeAt: 1),
+                         7: answer(7, "Bogey", q("struck"), vetoes: 1, strikeAt: 1, vetoed: true)])
+        return """
+        {"id": \(s(demoCategoriesReviewRoom)), "game": "categories", "difficulty": "easy", "phase": "review",
+         "hostId": "p_sam", "meId": "p_alex", "categoryCount": 8, "timeLimitMs": 120000, "reviewMs": 60000,
+         "maxAnswer": 40, "startedAt": \(ms(now.addingTimeInterval(-150))), "phaseEndsAt": \(ms(now.addingTimeInterval(30))),
+         "letter": "b", "categories": \(categories),
+         "players": [
+           {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": true, "filled": 4, "done": true,
+            "score": 3, "answers": \(list(sam))},
+           {"id": "p_alex", "name": "Alex", "status": "joined", "isHost": false, "filled": 5, "done": false,
+            "score": 4, "answers": \(list(alex))},
+           {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "filled": 3, "done": false,
+            "score": 1, "answers": \(list(robin))}
+         ],
+         "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
         """
     }
 }
