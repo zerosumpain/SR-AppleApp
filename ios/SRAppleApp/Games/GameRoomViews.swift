@@ -46,6 +46,8 @@ struct GameRoomScreen: View {
                 CategoriesScreen(roomId: ref.id)
             case .liarsDice?:
                 LiarsDiceScreen(roomId: ref.id)
+            case .drawGuess?:
+                DrawGuessScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",

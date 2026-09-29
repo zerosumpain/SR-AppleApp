@@ -255,6 +255,7 @@ struct GameCard: View {
         case .boggle: return SR.accentDeep
         case .categories: return SR.good
         case .liarsDice: return SR.good
+        case .drawGuess: return SR.accentInk
         }
     }
 }
@@ -284,6 +285,9 @@ struct NewGameSheet: View {
     @State private var categoriesSeconds = CategoriesSettings.defaultSeconds
     // Liar's Dice.
     @State private var liarsDice = 5
+    // Draw & Guess.
+    @State private var drawTurns = 1
+    @State private var drawSeconds = 80
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -331,6 +335,10 @@ struct NewGameSheet: View {
 
                     if game == .liarsDice {
                         liarsDiceSettings
+                    }
+
+                    if game == .drawGuess {
+                        drawGuessSettings
                     }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -433,7 +441,35 @@ struct NewGameSheet: View {
         if game == .liarsDice {
             return LiarsDiceSettings(difficulty: difficulty, dice: liarsDice).createBody(invite: invite)
         }
+        if game == .drawGuess {
+            return DrawGuessSettings(difficulty: difficulty, turnsEach: drawTurns, seconds: drawSeconds)
+                .createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// Times round and the clock — Draw & Guess's game.
+    private var drawGuessSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Game")
+            segments(
+                title: "Turns",
+                options: DrawGuessSettings.turns.map { (value: $0, label: DrawGuessSettings.turnsLabel($0)) },
+                selected: $drawTurns,
+                id: "games-drawguess-turns"
+            )
+            segments(
+                title: "Time to draw",
+                options: DrawGuessSettings.times.map { (value: $0, label: DrawGuessSettings.timeLabel($0)) },
+                selected: $drawSeconds,
+                id: "games-drawguess-time"
+            )
+            Text("Two to five players. Everyone draws in turn while the others guess.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-drawguess-line")
+        }
     }
 
     /// Card size and clock — Categories' round.
