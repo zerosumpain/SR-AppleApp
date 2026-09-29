@@ -43,5 +43,5 @@ export function scopedLive(db, row, users, now = Date.now()) {
     const round = n => Math.round(n * 1e4) / 1e4;
     positions.push({ subject: source.subject, position: { lat: round(fix.latitude), lon: round(fix.longitude), at: fix.recorded, accuracy: Math.max(12, fix.accuracy) }, moving: fix.moving, speed: fix.speed, battery: fix.battery ?? null });
   }
-  return { revision: hash(JSON.stringify([row.revision, positions])), positions };
+  return { revision: hash(JSON.stringify([row.revision, positions])), scope: row.revision, positions };
 }

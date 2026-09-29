@@ -3,9 +3,8 @@ import XCTest
 /// What a fresh install looks like, and that the design system actually renders.
 ///
 /// The screenshots these attach are the real verification artefact for the look.
-/// CI boots the simulator in DARK appearance on purpose — the site has no dark
-/// mode and the app is light-locked to match, so a shot that comes back dark is
-/// a regression, not a preference.
+/// CI boots in dark appearance to exercise the app's System preference.
+/// The light palette is separately pinned to the site's tokens by unit tests.
 ///
 /// These were rewritten when the tab bar changed. `Connect` is no longer a tab:
 /// pairing is a job you do once from a QR code on another screen, and a

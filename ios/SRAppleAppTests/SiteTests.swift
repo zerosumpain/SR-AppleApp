@@ -128,14 +128,14 @@ final class SiteTests: XCTestCase {
     /// Spot-check the palette against `src/app.css`. These are copied values,
     /// and a copied value is one that can drift.
     func testPaletteMatchesTheSiteTokens() {
-        XCTAssertEqual(UIColor(SR.paper).hexString, "EDE4D4")   // --bg
-        XCTAssertEqual(UIColor(SR.ink).hexString, "1A1008")     // --text-primary
-        XCTAssertEqual(UIColor(SR.accent).hexString, "C4570A")  // --accent
-        XCTAssertEqual(UIColor(SR.accentOnDark).hexString, "E8863A") // --accent-on-dark
-        XCTAssertEqual(UIColor(SR.accentInk).hexString, "0E5B66")    // --accent-ink
-        XCTAssertEqual(UIColor(SR.good).hexString, "55663A")         // --good
-        XCTAssertEqual(UIColor(SR.goodOnDark).hexString, "8A9A5B")   // --good-on-dark
-        XCTAssertEqual(UIColor(SR.surface).hexString, "E8DECE")      // --surface-elevated
+        XCTAssertEqual(UIColor(SR.paper).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "EDE4D4")   // --bg
+        XCTAssertEqual(UIColor(SR.ink).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "1A1008")     // --text-primary
+        XCTAssertEqual(UIColor(SR.accent).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "C4570A")  // --accent
+        XCTAssertEqual(UIColor(SR.accentOnDark).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "E8863A") // --accent-on-dark
+        XCTAssertEqual(UIColor(SR.accentInk).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "0E5B66")    // --accent-ink
+        XCTAssertEqual(UIColor(SR.good).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "55663A")         // --good
+        XCTAssertEqual(UIColor(SR.goodOnDark).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "8A9A5B")   // --good-on-dark
+        XCTAssertEqual(UIColor(SR.surface).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).hexString, "E8DECE")      // --surface-elevated
     }
 
     // MARK: - Relative time

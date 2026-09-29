@@ -26,11 +26,11 @@ import UIKit
 /// bar at the top edge so everything docks under it, and the content scrolls on
 /// cream beneath.
 enum SR {
-    static func adaptive(_ light: UInt32, _ dark: UInt32, alpha: Double = 1) -> Color {
+    static func adaptive(_ light: UInt32, _ dark: UInt32, alpha: Double = 1, darkAlpha: Double? = nil) -> Color {
         Color(UIColor { traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255,
-                           blue: CGFloat(value & 255) / 255, alpha: CGFloat(alpha))
+                           blue: CGFloat(value & 255) / 255, alpha: CGFloat(traits.userInterfaceStyle == .dark ? darkAlpha ?? alpha : alpha))
         })
     }
     static let inkBand = Color(hex: 0x1A1008)
@@ -49,9 +49,9 @@ enum SR {
     /// `--text-secondary`.
     static let inkSecondary = adaptive(0x3D2E1A, 0xD4C8B5)
     /// `--text-muted` — 65% ink on paper. PAPER ONLY.
-    static let inkMuted = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.72)
+    static let inkMuted = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.65, darkAlpha: 0.72)
     /// `--text-ghost` — 45%. PAPER ONLY.
-    static let inkGhost = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.55)
+    static let inkGhost = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.45, darkAlpha: 0.55)
 
     /// `--accent`, burnt orange. Punchy, not regal. PAPER ONLY.
     static let accent = adaptive(0xC4570A, 0xE8863A)

@@ -414,6 +414,7 @@ extension HouseholdView {
 }
 
 struct LiveFamilyResponse: Decodable {
+    let scope: String?
     let revision: String
     let positions: [Fix]
     struct Fix: Decodable {

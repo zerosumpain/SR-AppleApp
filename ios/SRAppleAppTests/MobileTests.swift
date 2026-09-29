@@ -237,10 +237,11 @@ final class DynamicTypeTests: XCTestCase {
 /// a sentence" is a fact in the repository rather than a thing somebody once
 /// noticed.
 final class ContrastTests: XCTestCase {
+    private var appearance: UIUserInterfaceStyle = .light
 
     private func components(_ color: Color) -> (r: Double, g: Double, b: Double, a: Double) {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: appearance)).getRed(&r, green: &g, blue: &b, alpha: &a)
         return (Double(r), Double(g), Double(b), Double(a))
     }
 
@@ -303,8 +304,18 @@ final class ContrastTests: XCTestCase {
                               ("goodOnDark", SR.goodOnDark),
                               ("errorOnDark", SR.errorOnDark),
                               ("creamOnDark", SR.creamOnDark)] {
-            let ratio = contrast(token, on: SR.ink)
+            let ratio = contrast(token, on: SR.inkBand)
             XCTAssertGreaterThanOrEqual(ratio, 3.0, "\(name) measures \(String(format: "%.2f", ratio)):1 on ink")
         }
     }
+    func testDarkBodyTextClearsContrastOnBothReadingSurfaces() {
+        appearance = .dark
+        defer { appearance = .light }
+        for token in [SR.ink, SR.inkSecondary, SR.inkMuted] {
+            for ground in [SR.paper, SR.surface] {
+                XCTAssertGreaterThanOrEqual(contrast(token, on: ground), 4.5)
+            }
+        }
+    }
+
 }

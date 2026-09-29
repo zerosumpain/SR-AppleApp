@@ -79,6 +79,7 @@ final class FamilyStore: ObservableObject {
     func followLive() async {
         guard companion.paired, !SRDemo.isOn else { return }
         var revision: String?
+        var scope: String?
         while !Task.isCancelled, companion.paired {
             do {
                 let response: LiveFamilyResponse = try await companion.api.request("household/live", query: revision.map { [URLQueryItem(name: "since", value: $0)] } ?? [], timeout: 28)
@@ -92,7 +93,15 @@ final class FamilyStore: ObservableObject {
                 }
                 // Owner preview views have their own scope and remain on their
                 // scoped snapshot until a fresh preview arrives.
-                liveFixes = Dictionary(response.positions.map { ($0.subject, $0) }, uniquingKeysWith: { old, new in old.position.at > new.position.at ? old : new })
+                if let currentScope = response.scope, currentScope != scope {
+                    real = nil; view = nil; liveFixes = [:]
+                    await load()
+                    scope = currentScope
+                }
+                for fix in response.positions {
+                    if let old = liveFixes[fix.subject], old.position.at > fix.position.at { continue }
+                    liveFixes[fix.subject] = fix
+                }
                 message = nil
                 applyViewingAs()
             } catch {
