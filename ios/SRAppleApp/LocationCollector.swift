@@ -403,11 +403,12 @@ import UIKit
     private func assess() async -> MotionVerdict {
         let s = settings.motion
         let now = Date()
-        // From when we went to sleep, but never further back than the window —
-        // hours of history would accumulate enough walking to answer "yes"
-        // every single time, which is not a gate.
-        let slept = armedAt ?? outbox.state.anchor?.at ?? now
-        let from = max(slept, now.addingTimeInterval(-s.historyWindow))
+        // From when we went to sleep — the start of this run of sleep, not the
+        // last blip (`GateAnchor.asleepSince`) — but never further back than
+        // the window: hours of history would accumulate enough walking to
+        // answer "yes" every single time, which is not a gate.
+        let slept = outbox.state.anchor?.asleepSince ?? armedAt ?? outbox.state.anchor?.at ?? now
+        let from = MotionAssessment.evidenceStart(asleepFrom: slept, now: now, historyWindow: s.historyWindow)
         let evidence = await motion.evidence(from: from, to: now, burstWindow: s.stepBurstWindow)
         return MotionAssessment.verdict(evidence, settings: s)
     }
@@ -434,10 +435,11 @@ import UIKit
             self.awaitingAnchor = nil
             // No fix in time. Re-arm on the old anchor, widened, rather than
             // staying awake — but widened, or we exit it again straight away.
-            if var anchor = self.outbox.state.anchor {
-                anchor.radius = min(self.settings.motion.maxAnchorRadius, anchor.radius * 2)
-                anchor.at = Date()
-                self.rearm(anchor: anchor, reason: reason, kind: .slept)
+            if let anchor = self.outbox.state.anchor {
+                var widened = anchor
+                widened.radius = min(self.settings.motion.maxAnchorRadius, anchor.radius * 2)
+                widened.at = Date()
+                self.rearm(anchor: anchor.followedBy(widened), reason: reason, kind: .slept)
             } else {
                 self.resumeTracking(reason: "No fix to re-anchor on", kind: .resumed)
             }
@@ -656,11 +658,13 @@ import UIKit
             awaitingAnchor = nil
             anchorTimeoutTask?.cancel(); anchorTimeoutTask = nil
             if settings.motion.coarseOnBlip { record(location, moving: false) }
-            let anchor = GateAnchor(latitude: location.coordinate.latitude,
+            let placed = GateAnchor(latitude: location.coordinate.latitude,
                                     longitude: location.coordinate.longitude,
                                     radius: anchorRadius(for: location),
                                     at: Date(),
                                     accuracy: max(0, location.horizontalAccuracy))
+            // Same run of sleep: the next wake still reads back to when GPS went off.
+            let anchor = outbox.state.anchor?.followedBy(placed) ?? placed
             rearm(anchor: anchor, reason: reason, kind: .slept)
             return
         }

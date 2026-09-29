@@ -308,4 +308,55 @@ final class MotionTests: XCTestCase {
         s.motion.anchorRadius += 50
         XCTAssertNil(s.matchingPreset, "a changed motion value must read as Custom too")
     }
+
+    // MARK: - A run of blips is one sleep (27 Sep 2026)
+
+    private func anchor(at seconds: TimeInterval) -> GateAnchor {
+        GateAnchor(latitude: 40.7829, longitude: -73.9654, radius: 150,
+                   at: origin.addingTimeInterval(seconds))
+    }
+
+    func testABlipKeepsWhenTheSleepBegan() {
+        // Slept at 0; blips at 7, 22 and 27 minutes each placed a new anchor.
+        let first = anchor(at: 0)
+        let second = first.followedBy(anchor(at: 420))
+        let third = second.followedBy(anchor(at: 1320))
+        let fourth = third.followedBy(anchor(at: 1620))
+        XCTAssertEqual(fourth.at, origin.addingTimeInterval(1620))
+        XCTAssertEqual(fourth.asleepFrom, origin, "every wake reads back to when GPS went off")
+        XCTAssertEqual(first.asleepFrom, origin)
+    }
+
+    func testTheEvidenceWindowSpansTheBlipsButNeverThePastHistoryWindow() {
+        let settings = MotionSettings(enabled: true)
+        // Asleep ten minutes, blips and all: the whole ten are read.
+        XCTAssertEqual(
+            MotionAssessment.evidenceStart(asleepFrom: origin, now: origin.addingTimeInterval(600),
+                                           historyWindow: settings.historyWindow),
+            origin)
+        // Asleep forty minutes: still only the last fifteen.
+        XCTAssertEqual(
+            MotionAssessment.evidenceStart(asleepFrom: origin, now: origin.addingTimeInterval(2400),
+                                           historyWindow: settings.historyWindow),
+            origin.addingTimeInterval(1500))
+    }
+
+    func testStopStartWalkingAcrossBlipsAddsUpToAWalk() {
+        // Three and a half minutes of walking either side of a blip. Judged from
+        // the blip, as before, it was never five; judged from the sleep, it is.
+        let walk = [interval(.walking, from: 0, seconds: 210), interval(.stationary, from: 210, seconds: 90),
+                    interval(.walking, from: 300, seconds: 210)]
+        let sinceBlip = evidence(Array(walk.suffix(1)), steps: 250)
+        let sinceSleep = evidence(walk, steps: 520)
+        XCTAssertFalse(MotionAssessment.verdict(sinceBlip, settings: MotionSettings(enabled: true)).wakesGPS)
+        XCTAssertEqual(MotionAssessment.verdict(sinceSleep, settings: MotionSettings(enabled: true)),
+                       .travelling(.walking, "Walking for 7 min"))
+    }
+
+    func testAnAnchorFromAnOlderBuildStillDecodes() throws {
+        let json = #"{"latitude":40.7829,"longitude":-73.9654,"radius":150,"at":0}"#
+        let decoded = try JSONDecoder().decode(GateAnchor.self, from: Data(json.utf8))
+        XCTAssertNil(decoded.asleepSince)
+        XCTAssertEqual(decoded.asleepFrom, decoded.at)
+    }
 }
