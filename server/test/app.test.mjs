@@ -893,6 +893,17 @@ test('a push replaces the family: a person left out loses their view, another fa
   assert.equal((await request('household/view', { user: 'robin' })).body.view, null, 'legacy unversioned views are not served');
 });
 
+test('a view may carry the live sources SR-Main sends, validated and not stored', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const sources = [{ subject: 'sam', email: 'sam@example.test' }];
+  const stored = await postViews(request, [{ email: 'alex@example.test', view: view('a1'), sources }]);
+  assert.equal(stored.status, 200);
+  assert.equal(stored.body.stored, 1);
+  assert.equal((await request('household/view')).body.view.people[0].subject, 'a1');
+  assert.equal((await postViews(request, [{ email: 'alex@example.test', view: view('x'), sources: 'sam' }])).status, 400);
+  assert.equal((await postViews(request, [{ email: 'alex@example.test', view: view('x'), sources: [{ subject: 'sam' }] }])).status, 400);
+});
+
 test('household views reject a malformed batch', async t => {
   const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
   assert.equal((await postViews(request, [{ email: 'alex@example.test', view: [] }])).status, 400);
