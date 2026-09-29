@@ -15,7 +15,9 @@ import Foundation
 // mid-play with a word half traced, and one finished with a shared word
 // crossed out and a missed word lit. Categories: a card of eight mid-play
 // with a half-typed answer on the wrong letter, and a review with a shared
-// answer, a wrong letter and an answer Alex has vetoed out. The room stream has no
+// answer, a wrong letter and an answer Alex has vetoed out. Liar's Dice:
+// Alex's turn to bid over a timed-out raise of Sam's, a call with every cup
+// up, and a finished game. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -34,6 +36,9 @@ extension SRDemoFixtures {
     static let demoBoggleDoneRoom = "g_demo_boggle_done"
     static let demoCategoriesRoom = "g_demo_categories"
     static let demoCategoriesReviewRoom = "g_demo_categories_review"
+    static let demoLiarsRoom = "g_demo_liars"
+    static let demoLiarsRevealRoom = "g_demo_liars_reveal"
+    static let demoLiarsDoneRoom = "g_demo_liars_done"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -80,6 +85,14 @@ extension SRDemoFixtures {
                        {"id": "g_demo_categories_review", "game": "categories", "phase": "review", "hostName": "Sam"},
     """#
 
+    /// Liar's Dice's three rooms: bidding (Alex's turn), a reveal, finished.
+    /// Left out of the store shots too, as Categories' are.
+    static let liarsLobbyRows = #"""
+    {"id": "g_demo_liars", "game": "liars-dice", "phase": "bidding", "hostName": "Alex"},
+                       {"id": "g_demo_liars_reveal", "game": "liars-dice", "phase": "reveal", "hostName": "Sam"},
+                       {"id": "g_demo_liars_done", "game": "liars-dice", "phase": "finished", "hostName": "Alex"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -92,6 +105,7 @@ extension SRDemoFixtures {
                       "about": "The Solar System · for kids"}],
          "rooms": [\(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
                    {"id": \(s(demoLobbyRoom)), "game": "tap-duel", "phase": "lobby", "hostName": "Alex"},
                    \(storeShotsSkipsWordle ? "" : wordleLobbyRow)
                    {"id": \(s(demoQuizRoom)), "game": "quiz-night", "phase": "question", "hostName": "Alex"},
@@ -114,6 +128,9 @@ extension SRDemoFixtures {
         if id == demoBoggleDoneRoom { return boggleRoom(finished: true, clock: clock) }
         if id == demoCategoriesRoom { return categoriesRoom(review: false, clock: clock) }
         if id == demoCategoriesReviewRoom { return categoriesRoom(review: true, clock: clock) }
+        if id == demoLiarsRoom { return liarsRoom(.bidding, clock: clock) }
+        if id == demoLiarsRevealRoom { return liarsRoom(.reveal, clock: clock) }
+        if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
         if id == demoQuizInviteRoom {
             return quizLobby(id: id, fields: ["topic": "space", "audience": "kids", "difficulty": "easy"],
                              invited: [], hostIsMe: false, meJoined: meJoined, prep: "writing", clock: clock)
@@ -485,5 +502,77 @@ extension SRDemoFixtures {
          ],
          "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
         """
+    }
+
+    // MARK: Liar's Dice
+
+    /// Liar's Dice, medium (ones wild), five dice each, Alex, Sam and Robin.
+    /// Bidding: round 3, Robin is out, Alex opened two 3s and Sam's clock ran
+    /// out on three 5s — Alex's turn, with 32 seconds left. Reveal (Sam's
+    /// game): Sam called Alex's four 3s; the table held four with the ones,
+    /// so Sam loses a die. Finished: Alex called Sam's two 4s on Sam's last
+    /// die, and wins.
+    static func liarsRoom(_ phase: LiarsDicePhase, clock: DemoClock) -> String {
+        let now = clock.now
+        let common = """
+        "game": "liars-dice", "difficulty": "medium", "meId": "p_alex",
+         "dicePerPlayer": 5, "wildOnes": true, "minFace": 2, "turnMs": 45000,
+         "rule": "Ones are wild: they count as any face, and nobody bids on ones.",
+         "startedAt": \(ms(now.addingTimeInterval(-240))), "serverNow": \(ms(now))
+        """
+        func seat(_ id: String, _ name: String, host: Bool, count: Int, out: Bool = false, dice: String = "null") -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"diceCount\": \(count), \"out\": \(out), \"dice\": \(dice)}"
+        }
+        switch phase {
+        case .reveal:
+            return """
+            {"id": \(s(demoLiarsRevealRoom)), \(common), "phase": "reveal", "hostId": "p_sam",
+             "round": 3, "starterId": "p_alex", "turnId": null, "totalDice": 6,
+             "phaseEndsAt": \(ms(now.addingTimeInterval(5))),
+             "bid": {"playerId": "p_alex", "quantity": 4, "face": 3, "auto": false},
+             "bids": [{"playerId": "p_alex", "quantity": 2, "face": 3, "auto": false},
+                      {"playerId": "p_sam", "quantity": 3, "face": 5, "auto": true},
+                      {"playerId": "p_alex", "quantity": 4, "face": 3, "auto": false}],
+             "players": [\(seat("p_sam", "Sam", host: true, count: 2)),
+                         \(seat("p_alex", "Alex", host: false, count: 4, dice: "[3, 1, 5, 3]")),
+                         \(seat("p_robin", "Robin", host: false, count: 0, out: true))],
+             "reveal": {"bid": {"playerId": "p_alex", "quantity": 4, "face": 3, "auto": false},
+                        "challengerId": "p_sam", "auto": false, "count": 4, "loserId": "p_sam", "eliminated": false,
+                        "dice": [{"playerId": "p_sam", "dice": [2, 3, 6]}, {"playerId": "p_alex", "dice": [3, 1, 5, 3]}]},
+             "standings": null, "winnerIds": []}
+            """
+        case .finished:
+            return """
+            {"id": \(s(demoLiarsDoneRoom)), \(common), "phase": "finished", "hostId": "p_alex",
+             "round": 9, "starterId": "p_sam", "turnId": null, "totalDice": 2,
+             "phaseEndsAt": \(ms(now.addingTimeInterval(560))),
+             "bid": {"playerId": "p_sam", "quantity": 2, "face": 4, "auto": false},
+             "bids": [{"playerId": "p_sam", "quantity": 2, "face": 4, "auto": false}],
+             "players": [\(seat("p_alex", "Alex", host: true, count: 2, dice: "[4, 6]")),
+                         \(seat("p_sam", "Sam", host: false, count: 0, out: true, dice: "[]")),
+                         \(seat("p_robin", "Robin", host: false, count: 0, out: true, dice: "[]"))],
+             "reveal": {"bid": {"playerId": "p_sam", "quantity": 2, "face": 4, "auto": false},
+                        "challengerId": "p_alex", "auto": false, "count": 1, "loserId": "p_sam", "eliminated": true,
+                        "dice": [{"playerId": "p_alex", "dice": [4, 6]}, {"playerId": "p_sam", "dice": [5]}]},
+             "standings": [{"id": "p_alex", "name": "Alex", "place": 1, "dice": 2, "outRound": null, "left": false},
+                           {"id": "p_sam", "name": "Sam", "place": 2, "dice": 0, "outRound": 9, "left": false},
+                           {"id": "p_robin", "name": "Robin", "place": 3, "dice": 0, "outRound": 2, "left": false}],
+             "winnerIds": ["p_alex"]}
+            """
+        default:
+            return """
+            {"id": \(s(demoLiarsRoom)), \(common), "phase": "bidding", "hostId": "p_alex",
+             "round": 3, "starterId": "p_alex", "turnId": "p_alex", "totalDice": 7,
+             "phaseEndsAt": \(ms(now.addingTimeInterval(32))),
+             "bid": {"playerId": "p_sam", "quantity": 3, "face": 5, "auto": true},
+             "bids": [{"playerId": "p_alex", "quantity": 2, "face": 3, "auto": false},
+                      {"playerId": "p_sam", "quantity": 3, "face": 5, "auto": true}],
+             "players": [\(seat("p_alex", "Alex", host: true, count: 4, dice: "[3, 1, 5, 3]")),
+                         \(seat("p_sam", "Sam", host: false, count: 3)),
+                         \(seat("p_robin", "Robin", host: false, count: 0, out: true))],
+             "reveal": null, "standings": null, "winnerIds": []}
+            """
+        }
     }
 }

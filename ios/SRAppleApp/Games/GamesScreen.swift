@@ -254,6 +254,7 @@ struct GameCard: View {
         case .sequenceMemory: return SR.error
         case .boggle: return SR.accentDeep
         case .categories: return SR.good
+        case .liarsDice: return SR.good
         }
     }
 }
@@ -281,6 +282,8 @@ struct NewGameSheet: View {
     // Categories.
     @State private var categoriesCount = CategoriesSettings.defaultCount
     @State private var categoriesSeconds = CategoriesSettings.defaultSeconds
+    // Liar's Dice.
+    @State private var liarsDice = 5
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -324,6 +327,10 @@ struct NewGameSheet: View {
 
                     if game == .categories {
                         categoriesSettings
+                    }
+
+                    if game == .liarsDice {
+                        liarsDiceSettings
                     }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -423,6 +430,9 @@ struct NewGameSheet: View {
             return CategoriesSettings(difficulty: difficulty, count: categoriesCount, seconds: categoriesSeconds)
                 .createBody(invite: invite)
         }
+        if game == .liarsDice {
+            return LiarsDiceSettings(difficulty: difficulty, dice: liarsDice).createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
     }
 
@@ -485,6 +495,24 @@ struct NewGameSheet: View {
                     ) { boggleScoring = rule }
                 }
             }
+        }
+    }
+
+    /// Dice each — Liar's Dice's table. It needs two players, so it says so.
+    private var liarsDiceSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Table")
+            segments(
+                title: "Dice each",
+                options: LiarsDiceSettings.diceCounts.map { (value: $0, label: "\($0)") },
+                selected: $liarsDice,
+                id: "games-liars-dice"
+            )
+            Text(LiarsDiceSettings.line(dice: liarsDice) + " Two to five players: invite at least one.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-liars-line")
         }
     }
 
