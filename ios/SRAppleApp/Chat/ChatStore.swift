@@ -214,7 +214,13 @@ final class ChatStore: ObservableObject {
         guard let scope = savedScope else { return "" }
         let pending = await LocalJournal.shared.read(PendingTurn.self, scope: scope, key: "turn.\(conversationId)")
         let draft = await LocalJournal.shared.read(String.self, scope: scope, key: "draft.\(conversationId)") ?? ""
+        let attached = await LocalJournal.shared.read([ChatAttachment].self, scope: scope, key: "attachments.\(conversationId)") ?? []
         guard scope == savedScope else { return "" }
+        if self.pending.isEmpty {
+            self.pending = attached.filter { !(pending?.attachments.contains($0.id) ?? false) }.map {
+                PendingAttachment(filename: $0.filename ?? "Attachment", mimeType: $0.mimeType ?? "application/octet-stream", preview: nil, state: .ready($0))
+            }
+        }
         failedSend = pending
         return draft
     }
@@ -339,8 +345,18 @@ final class ChatStore: ObservableObject {
         return formatter
     }()
 
+    private func saveAttachmentReferences() {
+        guard let scope = savedScope else { return }
+        let attached = pending.compactMap(\.uploaded)
+        Task {
+            do { try await LocalJournal.shared.save(attached, scope: scope, key: "attachments.\(conversationId)") }
+            catch { message = "Attachment references could not be saved. Keep this thread open and retry." }
+        }
+    }
+
     func removePending(_ item: PendingAttachment) {
         pending.removeAll { $0.id == item.id }
+        saveAttachmentReferences()
     }
 
     private func upload(_ item: PendingAttachment, data: Data) async {
@@ -363,6 +379,7 @@ final class ChatStore: ObservableObject {
         // Removed while it was uploading: nothing to update.
         guard let index = pending.firstIndex(where: { $0.id == item.id }) else { return }
         pending[index].state = state
+        saveAttachmentReferences()
     }
 
     // MARK: - Sending
@@ -396,6 +413,7 @@ final class ChatStore: ObservableObject {
         }
         activeTurn = turn; failedSend = nil
         pending.removeAll { $0.uploaded != nil }
+        saveAttachmentReferences()
 
         var userBubble = ChatMessage.pending(id: "local-user-\(turn.requestId)", role: "user", content: trimmed)
         userBubble.attachments = attached

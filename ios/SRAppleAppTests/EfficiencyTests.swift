@@ -42,4 +42,10 @@ final class EfficiencyTests: XCTestCase {
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items.first?.id, "personal:health-first-upload")
     }
+    func testQuietCategoryWithoutQueuedWorkDoesNotRaiseAStallWarning() {
+        let items = PersonalHealthCheck.items(paired: true, healthEnabled: true, reviewNeeded: false,
+            lastUpload: Date().addingTimeInterval(-90000), pendingHealthRecords: 0)
+        XCTAssertTrue(items.isEmpty)
+    }
+
 }

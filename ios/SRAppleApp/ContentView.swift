@@ -522,10 +522,11 @@ struct ContentView: View {
     private func checkPersonal() {
         connections.setPersonal(PersonalHealthCheck.items(
             paired: companion.paired,
-            healthEnabled: !outbox.state.healthEnabled.isEmpty,
+            healthEnabled: !outbox.state.healthEnabled.isEmpty && !outbox.state.sync.paused,
             reviewNeeded: companion.healthReviewNeeded,
             lastUpload: companion.lastHealthUpload,
-            enabledSince: outbox.state.sync.enabledSince
+            enabledSince: outbox.state.sync.enabledSince,
+            pendingHealthRecords: outbox.state.batches.reduce(0) { $0 + $1.health.count + $1.deleted.count }
         ))
     }
 

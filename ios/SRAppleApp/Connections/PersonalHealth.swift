@@ -44,6 +44,7 @@ enum PersonalHealthCheck {
         reviewNeeded: Bool,
         lastUpload: Date?,
         enabledSince: Date? = nil,
+        pendingHealthRecords: Int? = nil,
         now: Date = Date()
     ) -> [ConnectionItem] {
         guard paired, healthEnabled else { return [] }
@@ -69,7 +70,7 @@ enum PersonalHealthCheck {
             item.headlineOverride = "Health is waiting for its first upload"
             out.append(item)
         }
-        if let lastUpload, now.timeIntervalSince(lastUpload) > staleAfter {
+        if let lastUpload, now.timeIntervalSince(lastUpload) > staleAfter, pendingHealthRecords != 0 {
             var item = ConnectionItem(
                 id: "\(prefix)health-stale",
                 label: "Your health uploads",
@@ -97,7 +98,7 @@ enum PersonalHealthCheck {
     static func backgroundPass(outbox: Outbox, paired: Bool, defaults: UserDefaults = .standard) async {
         let state = outbox.state
         guard !state.sync.paused else { return }
-        let found = items(paired: paired, healthEnabled: !state.healthEnabled.isEmpty, reviewNeeded: false, lastUpload: state.sync.lastHealthUpload, enabledSince: state.sync.enabledSince)
+        let found = items(paired: paired, healthEnabled: !state.healthEnabled.isEmpty, reviewNeeded: false, lastUpload: state.sync.lastHealthUpload, enabledSince: state.sync.enabledSince, pendingHealthRecords: state.batches.reduce(0) { $0 + $1.health.count + $1.deleted.count })
         await notifyOnce(found, defaults: defaults) { request in
             try await UNUserNotificationCenter.current().add(request)
         }

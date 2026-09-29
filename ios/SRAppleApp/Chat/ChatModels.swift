@@ -150,7 +150,7 @@ struct ToolStep: Decodable, Hashable {
     var failed: Bool { status == "error" }
 }
 
-struct ChatAttachment: Decodable, Hashable, Identifiable {
+struct ChatAttachment: Codable, Hashable, Identifiable {
     let id: String
     let filename: String?
     let kind: String?
