@@ -272,8 +272,10 @@ struct AnagramTiles: View {
 }
 
 /// Everyone else: a name, how many words, the score. Never the words.
+/// Boggle's strip too, under its own prefix.
 struct AnagramOthersStrip: View {
     let room: GameRoom
+    var prefix = "anagram"
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -297,13 +299,13 @@ struct AnagramOthersStrip: View {
                     .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(player.name), \(GameResults.count(player.wordCount, "word", "words")), \(player.score) points")
-                    .accessibilityIdentifier("anagram-other-\(player.id)")
+                    .accessibilityIdentifier("\(prefix)-other-\(player.id)")
                 }
             }
             .padding(.vertical, 2)
         }
         .scrollClipDisabled()
-        .accessibilityIdentifier("anagram-others")
+        .accessibilityIdentifier("\(prefix)-others")
     }
 }
 
