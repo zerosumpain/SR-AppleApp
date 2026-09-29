@@ -441,7 +441,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (state && body.revision !== state.revision) fail(409, 'Household consent changed; rebuild the view');
         if (!Array.isArray(body.views) || body.views.length > 50) fail(400, 'At most 50 views per batch');
         const views = body.views.map(v => {
-          exactKeys(v, ['email', 'view']);
+          // `sources` (who in the view is a companion phone) rides along from
+          // SR-Main #1076 for live positions; validated, not stored yet.
+          exactKeys(v, ['email', 'view', 'sources']);
+          if (v.sources !== undefined && (!Array.isArray(v.sources) || v.sources.length > 50 || !v.sources.every(s => s && string(s.subject, 200) && string(s.email, 320)))) fail(400, 'Invalid live sources');
           if (!string(v.email, 320) || !v.view || typeof v.view !== 'object' || Array.isArray(v.view)) fail(400, 'Invalid view');
           return { email: v.email.toLowerCase(), payload: JSON.stringify(v.view) };
         });
