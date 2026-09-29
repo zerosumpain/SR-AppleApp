@@ -102,15 +102,15 @@ final class AccountDeletionStore: ObservableObject {
             self.error = error.localizedDescription
             return false
         }
-        Self.resetPhone(companion: companion, site: site)
+        await Self.resetPhone(companion: companion, site: site)
         return true
     }
 
     /// Both pairings off, the registration forgotten, the Welcome screen back.
     /// The servers have already revoked both credentials; this is the phone
     /// catching up without asking them anything.
-    static func resetPhone(companion: Companion, site: SitePairingModel) {
-        companion.forgetAfterAccountDeletion()
+    static func resetPhone(companion: Companion, site: SitePairingModel) async {
+        await companion.forgetAfterAccountDeletion()
         site.signOut()
         AccessStore.shared.siteChanged(paired: false)
         RegistrationStore.shared.forgetAfterAccountDeletion()

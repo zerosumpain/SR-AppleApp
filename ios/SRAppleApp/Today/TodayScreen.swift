@@ -97,9 +97,22 @@ final class TodayStore: ObservableObject {
     @Published var message: String?
 
     private let client = SiteClient.shared
+    private var lastLoaded: Date?
+    private var healthRefresh: Task<Void, Never>?
+
+    func healthDidUpload() {
+        guard healthRefresh == nil else { return }
+        healthRefresh = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard let self, !Task.isCancelled else { return }
+            await self.load()
+            self.healthRefresh = nil
+        }
+    }
 
     func load(fresh: Bool = false) async {
         guard AccessStore.ownerSite, !loading else { return }
+        if !fresh, let lastLoaded, Date().timeIntervalSince(lastLoaded) < 60 { return }
         loading = true
         defer { loading = false }
         do {
@@ -109,6 +122,7 @@ final class TodayStore: ObservableObject {
                 "api/native/today\(fresh ? "?fresh=1" : "")"
             )
             payload = fetched
+            lastLoaded = Date()
             message = nil
         } catch SiteError.unpaired {
             payload = nil
@@ -332,8 +346,8 @@ struct TodayScreen: View {
         }
         // The companion just put new health data on the site: re-read, past
         // the site's cache, so recovery and readiness reflect it.
-        .onChange(of: companion.lastUpload) { _, _ in
-            Task { await store.load(fresh: true) }
+        .onChange(of: companion.lastHealthUpload) { _, _ in
+            if onScreen { store.healthDidUpload() }
         }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }

@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 import UniformTypeIdentifiers
 
 /// A file on its way into the next turn.
@@ -32,6 +33,14 @@ struct PendingAttachment: Identifiable, Hashable {
 
 /// Turning what the pickers hand back into something the server takes.
 enum ChatUpload {
+    static let maxBytes = 20 * 1024 * 1024
+    static func thumbnail(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(maxEdge), kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
     /// The longest edge a photo is sent at.
     ///
     /// A 48-megapixel HEIC is ~5 MB and 8064 px across. The models that read it

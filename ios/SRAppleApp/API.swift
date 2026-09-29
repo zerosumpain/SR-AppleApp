@@ -33,6 +33,12 @@ enum Keychain {
 @MainActor final class API {
     var baseURL: URL?
     var token: String?
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
+    }()
     init() { baseURL = UserDefaults.standard.url(forKey: "server"); token = Keychain.read() }
     static func validateURL(_ text: String) throws -> URL {
         guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme == "https", url.host != nil, url.user == nil, url.password == nil, url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/" else {
@@ -61,9 +67,6 @@ enum Keychain {
         req.httpMethod = method; req.httpBody = data; req.timeoutInterval = timeout
         if data != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let config = URLSessionConfiguration.ephemeral; config.urlCache = nil
-        let session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
         let (body, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let error = try? JSONDecoder().decode(APIError.self, from: body)

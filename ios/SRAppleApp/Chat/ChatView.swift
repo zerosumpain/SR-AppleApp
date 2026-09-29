@@ -431,6 +431,8 @@ struct ChatScreen: View {
             .onChange(of: store.messages.count) { _, _ in follow(proxy, animated: true) }
             .onChange(of: composerFocused) { _, focused in if focused { follow(proxy, animated: true) } }
             .task {
+                let restored = await store.restoreDraft()
+                if draft.isEmpty { draft = restored }
                 if let question = router.pendingQuestion {
                     // Seeded, not sent. See AskJkaiIntent for why.
                     draft = question
@@ -447,7 +449,24 @@ struct ChatScreen: View {
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+        .onChange(of: draft) { _, value in store.saveDraft(value) }
+        .onDisappear { store.saveDraft(draft, immediately: true) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                if let failed = store.failedSend {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Message saved on this iPhone").font(SR.Text.bodyMedium())
+                        Text(failed.text).font(SR.Text.secondary()).lineLimit(2)
+                        HStack {
+                            Button("Retry connection") { Task { await store.retrySend() } }
+                            Spacer()
+                            Button("Return to draft") { Task { let text = await store.discardFailed(); draft = draft.isEmpty ? text : draft + "\n" + text } }
+                        }.frame(minHeight: SR.tapTarget)
+                    }.padding().background(SR.surface)
+                }
+                composer
+            }
+        }
         .overlay(alignment: .bottom) {
             if !atBottom && store.sending {
                 Button {
@@ -587,10 +606,10 @@ struct ChatScreen: View {
                 Task { await store.cancel() }
             } else {
                 let text = draft
-                clearDraft()
+                composerFocused = false
                 atBottom = true
                 SRHaptic.tap()
-                Task { await store.send(text) }
+                Task { if await store.send(text), draft == text { clearDraft() } }
             }
         } label: {
             Image(systemName: store.sending ? "stop.fill" : "arrow.up")
@@ -721,7 +740,8 @@ struct ChatScreen: View {
             Task {
                 for item in items {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
+                       data.count <= ChatUpload.maxBytes,
+                       let image = await Task.detached(priority: .userInitiated, operation: { ChatUpload.thumbnail(data) }).value {
                         store.attachPhoto(image)
                     } else {
                         store.message = "That photo could not be read."
@@ -776,29 +796,28 @@ struct ChatScreen: View {
     /// A file from the Files picker. Photos go through the photo path so they
     /// are resized and re-encoded like any other.
     private func attachFile(_ url: URL) {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer {
-            if scoped { url.stopAccessingSecurityScopedResource() }
-            // A file shared in from another app is a COPY the system dropped in
-            // Documents/Inbox. Once read it is in the upload; leaving it would
-            // grow a folder nobody can see.
-            if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
-        }
-        guard let data = try? Data(contentsOf: url) else {
-            store.message = "\(url.lastPathComponent) could not be read."
-            return
-        }
         let mime = ChatUpload.mimeType(for: url)
-        // The Files picker already offers only allowed types; a file shared in
-        // from another app has not been through it.
         guard ChatUpload.allowed(mime: mime, owner: access.current.owner) else {
             store.message = "\(url.lastPathComponent) can't be sent from this iPhone."
             return
         }
-        if mime.hasPrefix("image/"), let image = UIImage(data: data) {
-            store.attachPhoto(image)
-        } else {
-            store.attach(data, filename: url.lastPathComponent, mimeType: mime)
+        Task {
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                    guard size <= ChatUpload.maxBytes else { throw SiteError.message("Choose a file smaller than 20 MB.") }
+                    let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                    guard data.count <= ChatUpload.maxBytes else { throw SiteError.message("Choose a file smaller than 20 MB.") }
+                    return data
+                }.value
+                if mime.hasPrefix("image/") {
+                    guard let image = await Task.detached(priority: .userInitiated, operation: { ChatUpload.thumbnail(data) }).value else { throw SiteError.message("That image could not be read.") }
+                    store.attachPhoto(image)
+                } else { store.attach(data, filename: url.lastPathComponent, mimeType: mime) }
+                if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
+            } catch { store.message = error.localizedDescription }
         }
     }
 
@@ -817,10 +836,10 @@ struct ChatScreen: View {
     /// the gap, so it can only ever remove the sent text.
     private func clearDraft() {
         draft = ""
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { draft = "" }
+        store.saveDraft("", immediately: true)
     }
 
     private var sendable: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !store.uploading
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !store.uploading && store.failedSend == nil
     }
 }

@@ -152,8 +152,21 @@ final class WatchBridge: NSObject, ObservableObject {
     func handle(_ command: WatchCommand) async -> WatchReply {
         switch command {
         case .refresh:
-            publish(force: true)
-            return WatchReply(ok: true, text: "Up to date")
+            guard AccessStore.ownerSite else {
+                publish(force: true)
+                return WatchReply(ok: true, text: "Showing the iPhone’s last received data")
+            }
+            do {
+                let fetched: TodayPayload = try await SiteClient.shared.send("api/native/today")
+                health = fetched.health
+                latestAlerts = fetched.alerts?.latest ?? []
+                publish(force: true)
+                let source = health?.generatedAt ?? "unknown"
+                return WatchReply(ok: true, text: OfflineSnapshotStatus.shared.message ?? "Health source: \(source)")
+            } catch {
+                publish(force: true)
+                return WatchReply(ok: false, text: "Could not refresh. Showing the last received data.")
+            }
 
         case .markRead(let id):
             guard AccessStore.ownerSite else { return WatchReply(ok: false, text: "Not on this iPhone's access") }

@@ -71,13 +71,13 @@ final class AccountDeletionTests: XCTestCase {
         XCTAssertNil(deletion.error)
     }
 
-    @MainActor func testForgettingTheCompanionLeavesNothingBehind() throws {
+    @MainActor func testForgettingTheCompanionLeavesNothingBehind() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
-        try outbox.change { $0.sharing = true }
+        try await outbox.change { $0.sharing = true }
         let companion = Companion(outbox: outbox)
-        companion.forgetAfterAccountDeletion()
+        await companion.forgetAfterAccountDeletion()
         XCTAssertFalse(companion.paired)
         XCTAssertNil(companion.api.token)
         XCTAssertFalse(outbox.state.sharing, "a phone that re-pairs starts from ask-first")

@@ -33,6 +33,12 @@ struct FamilyTasksScreen: View {
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
 
+            if !store.pendingActions.isEmpty {
+                Section {
+                    Label("\(store.pendingActions.count) changes saved on this iPhone", systemImage: "clock.arrow.circlepath")
+                    Button("Retry saved changes") { Task { await store.drainPending() } }
+                }
+            }
             if let board = store.board {
                 switch showing {
                 case .open: openShelf(board)
@@ -213,12 +219,12 @@ struct FamilyTasksScreen: View {
                     SRHaptic.tap()
                     Task { await store.act(.paid, on: task) }
                 } label: {
-                    Text(store.busy == task.id ? "…" : "Mark paid")
+                    Text(store.busyTasks.contains(task.id) || store.pendingActions[task.id] != nil ? "…" : "Mark paid")
                         .font(SR.Text.bodyMedium(14))
                 }
                 .buttonStyle(.bordered)
                 .tint(SR.good)
-                .disabled(store.busy != nil)
+                .disabled(store.busyTasks.contains(task.id))
                 .accessibilityIdentifier("task-paid-\(task.id)")
             }
         }
@@ -230,7 +236,7 @@ struct FamilyTasksScreen: View {
 
     private func row(_ task: FamilyTask, _ board: FamilyTasksBoard) -> some View {
         let actions = FamilyTaskRules.actions(for: task, me: board.me)
-        return FamilyTaskRow(task: task, board: board, busy: store.busy == task.id, primary: primary(actions)) { action in
+        return FamilyTaskRow(task: task, board: board, busy: store.busyTasks.contains(task.id) || store.pendingActions[task.id] != nil, primary: primary(actions)) { action in
             perform(action, on: task)
         }
         .srGlassRow()

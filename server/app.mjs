@@ -1,3 +1,4 @@
+import { liveSignals, putLive, scopedLive } from './live.mjs';
 import { accessPolicy } from './access.mjs';
 import QRCode from 'qrcode';
 import { createServer } from 'node:http';
@@ -111,6 +112,8 @@ function alertEvent(e) {
 }
 export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, authSecret = process.env.AUTH_SECRET, serviceToken = process.env.APPLE_SERVICE_TOKEN, serviceOwner = process.env.APPLE_SERVICE_OWNER, householdToken = process.env.APPLE_HOUSEHOLD_TOKEN, publicOrigin = process.env.APPLE_PUBLIC_ORIGIN || 'https://strangeramblings.com', doorbellUrl = process.env.APPLE_DOORBELL_URL, doorbellToken = process.env.APPLE_DOORBELL_TOKEN, fetchImpl = fetch, policyUrl = process.env.APPLE_POLICY_URL, policyToken = process.env.APPLE_POLICY_TOKEN } = {}) {
   const rate = new Map();
+  const live = liveSignals();
+  const liveReaders = new Map();
   // Its OWN ring-only secret, never the service token — that token can READ
   // the owner's export, and this URL is not guaranteed to stay on loopback the
   // way the service lane is (R5). Unset token or URL = no ring, as before.
@@ -441,9 +444,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (state && body.revision !== state.revision) fail(409, 'Household consent changed; rebuild the view');
         if (!Array.isArray(body.views) || body.views.length > 50) fail(400, 'At most 50 views per batch');
         const views = body.views.map(v => {
-          exactKeys(v, ['email', 'view']);
+          exactKeys(v, ['email', 'view', 'sources']);
+          if (v.sources !== undefined && (!Array.isArray(v.sources) || v.sources.length > 50 || !v.sources.every(s => string(s.subject, 200) && string(s.email, 320)))) fail(400, 'Invalid live sources');
           if (!string(v.email, 320) || !v.view || typeof v.view !== 'object' || Array.isArray(v.view)) fail(400, 'Invalid view');
-          return { email: v.email.toLowerCase(), payload: JSON.stringify(v.view) };
+          return { email: v.email.toLowerCase(), payload: JSON.stringify(v.view), sources: JSON.stringify((v.sources ?? []).map(s => ({ subject: s.subject, email: s.email.toLowerCase() }))) };
         });
         const updated = new Date().toISOString();
         let stored = 0;
@@ -452,15 +456,16 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           if (owner) {
             db.prepare('DELETE FROM household_views WHERE user_id IN (SELECT id FROM users WHERE family=?)').run(owner.family);
             const member = db.prepare('SELECT id FROM users WHERE email=? AND family=?');
-            const insert = db.prepare('INSERT OR REPLACE INTO household_views (user_id,payload,updated,revision) VALUES (?,?,?,?)');
+            const insert = db.prepare('INSERT OR REPLACE INTO household_views (user_id,payload,updated,revision,sources) VALUES (?,?,?,?,?)');
             for (const view of views) {
               const recipient = member.get(view.email, owner.family);
               if (!recipient) continue;
-              stored += insert.run(recipient.id, view.payload, updated, state.revision).changes;
+              stored += insert.run(recipient.id, view.payload, updated, state.revision, view.sources).changes;
             }
           }
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
+        if (owner) live.changed(owner.family);
         return send(200, { stored });
       }
       // THE HOUSEHOLD ONBOARDING LANE — SR-Main's /welcome and
@@ -559,6 +564,8 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (typeof body.enabled !== 'boolean') fail(400, 'enabled must be boolean');
         const member = householdMember(owner, body.email);
         db.prepare('UPDATE users SET sharing=? WHERE id=?').run(Number(body.enabled), member.id);
+        if (!body.enabled) db.prepare('DELETE FROM live_locations WHERE user_id=?').run(member.id);
+        live.changed(member.family ?? owner.family);
         return send(200, { sharing: body.enabled });
       }
       // "Delete my uploaded data", asked for by SR-Main's /welcome on the
@@ -665,6 +672,39 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // The caller's own Family view, and nobody else's: there is no
       // parameter, so there is no way to ask for another person's. `view` is
       // null until SR-Main has pushed one (or after it stopped building one).
+      if (path === '/api/apple/location/live' && method === 'POST' && auth.kind === 'device') {
+        if (!auth.sharing) fail(409, 'Location sharing is paused');
+        const record = locationRecord(await readJSON());
+        if (Date.now() - Date.parse(record.recorded) > 120_000) fail(400, 'Live location is too old');
+        if (putLive(db, auth.user_id, record)) live.changed(auth.family);
+        return send(200, { accepted: 1 });
+      }
+      if (path === '/api/apple/household/live' && method === 'GET') {
+        const key = auth.user_id;
+        if ((liveReaders.get(key) ?? 0) >= 3) fail(429, 'Too many live readers');
+        liveReaders.set(key, (liveReaders.get(key) ?? 0) + 1);
+        try {
+          const read = async () => {
+            const member = db.prepare('SELECT * FROM users WHERE id=?').get(auth.user_id);
+            if (!member) fail(401, 'Pair this iPhone again');
+            await policy.requireUser(member, auth.kind === 'device' ? auth.access_version : undefined);
+            if (auth.kind === 'device' && !db.prepare('SELECT 1 FROM credentials WHERE hash=? AND expires>?').get(auth.hash, Date.now())) fail(401, 'Pair this iPhone again');
+            const state = await policy.household(auth.family);
+            const row = db.prepare('SELECT * FROM household_views WHERE user_id=? AND revision=? AND updated>?').get(auth.user_id, state.revision, new Date(Date.now() - 300_000).toISOString());
+            return scopedLive(db, row, state.users);
+          };
+          let result = await read();
+          if (url.searchParams.get('since') === result.revision) {
+            await live.wait(auth.family, res);
+            if (res.destroyed) return;
+            result = await read();
+          }
+          return send(200, result);
+        } finally {
+          const remaining = (liveReaders.get(key) ?? 1) - 1;
+          if (remaining) liveReaders.set(key, remaining); else liveReaders.delete(key);
+        }
+      }
       if (path === '/api/apple/household/view' && method === 'GET') {
         const state = await policy.household(auth.family);
         const row = db.prepare('SELECT payload, updated FROM household_views WHERE user_id=? AND revision=? AND updated>?').get(auth.user_id, state.revision, new Date(Date.now() - 5 * 60_000).toISOString());
@@ -735,6 +775,8 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const body = await readJSON(); exactKeys(body, ['enabled']);
         if (typeof body.enabled !== 'boolean') fail(400, 'enabled must be boolean');
         db.prepare('UPDATE users SET sharing=? WHERE id=?').run(Number(body.enabled), auth.user_id);
+        if (!body.enabled) db.prepare('DELETE FROM live_locations WHERE user_id=?').run(auth.user_id);
+        live.changed(auth.family);
         return send(200, { sharing: body.enabled });
       }
       if (path === '/api/apple/summary' && method === 'GET') {
@@ -844,12 +886,16 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
             db.prepare('DELETE FROM health WHERE user_id=? AND id=?').run(auth.user_id, id);
             if (row.kind === 'workout') db.prepare("DELETE FROM health WHERE user_id=? AND kind IN ('workout_route','workout_series') AND json_extract(payload,'$.workout')=?").run(auth.user_id, id);
           }
-          for (const r of locations) db.prepare('INSERT OR IGNORE INTO locations VALUES (?,?,?,?,?)').run(auth.user_id, r.id, r.recorded, JSON.stringify(r), received);
+          for (const r of locations) {
+            db.prepare('INSERT OR IGNORE INTO locations VALUES (?,?,?,?,?)').run(auth.user_id, r.id, r.recorded, JSON.stringify(r), received);
+            putLive(db, auth.user_id, r);
+          }
           // Location history is deliberately bounded; family API exposes latest
           // only, and `track` exposes this window to its owner and nobody else.
           db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(Date.now() - RETENTION_DAYS * 86400000).toISOString());
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
+        if (locations.length) live.changed(auth.family);
         if ((health.length || body.deleted.length) && ownerId && auth.user_id === ownerId) ring();
         return send(200, { accepted: health.length + locations.length + body.deleted.length, received });
       }

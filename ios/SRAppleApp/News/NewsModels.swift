@@ -49,6 +49,7 @@ struct NewsStory: Decodable, Identifiable, Hashable {
     let rank: Int
     let read: Bool
     let kept: Bool
+    var favourite: Bool? = nil
     let alsoOn: [NewsAlso]
     let correlation: NewsCorrelation?
 
@@ -64,7 +65,7 @@ struct NewsStory: Decodable, Identifiable, Hashable {
         case key, source, sourceLabel
         case storyId = "id"
         case title, url, discussionUrl, domain, author, publishedAt
-        case score, commentCount, heat, rank, read, kept, alsoOn, correlation
+        case score, commentCount, heat, rank, read, kept, favourite, alsoOn, correlation
     }
 }
 

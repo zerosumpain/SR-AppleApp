@@ -13,7 +13,7 @@ struct HouseholdView: Codable, Equatable {
     /// "owner", "household", or "none" — a household member outside the
     /// Family Circle, who gets no people, only the places to watch.
     let viewer: String
-    let people: [FamilyPerson]
+    var people: [FamilyPerson]
     /// Places whose leaving switches this phone to close tracking.
     var watch: [WatchedPlace]? = nil
     /// What this person may use in the app, from the owner's access groups on
@@ -54,9 +54,9 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
     let status: String
     /// The site's own line for the card: "At School · seen 3m ago".
     let line: String
-    let batteryPct: Int?
-    let lastSeenAt: String?
-    let position: Position?
+    var batteryPct: Int?
+    var lastSeenAt: String?
+    var position: Position?
     /// On the move right now, or nil. Absent from a site older than it.
     var moving: Moving? = nil
     let today: Today?
@@ -101,6 +101,7 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
         let lat: Double
         let lon: Double
         let at: String
+        var accuracy: Double? = nil
 
         var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: lat, longitude: lon) }
     }
@@ -409,5 +410,17 @@ extension HouseholdView {
             out[person.subject] = candidate
         }
         return out
+    }
+}
+
+struct LiveFamilyResponse: Decodable {
+    let revision: String
+    let positions: [Fix]
+    struct Fix: Decodable {
+        let subject: String
+        let position: FamilyPerson.Position
+        let moving: Bool
+        let speed: Double
+        let battery: Int?
     }
 }

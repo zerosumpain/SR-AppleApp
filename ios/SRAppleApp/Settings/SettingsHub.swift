@@ -33,6 +33,7 @@ struct SettingsScreen: View {
     /// Today's optional family cards — see `TodayCards`.
     @AppStorage(TodayCards.steps) private var todaySteps = false
     @AppStorage(TodayCards.tasks) private var todayTasks = false
+    @AppStorage("appearance") private var appearance = "system"
     @AppStorage(TodayCards.forecast) private var todayForecast = true
 
     enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs, deleteAccount }
@@ -42,6 +43,13 @@ struct SettingsScreen: View {
             List {
                 // The App Review demo, and the way out of it. Empty otherwise.
                 ReviewDemoSettingsSection()
+                Section {
+                    Picker("Appearance", selection: $appearance) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    }
+                } header: { SRSectionLabel(text: "Display") }
 
                 Section {
                     if access.current.owner {
@@ -564,7 +572,7 @@ struct AppleHealthScreen: View {
                 ForEach(groups, id: \.self) { group in
                     Toggle(isOn: Binding(
                         get: { outbox.state.healthEnabled.contains(group) },
-                        set: { value in SRHaptic.select(); companion.setHealth(group, enabled: value) }
+                        set: { value in SRHaptic.select(); Task { await companion.setHealth(group, enabled: value) } }
                     )) {
                         Text(HealthCatalogue.label(forGroup: group))
                             .font(SR.Text.body(16))
@@ -581,7 +589,7 @@ struct AppleHealthScreen: View {
                     Task { await companion.authorizeHealth() }
                 } label: {
                     SRRow(title: "Review Apple Health permissions",
-                          subtitle: companion.healthReviewNeeded ? "Some categories have not been allowed yet" : nil,
+                          subtitle: companion.healthReviewNeeded ? "Some categories have not been requested yet" : nil,
                           icon: "heart.text.square")
                 }
                 .buttonStyle(.plain)
@@ -595,6 +603,26 @@ struct AppleHealthScreen: View {
                     .foregroundStyle(SR.inkMuted)
                     .padding(.vertical, 4)
             }
+
+            Section {
+                Toggle("Pause Health import", isOn: Binding(get: { outbox.state.sync.paused }, set: { value in Task { await companion.setImportPaused(value) } }))
+                Toggle("Upload Health on Wi-Fi only", isOn: Binding(get: { outbox.state.sync.wifiOnly }, set: { value in Task { try? await outbox.change { $0.sync.wifiOnly = value }; companion.resumeHealthImport() } }))
+                Toggle("Automatic battery and data savings", isOn: Binding(get: { outbox.state.sync.automaticEfficiency }, set: { value in Task { try? await outbox.change { $0.sync.automaticEfficiency = value } } }))
+                Picker("Health history", selection: Binding(get: { outbox.state.sync.historyDays }, set: { value in Task { await companion.setHistoryDays(value) } })) {
+                    Text("7 days").tag(7)
+                    Text("30 days").tag(30)
+                    Text("90 days").tag(90)
+                    Text("1 year").tag(365)
+                }
+                if companion.collectingHistory { Label("Collecting recent data, then history", systemImage: "arrow.triangle.2.circlepath") }
+                SRRow(title: "Last Health upload", subtitle: outbox.state.sync.lastHealthUpload.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "No Health upload yet")
+                SRRow(title: "Last location upload", subtitle: outbox.state.sync.lastLocationUpload.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "No location upload yet")
+                if !outbox.state.sync.refused.isEmpty {
+                    Button("Retry \(outbox.state.sync.refused.count) retained records") { Task { await companion.retryRefused() } }
+                }
+                Text("Recent data appears first. History resumes from saved progress when the app is open or iOS gives it background time. Upload acceptance and website processing are separate. Battery savings leave your location and close-tracking choices intact.")
+                    .font(SR.Text.secondary()).foregroundStyle(SR.inkMuted)
+            } header: { SRSectionLabel(text: "Import and efficiency") }
 
             Section {
                 Toggle(isOn: Binding(

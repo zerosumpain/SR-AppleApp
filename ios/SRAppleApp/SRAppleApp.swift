@@ -4,10 +4,10 @@ import UserNotifications
 import CoreSpotlight
 import UIKit
 
-@MainActor final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    var companion: Companion?
-    var battery: BatteryMonitor?
-    var startupError: String?
+@MainActor final class AppDelegate: NSObject, ObservableObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    @Published var companion: Companion?
+    @Published var battery: BatteryMonitor?
+    @Published var startupError: String?
     /// Written by a notification tap or a Home Screen quick action before the
     /// scene exists, read by `ContentView` once it does.
     static let pending = PendingEntry()
@@ -20,12 +20,15 @@ import UIKit
         // later leaves one system-grey navigation bar on screen for a frame.
         SRChrome.install()
 
-        do {
-            let outbox = try Outbox()
+        Task {
+          do {
+            let outbox = try await Outbox.open()
             companion = Companion(outbox: outbox)
             battery = BatteryMonitor(outbox: outbox)
+            WatchBridge.shared.start(companion: companion)
         }
         catch { startupError = "Saved sync data could not be opened: \(error.localizedDescription). Reopen the app after unlocking your phone. Existing data has not been discarded." }
+        }
 
         UNUserNotificationCenter.current().delegate = self
         // Before anything is raised, and on every launch: a category that is
@@ -313,7 +316,7 @@ import UIKit
                 EntryGate(companion: companion, battery: battery)
                     .task {
                         battery.start()
-                        if companion.paired { await companion.sync() }
+                        if companion.paired { await companion.sync(); companion.resumeHealthImport() }
                     }
                     .onChange(of: scenePhase) { _, phase in
                         if phase == .active {
@@ -321,7 +324,7 @@ import UIKit
                             // stretch is bracketed by two real samples rather
                             // than guessed at.
                             battery.sample()
-                            if companion.paired { Task { await companion.sync() } }
+                            if companion.paired { Task { await companion.sync(); companion.resumeHealthImport() } }
                             Task { await SiteClient.shared.retryPendingRevocations(); await PushRegistration.shared.sync() }
                         }
                         if phase == .background {
@@ -330,7 +333,7 @@ import UIKit
                             // A deferred outbox removal (an accepted batch,
                             // written lazily during a flush) must not ride
                             // into a suspend unwritten.
-                            try? companion.outbox.persistIfDirty()
+                            Task { try? await companion.outbox.persistIfDirty() }
                         }
                     }
             } else { ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(delegate.startupError ?? "Starting…")) }

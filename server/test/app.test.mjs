@@ -1222,3 +1222,39 @@ test('a person moves to another address in place; never the owner, never onto a 
   assert.equal(db.prepare("SELECT count(*) n FROM users WHERE email='someone-new@example.test'").get().n, 0);
   assert.equal((await household(request, 'household/users/email', { method: 'PUT', body: { from: 'sam.google@example.test', to: 'no-at' } })).status, 400);
 });
+
+test('live fixes bypass route history, preserve scope and cannot move backwards', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: true } });
+  await postViews(request, [{ email: 'alex@example.test', sources: [{ subject: 'sam-pin', email: 'sam@example.test' }, { subject: 'other', email: 'robin@example.test' }], view: { viewer: 'household', people: [{ subject: 'sam-pin', status: 'out' }] } }]);
+  const fix = { ...location(), latitude: 51.123456, longitude: -0.123456 };
+  assert.equal((await request('location/live', { user: 'sam', method: 'POST', body: fix })).status, 200);
+  const answer = (await request('household/live')).body;
+  assert.equal(answer.positions.length, 1);
+  assert.equal(answer.positions[0].subject, 'sam-pin');
+  assert.equal(answer.positions[0].position.lat, 51.1235, 'precision stays at the existing site limit');
+  assert.equal(db.prepare('SELECT count(*) n FROM locations').get().n, 0, 'current position is not a route write');
+  assert.deepEqual((await request('household/live', { user: 'robin' })).body.positions, []);
+  await request('location/live', { user: 'sam', method: 'POST', body: { ...fix, recorded: new Date(Date.now() - 60_000).toISOString(), latitude: 40 } });
+  assert.equal((await request('household/live')).body.positions[0].position.lat, 51.1235);
+  const waiting = request(`household/live?since=${answer.revision}`);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  await request('location/live', { user: 'sam', method: 'POST', body: { ...fix, recorded: stamp(), latitude: 51.124 } });
+  assert.equal((await waiting).body.positions[0].position.lat, 51.124, 'waiting viewer wakes immediately on a fix');
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: false } });
+  assert.equal((await request('household/live')).body.revision, 'unavailable', 'consent change invalidates the old roster');
+  assert.equal((await request('location/live', { user: 'sam', method: 'POST', body: fix })).status, 409);
+  assert.equal(db.prepare('SELECT count(*) n FROM live_locations').get().n, 0);
+});
+
+test('revoking a credential during a live wait refuses the next position', async t => {
+  const { request, db, tokens } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: true } });
+  await postViews(request, [{ email: 'alex@example.test', sources: [{ subject: 'sam', email: 'sam@example.test' }], view: { viewer: 'household', people: [{ subject: 'sam', status: 'out' }] } }]);
+  const first = (await request('household/live')).body;
+  const waiting = request(`household/live?since=${first.revision}`);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  await request('logout', { method: 'POST', body: {} });
+  await request('location/live', { user: 'sam', method: 'POST', body: location() });
+  assert.equal((await waiting).status, 401);
+});

@@ -24,6 +24,7 @@ private extension FamilyWidgetSize {
 struct FamilyStepsEntry: TimelineEntry {
     let date: Date
     let board: FamilyStepsBoard?
+    var savedAt: Date? = nil
 }
 
 struct FamilyStepsProvider: TimelineProvider {
@@ -32,21 +33,24 @@ struct FamilyStepsProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (FamilyStepsEntry) -> Void) {
-        let saved = FamilyShelf.load(FamilyStepsSnapshot.self, .steps)?.board
-        completion(FamilyStepsEntry(date: Date(), board: saved ?? (context.isPreview ? FamilyWidgetSamples.steps : nil)))
+        let saved = FamilyShelf.load(FamilyStepsSnapshot.self, .steps)
+        completion(FamilyStepsEntry(date: Date(), board: saved?.board ?? (context.isPreview ? FamilyWidgetSamples.steps : nil), savedAt: saved?.savedAt))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<FamilyStepsEntry>) -> Void) {
         Task {
-            var board = FamilyShelf.load(FamilyStepsSnapshot.self, .steps)?.board
+            let saved = FamilyShelf.load(FamilyStepsSnapshot.self, .steps)
+            var board = saved?.board
+            var savedAt = saved?.savedAt
             if let fresh = await FamilyWidgetFetch.steps() {
                 board = fresh
+                savedAt = Date()
                 FamilyShelf.save(FamilyStepsSnapshot(board: fresh, savedAt: Date()), .steps)
             }
             if FamilyShelf.read(.credential) == nil { board = nil }
             let now = Date()
             completion(Timeline(
-                entries: [FamilyStepsEntry(date: now, board: board)],
+                entries: [FamilyStepsEntry(date: now, board: board, savedAt: savedAt)],
                 policy: .after(now.addingTimeInterval(FamilyWidgetTiming.refresh))
             ))
         }
@@ -73,6 +77,11 @@ struct FamilyStepsEntryView: View {
             .containerBackground(for: .widget) {
                 if family == .accessoryRectangular { Color.clear } else { FamilyWidgetInk.paper }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if let saved = entry.savedAt, entry.date.timeIntervalSince(saved) > FamilyWidgetTiming.refresh {
+                    Text("Saved \(saved, style: .relative) ago").font(.caption2).padding(4)
+                }
+            }
             .widgetURL(FamilyPage.steps.url)
     }
 }
@@ -82,6 +91,7 @@ struct FamilyStepsEntryView: View {
 struct FamilyTasksEntry: TimelineEntry {
     let date: Date
     let summary: FamilyTasksSummary?
+    var savedAt: Date? = nil
 }
 
 struct FamilyTasksProvider: TimelineProvider {
@@ -90,22 +100,25 @@ struct FamilyTasksProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (FamilyTasksEntry) -> Void) {
-        let saved = FamilyShelf.load(FamilyTasksSnapshot.self, .tasks)?.summary
-        completion(FamilyTasksEntry(date: Date(), summary: saved ?? (context.isPreview ? FamilyWidgetSamples.tasks : nil)))
+        let saved = FamilyShelf.load(FamilyTasksSnapshot.self, .tasks)
+        completion(FamilyTasksEntry(date: Date(), summary: saved?.summary ?? (context.isPreview ? FamilyWidgetSamples.tasks : nil), savedAt: saved?.savedAt))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<FamilyTasksEntry>) -> Void) {
         Task {
-            var summary = FamilyShelf.load(FamilyTasksSnapshot.self, .tasks)?.summary
+            let saved = FamilyShelf.load(FamilyTasksSnapshot.self, .tasks)
+            var summary = saved?.summary
+            var savedAt = saved?.savedAt
             if let fresh = await FamilyWidgetFetch.tasks() {
                 let made = FamilyTasksSummary.make(fresh)
                 summary = made
+                savedAt = Date()
                 FamilyShelf.save(FamilyTasksSnapshot(summary: made, savedAt: Date()), .tasks)
             }
             if FamilyShelf.read(.credential) == nil { summary = nil }
             let now = Date()
             completion(Timeline(
-                entries: [FamilyTasksEntry(date: now, summary: summary)],
+                entries: [FamilyTasksEntry(date: now, summary: summary, savedAt: savedAt)],
                 policy: .after(now.addingTimeInterval(FamilyWidgetTiming.refresh))
             ))
         }
@@ -131,6 +144,11 @@ struct FamilyTasksEntryView: View {
         FamilyTasksWidgetView(summary: entry.summary, size: FamilyWidgetSize(family))
             .containerBackground(for: .widget) {
                 if family == .accessoryRectangular { Color.clear } else { FamilyWidgetInk.paper }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let saved = entry.savedAt, entry.date.timeIntervalSince(saved) > FamilyWidgetTiming.refresh {
+                    Text("Saved \(saved, style: .relative) ago").font(.caption2).padding(4)
+                }
             }
             .widgetURL(FamilyPage.tasks.url)
     }

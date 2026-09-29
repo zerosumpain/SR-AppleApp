@@ -180,7 +180,10 @@ struct UploadRound {
     static let breaker = 3
 
     /// The next batch to send: the first one not set aside.
-    func next(in queue: [UploadBatch]) -> UploadBatch? { queue.first { !held.contains($0.id) } }
+    func next(in queue: [UploadBatch]) -> UploadBatch? {
+        let ready = queue.filter { !held.contains($0.id) }
+        return ready.first { !$0.locations.isEmpty } ?? ready.first
+    }
 
     /// The server took a batch. Returns the held batches that can now be
     /// dropped: it has shown it takes records, so theirs was refused on merit.

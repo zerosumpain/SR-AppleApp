@@ -3,7 +3,7 @@ import Combine
 import CoreLocation
 
 struct WorkoutEventRecord: Codable, Equatable { var type: String; var start: String; var end: String }
-struct HealthRecord: Codable, Identifiable {
+struct HealthRecord: Codable, Identifiable, Equatable {
     var id: String
     var kind: String
     var start: String
@@ -32,7 +32,7 @@ struct HealthRecord: Codable, Identifiable {
     var chunk: Int?
     var points: [[Double?]]?
 }
-struct LocationRecord: Codable, Identifiable {
+struct LocationRecord: Codable, Identifiable, Equatable {
     var id: String = UUID().uuidString
     var recorded: String
     var latitude: Double
@@ -46,7 +46,7 @@ struct LocationRecord: Codable, Identifiable {
     /// device that cannot read its battery — the simulator — sends none.
     var battery: Int? = nil
 }
-struct UploadBatch: Codable, Identifiable {
+struct UploadBatch: Codable, Identifiable, Equatable {
     var id = UUID()
     var health: [HealthRecord] = []
     var locations: [LocationRecord] = []
@@ -79,6 +79,7 @@ struct PersistedState: Codable {
     var sharing = false
     var pendingSharing: Bool?
     var lastUpload: Date?
+    var sync = HealthSyncState()
     var historyStart = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
     /// Everything the settings screen controls. Decoded with a default so an
     /// existing install upgrades without losing its queue — a new non-optional
@@ -166,6 +167,7 @@ struct PersistedState: Codable {
         sharing = try c.decodeIfPresent(Bool.self, forKey: .sharing) ?? false
         pendingSharing = try c.decodeIfPresent(Bool.self, forKey: .pendingSharing)
         lastUpload = try c.decodeIfPresent(Date.self, forKey: .lastUpload)
+        sync = try c.decodeIfPresent(HealthSyncState.self, forKey: .sync) ?? HealthSyncState()
         historyStart = try c.decodeIfPresent(Date.self, forKey: .historyStart)
             ?? Calendar.current.date(byAdding: .day, value: -30, to: Date())!
         location = try c.decodeIfPresent(LocationSettings.self, forKey: .location) ?? LocationSettings()
@@ -198,58 +200,6 @@ struct PersistedState: Codable {
 }
 /// What a change that would push the outbox past 50,000 records throws.
 let outboxFullMessage = "Offline queue is full. Connect and sync before collecting more data."
-@MainActor final class Outbox: ObservableObject {
-    @Published private(set) var state: PersistedState
-    private let url: URL
-    /// Set by a deferred `change`, whose write `persistIfDirty()` owes the
-    /// disk. Any immediate `change` clears it, because it writes the current
-    /// state in full anyway — deferred removals included.
-    private var dirty = false
-    init(url: URL? = nil) throws {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        self.url = url ?? directory.appendingPathComponent("sync-state.json")
-        try FileManager.default.createDirectory(at: self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if FileManager.default.fileExists(atPath: self.url.path) {
-            state = try JSONDecoder().decode(PersistedState.self, from: Data(contentsOf: self.url))
-        } else { state = PersistedState() }
-        var resource = URLResourceValues(); resource.isExcludedFromBackup = true
-        var dir = self.url.deletingLastPathComponent(); try dir.setResourceValues(resource)
-    }
-    /// `persist: false` updates `state` and marks the outbox dirty WITHOUT
-    /// writing — for removing a batch the server has already accepted, where
-    /// a crash before the next write just re-sends it and the server upserts
-    /// by id. Every other change (appends, anchors, settings, drops) must
-    /// keep writing immediately, or a crash could lose collected records that
-    /// exist nowhere else.
-    func change(persist: Bool = true, _ transform: (inout PersistedState) throws -> Void) throws {
-        var next = state; try transform(&next)
-        let count = next.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }
-        guard count <= 50000 else { throw CompanionError.message(outboxFullMessage) }
-        // A failed write leaves the state exactly as it was, as before this
-        // change: callers treat a throw as "not committed" and re-collect.
-        let previous = state
-        state = next
-        if persist {
-            do { try write() } catch { state = previous; throw error }
-        } else { dirty = true }
-    }
-    /// Writes the current state once, if a deferred `change` left it dirty.
-    /// Call at the end of a flush, periodically during a long one, and on
-    /// backgrounding — the points a deferred removal must not outlive.
-    func persistIfDirty() throws {
-        guard dirty else { return }
-        try write()
-    }
-    private func write() throws {
-        let data = try JSONEncoder().encode(state)
-        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        dirty = false
-    }
-    /// Resets the COMPANION's state. The site's connection cache is kept: it
-    /// belongs to the other pairing, which disconnecting this one must not touch.
-    func clear() throws { try change { let kept = $0.connections; $0 = PersistedState(); $0.connections = kept } }
-}
-
 /// Upload cadence is separate from Core Location's sensor/update frequency.
 ///
 /// Every threshold in here used to be a literal. They come from settings now,

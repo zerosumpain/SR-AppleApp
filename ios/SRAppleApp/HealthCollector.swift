@@ -20,6 +20,7 @@ private final class RouteGathering: @unchecked Sendable {
     var onUpdate: (() -> Void)?
     private var observers: [HKObserverQuery] = []
     private var collecting = false
+    private var queryDeadline = Date.distantFuture
     private var alerting = false
     private var generation = 0
 
@@ -31,14 +32,23 @@ private final class RouteGathering: @unchecked Sendable {
         // before they are granted would move the anchor past every workout
         // without its series or route.
         if outbox.state.catalogueVersion == 0 {
-            try? outbox.change {
+            Task { try? await outbox.change {
                 $0.healthEnabled = HealthCatalogue.migrate($0.healthEnabled)
                 $0.catalogueVersion = 1
-            }
+            } }
         }
     }
 
     var enabledKinds: [String] { HealthCatalogue.kinds(inGroups: outbox.state.healthEnabled) }
+
+    var hasHistoryWork: Bool {
+        enabledKinds.contains { kind in
+            switch HealthReadings.reading(for: kind) {
+            case .dailySteps, .activityGoal, .workoutPart, nil: return false
+            default: return !outbox.state.sync.historyComplete.contains(kind)
+            }
+        }
+    }
 
     /// An upgraded install whose new categories have not been put to the
     /// reader yet, or an enabled type HealthKit says was never asked for (a
@@ -98,7 +108,7 @@ private final class RouteGathering: @unchecked Sendable {
         // events. No await between this and `startObservers()`, whose
         // generation bump stops an in-flight pass committing the old anchor.
         if outbox.state.catalogueVersion < PersistedState.currentCatalogueVersion {
-            try outbox.change {
+            try await outbox.change {
                 $0.anchors.removeValue(forKey: "workout")
                 $0.catalogueVersion = PersistedState.currentCatalogueVersion
             }
@@ -126,27 +136,14 @@ private final class RouteGathering: @unchecked Sendable {
                     defer { completion() }
                     guard let self, error == nil else { return }
                     do { try await self.collect(until: Date().addingTimeInterval(20)); self.onUpdate?() } catch { /* resumes from anchors next wake */ }
-                    // And while we are awake anyway: take whatever the site has
-                    // been trying to say.
-                    //
-                    // This app has no push certificate, so a notification only
-                    // ever arrives on a wake the app already gets. There are two
-                    // of those, and they are not equal: `BGAppRefreshTask` runs
-                    // when iOS feels like it, which for an app opened twice a day
-                    // is not often. HealthKit background delivery is scheduled —
-                    // hourly, on an entitlement this app has held and used since
-                    // the first version — and it fires precisely when the health
-                    // figures the reader asked to be told about have changed.
-                    //
-                    // The site's three-hour floor still governs what is actually
-                    // raised, so the extra wakes cost a request and nothing else.
-                    //
-                    // (One pass at a time: a wake fires every observer at once.)
-                    guard !self.alerting else { return }
-                    self.alerting = true
-                    await AlertStore.backgroundPass()
-                    await ConnectionsStore.backgroundPass(outbox: self.outbox)
-                    self.alerting = false
+                    // Completion belongs to collection, not unrelated network work.
+                    Task { [weak self] in
+                        guard let self, !self.alerting else { return }
+                        self.alerting = true
+                        defer { self.alerting = false }
+                        await AlertStore.backgroundPass()
+                        await ConnectionsStore.backgroundPass(outbox: self.outbox)
+                    }
                 }
             }
             observers.append(query); store.execute(query)
@@ -158,23 +155,32 @@ private final class RouteGathering: @unchecked Sendable {
 
     func collect(until deadline: Date) async throws {
         guard !collecting, HKHealthStore.isHealthDataAvailable() else { return }
-        collecting = true; defer { collecting = false }
+        collecting = true; queryDeadline = deadline
+        defer { collecting = false; queryDeadline = .distantFuture }
         let startedGeneration = generation
         let live: () -> Bool = { self.generation == startedGeneration }
-        for kind in enabledKinds {
-            guard Date() < deadline, live() else { return }   // the rest resumes from anchors next wake
-            // One kind's failure (typically a type the reader has not been
-            // asked for yet: errorAuthorizationNotDetermined) skips that kind
-            // only. Its anchor has not moved, so it resumes once granted.
+        guard !outbox.state.sync.paused else { return }
+        if outbox.state.sync.recentStart == nil {
+            try await outbox.change { $0.sync.recentStart = Date().addingTimeInterval(-48 * 3600) }
+        }
+        let kinds = enabledKinds
+        guard !kinds.isEmpty else { return }
+        // Every kind gets one bounded page before another turn. The checkpoint
+        // makes a short background wake resume where the previous one stopped.
+        let jobs = kinds.map { ($0, true) } + kinds.map { ($0, false) }
+        let first = outbox.state.sync.nextJob % jobs.count
+        for offset in 0..<jobs.count {
+            guard Date() < deadline, live(), !outbox.state.sync.paused else { return }
+            try Task.checkCancellation()
+            let index = (first + offset) % jobs.count
+            let (kind, recent) = jobs[index]
             do {
-                try await pass(kind: kind, deadline: deadline, generation: startedGeneration, live: live)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                failures[kind] = error.localizedDescription
-                continue
-            }
-            failures.removeValue(forKey: kind)
+                try await pass(kind: kind, recent: recent, deadline: deadline, generation: startedGeneration, live: live)
+                failures.removeValue(forKey: kind)
+            } catch is CancellationError { throw CancellationError() }
+            catch { failures[kind] = error.localizedDescription }
+            try await outbox.change { $0.sync.nextJob = (index + 1) % jobs.count; $0.sync.lastCollected = Date() }
+            await Task.yield()
         }
     }
 
@@ -186,21 +192,22 @@ private final class RouteGathering: @unchecked Sendable {
         for kind in kinds { failures.removeValue(forKey: kind) }
     }
 
-    private func pass(kind: String, deadline: Date, generation startedGeneration: Int, live: () -> Bool) async throws {
+    private func pass(kind: String, recent: Bool, deadline: Date, generation startedGeneration: Int, live: () -> Bool) async throws {
         switch HealthReadings.reading(for: kind) {
         case .dailySteps:
+            guard recent else { return }
             try await steps(generation: startedGeneration)
         case .hourly(let id, let unit, let options, let scale):
-            try await hourly(kind: kind, id: id, unit: unit, options: options, scale: scale, live: live)
+            try await hourly(kind: kind, id: id, unit: unit, options: options, scale: scale, recent: recent, live: live)
         case .sample, .standHour, .mindful, .stateOfMind, .sleep:
-            try await anchored(kind: kind, deadline: deadline, live: live)
+            try await anchored(kind: kind, recent: recent, deadline: deadline, live: live)
         case .workout:
-            try await anchored(kind: kind, deadline: deadline, live: live)
-            try await retryRoutes(deadline: deadline, live: live)
+            try await anchored(kind: kind, recent: recent, deadline: deadline, live: live)
+            if recent { try await retryRoutes(deadline: deadline, live: live) }
         case .activityGoal:
             // One summary query covers all three goals: run it for the first
             // enabled goal kind only, so it happens once per collect.
-            guard kind == enabledKinds.first(where: HealthReadings.isActivityGoal) else { return }
+            guard recent, kind == enabledKinds.first(where: HealthReadings.isActivityGoal) else { return }
             try await activityGoals(generation: startedGeneration)
         case .workoutPart, nil:
             return
@@ -211,14 +218,15 @@ private final class RouteGathering: @unchecked Sendable {
     /// an interrupted pass loses at most one page. Workouts page by 10: each
     /// costs a dozen queries, and a page that never fits the deadline would
     /// never commit its anchor.
-    private func anchored(kind: String, deadline: Date, live: () -> Bool) async throws {
+    private func anchored(kind: String, recent: Bool, deadline: Date, live: () -> Bool) async throws {
         guard let sampleType = HealthReadings.sampleType(for: kind) else { return }
-        let limit = kind == "workout" ? 10 : 200
-        var more = true
-        while more, Date() < deadline {
-            let anchorData = outbox.state.anchors[kind]
+        let limit = kind == "workout" ? 1 : 200
+        let key = recent ? "recent.\(kind)" : kind
+        let start = recent ? (outbox.state.sync.recentStart ?? Date()) : outbox.state.historyStart
+        if Date() < deadline {
+            let anchorData = outbox.state.anchors[key]
             let anchor = try anchorData.map { try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) } ?? nil
-            let (found, deleted, next) = try await changes(type: sampleType, anchor: anchor, limit: limit)
+            let (found, deleted, next) = try await changes(type: sampleType, anchor: anchor, limit: limit, start: start, end: recent ? nil : outbox.state.sync.recentStart)
             guard live(), enabledKinds.contains(kind) else { return }
             try Task.checkCancellation()
             var records: [HealthRecord] = []
@@ -235,26 +243,32 @@ private final class RouteGathering: @unchecked Sendable {
             records = records.filter { HealthCatalogue.accepts($0) }
             let gone = deleted.map { $0.uuid.uuidString }
             let nextData = try next.map { try NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
-            try outbox.change {
-                $0.batches += HealthBatching.batches(records)
+            try await outbox.change {
+                guard live(), enabledKinds.contains(kind) else { return }
+                $0.batches = HealthBatching.queue(records, into: $0.batches)
                 if !gone.isEmpty { $0.batches.append(UploadBatch(deleted: gone)) }
-                $0.anchors[kind] = nextData
+                $0.anchors[key] = nextData
+                for sample in found { $0.sync.workoutParts?.removeValue(forKey: sample.uuid.uuidString) }
+                if found.count + deleted.count < limit {
+                    if recent, !$0.sync.recentComplete.contains(kind) { $0.sync.recentComplete.append(kind) }
+                    if !recent, !$0.sync.historyComplete.contains(kind) { $0.sync.historyComplete.append(kind) }
+                }
             }
             // A workout backfill runs for minutes: upload each page as it
             // lands rather than holding the lot until the pass ends.
             if kind == "workout", !records.isEmpty || !gone.isEmpty { onUpdate?() }
-            more = found.count + deleted.count >= limit
+
         }
     }
 
-    private func changes(type: HKSampleType, anchor: HKQueryAnchor?, limit: Int) async throws -> ([HKSample], [HKDeletedObject], HKQueryAnchor?) {
-        let predicate = HKQuery.predicateForSamples(withStart: outbox.state.historyStart, end: nil)
-        return try await withCheckedThrowingContinuation { continuation in
+    private func changes(type: HKSampleType, anchor: HKQueryAnchor?, limit: Int, start: Date, end: Date?) async throws -> ([HKSample], [HKDeletedObject], HKQueryAnchor?) {
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+        return try await boundedHealthQuery(until: queryDeadline) { continuation in
             let query = HKAnchoredObjectQuery(type: type, predicate: predicate, anchor: anchor, limit: limit) { _, samples, deleted, next, error in
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume(returning: (samples ?? [], deleted ?? [], next)) }
             }
-            store.execute(query)
+            continuation.execute(query, in: store, until: queryDeadline)
         }
     }
 
@@ -295,17 +309,20 @@ private final class RouteGathering: @unchecked Sendable {
     /// HealthKit's own merged statistics per UTC hour (spec E7): phone and
     /// Watch counted once, which is why these match the Health app. Ids are
     /// zone-free (`step_count-2026-09-23T14`), so a re-read replaces in place.
-    private func hourly(kind: String, id: HKQuantityTypeIdentifier, unit: HKUnit, options: HKStatisticsOptions, scale: Double, live: () -> Bool) async throws {
+    private func hourly(kind: String, id: HKQuantityTypeIdentifier, unit: HKUnit, options: HKStatisticsOptions, scale: Double, recent: Bool, live: () -> Bool) async throws {
         var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
-        let from = max(outbox.state.hourlyFrom[kind] ?? outbox.state.historyStart, outbox.state.historyStart)
+        let key = recent ? "recent.\(kind)" : kind
+        let from = recent ? Date().addingTimeInterval(-48 * 3600) : max(outbox.state.hourlyFrom[key] ?? outbox.state.historyStart, outbox.state.historyStart)
         let start = utc.dateInterval(of: .hour, for: from)!.start
-        let end = Date()
+        let cutoff = recent ? Date() : (outbox.state.sync.recentStart ?? Date())
+        let end = min(cutoff, start.addingTimeInterval(7 * 86400))
+        guard start < end else { return }
         let label = DateFormatter()
         label.calendar = utc; label.timeZone = utc.timeZone; label.locale = Locale(identifier: "en_US_POSIX"); label.dateFormat = "yyyy-MM-dd'T'HH"
         let catalogueUnit = HealthCatalogue.file.kinds[kind]?.unit
         let tz = zone
         let quantityType = Self.quantityType(id)
-        let records: [HealthRecord] = try await withCheckedThrowingContinuation { continuation in
+        let records: [HealthRecord] = try await boundedHealthQuery(until: queryDeadline) { continuation in
             let query = HKStatisticsCollectionQuery(quantityType: quantityType, quantitySamplePredicate: HKQuery.predicateForSamples(withStart: start, end: end), options: options, anchorDate: start, intervalComponents: DateComponents(hour: 1))
             query.initialResultsHandler = { _, collection, error in
                 if let error { continuation.resume(throwing: error); return }
@@ -321,7 +338,7 @@ private final class RouteGathering: @unchecked Sendable {
                 }
                 continuation.resume(returning: out)
             }
-            store.execute(query)
+            continuation.execute(query, in: store, until: queryDeadline)
         }
         guard live(), enabledKinds.contains(kind) else { return }
         try Task.checkCancellation()
@@ -330,11 +347,14 @@ private final class RouteGathering: @unchecked Sendable {
         // hours re-read every wake would otherwise queue ~49 unchanged rows
         // per kind per wake, and fill the offline outbox within a day.
         var queued = 0
-        try outbox.change {
-            let (changed, sent) = HealthBatching.changed(accepted, since: $0.hourlySent[kind] ?? [:])
+        try await outbox.change {
+            guard live(), enabledKinds.contains(kind) else { return }
+            let (changed, sent) = HealthBatching.changed(accepted, since: $0.hourlySent[key] ?? [:])
             $0.batches = HealthBatching.queue(changed, into: $0.batches)
-            $0.hourlySent[kind] = sent
-            $0.hourlyFrom[kind] = end.addingTimeInterval(-48 * 3600)
+            $0.hourlySent[key] = sent
+            $0.hourlyFrom[key] = recent ? end.addingTimeInterval(-48 * 3600) : end
+            if recent, !$0.sync.recentComplete.contains(kind) { $0.sync.recentComplete.append(kind) }
+            if !recent, end >= cutoff, !$0.sync.historyComplete.contains(kind) { $0.sync.historyComplete.append(kind) }
             queued = changed.count
         }
         if queued > 0 { onUpdate?() }
@@ -348,7 +368,7 @@ private final class RouteGathering: @unchecked Sendable {
         let end = Date()
         let quantity = Self.quantityType(.stepCount)
         let tz = zone
-        let records: [HealthRecord] = try await withCheckedThrowingContinuation { continuation in
+        let records: [HealthRecord] = try await boundedHealthQuery(until: queryDeadline) { continuation in
             let query = HKStatisticsCollectionQuery(quantityType: quantity, quantitySamplePredicate: HKQuery.predicateForSamples(withStart: start, end: end), options: .cumulativeSum, anchorDate: start, intervalComponents: DateComponents(day: 1))
             query.initialResultsHandler = { _, collection, error in
                 if let error { continuation.resume(throwing: error); return }
@@ -364,14 +384,14 @@ private final class RouteGathering: @unchecked Sendable {
                 }
                 continuation.resume(returning: records)
             }
-            store.execute(query)
+            continuation.execute(query, in: store, until: queryDeadline)
         }
         guard generation == startedGeneration, enabledKinds.contains("steps") else { return }
         try Task.checkCancellation()
         // As `hourly`: only days whose total moved, replacing any queued copy.
         let (changed, sent) = HealthBatching.changed(records, since: outbox.state.hourlySent["steps"] ?? [:])
         guard !changed.isEmpty || sent != (outbox.state.hourlySent["steps"] ?? [:]) else { return }
-        try outbox.change {
+        try await outbox.change {
             $0.batches = HealthBatching.queue(changed, into: $0.batches)
             $0.hourlySent["steps"] = sent
         }
@@ -391,12 +411,12 @@ private final class RouteGathering: @unchecked Sendable {
         var to = calendar.dateComponents(dayParts, from: now)
         from.calendar = calendar; to.calendar = calendar
         let predicate = HKQuery.predicate(forActivitySummariesBetweenStart: from, end: to)
-        let summaries: [HKActivitySummary] = try await withCheckedThrowingContinuation { continuation in
+        let summaries: [HKActivitySummary] = try await boundedHealthQuery(until: queryDeadline) { continuation in
             let query = HKActivitySummaryQuery(predicate: predicate) { _, summaries, error in
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume(returning: summaries ?? []) }
             }
-            store.execute(query)
+            continuation.execute(query, in: store, until: queryDeadline)
         }
         guard generation == startedGeneration else { return }
         try Task.checkCancellation()
@@ -416,7 +436,7 @@ private final class RouteGathering: @unchecked Sendable {
             if !changed.isEmpty || sent != before { updates.append((kind: kind, changed: changed, sent: sent)) }
         }
         guard !updates.isEmpty else { return }
-        try outbox.change {
+        try await outbox.change {
             for update in updates {
                 $0.batches = HealthBatching.queue(update.changed, into: $0.batches)
                 $0.hourlySent[update.kind] = update.sent
@@ -427,12 +447,12 @@ private final class RouteGathering: @unchecked Sendable {
     // MARK: - Workouts
 
     private func fetchSamples(_ type: HKSampleType, _ predicate: NSPredicate) async throws -> [HKSample] {
-        try await withCheckedThrowingContinuation { continuation in
+        try await boundedHealthQuery(until: queryDeadline) { continuation in
             let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]) { _, samples, error in
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume(returning: samples ?? []) }
             }
-            store.execute(query)
+            continuation.execute(query, in: store, until: queryDeadline)
         }
     }
 
@@ -493,30 +513,47 @@ private final class RouteGathering: @unchecked Sendable {
                 }
             }
         }
-        var out = [HealthBatching.finiteWorkoutFields(r)]
+        let out = [HealthBatching.finiteWorkoutFields(r)]
+        let completed = outbox.state.sync.workoutParts?[id] ?? 0
+        if completed == 0 { try await commitWorkoutPart(out, id: id, next: 1) }
         // Series: samples HealthKit ASSOCIATES with the workout; a third-party
         // app may associate none, so fall back to the workout's time window.
         var seen = Set<String>()
-        for s in HealthReadings.workoutSeries where !seen.contains(s.metric) {
+        for (index, s) in HealthReadings.workoutSeries.enumerated() {
+            guard !seen.contains(s.metric) else { continue }
+            seen.insert(s.metric)
+            guard completed < index + 2 else { continue }
             let type = Self.quantityType(s.type)
             var found = try await fetchSamples(type, HKQuery.predicateForObjects(from: w))
             if found.isEmpty { found = try await fetchSamples(type, HKQuery.predicateForSamples(withStart: w.startDate, end: w.endDate, options: .strictStartDate)) }
             let points = Self.points(found, unit: s.unit)
-            guard !points.isEmpty else { continue }
-            seen.insert(s.metric)
-            out += HealthBatching.chunks(kind: "workout_series", workout: id, metric: s.metric, unit: HealthCatalogue.file.series[s.metric], points: points, source: source, size: HealthBatching.seriesChunk)
+            let chunks = HealthBatching.chunks(kind: "workout_series", workout: id, metric: s.metric, unit: HealthCatalogue.file.series[s.metric], points: points, source: source, size: HealthBatching.seriesChunk)
+            try await commitWorkoutPart(chunks, id: id, next: index + 2)
         }
         // Heart-rate recovery: the three minutes after the workout ends
         // (physio-service reads HRR60 from this).
+        let recoveryPart = HealthReadings.workoutSeries.count + 2
+        if completed < recoveryPart {
         let after = try await fetchSamples(Self.quantityType(.heartRate), HKQuery.predicateForSamples(withStart: w.endDate, end: w.endDate.addingTimeInterval(180), options: []))
         let recovery = Self.points(after, unit: HealthReadings.bpm)
-        if !recovery.isEmpty { out += HealthBatching.chunks(kind: "workout_series", workout: id, metric: "heart_rate_recovery", unit: "bpm", points: recovery, source: source, size: HealthBatching.seriesChunk) }
+        try await commitWorkoutPart(HealthBatching.chunks(kind: "workout_series", workout: id, metric: "heart_rate_recovery", unit: "bpm", points: recovery, source: source, size: HealthBatching.seriesChunk), id: id, next: recoveryPart)
+        }
         let route = try await routePoints(w)
         if route.isEmpty, r.indoor != true, Self.routed.contains(w.workoutActivityType), w.endDate > Date().addingTimeInterval(-7 * 86400) {
-            try outbox.change { $0.pendingRoutes[id] = w.endDate }
+            try await outbox.change { $0.pendingRoutes[id] = w.endDate }
         }
-        out += HealthBatching.chunks(kind: "workout_route", workout: id, metric: nil, unit: nil, points: route, source: source, size: HealthBatching.routeChunk)
+        try await commitWorkoutPart(HealthBatching.chunks(kind: "workout_route", workout: id, metric: nil, unit: nil, points: route, source: source, size: HealthBatching.routeChunk), id: id, next: recoveryPart + 1)
         return out
+    }
+
+    private func commitWorkoutPart(_ records: [HealthRecord], id: String, next: Int) async throws {
+        try await outbox.change { state in
+            guard enabledKinds.contains("workout") else { throw CancellationError() }
+            state.batches = HealthBatching.queue(records.filter { HealthCatalogue.accepts($0) }, into: state.batches)
+            if state.sync.workoutParts == nil { state.sync.workoutParts = [:] }
+            state.sync.workoutParts?[id] = next
+        }
+        onUpdate?()
     }
 
     /// `[epoch, lat, lon, altitude?, speed?, horizontal accuracy?]`, oldest first.
@@ -542,7 +579,7 @@ private final class RouteGathering: @unchecked Sendable {
     /// the last batch or the first error.
     private func locations(of route: HKWorkoutRoute) async throws -> [CLLocation] {
         let gathered = RouteGathering()
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await boundedHealthQuery(until: queryDeadline) { continuation in
             let query = HKWorkoutRouteQuery(route: route) { _, batch, done, error in
                 guard !gathered.finished else { return }
                 if let error {
@@ -556,7 +593,7 @@ private final class RouteGathering: @unchecked Sendable {
                     continuation.resume(returning: gathered.locations)
                 }
             }
-            store.execute(query)
+            continuation.execute(query, in: store, until: queryDeadline)
         }
     }
 
@@ -565,11 +602,11 @@ private final class RouteGathering: @unchecked Sendable {
         for (id, ended) in outbox.state.pendingRoutes {
             guard Date() < deadline, live() else { return }
             if ended < Date().addingTimeInterval(-7 * 86400) {
-                try outbox.change { $0.pendingRoutes.removeValue(forKey: id) }
+                try await outbox.change { $0.pendingRoutes.removeValue(forKey: id) }
                 continue
             }
             guard let uuid = UUID(uuidString: id) else {
-                try outbox.change { $0.pendingRoutes.removeValue(forKey: id) }
+                try await outbox.change { $0.pendingRoutes.removeValue(forKey: id) }
                 continue
             }
             let found = try await fetchSamples(HKObjectType.workoutType(), HKQuery.predicateForObject(with: uuid))
@@ -577,7 +614,7 @@ private final class RouteGathering: @unchecked Sendable {
             let route = try await routePoints(w)
             guard !route.isEmpty, live() else { continue }
             let chunks = HealthBatching.chunks(kind: "workout_route", workout: id, metric: nil, unit: nil, points: route, source: w.sourceRevision.source.name, size: HealthBatching.routeChunk)
-            try outbox.change {
+            try await outbox.change {
                 $0.batches += HealthBatching.batches(chunks)
                 $0.pendingRoutes.removeValue(forKey: id)
             }

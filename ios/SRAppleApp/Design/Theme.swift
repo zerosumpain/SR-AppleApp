@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The Strange Ramblings design system, as the app sees it.
 ///
@@ -25,54 +26,64 @@ import SwiftUI
 /// bar at the top edge so everything docks under it, and the content scrolls on
 /// cream beneath.
 enum SR {
+    private static func adaptive(_ light: UInt32, _ dark: UInt32, alpha: Double = 1) -> Color {
+        Color(UIColor { traits in
+            let value = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255,
+                           blue: CGFloat(value & 255) / 255, alpha: CGFloat(alpha))
+        })
+    }
+    static let inkBand = Color(hex: 0x1A1008)
+    static let onInk = Color(hex: 0xEDE4D4)
+
 
     // MARK: - Palette (src/app.css `:root`)
 
     /// Warm cream. `--bg`.
-    static let paper = Color(hex: 0xEDE4D4)
+    static let paper = adaptive(0xEDE4D4, 0x181510)
     /// `--surface-elevated` — the opaque panel ground. Never a tint: `--card-bg`
     /// is 7% ink and reads as transparent the moment it sits over anything.
-    static let surface = Color(hex: 0xE8DECE)
+    static let surface = adaptive(0xE8DECE, 0x26211B)
     /// `--text-primary`, and the ink band's ground.
-    static let ink = Color(hex: 0x1A1008)
+    static let ink = adaptive(0x1A1008, 0xEDE4D4)
     /// `--text-secondary`.
-    static let inkSecondary = Color(hex: 0x3D2E1A)
+    static let inkSecondary = adaptive(0x3D2E1A, 0xD4C8B5)
     /// `--text-muted` — 65% ink on paper. PAPER ONLY.
-    static let inkMuted = Color(hex: 0x1A1008, alpha: 0.65)
+    static let inkMuted = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.72)
     /// `--text-ghost` — 45%. PAPER ONLY.
-    static let inkGhost = Color(hex: 0x1A1008, alpha: 0.45)
+    static let inkGhost = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.55)
 
     /// `--accent`, burnt orange. Punchy, not regal. PAPER ONLY.
-    static let accent = Color(hex: 0xC4570A)
+    static let accent = adaptive(0xC4570A, 0xE8863A)
     /// The accent one step deeper, for a FILL that carries cream text — the
     /// Ask button, a selected tab's label. `--accent` under cream measures
     /// 3.5:1; this holds 5.5:1, and 4.8:1 as text on paper. Not a second
     /// accent: use it only where the accent itself would fail the text.
-    static let accentDeep = Color(hex: 0xA8470A)
+    static let accentDeep = adaptive(0xA8470A, 0xE8863A)
     /// `--accent-on-dark`. `--accent` scores 2.6:1 on `#1a1008`, under the
     /// floor; this is its partner, not a second accent.
     static let accentOnDark = Color(hex: 0xE8863A)
     /// `--accent-ink`, deep petrol. The counter-accent, and PAPER ONLY — it has
     /// no role on an ink band, which is why petrol left the vitals rail.
-    static let accentInk = Color(hex: 0x0E5B66)
+    static let accentInk = adaptive(0x0E5B66, 0x7FB8C0)
     /// `--accent-ink-on-dark`.
     static let accentInkOnDark = Color(hex: 0x7FB8C0)
 
     /// `--good`, olive. The one hue meaning a number is going the right way.
-    static let good = Color(hex: 0x55663A)
+    static let good = adaptive(0x55663A, 0xA4B578)
     /// `--good-on-dark`. Measured off the dashboard reference; the handoff's
     /// token table names #6b7f4a but every appearance of that shade is on paper.
     static let goodOnDark = Color(hex: 0x8A9A5B)
 
-    static let warn = Color(hex: 0xB0892A)
-    static let error = Color(hex: 0xCC4444)
+    static let warn = adaptive(0xB0892A, 0xD6B65E)
+    static let error = adaptive(0xCC4444, 0xE08B8B)
     /// Error, lifted for ink. The paper value is a smudge on `#1a1008`.
     static let errorOnDark = Color(hex: 0xE08B8B)
 
     /// `--card-border`.
-    static let line = Color(hex: 0x1A1008, alpha: 0.18)
+    static let line = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.2)
     /// `--divider`.
-    static let divider = Color(hex: 0x1A1008, alpha: 0.08)
+    static let divider = adaptive(0x1A1008, 0xEDE4D4, alpha: 0.12)
     /// The hairline on an ink band. `--line-hair` is invisible there.
     static let lineOnDark = Color(hex: 0xEDE4D4, alpha: 0.14)
     /// Cream at reading weight on ink.
@@ -166,8 +177,8 @@ enum SRRegister {
     case paper
     case ink
 
-    var background: Color { self == .paper ? SR.paper : SR.ink }
-    var primary: Color { self == .paper ? SR.ink : SR.paper }
+    var background: Color { self == .paper ? SR.paper : SR.inkBand }
+    var primary: Color { self == .paper ? SR.ink : SR.onInk }
     var secondary: Color { self == .paper ? SR.inkSecondary : SR.creamOnDark }
     var muted: Color { self == .paper ? SR.inkMuted : Color(hex: 0xEDE4D4, alpha: 0.55) }
     var accent: Color { self == .paper ? SR.accent : SR.accentOnDark }

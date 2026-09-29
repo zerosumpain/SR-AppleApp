@@ -105,19 +105,34 @@ final class FamilyTasksStore: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var loaded = false
     /// The task id an action is waiting on, or "new".
-    @Published private(set) var busy: String?
+    @Published private(set) var busyTasks: Set<String> = []
+    var busy: String? { busyTasks.first }
+    struct PendingAction: Codable { let task: FamilyTask; let body: FamilyTaskActionBody }
+    @Published private(set) var pendingActions: [String: PendingAction] = [:]
+    private var journalScope: String?
+    private var draining = false
+    private var revision = 0
     @Published var message: String?
 
     var summary: FamilyTasksSummary? { board.map { FamilyTasksSummary.make($0) } }
 
     func load() async {
         guard SiteClient.shared.isPaired, !loading else { return }
+        if let scope = SiteClient.shared.storageScope, journalScope != scope {
+            let saved = await LocalJournal.shared.read([String: PendingAction].self, scope: scope, key: "family-task-actions") ?? [:]
+            guard scope == SiteClient.shared.storageScope else { return }
+            pendingActions = saved; journalScope = scope
+        }
         loading = true
+        let startedRevision = revision
         defer { loading = false; loaded = true }
         do {
             let fetched: FamilyTasksBoard = try await SiteClient.shared.send("api/native/family/tasks")
+            guard startedRevision == revision else { return }
             board = fetched
-            message = nil
+            for pending in pendingActions.values { optimistic(pending) }
+            message = pendingActions.isEmpty ? nil : "\(pendingActions.count) changes saved, waiting to sync."
+            await drainPending()
             FamilyWidgetBridge.save(tasks: fetched)
         } catch is CancellationError {
             return
@@ -132,9 +147,9 @@ final class FamilyTasksStore: ObservableObject {
 
     /// Add a task. Nil when it went; otherwise the sentence for the sheet.
     func create(_ body: FamilyTaskCreateBody) async -> String? {
-        guard busy == nil else { return "Saving already…" }
-        busy = "new"
-        defer { busy = nil }
+        guard !busyTasks.contains("new") else { return "Saving already…" }
+        busyTasks.insert("new")
+        defer { busyTasks.remove("new") }
         do {
             try await SiteClient.shared.post("api/native/family/tasks", body: try JSONEncoder().encode(body))
             SRHaptic.ok()
@@ -149,25 +164,84 @@ final class FamilyTasksStore: ObservableObject {
     /// reason is in `message`.
     @discardableResult
     func act(_ action: FamilyTaskAction, on task: FamilyTask, note: String? = nil) async -> Bool {
-        guard busy == nil else { return false }
-        busy = task.id
-        defer { busy = nil }
+        guard !busyTasks.contains(task.id), pendingActions[task.id] == nil else { return false }
+        if (action == .done || action == .undo), task.updatedAt != nil,
+           let scope = SiteClient.shared.storageScope, AccessStore.shared.viewingAs == nil {
+            let pending = PendingAction(task: task, body: FamilyTaskActionBody(action: action.rawValue, note: note, expectedUpdatedAt: task.updatedAt))
+            pendingActions[task.id] = pending
+            revision += 1
+            optimistic(pending)
+            do { try await LocalJournal.shared.save(pendingActions, scope: scope, key: "family-task-actions") }
+            catch {
+                pendingActions.removeValue(forKey: task.id); replace(task)
+                message = "Could not save this change. Try again."
+                return false
+            }
+            guard scope == SiteClient.shared.storageScope else { return false }
+            return await sendPending(pending)
+        }
+        // Payments, approvals, deletion and creation require a server answer.
+        busyTasks.insert(task.id); defer { busyTasks.remove(task.id) }
         do {
-            let body = FamilyTaskActionBody(action: action.rawValue, note: note)
+            let body = FamilyTaskActionBody(action: action.rawValue, note: note, expectedUpdatedAt: task.updatedAt)
             try await SiteClient.shared.call("api/native/family/tasks/\(task.id)", method: "PATCH", body: try JSONEncoder().encode(body))
-            if action == .delete { SRHaptic.tap() } else { SRHaptic.ok() }
-            message = nil
+            revision += 1
             await load()
+            SRHaptic.ok()
+            return true
+        } catch { message = Self.sentence(for: error); return false }
+    }
+
+    private struct TaskReply: Decodable { let task: FamilyTask }
+    private func replace(_ task: FamilyTask) {
+        if let index = board?.open.firstIndex(where: { $0.id == task.id }) { board?.open[index] = task }
+        if let index = board?.completed.firstIndex(where: { $0.id == task.id }) { board?.completed[index] = task }
+    }
+    private func optimistic(_ pending: PendingAction) {
+        var task = pending.task
+        if pending.body.action == "done" {
+            task.status = "done"; task.doneBy = board?.me.id; task.doneAt = timestamp(Date()); task.sentBackNote = nil
+        } else { task.status = "open"; task.doneBy = nil; task.doneAt = nil }
+        replace(task)
+    }
+    @discardableResult private func sendPending(_ pending: PendingAction) async -> Bool {
+        guard let scope = SiteClient.shared.storageScope, !busyTasks.contains(pending.task.id) else { return false }
+        busyTasks.insert(pending.task.id); defer { busyTasks.remove(pending.task.id) }
+        do {
+            let response: TaskReply = try await SiteClient.shared.send("api/native/family/tasks/\(pending.task.id)", method: "PATCH", body: JSONEncoder().encode(pending.body))
+            guard scope == SiteClient.shared.storageScope else { return false }
+            replace(response.task)
+            pendingActions.removeValue(forKey: pending.task.id)
+            revision += 1
+            try await LocalJournal.shared.save(pendingActions, scope: scope, key: "family-task-actions")
+            message = pendingActions.isEmpty ? nil : "Some changes are waiting to sync."
+            SRHaptic.ok()
             return true
         } catch {
-            SRHaptic.bad()
+            guard scope == SiteClient.shared.storageScope else { return false }
+            if error is URLError {
+                message = "Saved on this iPhone. It will sync when you reopen Tasks or pull to refresh."
+                return true
+            }
+            pendingActions.removeValue(forKey: pending.task.id)
+            replace(pending.task)
+            try? await LocalJournal.shared.save(pendingActions, scope: scope, key: "family-task-actions")
+            if !loading { await load() }
             message = Self.sentence(for: error)
-            await load()
             return false
+        }
+    }
+    func drainPending() async {
+        guard !draining else { return }
+        draining = true; defer { draining = false }
+        for pending in Array(pendingActions.values) {
+            guard SiteClient.shared.isPaired, !Task.isCancelled else { return }
+            _ = await sendPending(pending)
         }
     }
 
     func reset() {
+        pendingActions = [:]; journalScope = nil; busyTasks = []; revision += 1
         board = nil
         loaded = false
         message = nil

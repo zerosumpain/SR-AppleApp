@@ -13,14 +13,17 @@ final class NewsStore: ObservableObject {
     /// so a tap shows immediately rather than at the next refresh.
     @Published private(set) var savedOverrides: [String: Bool] = [:]
     @Published private(set) var keptOverrides: Set<String> = []
-    @Published private(set) var busyKey: String?
+    @Published private(set) var busyKeys: Set<String> = []
+    var busyKey: String? { busyKeys.first }
+    private var generation = 0
+    private var mutationRevision = 0
 
     private let client = SiteClient.shared
 
     var stories: [NewsStory] { feed?.stories ?? [] }
 
     func isSaved(_ story: NewsStory) -> Bool {
-        savedOverrides[story.key] ?? (view == .favourites ? true : false)
+        savedOverrides[story.key] ?? story.favourite ?? (view == .favourites)
     }
 
     func isKept(_ story: NewsStory) -> Bool {
@@ -28,23 +31,30 @@ final class NewsStore: ObservableObject {
     }
 
     func load(force: Bool = false) async {
-        guard !loading else { return }
+        generation += 1
+        let requestGeneration = generation
+        let mutationsAtStart = mutationRevision
+        let requestedView = view
         loading = true
-        defer { loading = false }
+        defer { if requestGeneration == generation { loading = false } }
         do {
             var path = "api/native/news?view=\(view.rawValue)&sort=\(sort)"
             if force { path += "&fresh=1" }
             let result: NewsFeed = try await client.send(path)
+            guard requestGeneration == generation, view == requestedView else { return }
             feed = result
             sort = result.sort
             // The server's answer is authoritative again after a refresh; an
             // override that outlived its round trip would show a stale tick.
-            savedOverrides.removeAll()
-            keptOverrides.removeAll()
+            if mutationsAtStart == mutationRevision && busyKeys.isEmpty {
+                savedOverrides.removeAll(); keptOverrides.removeAll()
+            }
             message = nil
         } catch SiteError.expired {
+            guard requestGeneration == generation else { return }
             message = "This iPhone needs pairing again."
         } catch {
+            guard requestGeneration == generation else { return }
             // A desk that has stories on screen keeps them. Replacing a readable
             // list with an error because a refresh failed is worse than the
             // stale list, and the wire is flaky by nature.
@@ -68,9 +78,10 @@ final class NewsStore: ObservableObject {
     private struct FavouriteResult: Decodable { let favourite: Bool? }
 
     func act(_ action: NewsAction, on story: NewsStory) async {
-        guard busyKey == nil else { return }
-        busyKey = story.key
-        defer { busyKey = nil }
+        guard !busyKeys.contains(story.key) else { return }
+        busyKeys.insert(story.key)
+        mutationRevision += 1
+        defer { busyKeys.remove(story.key); mutationRevision += 1 }
         do {
             let body = try JSONEncoder().encode([
                 "action": action.rawValue,
@@ -110,6 +121,7 @@ final class StoryStore: ObservableObject {
     /// is the answer, and a `false` default would show an unsaved bookmark on a
     /// story that is in fact saved.
     @Published private(set) var savedOverride: Bool?
+    @Published private(set) var busy = false
 
     private let client = SiteClient.shared
 
@@ -129,6 +141,8 @@ final class StoryStore: ObservableObject {
     private struct FavouriteResult: Decodable { let favourite: Bool? }
 
     func act(_ action: NewsAction, on story: NewsStory) async {
+        guard !busy else { return }
+        busy = true; defer { busy = false }
         do {
             let body = try JSONEncoder().encode([
                 "action": action.rawValue,

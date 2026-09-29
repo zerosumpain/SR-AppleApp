@@ -230,6 +230,8 @@ struct ContentView: View {
     @ObservedObject private var access = AccessStore.shared
     /// The App Review demo: a strip on every screen while it runs.
     @ObservedObject private var reviewDemo = ReviewDemo.shared
+    @AppStorage("appearance") private var appearance = "system"
+    @ObservedObject private var offline = OfflineSnapshotStatus.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
@@ -367,7 +369,14 @@ struct ContentView: View {
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
         // comes back when you scroll up — the content gets the screen.
         .srTabBarMinimizes()
-        .preferredColorScheme(.light)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let message = offline.message {
+                Text(message).font(SR.Text.secondary()).foregroundStyle(SR.inkMuted)
+                    .frame(maxWidth: .infinity).padding(8).background(SR.surface)
+                    .accessibilityIdentifier("offline-snapshot-status")
+            }
+        }
+        .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
         .environmentObject(router)
         .environmentObject(alerts)
         .environmentObject(connections)
@@ -400,7 +409,8 @@ struct ContentView: View {
         }
         // This phone's own health link, re-judged whenever what it is judged
         // on moves. Everyone's, owner or member — see `PersonalHealthCheck`.
-        .onChange(of: companion.lastUpload) { _, _ in checkPersonal() }
+        .onChange(of: router.tab) { _, _ in syncGamesPoll() }
+        .onChange(of: companion.lastHealthUpload) { _, _ in checkPersonal() }
         .onChange(of: companion.healthReviewNeeded) { _, _ in checkPersonal() }
         .onChange(of: companion.paired) { _, _ in checkPersonal() }
         .onChange(of: scenePhase) { _, phase in
@@ -519,14 +529,14 @@ struct ContentView: View {
             paired: companion.paired,
             healthEnabled: !outbox.state.healthEnabled.isEmpty,
             reviewNeeded: companion.healthReviewNeeded,
-            lastUpload: companion.lastUpload
+            lastUpload: companion.lastHealthUpload
         ))
     }
 
     /// Run the Games invite poll exactly while it can be useful: the scene is
     /// active, this person may play, and the site credential exists.
     private func syncGamesPoll() {
-        games.setPolling(scenePhase == .active && access.allows(.games) && site.paired)
+        games.setPolling(scenePhase == .active && access.allows(.games) && site.paired, visible: router.tab == .games)
     }
 
     /// Keep the family widgets' credential in step with this person: there

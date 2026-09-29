@@ -212,7 +212,7 @@ struct ActivityLogScreen: View {
             }
 
             SRButton(title: cleared ? "Log cleared" : "Clear the log", disabled: events.isEmpty) {
-                try? outbox.change { $0.gateEvents = [] }
+                Task { try? await outbox.change { $0.gateEvents = [] } }
                 cleared = true
             }
             Text("Clearing resets the duty cycle above with it — the figures are derived from these lines, not stored separately.")

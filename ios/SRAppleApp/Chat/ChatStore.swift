@@ -196,6 +196,56 @@ final class ChatStore: ObservableObject {
     /// reads it writes it.
     @Published private(set) var streamTick = 0
 
+    struct PendingTurn: Codable, Equatable {
+        var requestId = UUID().uuidString
+        let text: String
+        let attachments: [String]
+        var jobId: String?
+    }
+    @Published private(set) var failedSend: PendingTurn?
+    private var activeTurn: PendingTurn?
+    private var draftTask: Task<Void, Never>?
+    private var draftRevision = 0
+    private var tokenBuffer = ""
+    private var tokenFlush: Task<Void, Never>?
+    private var savedScope: String? { client.storageScope }
+
+    func restoreDraft() async -> String {
+        guard let scope = savedScope else { return "" }
+        let pending = await LocalJournal.shared.read(PendingTurn.self, scope: scope, key: "turn.\(conversationId)")
+        let draft = await LocalJournal.shared.read(String.self, scope: scope, key: "draft.\(conversationId)") ?? ""
+        guard scope == savedScope else { return "" }
+        failedSend = pending
+        return draft
+    }
+    func saveDraft(_ text: String, immediately: Bool = false) {
+        guard let scope = savedScope else { return }
+        draftTask?.cancel(); draftRevision += 1
+        let revision = draftRevision
+        draftTask = Task { [weak self] in
+            if !immediately { try? await Task.sleep(for: .milliseconds(300)) }
+            guard let self, !Task.isCancelled, revision == self.draftRevision, scope == self.savedScope else { return }
+            do { try await LocalJournal.shared.save(text, scope: scope, key: "draft.\(self.conversationId)") }
+            catch { self.message = "Draft could not be saved: \(error.localizedDescription)" }
+        }
+    }
+    func retrySend() async {
+        guard let turn = failedSend, !sending else { return }
+        if let job = turn.jobId {
+            activeTurn = turn; failedSend = nil; jobId = job; sending = true
+            let assistant = ChatMessage.pending(id: "local-assistant-\(turn.requestId)", role: "assistant", content: "")
+            messages.removeAll { $0.id == assistant.id }
+            messages.append(assistant); liveBubbleId = assistant.id
+            listen(to: job)
+        } else { _ = await send(turn.text, resuming: turn) }
+    }
+    func discardFailed() async -> String {
+        guard let turn = failedSend, let scope = savedScope else { return "" }
+        await LocalJournal.shared.remove(scope: scope, key: "turn.\(conversationId)")
+        failedSend = nil
+        return turn.text
+    }
+
     let conversationId: String
     private let client = SiteClient.shared
     private var cursor: MessagePage.Cursor?
@@ -261,6 +311,7 @@ final class ChatStore: ObservableObject {
     var uploading: Bool { pending.contains { $0.state == .uploading } }
 
     func attach(_ data: Data, filename: String, mimeType: String, preview: UIImage? = nil) {
+        guard data.count <= ChatUpload.maxBytes else { message = "Choose a file smaller than 20 MB."; return }
         guard canAttachMore else {
             message = "Ten files is the most one message can carry."
             return
@@ -271,14 +322,13 @@ final class ChatStore: ObservableObject {
     }
 
     func attachPhoto(_ image: UIImage) {
-        guard let photo = ChatUpload.photo(image) else {
-            message = "That photo could not be read."
-            return
+        guard canAttachMore else { return }
+        Task {
+            let photo = await Task.detached(priority: .userInitiated) { ChatUpload.photo(image) }.value
+            guard let photo else { message = "That photo could not be read."; return }
+            let stamp = Self.photoStamp.string(from: Date())
+            attach(photo.data, filename: "Photo \(stamp).jpg", mimeType: "image/jpeg", preview: photo.preview)
         }
-        // Named by when it was taken: every photo from the library is otherwise
-        // "image.jpg", and they all land in the same /drive folder.
-        let stamp = Self.photoStamp.string(from: Date())
-        attach(photo.data, filename: "Photo \(stamp).jpg", mimeType: "image/jpeg", preview: photo.preview)
     }
 
     private static let photoStamp: DateFormatter = {
@@ -322,11 +372,12 @@ final class ChatStore: ObservableObject {
         let message: String
         let conversationId: String
         let attachmentIds: [String]?
+        let requestId: String
     }
 
-    func send(_ text: String, extra: [ChatAttachment] = []) async {
+    @discardableResult func send(_ text: String, extra: [ChatAttachment] = [], resuming: PendingTurn? = nil) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !sending, !uploading else { return }
+        guard !trimmed.isEmpty, !sending, !uploading, failedSend == nil || resuming != nil else { return false }
         sending = true
         blocked = nil
         plan = nil
@@ -336,11 +387,19 @@ final class ChatStore: ObservableObject {
         // Only what actually arrived. A failed chip stays behind in the strip
         // with its warning, rather than silently vanishing with the send.
         let attached = pending.compactMap(\.uploaded) + extra
+        let turn = resuming ?? PendingTurn(text: trimmed, attachments: attached.map(\.id))
+        if let scope = savedScope {
+            do { try await LocalJournal.shared.save(turn, scope: scope, key: "turn.\(conversationId)") }
+            catch { sending = false; message = "Message could not be saved. Your draft is still here."; return false }
+            guard scope == savedScope else { sending = false; return false }
+        }
+        activeTurn = turn; failedSend = nil
         pending.removeAll { $0.uploaded != nil }
 
-        var userBubble = ChatMessage.pending(id: "local-user-\(UUID().uuidString)", role: "user", content: trimmed)
+        var userBubble = ChatMessage.pending(id: "local-user-\(turn.requestId)", role: "user", content: trimmed)
         userBubble.attachments = attached
-        let assistantId = "local-assistant-\(UUID().uuidString)"
+        let assistantId = "local-assistant-\(turn.requestId)"
+        messages.removeAll { $0.id == userBubble.id || $0.id == assistantId }
         messages.append(userBubble)
         messages.append(ChatMessage.pending(id: assistantId, role: "assistant", content: ""))
         liveBubbleId = assistantId
@@ -349,12 +408,17 @@ final class ChatStore: ObservableObject {
             let body = try JSONEncoder().encode(TurnBody(
                 message: trimmed,
                 conversationId: conversationId,
-                attachmentIds: attached.isEmpty ? nil : attached.map(\.id)
+                attachmentIds: turn.attachments.isEmpty ? nil : turn.attachments,
+                requestId: turn.requestId
             ))
             let data = try await client.post("api/workflows/orchestrator/chat", body: body)
             let start = try JSONDecoder().decode(JobStart.self, from: data)
             guard let job = start.jobId else {
                 throw SiteError.message(start.error ?? "The server did not start that turn.")
+            }
+            activeTurn?.jobId = job
+            if let scope = savedScope, let activeTurn {
+                try await LocalJournal.shared.save(activeTurn, scope: scope, key: "turn.\(conversationId)")
             }
             jobId = job
             lastEventId = nil
@@ -362,6 +426,7 @@ final class ChatStore: ObservableObject {
         } catch {
             finish(with: error.localizedDescription)
         }
+        return true
     }
 
     private func listen(to job: String) {
@@ -377,7 +442,7 @@ final class ChatStore: ObservableObject {
                 // The stream closed without a terminal frame. The turn may still
                 // be running server-side, so this is not an error — but the app
                 // must stop showing a spinner for it.
-                if self.sending { self.finish(with: nil) }
+                if self.sending { self.finish(with: "Connection interrupted. Reconnect to this turn to continue.") }
             } catch is CancellationError {
                 return
             } catch {
@@ -479,12 +544,24 @@ final class ChatStore: ObservableObject {
     }
 
     private func appendToLiveBubble(_ delta: String) {
-        guard let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[index].content += delta
+        tokenBuffer += delta
+        guard tokenFlush == nil else { return }
+        tokenFlush = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(75))
+            guard !Task.isCancelled else { return }
+            self?.flushTokens()
+        }
+    }
+    private func flushTokens() {
+        tokenFlush?.cancel(); tokenFlush = nil
+        let text = tokenBuffer; tokenBuffer = ""
+        guard !text.isEmpty, let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[index].content += text
         streamTick &+= 1
     }
 
     private func setLiveBubble(_ content: String) {
+        tokenBuffer = ""; tokenFlush?.cancel(); tokenFlush = nil
         guard let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].content = content
         streamTick &+= 1
@@ -498,6 +575,7 @@ final class ChatStore: ObservableObject {
     /// It also plays the success haptic. Here the placeholder is removed and
     /// the card takes its place.
     private func park() {
+        flushTokens()
         sending = false
         if let id = liveBubbleId { messages.removeAll { $0.id == id && $0.content.isEmpty } }
         liveBubbleId = nil
@@ -506,6 +584,12 @@ final class ChatStore: ObservableObject {
     }
 
     private func finish(with error: String?) {
+        flushTokens()
+        if error != nil { failedSend = activeTurn }
+        else if let scope = savedScope {
+            Task { await LocalJournal.shared.remove(scope: scope, key: "turn.\(conversationId)") }
+            activeTurn = nil
+        }
         sending = false
         jobId = nil
         // The steps taken stay attached to the finished bubble; the thinking and

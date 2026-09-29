@@ -312,6 +312,7 @@ struct FamilyTask: Codable, Hashable, Identifiable {
     var confirmedAt: String?
     var reward: FamilyReward?
     var createdAt: String
+    var updatedAt: String? = nil
 
     init(id: String, title: String, notes: String? = nil, deadline: String? = nil, assignee: String? = nil,
          createdBy: String, status: String = "open", doneBy: String? = nil, doneAt: String? = nil,
@@ -326,7 +327,7 @@ struct FamilyTask: Codable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, notes, deadline, assignee, createdBy, status, doneBy, doneAt
-        case sentBackNote, confirmedBy, confirmedAt, reward, createdAt
+        case sentBackNote, confirmedBy, confirmedAt, reward, createdAt, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -346,6 +347,7 @@ struct FamilyTask: Codable, Hashable, Identifiable {
         confirmedAt = text(.confirmedAt)
         reward = (try? c.decodeIfPresent(FamilyReward.self, forKey: .reward)) ?? nil
         createdAt = text(.createdAt) ?? ""
+        updatedAt = text(.updatedAt)
     }
 
     var isOpen: Bool { status == "open" }
@@ -442,9 +444,10 @@ enum FamilyTaskAction: String, CaseIterable, Hashable {
     }
 }
 
-struct FamilyTaskActionBody: Encodable, Equatable {
+struct FamilyTaskActionBody: Codable, Equatable {
     let action: String
     var note: String? = nil
+    var expectedUpdatedAt: String? = nil
 }
 
 struct FamilyTaskRewardBody: Encodable, Equatable {

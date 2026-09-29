@@ -41,6 +41,8 @@ import UIKit
     private var reference: CLLocation?
     private var heartbeat: Timer?
     var onUpdate: (() -> Void)?
+    var onLiveFix: ((LocationRecord) -> Void)?
+    private var lastLiveFix: Date?
     @Published var status = "Location sharing is off"
     /// Published so the settings and history screens can say which state the app
     /// is actually in rather than which one it was configured for.
@@ -70,6 +72,12 @@ import UIKit
     private var armedAt: Date?
     private var assessing = false
     private var awaitingAnchor: String?
+    private var eventTask: Task<Void, Never>?
+    private func enqueueEvent(_ operation: @escaping @MainActor () async -> Void) {
+        let previous = eventTask
+        eventTask = Task { await previous?.value; await operation() }
+    }
+
     private var anchorTimeoutTask: Task<Void, Never>?
     /// Whether anything is actually running, so `stop()` only writes a line to
     /// the log when there was something to stop.
@@ -77,6 +85,8 @@ import UIKit
     /// Close-tracking fixes held in memory and committed as one batch every
     /// `Outing.commitEvery` — see `commitOuting()`.
     private var outingBuffer: [LocationRecord] = []
+    private var currentOuting: OutingState?
+    private var committingOuting = false
     private var lastOutingCommit = Date()
     private var outingTimer: Timer?
     /// The last "still here" check-in, and the one waiting on iOS's answer.
@@ -95,7 +105,7 @@ import UIKit
         super.init()
         manager.delegate = self
         manager.showsBackgroundLocationIndicator = true
-        applySettings()
+        Task { await applySettings() }
     }
 
     /// Push the current settings at Core Location and the policy.
@@ -104,7 +114,7 @@ import UIKit
     /// `desiredAccuracy` and `distanceFilter` are the two the radio actually
     /// responds to, and they differ by whether the phone is moving — standing
     /// still is the case that does not need a GPS fix and was paying for one.
-    func applySettings() {
+    func applySettings() async {
         let s = settings
         policy.settings = s
         // Close tracking owns the radio until it ends; the settings screen
@@ -114,13 +124,13 @@ import UIKit
         // switch appears to do nothing until something happens to move the phone.
         if !s.motion.enabled, gate == .armed {
             if outbox.state.sharing {
-                resumeTracking(reason: "Motion gating turned off", kind: .resumed)
+                await resumeTracking(reason: "Motion gating turned off", kind: .resumed)
                 return
             }
             // Not sharing, so there is nothing to resume — just clear the state
             // that would otherwise have the app come back asleep.
             gate = .tracking
-            try? outbox.change { $0.gateState = .tracking; $0.anchor = nil }
+            try? await outbox.change { $0.gateState = .tracking; $0.anchor = nil }
         }
         manager.activityType = s.activity.coreLocationValue
         manager.pausesLocationUpdatesAutomatically = s.pausesAutomatically
@@ -164,8 +174,8 @@ import UIKit
     /// is read when a settings row draws, which is the only place it is wanted.
     var motionRefusal: String? { motion.refusalReason }
 
-    func start() {
-        guard outbox.state.sharing else { stop(); return }
+    func start() async {
+        guard outbox.state.sharing else { await stop(); return }
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
             manager.allowsBackgroundLocationUpdates = true
@@ -174,29 +184,31 @@ import UIKit
             // killing the app must not quietly end close tracking.
             if let outing = outbox.state.outing {
                 if outbox.state.closeTracking, Date().timeIntervalSince(outing.startedAt) < Outing.maxDuration {
-                    beginOutingRadio(label: outing.placeLabel)
+                    await beginOutingRadio(label: outing.placeLabel)
                     return
                 }
-                try? outbox.change { $0.outing = nil }
+                currentOuting = nil
+        try? await outbox.change { $0.outing = nil }
             }
             // Come back asleep if that is how we went away. Without this every
             // launch — including the background relaunch a geofence exit itself
             // causes — would start continuous GPS again, which is the entire
             // cost the gate exists to avoid.
             if settings.motion.enabled, outbox.state.gateState == .armed, let anchor = outbox.state.anchor {
-                rearm(anchor: anchor, reason: "Relaunched asleep", kind: .armed, verify: true)
+                await rearm(anchor: anchor, reason: "Relaunched asleep", kind: .armed, verify: true)
             } else {
-                resumeTracking(reason: "Sharing on", kind: .started)
+                await resumeTracking(reason: "Sharing on", kind: .started)
             }
         case .notDetermined: status = "Location permission needed"
         default: status = "Location permission is off in Settings"
         }
     }
 
-    func stop() {
-        commitOuting()
+    func stop() async {
+        await commitOuting()
         outingTimer?.invalidate(); outingTimer = nil
-        try? outbox.change { $0.outing = nil }
+        currentOuting = nil
+        try? await outbox.change { $0.outing = nil }
         unregisterWatched()
         heartbeat?.invalidate(); heartbeat = nil
         anchorTimeoutTask?.cancel(); anchorTimeoutTask = nil
@@ -209,8 +221,8 @@ import UIKit
         stillSince = nil
         armedAt = nil
         gate = .tracking
-        try? outbox.change { $0.gateState = .tracking; $0.anchor = nil }
-        if running { note(.stopped, reason: "Sharing off") }
+        try? await outbox.change { $0.gateState = .tracking; $0.anchor = nil }
+        if running { await note(.stopped, reason: "Sharing off") }
         running = false
         status = "Location sharing is off"
     }
@@ -222,24 +234,24 @@ import UIKit
     /// Every guard below is a way the app could go silent. They log instead of
     /// sleeping, because "still recording, expensively" beats "not recording,
     /// and nobody can tell".
-    private func arm(at location: CLLocation) {
+    private func arm(at location: CLLocation) async {
         let s = settings.motion
         guard s.enabled, gate == .tracking else { return }
 
         guard manager.authorizationStatus == .authorizedAlways else {
-            block("GPS cannot sleep without Always access — nothing could wake it")
+            await block("GPS cannot sleep without Always access — nothing could wake it")
             return
         }
         guard CLLocationManager.significantLocationChangeMonitoringAvailable() else {
-            block("Significant-change monitoring unavailable on this iPhone")
+            await block("Significant-change monitoring unavailable on this iPhone")
             return
         }
         guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
-            block("Geofencing unavailable on this iPhone")
+            await block("Geofencing unavailable on this iPhone")
             return
         }
         guard motion.usable else {
-            block(motion.refusalReason ?? "Motion history unreadable")
+            await block(motion.refusalReason ?? "Motion history unreadable")
             return
         }
 
@@ -248,7 +260,7 @@ import UIKit
                                 radius: anchorRadius(for: location),
                                 at: Date(),
                                 accuracy: max(0, location.horizontalAccuracy))
-        rearm(anchor: anchor, reason: "Still for \(short(s.sleepAfter))", kind: .armed)
+        await rearm(anchor: anchor, reason: "Still for \(short(s.sleepAfter))", kind: .armed)
     }
 
     /// Radius derived from the fix, not from a constant.
@@ -268,7 +280,7 @@ import UIKit
         return min(s.maxAnchorRadius, radius)
     }
 
-    private func rearm(anchor: GateAnchor, reason: String, kind: GateEvent.Kind, verify: Bool = false) {
+    private func rearm(anchor: GateAnchor, reason: String, kind: GateEvent.Kind, verify: Bool = false) async {
         stopWakeRoutes()
         let region = CLCircularRegion(
             center: CLLocationCoordinate2D(latitude: anchor.latitude, longitude: anchor.longitude),
@@ -291,8 +303,8 @@ import UIKit
         armedAt = Date()
         stillSince = nil
         running = true
-        try? outbox.change { $0.gateState = .armed; $0.anchor = anchor }
-        note(kind, reason: reason, detail: "Anchor \(Int(anchor.radius))m")
+        try? await outbox.change { $0.gateState = .armed; $0.anchor = anchor }
+        await note(kind, reason: reason, detail: "Anchor \(Int(anchor.radius))m")
         status = "Asleep · GPS off within \(Int(anchor.radius))m"
     }
 
@@ -340,7 +352,7 @@ import UIKit
             verticalAccuracy: -1,
             timestamp: Date())
         // Not `onUpdate`: the flush that asked is about to upload it.
-        record(here, moving: false, notify: false)
+        await record(here, moving: false, notify: false)
     }
 
     private func answerStillHere(_ inside: Bool) {
@@ -349,7 +361,7 @@ import UIKit
     }
 
     /// Wanted to sleep, could not. Keeps GPS running and says why.
-    private func block(_ reason: String) {
+    private func block(_ reason: String) async {
         // Once per hour at most: this is evaluated on every fix while stationary
         // and the log is for reading, not for filling.
         let hourAgo = Date().addingTimeInterval(-3600)
@@ -358,7 +370,7 @@ import UIKit
         }
         stillSince = nil
         guard !alreadySaid else { return }
-        note(.blocked, reason: reason)
+        await note(.blocked, reason: reason)
     }
 
     private func stopWakeRoutes() {
@@ -375,11 +387,11 @@ import UIKit
 
     // MARK: - Steps 2, 3 and 4: waking, reading the history, deciding
 
-    private func wake(reason: String, settles: Bool = false) {
+    private func wake(reason: String, settles: Bool = false) async {
         guard gate == .armed, !assessing else { return }
         if settles, let armedAt, Date().timeIntervalSince(armedAt) < Self.settle { return }
         assessing = true
-        note(.woke, reason: reason, state: .armed)
+        await note(.woke, reason: reason, state: .armed)
         status = "Woken · checking what moved"
 
         var taskID: UIBackgroundTaskIdentifier = .invalid
@@ -395,7 +407,7 @@ import UIKit
             guard let self else { return }
             let verdict = await self.assess()
             self.assessing = false
-            self.act(on: verdict)
+            await self.act(on: verdict)
         }
     }
 
@@ -413,10 +425,10 @@ import UIKit
     }
 
     /// Step 4.
-    private func act(on verdict: MotionVerdict) {
+    private func act(on verdict: MotionVerdict) async {
         guard gate == .armed else { return }
         if verdict.wakesGPS {
-            resumeTracking(reason: verdict.reason, kind: .resumed)
+            await resumeTracking(reason: verdict.reason, kind: .resumed)
             return
         }
         // A blip. One coarse fix: it re-anchors us — re-arming the anchor we
@@ -437,16 +449,16 @@ import UIKit
             if var anchor = self.outbox.state.anchor {
                 anchor.radius = min(self.settings.motion.maxAnchorRadius, anchor.radius * 2)
                 anchor.at = Date()
-                self.rearm(anchor: anchor, reason: reason, kind: .slept)
+                await self.rearm(anchor: anchor, reason: reason, kind: .slept)
             } else {
-                self.resumeTracking(reason: "No fix to re-anchor on", kind: .resumed)
+                await self.resumeTracking(reason: "No fix to re-anchor on", kind: .resumed)
             }
         }
     }
 
     // MARK: - Step 5: tracking
 
-    private func resumeTracking(reason: String, kind: GateEvent.Kind) {
+    private func resumeTracking(reason: String, kind: GateEvent.Kind) async {
         anchorTimeoutTask?.cancel(); anchorTimeoutTask = nil
         awaitingAnchor = nil
         stopWakeRoutes()
@@ -454,15 +466,15 @@ import UIKit
         armedAt = nil
         stillSince = nil
         running = true
-        try? outbox.change { $0.gateState = .tracking; $0.anchor = nil }
-        applySettings()
+        try? await outbox.change { $0.gateState = .tracking; $0.anchor = nil }
+        await applySettings()
         manager.startUpdatingLocation()
         if settings.significantChangeMonitoring, CLLocationManager.significantLocationChangeMonitoringAvailable() {
             manager.startMonitoringSignificantLocationChanges()
         } else {
             manager.stopMonitoringSignificantLocationChanges()
         }
-        note(kind, reason: reason)
+        await note(kind, reason: reason)
         status = manager.authorizationStatus == .authorizedAlways
             ? "Sharing · background access enabled"
             : "Sharing · enable Always for background recovery"
@@ -473,21 +485,21 @@ import UIKit
     /// The site's watched places. Re-registered only when they changed:
     /// every sync hands the list over, and churning twenty geofences on each
     /// one would throw away iOS's own state about which side we are on.
-    func setWatchedPlaces(_ places: [WatchedPlace]) {
+    func setWatchedPlaces(_ places: [WatchedPlace]) async {
         guard places != outbox.state.watchedPlaces else { return }
-        try? outbox.change { $0.watchedPlaces = places }
+        try? await outbox.change { $0.watchedPlaces = places }
         unregisterWatched()
         registerWatched()
     }
 
     /// The settings switch. Off ends any stretch in progress at once.
-    func setCloseTracking(_ on: Bool) {
-        try? outbox.change { $0.closeTracking = on }
+    func setCloseTracking(_ on: Bool) async {
+        try? await outbox.change { $0.closeTracking = on }
         if on {
             registerWatched()
         } else {
             unregisterWatched()
-            if outbox.state.outing != nil { endOuting(reason: "Switched off") }
+            if outbox.state.outing != nil { await endOuting(reason: "Switched off") }
         }
     }
 
@@ -509,20 +521,20 @@ import UIKit
         }
     }
 
-    private func startOuting(leaving place: WatchedPlace) {
+    private func startOuting(leaving place: WatchedPlace) async {
         guard outbox.state.sharing, outbox.state.closeTracking, outbox.state.outing == nil else { return }
         let now = Date()
-        try? outbox.change {
+        try? await outbox.change {
             $0.outing = OutingState(placeID: place.id, placeLabel: place.label, startedAt: now, lastMovedAt: now)
         }
-        note(.closeOn, reason: "Left \(place.label)")
-        beginOutingRadio(label: place.label)
+        await note(.closeOn, reason: "Left \(place.label)")
+        await beginOutingRadio(label: place.label)
     }
 
     /// Every fix the GPS has, whatever the phone is doing, with nothing
     /// allowed to pause it. The motion gate's anchor is dropped: close
     /// tracking ends by its own rule and hands back to the gate after.
-    private func beginOutingRadio(label: String) {
+    private func beginOutingRadio(label: String) async {
         anchorTimeoutTask?.cancel(); anchorTimeoutTask = nil
         awaitingAnchor = nil
         stopWakeRoutes()
@@ -531,7 +543,7 @@ import UIKit
         armedAt = nil
         stillSince = nil
         running = true
-        try? outbox.change { $0.gateState = .tracking; $0.anchor = nil }
+        try? await outbox.change { $0.gateState = .tracking; $0.anchor = nil }
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .otherNavigation
@@ -548,13 +560,13 @@ import UIKit
         // The fixes do the work while they arrive; this covers the case where
         // they stop (a tunnel, a lift) — stillness must still end the stretch.
         outingTimer = Timer.scheduledTimer(withTimeInterval: Outing.commitEvery, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.outingTick() }
+            Task { @MainActor in await self?.outingTick() }
         }
         status = "Close tracking · left \(label)"
     }
 
-    private func handleOutingFixes(_ locations: [CLLocation]) {
-        guard var state = outbox.state.outing else { return }
+    private func handleOutingFixes(_ locations: [CLLocation]) async {
+        guard var state = currentOuting ?? outbox.state.outing else { return }
         for location in locations {
             guard abs(location.timestamp.timeIntervalSinceNow) < 120,
                   location.horizontalAccuracy >= 0,
@@ -568,67 +580,76 @@ import UIKit
                                                speed: max(0, location.speed),
                                                moving: location.speed >= settings.movingSpeed || state.lastMovedAt != before,
                                                battery: Self.batteryPercent()))
+            if let fix = outingBuffer.last { publishLive(fix) }
             reference = location
         }
         // Not written through on every fix: the state file is the whole
         // upload queue, and rewriting it once a second is the cost this
         // batching exists to avoid. The commit below persists it.
-        try? outbox.change(persist: false) { $0.outing = state }
-        outingTick()
+        currentOuting = state
+        await outingTick()
     }
 
     /// Commit what has built up, and end the stretch if it is time.
-    private func outingTick() {
-        guard let state = outbox.state.outing else { return }
-        if Date().timeIntervalSince(lastOutingCommit) >= Outing.commitEvery { commitOuting() }
+    private func outingTick() async {
+        guard let state = currentOuting ?? outbox.state.outing else { return }
+        if Date().timeIntervalSince(lastOutingCommit) >= Outing.commitEvery { await commitOuting() }
         let device = UIDevice.current
         let level = device.batteryLevel
         let charging = device.batteryState == .charging || device.batteryState == .full
         if let end = Outing.shouldEnd(state, now: Date(), battery: level >= 0 ? Double(level) : nil, charging: charging) {
-            endOuting(reason: end.reason)
+            await endOuting(reason: end.reason)
         } else {
             status = "Close tracking · left \(state.placeLabel)"
         }
     }
 
     /// One batch, one write, one upload — for every point since the last.
-    private func commitOuting() {
-        lastOutingCommit = Date()
-        guard !outingBuffer.isEmpty else { return }
+    private func commitOuting() async {
+        guard !committingOuting, !outingBuffer.isEmpty else { return }
+        guard outbox.state.sharing else { outingBuffer.removeAll(); currentOuting = nil; return }
+        committingOuting = true
+        defer { committingOuting = false }
         let points = outingBuffer
-        outingBuffer = []
+        let checkpoint = currentOuting
         do {
-            try outbox.change {
+            try await outbox.change {
+                guard $0.sharing else { return }
+                $0.outing = checkpoint ?? $0.outing
                 $0.batches.append(UploadBatch(locations: points))
                 $0.pointsRecorded += points.count
                 $0.accuracySum += points.reduce(0) { $0 + $1.accuracy }
                 if $0.countingSince == nil { $0.countingSince = Date() }
             }
+            let ids = Set(points.map(\.id))
+            outingBuffer.removeAll { ids.contains($0.id) }
+            lastOutingCommit = Date()
             onUpdate?()
         } catch { status = "Could not save location. Open the app and retry." }
     }
 
-    private func endOuting(reason: String) {
-        commitOuting()
+    private func endOuting(reason: String) async {
+        await commitOuting()
         outingTimer?.invalidate(); outingTimer = nil
-        try? outbox.change { $0.outing = nil }
-        note(.closeOff, reason: reason)
+        currentOuting = nil
+        try? await outbox.change { $0.outing = nil }
+        await note(.closeOff, reason: reason)
         // Back to the preset. When the gate is on and the stretch ended because
         // the phone is still, it may go straight to sleep where it is.
         manager.stopUpdatingLocation()
-        resumeTracking(reason: "After close tracking", kind: .resumed)
+        await resumeTracking(reason: "After close tracking", kind: .resumed)
         if settings.motion.enabled, reason.hasPrefix("Still"), let here = reference {
-            arm(at: here)
+            await arm(at: here)
         }
     }
 
     // MARK: - The log
 
-    private func note(_ kind: GateEvent.Kind, reason: String, detail: String? = nil, state: GateState? = nil) {
+    private func note(_ kind: GateEvent.Kind, reason: String, detail: String? = nil, state: GateState? = nil) async {
         let event = GateEvent(at: Date(), kind: kind, reason: reason, detail: detail,
                               battery: outbox.state.battery.last?.level,
                               stateAfter: state ?? gate)
-        try? outbox.change {
+        try? await outbox.change {
             // `start()` runs on launch AND again on the authorisation callback,
             // so without this every launch writes the same line twice.
             if let last = $0.gateEvents.last, last.kind == kind, last.reason == reason,
@@ -646,34 +667,38 @@ import UIKit
 
     // MARK: - Core Location
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) { start() }
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        enqueueEvent { [self] in await start()
+        }
+    }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        enqueueEvent { [self] in
         guard outbox.state.sharing else { return }
 
         // The one coarse fix requested to re-anchor after a blip.
         if let reason = awaitingAnchor, let location = locations.last {
             awaitingAnchor = nil
             anchorTimeoutTask?.cancel(); anchorTimeoutTask = nil
-            if settings.motion.coarseOnBlip { record(location, moving: false) }
+            if settings.motion.coarseOnBlip { await record(location, moving: false) }
             let anchor = GateAnchor(latitude: location.coordinate.latitude,
                                     longitude: location.coordinate.longitude,
                                     radius: anchorRadius(for: location),
                                     at: Date(),
                                     accuracy: max(0, location.horizontalAccuracy))
-            rearm(anchor: anchor, reason: reason, kind: .slept)
+            await rearm(anchor: anchor, reason: reason, kind: .slept)
             return
         }
 
         if outbox.state.outing != nil {
-            handleOutingFixes(locations)
+            await handleOutingFixes(locations)
             return
         }
 
         // A fix arriving while asleep IS a significant change — Core Location
         // delivers those down this same path.
         if gate == .armed {
-            wake(reason: "Significant change", settles: true)
+            await wake(reason: "Significant change", settles: true)
             return
         }
 
@@ -689,7 +714,10 @@ import UIKit
             manager.desiredAccuracy = (policy.moving ? settings.movingAccuracy : settings.stationaryAccuracy).coreLocationValue
             manager.distanceFilter = policy.moving ? settings.movingDistanceFilter : settings.stationaryDistanceFilter
 
-            if worthKeeping { record(location, moving: policy.moving) }
+            publishLive(LocationRecord(recorded: timestamp(location.timestamp), latitude: location.coordinate.latitude,
+                                       longitude: location.coordinate.longitude, accuracy: location.horizontalAccuracy,
+                                       speed: max(0, location.speed), moving: policy.moving, battery: Self.batteryPercent()))
+            if worthKeeping { await record(location, moving: policy.moving) }
 
             // Step 6 → step 1. Evaluated on every accepted fix rather than only
             // on a recorded one, or a stationary phone recording every ten
@@ -701,12 +729,21 @@ import UIKit
                     if stillSince == nil { stillSince = location.timestamp }
                     if let since = stillSince,
                        location.timestamp.timeIntervalSince(since) >= settings.motion.sleepAfter {
-                        arm(at: location)
+                        await arm(at: location)
                         return
                     }
                 }
             }
         }
+
+        }
+    }
+
+    private func publishLive(_ fix: LocationRecord) {
+        guard outbox.state.sharing, let date = parseTimestamp(fix.recorded), abs(date.timeIntervalSinceNow) < 30,
+              lastLiveFix == nil || date.timeIntervalSince(lastLiveFix!) >= (fix.moving ? 3 : 20) else { return }
+        lastLiveFix = date
+        onLiveFix?(fix)
     }
 
     /// The level the family sees beside this phone's pin. `BatteryMonitor`
@@ -716,7 +753,7 @@ import UIKit
         return min(100, max(0, Int((level * 100).rounded())))
     }
 
-    private func record(_ location: CLLocation, moving: Bool, notify: Bool = true) {
+    private func record(_ location: CLLocation, moving: Bool, notify: Bool = true) async {
         let point = LocationRecord(recorded: timestamp(location.timestamp),
                                    latitude: location.coordinate.latitude,
                                    longitude: location.coordinate.longitude,
@@ -725,7 +762,7 @@ import UIKit
                                    moving: moving,
                                    battery: Self.batteryPercent())
         do {
-            try outbox.change {
+            try await outbox.change {
                 $0.batches.append(UploadBatch(locations: [point]))
                 // What the drain bought. Counted here rather than derived from
                 // the queue, because the queue empties on upload.
@@ -743,48 +780,63 @@ import UIKit
     }
 
     func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+        enqueueEvent { [self] in
         if region.identifier.hasPrefix(Outing.regionPrefix) {
             let id = String(region.identifier.dropFirst(Outing.regionPrefix.count))
-            if let place = outbox.state.watchedPlaces.first(where: { $0.id == id }) { startOuting(leaving: place) }
+            if let place = outbox.state.watchedPlaces.first(where: { $0.id == id }) { await startOuting(leaving: place) }
             return
         }
         guard region.identifier == Self.anchorID else { return }
-        wake(reason: "Left the anchor")
+        await wake(reason: "Left the anchor")
+
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+        enqueueEvent { [self] in
         guard region.identifier.hasPrefix(Outing.regionPrefix), outbox.state.outing != nil else { return }
         let id = String(region.identifier.dropFirst(Outing.regionPrefix.count))
         let label = outbox.state.watchedPlaces.first { $0.id == id }?.label ?? "a watched place"
-        endOuting(reason: "Back at \(label)")
+        await endOuting(reason: "Back at \(label)")
+
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didDetermineState state: CLRegionState, for region: CLRegion) {
+        enqueueEvent { [self] in
         // Asked for after a relaunch, and by a "still here" check-in. Being
         // outside the stored anchor means the exit happened while we were not
         // running to hear it.
         guard region.identifier == Self.anchorID else { return }
         answerStillHere(state == .inside)
         guard state == .outside else { return }
-        wake(reason: "Anchor is already behind us")
+        await wake(reason: "Anchor is already behind us")
+
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
+        enqueueEvent { [self] in
         // An arrival is not interesting — we are asleep because we arrived. A
         // departure is the cheapest signal iOS has that you have gone.
         guard visit.departureDate != Date.distantFuture else { return }
-        wake(reason: "Left a visited place")
+        await wake(reason: "Left a visited place")
+
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, monitoringDidFailFor region: CLRegion?, withError error: Error) {
+        enqueueEvent { [self] in
         if let region, region.identifier.hasPrefix(Outing.regionPrefix) {
-            note(.blocked, reason: "Could not watch a place · \(error.localizedDescription)")
+            await note(.blocked, reason: "Could not watch a place · \(error.localizedDescription)")
             return
         }
         guard gate == .armed else { return }
         // The anchor did not take. Staying asleep now would mean staying asleep
         // for good, so come back up and say why.
-        resumeTracking(reason: "Anchor failed · \(error.localizedDescription)", kind: .resumed)
+        await resumeTracking(reason: "Anchor failed · \(error.localizedDescription)", kind: .resumed)
+
+        }
     }
 
     func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {

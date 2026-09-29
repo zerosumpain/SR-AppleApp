@@ -133,11 +133,11 @@ final class BatteryMonitor: ObservableObject {
         read()
         guard level >= 0 else { return }
         let entry = BatterySample(at: Date(), level: level, charging: charging, sharing: outbox.state.sharing)
-        try? outbox.change {
+        Task { try? await outbox.change {
             $0.battery.append(entry)
             if $0.battery.count > Self.maxSamples {
                 $0.battery.removeFirst($0.battery.count - Self.maxSamples)
             }
-        }
+        } }
     }
 }

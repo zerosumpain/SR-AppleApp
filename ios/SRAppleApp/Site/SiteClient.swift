@@ -132,6 +132,18 @@ final class SiteClient {
 
     private(set) var origin: URL
     private(set) var token: String?
+    private var reads: [String: Task<Data, Error>] = [:]
+    private var cacheGeneration = 0
+    var storageScope: String? {
+        guard let token, !SRDemo.isOn else { return nil }
+        return OfflineSnapshots.digest(origin.absoluteString + "|" + token + "|" + (AccessStore.shared.viewingAs?.email ?? "self"))
+    }
+    private func invalidateSnapshots() {
+        cacheGeneration += 1
+        reads.values.forEach { $0.cancel() }; reads.removeAll()
+        OfflineSnapshotStatus.shared.message = nil
+        Task { await OfflineSnapshots.shared.eraseAll(); await LocalJournal.shared.clear() }
+    }
 
     /// The production origin, and the default. A pairing QR can point the app at
     /// another HTTPS host — that is how a staging box is reached — but it can
@@ -260,13 +272,59 @@ final class SiteClient {
     private struct APIError: Decodable { let error: String; var field: String? = nil }
 
     func send<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, asSelf: Bool = false) async throws -> T {
-        let (data, response) = try await session.data(for: try request(path, method: method, body: body, asSelf: asSelf))
-        try check(response, data)
+        let data: Data
+        if method == "GET", !asSelf {
+            data = try await read(path)
+        } else {
+            let answer = try await session.data(for: try request(path, method: method, body: body, asSelf: asSelf))
+            try check(answer.1, answer.0)
+            data = answer.0
+        }
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
             throw SiteError.message("The server sent something this version of the app cannot read.")
         }
+    }
+
+    private func read(_ path: String) async throws -> Data {
+        let scope = storageScope
+        let key = (scope ?? "demo") + "|" + path
+        if let pending = reads[key] { return try await pending.value }
+        let generation = cacheGeneration
+        let pending = Task { () throws -> Data in
+            let mayCache = scope != nil && OfflineSnapshots.allowed(path)
+            let saved = mayCache ? await OfflineSnapshots.shared.read(scope: scope!, path: path) : nil
+            var request = try self.request(path)
+            if let etag = saved?.etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+            do {
+                let (data, response) = try await self.session.data(for: request)
+                guard generation == self.cacheGeneration, scope == self.storageScope else { throw CancellationError() }
+                if (response as? HTTPURLResponse)?.statusCode == 304, let saved {
+                    OfflineSnapshotStatus.shared.message = nil
+                    return saved.data
+                }
+                try self.check(response, data)
+                if mayCache {
+                    try? await OfflineSnapshots.shared.save(data, scope: scope!, path: path, etag: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "ETag"))
+                    OfflineSnapshotStatus.shared.message = nil
+                }
+                return data
+            } catch {
+                if let refused = error as? SiteError, refused.status == 401 || refused.status == 403 { throw error }
+                guard generation == self.cacheGeneration, scope == self.storageScope else { throw CancellationError() }
+                // Auth refusals and malformed responses never fall back to a
+                // previous grant. Only a connection failure can use a snapshot.
+                if let network = error as? URLError, network.code != .cancelled, let saved {
+                    OfflineSnapshotStatus.shared.message = "Offline · saved \(saved.savedAt.formatted(date: .abbreviated, time: .shortened))"
+                    return saved.data
+                }
+                throw error
+            }
+        }
+        reads[key] = pending
+        defer { if generation == cacheGeneration { reads.removeValue(forKey: key) } }
+        return try await pending.value
     }
 
     @discardableResult
@@ -337,7 +395,8 @@ final class SiteClient {
         // 401 means the credential is gone — revoked from the website, or past
         // its ninety days. It is the app's signal to show pairing again, so it
         // gets its own case rather than folding into a generic failure.
-        if http.statusCode == 401 { throw SiteError.expired }
+        if http.statusCode == 401 { invalidateSnapshots(); throw SiteError.expired }
+        if http.statusCode == 403 { invalidateSnapshots() }
         guard (200..<300).contains(http.statusCode) else {
             // A 404 comes back as the site's HTML error page, not JSON. Decoding
             // it fails and the reader is told nothing useful, so name the status
@@ -384,6 +443,7 @@ final class SiteClient {
             throw SiteError.message(detail?.error ?? "That pairing code did not work.")
         }
         let result = try JSONDecoder().decode(PairResponse.self, from: data)
+        invalidateSnapshots()
         try SiteKeychain.save(result.token)
         token = result.token
         origin = url
@@ -444,6 +504,7 @@ final class SiteClient {
             }
             try SiteKeychain.save(nil)
         } catch { return false }
+        invalidateSnapshots()
         token = nil
         // A revoked credential must not leave thread titles behind in iPhone
         // search. The index is a file other system processes read.
@@ -570,7 +631,8 @@ final class SiteClient {
                 do {
                     let (bytes, response) = try await session.bytes(for: req)
                     if let http = response as? HTTPURLResponse {
-                        if http.statusCode == 401 { throw SiteError.expired }
+                        if http.statusCode == 401 { invalidateSnapshots(); throw SiteError.expired }
+        if http.statusCode == 403 { invalidateSnapshots() }
                         guard (200..<300).contains(http.statusCode) else {
                             throw SiteError.status(http.statusCode, "\(http.statusCode) from \(http.url?.path ?? "the server").")
                         }

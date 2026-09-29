@@ -180,24 +180,24 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.activity, .other)
     }
 
-    @MainActor func testSettingsSurviveARestart() throws {
+    @MainActor func testSettingsSurviveARestart() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("state.json")
 
         let first = try Outbox(url: url)
-        try first.change { $0.location = LocationSettings.Preset.saver.settings }
+        try await first.change { $0.location = LocationSettings.Preset.saver.settings }
         let second = try Outbox(url: url)
         XCTAssertEqual(second.state.location.matchingPreset, .saver)
     }
 
-    @MainActor func testBatterySamplesAreBounded() throws {
+    @MainActor func testBatterySamplesAreBounded() async throws {
         // They ride in the same atomically-written file as the upload queue, so
         // an unbounded ring would eventually make every save expensive.
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
-        try outbox.change {
+        try await outbox.change {
             for i in 0..<(BatteryMonitor.maxSamples + 50) {
                 $0.battery.append(BatterySample(at: Date().addingTimeInterval(Double(i)), level: 0.5, charging: false, sharing: true))
             }

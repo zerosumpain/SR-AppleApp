@@ -404,7 +404,7 @@ final class AccessStore: ObservableObject {
 
     private func store(_ answer: AppAccess) {
         if let outbox, outbox.state.access != answer {
-            try? outbox.change { $0.access = answer }
+            Task { try? await outbox.change { $0.access = answer } }
         }
         known = answer
         recompute()

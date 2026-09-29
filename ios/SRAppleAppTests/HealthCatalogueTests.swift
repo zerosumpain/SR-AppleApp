@@ -112,11 +112,11 @@ final class HealthCatalogueTests: XCTestCase {
                        "a state file from before the catalogue must still migrate")
     }
 
-    @MainActor func testRePairingDoesNotRerunTheMigration() throws {
+    @MainActor func testRePairingDoesNotRerunTheMigration() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
-        try outbox.clear()
+        try await outbox.clear()
         XCTAssertEqual(outbox.state.catalogueVersion, PersistedState.currentCatalogueVersion)
     }
 

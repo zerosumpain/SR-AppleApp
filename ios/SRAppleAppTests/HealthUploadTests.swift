@@ -47,13 +47,13 @@ final class HealthUploadTests: XCTestCase {
         XCTAssertEqual(HealthBatching.queue([], into: queued).count, 3, "nothing to add changes nothing")
     }
 
-    @MainActor func testHourlySentPersistsAndOldStateDecodesWithoutIt() throws {
+    @MainActor func testHourlySentPersistsAndOldStateDecodesWithoutIt() async throws {
         XCTAssertEqual(try JSONDecoder().decode(PersistedState.self, from: Data("{}".utf8)).hourlySent, [:])
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("state.json")
         let outbox = try Outbox(url: url)
-        try outbox.change { $0.hourlySent["step_count"] = ["step_count-2026-09-23T14": 812] }
+        try await outbox.change { $0.hourlySent["step_count"] = ["step_count-2026-09-23T14": 812] }
         XCTAssertEqual(try Outbox(url: url).state.hourlySent["step_count"], ["step_count-2026-09-23T14": 812])
     }
 

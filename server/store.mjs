@@ -55,6 +55,11 @@ export function openStore(path) {
     -- pushed whole every observe cycle (app.mjs POST
     -- /api/apple/household/views). One row per person, replaced, never
     -- appended: this is a view, not a history. The phone reads only its own.
+    CREATE TABLE IF NOT EXISTS live_locations (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      recorded TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS household_views (
       user_id TEXT PRIMARY KEY REFERENCES users(id),
       payload TEXT NOT NULL, updated TEXT NOT NULL);
@@ -92,6 +97,9 @@ export function openStore(path) {
   }
   if (!db.prepare('PRAGMA table_info(credentials)').all().some(c => c.name === 'access_version')) {
     db.exec("ALTER TABLE credentials ADD COLUMN access_version TEXT NOT NULL DEFAULT 'legacy'");
+  }
+  if (!db.prepare('PRAGMA table_info(household_views)').all().some(c => c.name === 'sources')) {
+    db.exec("ALTER TABLE household_views ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'");
   }
   if (!db.prepare('PRAGMA table_info(household_views)').all().some(c => c.name === 'revision')) {
     db.exec("ALTER TABLE household_views ADD COLUMN revision TEXT NOT NULL DEFAULT ''");
@@ -208,6 +216,7 @@ export function deleteUserData(db, user, ownerEmail) {
       SELECT user_id,id,kind,start,? FROM health WHERE user_id=?`).run(new Date().toISOString(), user);
     const job = db.prepare('SELECT id,created FROM deletion_jobs WHERE user_id=? AND (main_done=0 OR health_done=0)').get(user);
     db.prepare('INSERT OR IGNORE INTO deletion_items(job_id,id,kind,start,deleted) SELECT ?,id,kind,start,? FROM health_deleted WHERE user_id=?').run(job.id,job.created,user);
+    db.prepare('DELETE FROM live_locations WHERE user_id=?').run(user);
     const deleted = {
       health: db.prepare('DELETE FROM health WHERE user_id=?').run(user).changes,
       tombstones: 0,
@@ -238,6 +247,7 @@ export function deleteUser(db, user) {
     // The Main account deletion may fail after this account row disappears.
     // Keep a separate acknowledgement so its independent timer can retry.
     db.prepare('UPDATE deletion_jobs SET account_requested=1 WHERE user_id=? AND main_done=0').run(user);
+    db.prepare('DELETE FROM live_locations WHERE user_id=?').run(user);
     const deleted = {
       health: db.prepare('DELETE FROM health WHERE user_id=?').run(user).changes,
       tombstones: db.prepare('DELETE FROM health_deleted WHERE user_id=?').run(user).changes,

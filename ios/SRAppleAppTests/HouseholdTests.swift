@@ -49,15 +49,15 @@ final class HouseholdTests: XCTestCase {
         XCTAssertEqual(state.healthEnabled, ["activity"], "the upload settings survive")
     }
 
-    @MainActor func testRePairingAsksAgainAndStartsWithSharingAndHealthOff() throws {
+    @MainActor func testRePairingAsksAgainAndStartsWithSharingAndHealthOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("state.json")
         let outbox = try Outbox(url: url)
-        try outbox.change { $0.sharingAsked = true; $0.sharing = true; $0.healthEnabled = ["activity", "heart"] }
+        try await outbox.change { $0.sharingAsked = true; $0.sharing = true; $0.healthEnabled = ["activity", "heart"] }
         XCTAssertTrue(try Outbox(url: url).state.sharingAsked, "the answer is persisted")
 
-        try outbox.clear()
+        try await outbox.clear()
         XCTAssertFalse(outbox.state.sharingAsked, "a new pairing may be a different person")
         XCTAssertFalse(outbox.state.sharing, "sharing is off until they say yes")
         // D4: every Health group is off for a fresh pairing, owner or member.
@@ -74,7 +74,7 @@ final class HouseholdTests: XCTestCase {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: directory) }
             let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
-            try outbox.change { $0.sharing = sharing }
+            try await outbox.change { $0.sharing = sharing }
             let companion = Companion(outbox: outbox)
 
             await companion.answerSharingQuestion(false)

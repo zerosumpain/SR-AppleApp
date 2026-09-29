@@ -25,12 +25,12 @@ final class CompanionTests: XCTestCase {
         XCTAssertThrowsError(try API.validateURL("https://example.com/wrong-path"))
         XCTAssertEqual(try API.validateURL("https://example.com").host, "example.com")
     }
-    @MainActor func testOutboxSurvivesRestartWithAnchor() throws {
+    @MainActor func testOutboxSurvivesRestartWithAnchor() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("state.json")
         let first = try Outbox(url: url)
-        try first.change {
+        try await first.change {
             $0.batches.append(UploadBatch(deleted: ["removed-sample"]))
             $0.anchors["sleep"] = Data([1, 2, 3])
         }
@@ -57,32 +57,37 @@ final class CompanionTests: XCTestCase {
         XCTAssertFalse(isTransientUploadFailure(URLError(.badServerResponse)), "a real server response is not a network blip")
         XCTAssertFalse(isTransientUploadFailure(CompanionError.message("refused")), "a non-network error never reads as transient")
     }
-    @MainActor func testDeferredOutboxChangeDoesNotWriteUntilPersisted() throws {
+    @MainActor func testEveryOutboxChangeIsDurableAndKeepsBatchIdentity() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("state.json")
-        let outbox = try Outbox(url: url)
-
-        try outbox.persistIfDirty()
-        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "no-op on a clean outbox: nothing to write")
-
-        try outbox.change(persist: false) { $0.batches.append(UploadBatch(deleted: ["accepted"])) }
-        XCTAssertEqual(outbox.state.batches.first?.deleted, ["accepted"], "state updates immediately regardless")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "a deferred change must not touch disk")
-
-        try outbox.persistIfDirty()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
-        XCTAssertEqual(try Outbox(url: url).state.batches.map(\.deleted), [["accepted"]])
-
-        // An immediate change after a deferred one writes both: the deferred
-        // removal already sits in `state`, and an immediate `change` always
-        // encodes the whole current state.
-        try outbox.change(persist: false) { $0.batches.append(UploadBatch(deleted: ["also-deferred"])) }
-        try outbox.change { $0.anchors["sleep"] = Data([9]) }
-        let reloaded = try Outbox(url: url)
-        XCTAssertEqual(reloaded.state.batches.map(\.deleted), [["accepted"], ["also-deferred"]])
-        XCTAssertEqual(reloaded.state.anchors["sleep"], Data([9]))
+        let outbox = try await Outbox.open(url: url)
+        let batch = UploadBatch(deleted: ["accepted"])
+        try await outbox.change(persist: false) { $0.batches.append(batch); $0.anchors["sleep"] = Data([9]) }
+        let reopened = try await Outbox.open(url: url)
+        XCTAssertEqual(reopened.state.batches.first?.id, batch.id)
+        XCTAssertEqual(reopened.state.batches.first?.deleted, ["accepted"])
+        XCTAssertEqual(reopened.state.anchors["sleep"], Data([9]))
+        try await outbox.change { $0.batches.removeAll() }
+        XCTAssertTrue(try Outbox(url: url).state.batches.isEmpty)
     }
+
+    @MainActor func testConcurrentOutboxMutationsDoNotLoseEarlierWrites() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("state.json")
+        let outbox = try await Outbox.open(url: url)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<20 {
+                group.addTask { try await outbox.change { $0.batches.append(UploadBatch(deleted: ["\(index)"])) } }
+            }
+            try await group.waitForAll()
+        }
+        let saved = try await Outbox.open(url: url)
+        XCTAssertEqual(saved.state.batches.count, 20)
+        XCTAssertEqual(Set(saved.state.batches.flatMap(\.deleted)).count, 20)
+    }
+
     @MainActor func testCorruptQueueIsNotSilentlyDiscarded() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

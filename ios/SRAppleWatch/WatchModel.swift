@@ -33,7 +33,13 @@ final class WatchModel: NSObject, ObservableObject {
     }
 
     /// How old the numbers are, for the line that says so.
-    var isStale: Bool { Date().timeIntervalSince(snapshot.generatedAt) > 30 * 60 }
+    var isStale: Bool {
+        guard let text = snapshot.healthUpdatedAt else { return true }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let source = formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+        return source.map { Date().timeIntervalSince($0) > 30 * 60 } ?? true
+    }
 
     private func adopt(_ next: WatchSnapshot) {
         guard next.generatedAt >= snapshot.generatedAt else { return }

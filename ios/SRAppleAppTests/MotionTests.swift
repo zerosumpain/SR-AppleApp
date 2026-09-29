@@ -240,14 +240,14 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(events[0].stateAfter, .tracking)
     }
 
-    @MainActor func testTheGateLogIsBounded() throws {
+    @MainActor func testTheGateLogIsBounded() async throws {
         // It rides in the same atomically-written file as the upload queue, so
         // an unbounded log would make every location save cost more than the
         // location it was saving.
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
-        try outbox.change {
+        try await outbox.change {
             for i in 0..<(GateEvent.maxStored + 40) {
                 $0.gateEvents.append(GateEvent(at: Date().addingTimeInterval(Double(i)),
                                                kind: .woke, reason: "test", stateAfter: .armed))
@@ -259,7 +259,7 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(outbox.state.gateEvents.count, GateEvent.maxStored)
     }
 
-    @MainActor func testTheGateStateSurvivesARestart() throws {
+    @MainActor func testTheGateStateSurvivesARestart() async throws {
         // The point of persisting it: a relaunch — including the background
         // relaunch a geofence exit itself causes — must not start continuous
         // GPS again, which is the whole cost the gate exists to avoid.
@@ -268,7 +268,7 @@ final class MotionTests: XCTestCase {
         let url = directory.appendingPathComponent("state.json")
 
         let first = try Outbox(url: url)
-        try first.change {
+        try await first.change {
             $0.gateState = .armed
             $0.anchor = GateAnchor(latitude: 54.5, longitude: -1.55, radius: 180, at: Date())
         }

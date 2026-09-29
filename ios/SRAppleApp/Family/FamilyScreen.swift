@@ -27,6 +27,9 @@ struct FamilyScreen: View {
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
     @State private var showTracks = false
+    @State private var following: String?
+    @State private var recenter = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Group {
@@ -65,10 +68,14 @@ struct FamilyScreen: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: FamilyStore.refreshInterval)
                 guard !Task.isCancelled else { break }
+                guard scenePhase == .active else { continue }
                 await store.load()
                 // At most once a minute: the store keeps its own clock.
                 await forecast.load()
             }
+        }
+        .task(id: scenePhase == .active) {
+            if scenePhase == .active { await store.followLive() }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -81,10 +88,22 @@ struct FamilyScreen: View {
 
     private func content(_ view: HouseholdView) -> some View {
         VStack(spacing: 0) {
-            FamilyMapCanvas(people: view.people, interactive: true, showTrails: showTracks, camera: $camera)
-                .frame(height: 320)
+            LiveFamilyMap(people: view.people, showTrails: showTracks, following: $following, recenter: recenter)
+                .frame(height: typeSize.isAccessibilitySize ? 220 : 320)
                 .overlay(alignment: .topTrailing) {
-                    FamilyTracksToggle(on: $showTracks).padding(10)
+                    VStack(alignment: .trailing, spacing: 8) {
+                        FamilyTracksToggle(on: $showTracks)
+                        Menu {
+                            Button("Show everyone") { following = nil; recenter += 1 }
+                            ForEach(view.people.filter { $0.position != nil }) { person in
+                                Button("Follow \(person.name)") { following = person.subject }
+                            }
+                        } label: {
+                            Label(following == nil ? "Recentre" : "Following", systemImage: "scope")
+                                .font(SR.Text.secondary()).padding(12).background(SR.surface, in: Capsule())
+                        }
+                        .accessibilityLabel("Follow a person or recentre the family map")
+                    }.padding(10)
                 }
                 .accessibilityIdentifier("family-map")
             ScrollView {
@@ -127,6 +146,14 @@ struct FamilyScreen: View {
 
     private func footer(_ view: HouseholdView) -> some View {
         VStack(alignment: .leading, spacing: 4) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                if let person = view.people.first(where: { $0.subject == following }), let position = person.position,
+                   let time = parseTimestamp(position.at) {
+                    let age = max(0, Int(context.date.timeIntervalSince(time)))
+                    Text("\(person.name) · fix \(age)s ago" + (position.accuracy.map { " · ±\(Int($0)) m" } ?? "") + (age > 30 ? " · delayed" : ""))
+                        .font(SR.Text.mono()).foregroundStyle(age > 30 ? SR.error : SR.inkMuted)
+                }
+            }
             if let freshness = store.freshness {
                 Text(freshness).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
             }

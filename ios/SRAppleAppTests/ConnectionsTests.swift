@@ -234,18 +234,18 @@ final class ConnectionsTests: XCTestCase {
         XCTAssertEqual(state.healthEnabled, ["steps"])
     }
 
-    @MainActor func testConnectionsSurviveARestartAndACompanionReset() throws {
+    @MainActor func testConnectionsSurviveARestartAndACompanionReset() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("state.json")
         let outbox = try Outbox(url: url)
-        ConnectionsStore.persist(ConnectionsSnapshot(items: [item("gmail")], checkedAt: Date()), in: outbox)
+        await ConnectionsStore.persist(ConnectionsSnapshot(items: [item("gmail")], checkedAt: Date()), in: outbox)
 
         let reopened = try Outbox(url: url)
         XCTAssertEqual(reopened.state.connections?.items.map(\.id), ["gmail"])
 
         // Disconnecting the COMPANION must not forget the SITE's connections.
-        try reopened.clear()
+        try await reopened.clear()
         XCTAssertEqual(reopened.state.connections?.items.map(\.id), ["gmail"])
     }
 

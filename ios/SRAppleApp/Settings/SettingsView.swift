@@ -150,13 +150,15 @@ struct LocationSettingsScreen: View {
             }
 
             SRButton(title: "Reset the measurement") {
-                try? outbox.change {
+                Task {
+                try? await outbox.change {
                     $0.battery = []
                     $0.pointsRecorded = 0
                     $0.accuracySum = 0
                     $0.countingSince = nil
                 }
                 saved = "Measurement reset. Change a preset and leave it a day."
+                }
             }
         }
     }
@@ -269,7 +271,7 @@ struct LocationSettingsScreen: View {
         VStack(alignment: .leading, spacing: 16) {
             Toggle(isOn: Binding(
                 get: { outbox.state.closeTracking },
-                set: { location.setCloseTracking($0) }
+                set: { value in Task { await location.setCloseTracking(value) } }
             )) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Close tracking after leaving")
@@ -543,16 +545,18 @@ struct LocationSettingsScreen: View {
         .padding(.bottom, 10)
     }
 
-    private func apply() {
+    private func apply() { Task { await applySavedSettings() } }
+
+    private func applySavedSettings() async {
         // Whether the gate is being switched ON by this apply, which is the one
         // moment the motion permission can be asked for.
         let gateJustEnabled = draft.motion.enabled && !outbox.state.location.motion.enabled
         do {
-            try outbox.change { $0.location = draft }
+            try await outbox.change { $0.location = draft }
             // Push it at Core Location now. Waiting for the next launch is how a
             // battery setting appears not to work.
-            location.applySettings()
-            if outbox.state.sharing { location.start() }
+            await location.applySettings()
+            if outbox.state.sharing { await location.start() }
             saved = "Applied. Leave it a few hours, then read section A again."
         } catch {
             saved = error.localizedDescription

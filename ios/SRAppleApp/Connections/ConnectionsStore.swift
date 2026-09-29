@@ -154,17 +154,17 @@ final class ConnectionsStore: ObservableObject {
         items = snapshot.items
         checkedAt = snapshot.checkedAt
         prune(personal: false, keeping: snapshot.items)
-        Self.persist(snapshot, in: outbox)
+        await Self.persist(snapshot, in: outbox)
         await AppBadge.update(connections: snapshot.items.count)
     }
 
     /// Into the state file only when the list actually changed. That file is
     /// the health upload queue and a write is the whole queue, so a refresh on
     /// every foreground must not rewrite it for a timestamp.
-    static func persist(_ snapshot: ConnectionsSnapshot, in outbox: Outbox?) {
+    static func persist(_ snapshot: ConnectionsSnapshot, in outbox: Outbox?) async {
         // A demo's connections are made up: never into the real state file.
         guard !SRDemo.isOn, let outbox, (outbox.state.connections?.items ?? []) != snapshot.items else { return }
-        try? outbox.change { $0.connections = snapshot }
+        try? await outbox.change { $0.connections = snapshot }
     }
 
     /// One background pass, beside the notification drain.
@@ -176,7 +176,7 @@ final class ConnectionsStore: ObservableObject {
         do {
             let feed: ConnectionsFeed = try await SiteClient.shared.send("api/native/connections")
             let fresh = Self.snapshot(of: feed)
-            persist(fresh, in: outbox)
+            await persist(fresh, in: outbox)
             await AppBadge.update(connections: fresh.items.count)
         } catch {
             return

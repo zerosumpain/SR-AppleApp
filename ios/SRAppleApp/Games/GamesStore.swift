@@ -22,6 +22,7 @@ final class GamesStore: ObservableObject {
     static let pollInterval: TimeInterval = 5
 
     private let client = SiteClient.shared
+    private var visible = false
     private var pollTask: Task<Void, Never>?
     /// Invite room ids already raised, kept across launches so a relaunch does
     /// not ring for the same invite twice.
@@ -59,13 +60,14 @@ final class GamesStore: ObservableObject {
     }
 
     /// On while the scene is active and games are allowed; off otherwise.
-    func setPolling(_ on: Bool) {
+    func setPolling(_ on: Bool, visible: Bool = false) {
+        self.visible = visible
         if on {
             guard pollTask == nil else { return }
             pollTask = Task { [weak self] in
                 while !Task.isCancelled {
                     await self?.load()
-                    try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
+                    try? await Task.sleep(nanoseconds: UInt64((self?.visible == true ? Self.pollInterval : 60) * 1_000_000_000))
                 }
             }
         } else {
