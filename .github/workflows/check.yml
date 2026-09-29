@@ -106,8 +106,11 @@ jobs:
     # and the UI suite covers six games (35 was hit by it alone, 2026-09-26).
     # Was 50: the Release build (a few minutes) and the review-demo UI walk
     # (~4) took a green run past it on 2026-09-28 with the last showcase
-    # tests still going. A timeout is for a wedged simulator, not the suite.
-    timeout-minutes: 75
+    # tests still going. Was 75: Liar's Dice's green suite reached the
+    # Release build at ~68 min and was cut off (2026-09-29), with Categories,
+    # Liar's Dice and Draw & Guess all adding UI walks. A timeout is for a
+    # wedged simulator, not the suite.
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
       - name: Verify current Apple toolchain
