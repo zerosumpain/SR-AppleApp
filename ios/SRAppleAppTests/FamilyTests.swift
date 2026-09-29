@@ -13,13 +13,15 @@ final class FamilyTests: XCTestCase {
         let companion = Companion(outbox: try Outbox(url: directory.appendingPathComponent("state.json")))
         companion.paired = true
         var response: CheckedContinuation<HouseholdViewResponse, Error>?
+        let started = expectation(description: "household request started")
         let store = FamilyStore(companion: companion, fetchView: {
-            try await withCheckedThrowingContinuation { response = $0 }
+            try await withCheckedThrowingContinuation { response = $0; started.fulfill() }
         })
         let read = Task { await store.load() }
-        while response == nil { await Task.yield() }
+        await fulfillment(of: [started], timeout: 5)
+        guard let response else { read.cancel(); return }
         store.invalidateScope()
-        response?.resume(returning: SRDemoFixtures.householdView(now: Date()))
+        response.resume(returning: SRDemoFixtures.householdView(now: Date()))
         await read.value
         XCTAssertNil(store.view, "an old permitted response must not restore positions after revocation")
         XCTAssertNil(store.updated)

@@ -8,6 +8,7 @@ import UIKit
     @Published var companion: Companion?
     @Published var battery: BatteryMonitor?
     @Published var startupError: String?
+    private var startupTask: Task<Void, Never>?
     /// Written by a notification tap or a Home Screen quick action before the
     /// scene exists, read by `ContentView` once it does.
     static let pending = PendingEntry()
@@ -20,7 +21,7 @@ import UIKit
         // later leaves one system-grey navigation bar on screen for a frame.
         SRChrome.install()
 
-        Task {
+        startupTask = Task {
           do {
             let outbox = try await Outbox.open()
             companion = Companion(outbox: outbox)
@@ -48,9 +49,13 @@ import UIKit
 
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.com.appleapp.refresh", using: nil) { [weak self] task in
             Task { @MainActor in
-                guard let companion = self?.companion else { task.setTaskCompleted(success: false); return }
-                companion.scheduleRefresh()
                 let work = Task {
+                    // A background launch can deliver this wake while saved
+                    // state is still opening off the UI actor. Keep the wake,
+                    // and install its cancellation handler before waiting.
+                    await self?.startupTask?.value
+                    guard !Task.isCancelled, let companion = self?.companion else { task.setTaskCompleted(success: false); return }
+                    companion.scheduleRefresh()
                     // Two jobs in the seconds iOS grants: push what the phone
                     // has collected up, and bring what the site has been trying
                     // to say down. The second is the floor under push: anything
@@ -108,6 +113,7 @@ import UIKit
         case .health: Self.pending.tab = .health
         case .sync:
             Self.pending.tab = .today
+            await startupTask?.value
             await companion?.sync()
         }
         return true
