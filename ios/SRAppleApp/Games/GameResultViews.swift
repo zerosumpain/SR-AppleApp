@@ -41,6 +41,7 @@ struct GameStandingsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
+            GameRecordLine(room: room)
             SRSectionLabel(text: label)
             VStack(spacing: 0) {
                 ForEach(Array((room.standings ?? []).enumerated()), id: \.element.id) { index, row in

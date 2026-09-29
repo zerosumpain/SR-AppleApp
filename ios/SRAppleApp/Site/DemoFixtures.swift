@@ -256,7 +256,11 @@ enum SRDemoFixtures {
         if parts.count == 6, joined.hasPrefix("api/native/news/story/") {
             return method == "GET" ? article(source: parts[4], id: parts[5], clock: clock) : nil
         }
-        // Family games — `Games/GamesDemoFixtures.swift`.
+        // Family games — `Games/GamesDemoFixtures.swift`. The leaderboard
+        // first: its `window` is a query, and `/games/<id>` would take it.
+        if method == "GET", joined == "api/native/games/leaderboard" {
+            return gamesLeaderboard(window: query["window"] ?? "week")
+        }
         if joined == "api/native/games" || joined.hasPrefix("api/native/games/") {
             return gamesRoute(method: method, parts: parts, body: body, clock: clock)
         }

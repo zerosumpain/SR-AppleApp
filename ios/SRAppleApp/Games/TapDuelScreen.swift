@@ -321,6 +321,7 @@ struct TapDuelFinished: View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 SRPageHeader(kicker: "Tap Duel · final", title: title, strap: strap)
+                GameRecordLine(room: room)
 
                 VStack(spacing: 0) {
                     ForEach(Array(standings.enumerated()), id: \.element.id) { index, row in

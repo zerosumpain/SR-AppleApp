@@ -500,6 +500,9 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     let standings: [GameStanding]?
     let winnerIds: [String]
     let serverNow: Double
+    /// Finished: who set a new family high score in this round, and in which
+    /// window (`day` | `week` | `all`) — sent once the site has recorded it.
+    let records: [String: String]
 
     // Wordle Race. Defaults in a Tap Duel room.
     let wordLength: Int
@@ -598,6 +601,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
+        case records
         case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
         case audience, topic, title, prep, prepError, questionCount, timeMs, question
         case letterCount, minLength, points, letters, seed, found, missed
@@ -622,6 +626,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         standings = (try? c.decodeIfPresent([GameStanding].self, forKey: .standings)) ?? nil
         winnerIds = (try? c.decodeIfPresent([String].self, forKey: .winnerIds)) ?? []
         serverNow = try c.decode(Double.self, forKey: .serverNow)
+        records = (try? c.decodeIfPresent([String: String].self, forKey: .records)) ?? [:]
         wordLength = max(1, (try? c.decodeIfPresent(Int.self, forKey: .wordLength)) ?? 5)
         maxGuesses = max(1, (try? c.decodeIfPresent(Int.self, forKey: .maxGuesses)) ?? 6)
         timeLimitMs = (try? c.decodeIfPresent(Double.self, forKey: .timeLimitMs)) ?? nil
