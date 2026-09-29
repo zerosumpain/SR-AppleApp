@@ -19,7 +19,7 @@ final class BoggleTests: XCTestCase {
     { "id":"g_b", "game":"boggle", "difficulty":"medium", "phase":"playing",
       "hostId":"p_a", "meId":"p_b",
       "size":4, "scoring":"classic", "minLength":3,
-      "points":{"3":1,"4":1,"5":2,"6":3,"7":5,"8":11},
+      "points":{"3":1,"4":2,"5":3,"6":4,"7":5,"8":6},
       "timeLimitMs":120000, "startedAt":1790000000000, "phaseEndsAt":1790000120000,
       "grid":["t","QU","e","a","s","i","n","d","l","e","o","r","a","m","th","s"],
       "players":[{"id":"p_a","name":"Sam","status":"joined","isHost":true,"wordCount":3,"score":4,"words":null},
@@ -36,7 +36,7 @@ final class BoggleTests: XCTestCase {
         XCTAssertEqual(room.size, 4)
         XCTAssertEqual(room.scoring, "classic")
         XCTAssertEqual(room.minLength, 3)
-        XCTAssertEqual(room.points["8"], 11)
+        XCTAssertEqual(room.points["8"], 6)
         XCTAssertEqual(room.timeLimitMs, 120_000)
         XCTAssertEqual(room.grid?.count, 16)
         XCTAssertEqual(room.grid?[1], "qu", "faces are lower-cased")
@@ -56,7 +56,7 @@ final class BoggleTests: XCTestCase {
         let json = #"""
         { "id":"g_b", "game":"boggle", "difficulty":"hard", "phase":"finished",
           "hostId":"p_a", "meId":"p_a", "size":5, "scoring":"classic", "minLength":4,
-          "points":{"3":1,"4":1,"5":2,"6":3,"7":5,"8":11},
+          "points":{"3":1,"4":2,"5":3,"6":4,"7":5,"8":6},
           "timeLimitMs":90000, "startedAt":1790000000000, "phaseEndsAt":1790000690000,
           "grid":["t","r","a","p","s","e","n","d","l","i","o","qu","a","m","e","s","a","b","c","d","e","f","g","h","i"],
           "players":[{"id":"p_a","name":"John","status":"joined","isHost":true,"wordCount":2,"score":1,
@@ -132,12 +132,13 @@ final class BoggleTests: XCTestCase {
         XCTAssertEqual(BoggleRules.display(""), "")
     }
 
-    func testPointsFollowTheSpecAndEightIsEightOrMore() {
-        let table = ["3": 1, "4": 1, "5": 2, "6": 3, "7": 5, "8": 11]
+    func testPointsAreAPointALetterPastTwo() {
+        let table = Dictionary(uniqueKeysWithValues: (3...16).map { (String($0), $0 - 2) })
         XCTAssertEqual(BoggleRules.points(for: "tea", table: table), 1)
-        XCTAssertEqual(BoggleRules.points(for: "quiet", table: table), 2, "qu counts as two letters")
-        XCTAssertEqual(BoggleRules.points(for: "strangers", table: table), 11)
-        XCTAssertEqual(BoggleRules.points(for: "internationally", table: [:]), 11, "fallback table")
+        XCTAssertEqual(BoggleRules.points(for: "team", table: table), 2)
+        XCTAssertEqual(BoggleRules.points(for: "quiet", table: table), 3, "qu counts as two letters")
+        XCTAssertEqual(BoggleRules.points(for: "strangers", table: table), 7, "no cap at eight")
+        XCTAssertEqual(BoggleRules.points(for: "internationally", table: [:]), 13, "fallback rule")
         XCTAssertEqual(BoggleRules.points(for: "at", table: table), 0)
     }
 
