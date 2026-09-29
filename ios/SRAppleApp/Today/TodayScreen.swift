@@ -99,14 +99,21 @@ final class TodayStore: ObservableObject {
     private let client = SiteClient.shared
     private var lastLoaded: Date?
     private var healthRefresh: Task<Void, Never>?
+    private var healthRefreshNeeded = false
 
     func healthDidUpload() {
+        healthRefreshNeeded = true
         guard healthRefresh == nil else { return }
         healthRefresh = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(15))
-            guard let self, !Task.isCancelled else { return }
-            await self.load(fresh: true)
-            self.healthRefresh = nil
+            guard let self else { return }
+            defer { self.healthRefresh = nil }
+            while self.healthRefreshNeeded {
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                guard !Task.isCancelled else { return }
+                self.healthRefreshNeeded = false
+                await self.load(fresh: true)
+                // An upload arriving during the read gets one final refresh.
+            }
         }
     }
 
