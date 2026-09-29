@@ -22,18 +22,28 @@ final class FamilyStore: ObservableObject {
     static let refreshInterval: Duration = .seconds(15)
 
     private let companion: Companion
-    private var loading = false
+    private var loadingID: UUID?
+    private let fetchView: () async throws -> HouseholdViewResponse
     /// This phone's own view, as read. `view` is this — or, while the owner
     /// is viewing the app as somebody, that person's view instead.
     private var real: HouseholdView?
     private var liveFixes: [String: LiveFamilyResponse.Fix] = [:]
 
-    init(companion: Companion) {
+    init(companion: Companion, fetchView: (() async throws -> HouseholdViewResponse)? = nil) {
         self.companion = companion
+        self.fetchView = fetchView ?? { try await companion.api.request("household/view", timeout: 12) }
+    }
+
+    /// A response started under an old grant must never refill the map after
+    /// a live scope change. A replacement read can start without waiting for it.
+    func invalidateScope() {
+        loadingID = nil
+        real = nil; view = nil; updated = nil; liveFixes = [:]
+        FamilyWidgetBridge.clear()
     }
 
     func load() async {
-        guard !loading else { return }
+        guard loadingID == nil else { return }
         // Demo mode (the review demo, or `-SRDemo`): the companion lane has
         // no fixture protocol, and a demo sends nothing to it.
         if SRDemo.isOn {
@@ -44,29 +54,32 @@ final class FamilyStore: ObservableObject {
             return
         }
         guard companion.paired else {
-            real = nil
-            liveFixes = [:]
-            view = nil
+            invalidateScope()
             loaded = true
             return
         }
-        loading = true
-        defer { loading = false; loaded = true }
+        let attempt = UUID()
+        loadingID = attempt
+        defer { if loadingID == attempt { loadingID = nil; loaded = true } }
         do {
-            let response: HouseholdViewResponse = try await companion.api.request("household/view", timeout: 12)
+            let response = try await fetchView()
+            guard loadingID == attempt, companion.paired, !Task.isCancelled else { return }
             await companion.adoptWatch(response.view?.watch)
+            guard loadingID == attempt, companion.paired else { return }
             await companion.adoptAccess(response.view?.access)
+            guard loadingID == attempt, companion.paired else { return }
             AccessStore.shared.adopt(previews: response.view?.previewAs)
             real = response.view
             applyViewingAs()
             updated = response.updated
             message = nil
         } catch {
+            guard loadingID == attempt else { return }
             if case .response(let status, _)? = error as? CompanionError, status == 401 || status == 403 {
-                real = nil; view = nil; updated = nil; liveFixes = [:]
+                invalidateScope()
+                loaded = true
                 await companion.adoptWatch(nil)
                 AccessStore.shared.adopt(previews: nil)
-                FamilyWidgetBridge.clear()
             } else if let updated, let date = ISO8601DateFormatter().date(from: updated), Date().timeIntervalSince(date) > 300 {
                 real = nil; view = nil
             }
@@ -86,7 +99,7 @@ final class FamilyStore: ObservableObject {
                 try Task.checkCancellation()
                 revision = response.revision
                 if response.revision == "unavailable" {
-                    real = nil; view = nil; liveFixes = [:]
+                    invalidateScope()
                     await load()
                     try await Task.sleep(for: .seconds(5))
                     continue
@@ -94,7 +107,7 @@ final class FamilyStore: ObservableObject {
                 // Owner preview views have their own scope and remain on their
                 // scoped snapshot until a fresh preview arrives.
                 if let currentScope = response.scope, currentScope != scope {
-                    real = nil; view = nil; liveFixes = [:]
+                    invalidateScope()
                     await load()
                     scope = currentScope
                 }
@@ -107,8 +120,7 @@ final class FamilyStore: ObservableObject {
             } catch {
                 if Task.isCancelled { return }
                 if case .response(let status, _)? = error as? CompanionError, status == 401 || status == 403 {
-                    real = nil; view = nil; updated = nil; liveFixes = [:]
-                    FamilyWidgetBridge.clear()
+                    invalidateScope()
                     return
                 }
                 message = "Live updates paused. The map shows the last received fix."

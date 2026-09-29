@@ -7,6 +7,24 @@ import CoreLocation
 /// figure reads, what a battery level says.
 final class FamilyTests: XCTestCase {
 
+    @MainActor func testAnOldHouseholdReadCannotRestoreAClearedScope() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let companion = Companion(outbox: try Outbox(url: directory.appendingPathComponent("state.json")))
+        companion.paired = true
+        var response: CheckedContinuation<HouseholdViewResponse, Error>?
+        let store = FamilyStore(companion: companion, fetchView: {
+            try await withCheckedThrowingContinuation { response = $0 }
+        })
+        let read = Task { await store.load() }
+        while response == nil { await Task.yield() }
+        store.invalidateScope()
+        response?.resume(returning: SRDemoFixtures.householdView(now: Date()))
+        await read.value
+        XCTAssertNil(store.view, "an old permitted response must not restore positions after revocation")
+        XCTAssertNil(store.updated)
+    }
+
     private func person(_ json: String) throws -> FamilyPerson {
         try JSONDecoder().decode(FamilyPerson.self, from: Data(json.utf8))
     }

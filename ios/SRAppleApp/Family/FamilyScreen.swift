@@ -29,6 +29,7 @@ struct FamilyScreen: View {
     @State private var showTracks = false
     @State private var following: String?
     @State private var recenter = 0
+    @State private var onScreen = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -62,8 +63,12 @@ struct FamilyScreen: View {
         .navigationDestination(for: FamilyPersonRoute.self) { route in
             FamilyPersonScreen(store: store, subject: route.subject)
         }
-        .task {
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
+        .task(id: onScreen && scenePhase == .active) {
+            guard onScreen, scenePhase == .active else { return }
             await store.load()
+            guard !Task.isCancelled else { return }
             await forecast.load()
             while !Task.isCancelled {
                 try? await Task.sleep(for: FamilyStore.refreshInterval)
@@ -74,12 +79,8 @@ struct FamilyScreen: View {
                 await forecast.load()
             }
         }
-        .task(id: scenePhase == .active) {
-            if scenePhase == .active { await store.followLive() }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            Task { await store.load(); await forecast.load() }
+        .task(id: onScreen && scenePhase == .active) {
+            if onScreen, scenePhase == .active { await store.followLive() }
         }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }
