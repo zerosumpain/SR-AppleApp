@@ -2,10 +2,16 @@ import Foundation
 
 // MARK: - Demo daydream notes
 //
-// `-SRDemo` answers for the Noticed card on Today and the Noticed section on
-// Health. SYNTHETIC — the repository is public: no names, places, senders,
-// amounts or anything else lifted from a real day. Each note is the kind of
-// thing the loop writes, about nobody in particular.
+// `-SRDemo` (and the App Review demo) answers for the Noticed card on Today,
+// the Noticed section on Health, and the Daydream page. SYNTHETIC — the
+// repository is public: no names, places, senders, amounts or anything else
+// lifted from a real day. Each note is the kind of thing the loop writes,
+// about nobody in particular.
+//
+// The page's read (`?detail=1`) gets every list filled: three notes waiting
+// for a call (one with a double-check waiting for your OK), one in motion
+// (a double-check re-reading its sources), and two done (one answered, one
+// whose report came back) — plus the pipeline counts and the Impact card.
 
 extension SRDemoFixtures {
 
@@ -17,6 +23,14 @@ extension SRDemoFixtures {
         let body: String
         let minutesAgo: Double
         var feedback: String? = nil
+        var next: String? = nil
+        var sources: [String] = []
+        var stage = "decide"
+        var bucket = "decide"
+        var checkable = true
+        /// A double-check in `CommissionDemoFixtures`, by id and state.
+        var commissionId: String? = nil
+        var commissionState: String? = nil
     }
 
     static let demoNotes: [DemoNote] = [
@@ -25,17 +39,38 @@ extension SRDemoFixtures {
             outcome: "health_plan",
             channel: "health",
             title: "Late nights are shortening the long walk",
-            body: "On the four nights this fortnight that ended after 23:30, the next day's walk was about a third shorter and resting heart rate sat 3 bpm higher. The fixed sleep window already in the plan is the lever; this is the evidence it should hold before the long day is added.",
-            minutesAgo: 38
+            body: "On the four nights this fortnight that ended after 23:30, the next day's walk was about a third shorter and resting heart rate sat 3 bpm higher. The fixed sleep window already in the plan is the lever; this is the evidence it should hold before the long day is added.\n\nNext: Keep the 23:00 lights-out for two more weeks before adding the long day.",
+            minutesAgo: 38,
+            next: "Keep the 23:00 lights-out for two more weeks before adding the long day.",
+            sources: ["Your /health summary", "Recent workouts and outings", "Health trend · resting hr · last 14 days"],
+            stage: "spotted"
         ),
         DemoNote(
             id: "demo-note-hall-light",
             outcome: "suggest",
             channel: "home",
             title: "The hallway light stays on overnight twice a week",
-            body: "On two nights in the last seven the hallway light was switched on after midnight and still on at six. A 20-minute auto-off on that one light would cover both, and nothing else in the house follows the same pattern.",
+            body: "On two nights in the last seven the hallway light was switched on after midnight and still on at six. A 20-minute auto-off on that one light would cover both, and nothing else in the house follows the same pattern.\n\nNext: Add a 20-minute auto-off to the hallway light.",
             minutesAgo: 95,
-            feedback: "useful"
+            feedback: "useful",
+            next: "Add a 20-minute auto-off to the hallway light.",
+            sources: ["Home — history · hallway ceiling", "Home sensors · light"],
+            stage: "result",
+            bucket: "done"
+        ),
+        DemoNote(
+            id: "demo-note-subscriptions",
+            outcome: "money_analysis",
+            channel: "money",
+            title: "Two music subscriptions have overlapped since spring",
+            body: "Both services have billed every month since April, and only one of them shows up in the listening history. Together they cost about twice what either does alone.",
+            minutesAgo: 60 * 3,
+            next: "Cancel the one used least before it renews next month.",
+            sources: ["Bank spend · music services · last 180 days", "Mail (facts, not bodies) · “receipt” · last 60 days"],
+            stage: "motion",
+            bucket: "motion",
+            commissionId: CommissionDemoFixtures.runningId,
+            commissionState: "running"
         ),
         DemoNote(
             id: "demo-note-hrv-caffeine",
@@ -43,7 +78,20 @@ extension SRDemoFixtures {
             channel: "health",
             title: "HRV dips on the days after a late coffee",
             body: "Across the last 30 days, the nights after a coffee logged past 15:00 averaged an HRV 6 ms lower than the rest. Eight days is a small sample, so this is worth watching rather than acting on.",
-            minutesAgo: 60 * 5
+            minutesAgo: 60 * 5,
+            sources: ["Health trend · hrv · last 30 days", "Tested a link · caffeine late against hrv"],
+            commissionId: CommissionDemoFixtures.awaitingId,
+            commissionState: "awaiting_approval"
+        ),
+        DemoNote(
+            id: "demo-note-renewals",
+            outcome: "efficiency",
+            channel: "mail",
+            title: "Three renewals fall in the same week next month",
+            body: "The insurance, the breakdown cover and a domain name all renew within five days of each other. Each reminder arrives separately, a fortnight ahead.\n\nNext: Put all three on one diary reminder the week before.",
+            minutesAgo: 60 * 9,
+            next: "Put all three on one diary reminder the week before.",
+            sources: ["Mail (facts, not bodies) · “renewal” · last 30 days", "Your diary · today to 45 days ahead"]
         ),
         DemoNote(
             id: "demo-note-zone2",
@@ -51,14 +99,36 @@ extension SRDemoFixtures {
             channel: "health",
             title: "What counts as easy for a 40-minute run",
             body: "The usual guidance puts easy running below the first ventilatory threshold. On the recent runs that sits near 140 bpm, and two of the last five crept above it in the second half.",
-            minutesAgo: 60 * 26
+            minutesAgo: 60 * 26,
+            next: "Cap the next three easy runs at 140 bpm and see whether the pace holds.",
+            sources: ["Web search · “easy run heart rate threshold”", "Recent workouts and outings"],
+            stage: "result",
+            bucket: "done",
+            commissionId: CommissionDemoFixtures.completedId,
+            commissionState: "completed"
         ),
     ]
 
+    /// The note as the plain feed sends it — Today's block and the Health
+    /// tab's read. No detail keys: the phone splits the body itself.
     static func noteJSON(_ note: DemoNote, clock: DemoClock) -> String {
         """
         {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback))}
         """
+    }
+
+    /// The note as `?detail=1` sends it.
+    static func detailedNoteJSON(_ note: DemoNote, clock: DemoClock) -> String {
+        let summary = SRDemoFixtures.summary(of: note.body)
+        return """
+        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState))}
+        """
+    }
+
+    /// The body without its closing "Next:" paragraph, as the site sends it.
+    static func summary(of body: String) -> String {
+        guard let range = body.range(of: "\n\nNext: ", options: .backwards) else { return body }
+        return String(body[..<range.lowerBound])
     }
 
     /// The `daydream` block on Today: the latest two, whatever the channel.
@@ -67,11 +137,40 @@ extension SRDemoFixtures {
         return "{\"notes\": \(list(latest.map { noteJSON($0, clock: clock) }))}"
     }
 
-    /// `GET api/native/daydream?scope=health&limit=5`.
-    static func daydreamFeed(scope: String?, limit: Int, clock: DemoClock) -> String {
+    /// `GET api/native/daydream?scope=health&limit=5`, and the page's
+    /// `?detail=1&limit=40`.
+    static func daydreamFeed(scope: String?, limit: Int, detail: Bool = false, clock: DemoClock) -> String {
         let notes = demoNotes
             .filter { scope != "health" || $0.channel == "health" || $0.outcome == "health_plan" }
             .prefix(max(0, limit))
-        return "{\"notes\": \(list(notes.map { noteJSON($0, clock: clock) }))}"
+        guard detail else {
+            return "{\"notes\": \(list(notes.map { noteJSON($0, clock: clock) }))}"
+        }
+        let count = { (bucket: String) in notes.filter { $0.bucket == bucket }.count }
+        return """
+        {"notes": \(list(notes.map { detailedNoteJSON($0, clock: clock) })), "pipeline": {"decide": \(count("decide")), "motion": \(count("motion")), "done": \(count("done"))}, "impact": \(demoImpact(clock))}
+        """
+    }
+
+    /// Twelve synthetic weeks, answered better as they go — the shape the
+    /// card is for, not anybody's record.
+    static func demoImpact(_ clock: DemoClock) -> String {
+        let useful = [3, 4, 3, 5, 4, 6, 5, 7, 6, 8, 7, 5]
+        let notUseful = [5, 4, 5, 4, 4, 3, 3, 3, 2, 2, 2, 1]
+        let undecided = [6, 7, 5, 5, 6, 4, 5, 3, 4, 3, 3, 6]
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        let thisWeek = calendar.dateInterval(of: .weekOfYear, for: clock.now)?.start ?? clock.now
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.timeZone = TimeZone(identifier: "UTC")
+        format.dateFormat = "yyyy-MM-dd"
+        let weeks = (0..<12).map { index -> String in
+            let start = calendar.date(byAdding: .weekOfYear, value: index - 11, to: thisWeek) ?? thisWeek
+            return "{\"start\": \(s(format.string(from: start))), \"useful\": \(useful[index]), \"notUseful\": \(notUseful[index]), \"undecided\": \(undecided[index])}"
+        }
+        return """
+        {"windowDays": 28, "hitRate": 0.72, "previousHitRate": 0.55, "noticed": 46, "rated": 25, "useful": 18, "actedOn": 3, "result": 2, "weeks": \(list(weeks))}
+        """
     }
 }

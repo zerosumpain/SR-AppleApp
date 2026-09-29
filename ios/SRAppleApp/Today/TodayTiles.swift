@@ -141,22 +141,27 @@ struct TodayAskTile: View {
     }
 }
 
-/// What the daydream loop noticed, as a door: how many notes are new and
-/// the newest title. The notes open in their own page, in More.
+/// What the daydream loop noticed, as a door: how many notes wait for your
+/// call, and the newest of them. The notes open in their own page, in More.
 struct TodayDaydreamTile: View {
     @ObservedObject private var store = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
+    @ObservedObject private var commissions = CommissionStore.shared
 
     var body: some View {
-        // Unrated: a rated note leaves the count a few seconds after it saves.
-        let fresh = store.notes.filter(feedback.isShowing)
-        let title = fresh.isEmpty ? "All caught up" : fresh.count == 1 ? "1 new note" : "\(fresh.count) new notes"
-        TodayTileCard(kicker: "Daydream", title: title, subline: (fresh.first ?? store.notes.first)?.title) {
-            TodayTileGlyph(symbol: "sparkles", tone: SR.accentInk, count: fresh.count)
+        // The site's count when it has sent one (it counts every note, not
+        // just the ones on this phone), moved by answers given here.
+        let waiting = store.toDecide(feedback: feedback, commissions: commissions)
+        let newest = store.notes.first { store.bucket(for: $0, feedback: feedback, commissions: commissions) == .decide }
+        let title = waiting == 0 ? "All caught up" : "\(waiting) to decide"
+        TodayTileCard(kicker: "Daydream", title: title, subline: (newest ?? store.notes.first)?.title) {
+            TodayTileGlyph(symbol: "sparkles", tone: SR.accentInk, count: waiting)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Daydream, \(title)")
         .accessibilityAddTraits(.isButton)
+        // Once a launch: the detailed read is what knows the true count.
+        .task { if !store.loaded { await store.load() } }
     }
 }
 

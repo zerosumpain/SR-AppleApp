@@ -10,6 +10,13 @@ import Combine
     @Published var destination: CommissionDestination?
     private let client = SiteClient.shared
 
+    /// The double-check a note has, if any: the one it names, else the
+    /// latest raised on it.
+    func commission(for note: DaydreamNote) -> DaydreamCommission? {
+        if let id = note.commissionId, let named = commissions.first(where: { $0.id == id }) { return named }
+        return commissions.first { $0.thoughtId == note.id }
+    }
+
     func clear() { commissions = []; enabled = false; error = nil; destination = nil }
 
     func load() async {
@@ -19,7 +26,7 @@ import Combine
             guard AccessStore.ownerSite else { clear(); return }
             enabled = feed.enabled; commissions = feed.commissions; error = nil
         } catch is CancellationError {
-        } catch { self.error = "Improvement history could not be refreshed. Your decisions are retained." }
+        } catch { self.error = "Could not refresh the double-checks. Nothing you decided is lost." }
     }
     func load(id: String) async {
         guard AccessStore.ownerSite else { clear(); return }
@@ -28,7 +35,7 @@ import Combine
             let reply: CommissionReply = try await client.send("api/native/daydream/commissions?id=\(id)")
             keep(reply.commission); error = nil
         } catch is CancellationError {
-        } catch { self.error = "This improvement could not be loaded. Open Daydream to try again." }
+        } catch { self.error = "Could not load this double-check. Open Daydream to try again." }
     }
     func prepare(thoughtId: String) async {
         guard AccessStore.ownerSite, !busy else { return }

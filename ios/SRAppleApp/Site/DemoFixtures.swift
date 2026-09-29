@@ -185,7 +185,8 @@ enum SRDemoFixtures {
         case ("GET", "api/native/today"):
             return today(clock)
         case ("GET", "api/native/daydream"):
-            return daydreamFeed(scope: query["scope"], limit: Int(query["limit"] ?? "") ?? 5, clock: clock)
+            return daydreamFeed(scope: query["scope"], limit: Int(query["limit"] ?? "") ?? 5,
+                                detail: query["detail"] == "1", clock: clock)
         case (_, "api/native/daydream/commissions"):
             return CommissionDemoFixtures.reply(method: method, query: query, body: body)
         case ("POST", "api/native/daydream/feedback"):

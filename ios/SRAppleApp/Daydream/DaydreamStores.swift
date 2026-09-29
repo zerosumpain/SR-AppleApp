@@ -110,14 +110,42 @@ final class HealthNoticedStore: ObservableObject {
     }
 }
 
+/// Which list the Daydream page shows.
+enum DaydreamFilter: String, CaseIterable, Hashable {
+    case decide, motion, done, all
+
+    var label: String {
+        switch self {
+        case .decide: return "To decide"
+        case .motion: return "In motion"
+        case .done: return "Done"
+        case .all: return "All"
+        }
+    }
+
+    var bucket: DaydreamBucket? {
+        switch self {
+        case .decide: return .decide
+        case .motion: return .motion
+        case .done: return .done
+        case .all: return nil
+        }
+    }
+}
+
 /// Every note the phone has seen lately, for Today's Daydream tile and the
-/// Daydream page in More: `api/native/daydream?limit=20`.
+/// Daydream page in More: `api/native/daydream?detail=1&limit=40`.
 ///
 /// One instance, because the tile and the page must agree on how many are
-/// new. Today's own payload seeds it (two notes, no second request), and
+/// waiting. Today's own payload seeds it (two notes, no second request), and
 /// the page reads the longer list when it opens. Notes are merged by id, not
 /// replaced: Today's five-minute re-read carries only the latest two, and
 /// must not shrink a list the page already fetched.
+///
+/// `detail=1` adds the next step, the sources, where each note is in the
+/// process, and the `pipeline` and `impact` blocks. An older server ignores
+/// the flag and sends plain notes; everything then falls back to what the
+/// phone can work out for itself, and the counts and the Impact card hide.
 @MainActor
 final class DaydreamStore: ObservableObject {
     static let shared = DaydreamStore()
@@ -126,16 +154,24 @@ final class DaydreamStore: ObservableObject {
     @Published private(set) var loading = false
     /// Whether the page's own read has answered at least once.
     @Published private(set) var loaded = false
+    /// The site's counts, over every note. `nil` from an older server.
+    @Published private(set) var pipeline: DaydreamPipeline?
+    /// The score. `nil` from an older server, or when the site has none yet.
+    @Published private(set) var impact: DaydreamImpact?
+    /// The list the page should open on next — a deep link to a double-check
+    /// opens "All", so the note it belongs to is on screen whatever its list.
+    @Published var requestedFilter: DaydreamFilter?
 
-    static let pageLimit = 20
+    static let pageLimit = 40
     private let client = SiteClient.shared
 
     /// Newest first, one row per id; a later copy of a note wins (it carries
-    /// the latest verdict).
+    /// the latest verdict) — except that a plain copy never erases what a
+    /// detailed one knew (`DaydreamNote.merged`).
     nonisolated static func merge(_ held: [DaydreamNote], _ incoming: [DaydreamNote]) -> [DaydreamNote] {
         var byId: [String: DaydreamNote] = [:]
         for note in held { byId[note.id] = note }
-        for note in incoming { byId[note.id] = note }
+        for note in incoming { byId[note.id] = byId[note.id].map { $0.merged(with: note) } ?? note }
         return byId.values.sorted { lhs, rhs in
             lhs.createdAt == rhs.createdAt ? lhs.id < rhs.id : lhs.createdAt > rhs.createdAt
         }
@@ -152,12 +188,43 @@ final class DaydreamStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            let feed: DaydreamFeed = try await client.send("api/native/daydream?limit=\(Self.pageLimit)")
+            let feed: DaydreamFeed = try await client.send("api/native/daydream?detail=1&limit=\(Self.pageLimit)")
             notes = Self.merge(notes, feed.notes)
+            pipeline = feed.pipeline
+            impact = feed.impact
         } catch let error as URLError where error.code == .cancelled {
         } catch is CancellationError {
         } catch {
         }
         loaded = true
+    }
+
+    // MARK: - Lists and counts, as the phone sees them now
+
+    /// The list a note sits in right now: the site's answer, moved by
+    /// anything done on this phone since it was read. A note answered here
+    /// stays in its list, showing the answer, until it settles — the same
+    /// few seconds Today and Health give it.
+    func bucket(for note: DaydreamNote, feedback: NoticedFeedback, commissions: CommissionStore) -> DaydreamBucket {
+        let verdict = feedback.verdict(for: note)
+        let live = commissions.commission(for: note)?.state
+        let state = live ?? note.commissionState
+        guard verdict != note.feedback || state != note.commissionState else { return note.bucket }
+        let now = DaydreamNote.derivedBucket(feedback: verdict, commissionState: state)
+        if now == .done, note.bucket == .decide, feedback.isShowing(note) { return .decide }
+        return now
+    }
+
+    /// The four counts on the strip: the site's, moved by this phone. `nil`
+    /// from an older server, which sends none.
+    func counts(feedback: NoticedFeedback, commissions: CommissionStore) -> DaydreamPipeline? {
+        pipeline?.adjusted(for: notes) { bucket(for: $0, feedback: feedback, commissions: commissions) }
+    }
+
+    /// How many notes wait for a call: the site's count when it sent one,
+    /// else the ones this phone holds.
+    func toDecide(feedback: NoticedFeedback, commissions: CommissionStore) -> Int {
+        if let counts = counts(feedback: feedback, commissions: commissions) { return counts.decide }
+        return notes.filter { bucket(for: $0, feedback: feedback, commissions: commissions) == .decide }.count
     }
 }
