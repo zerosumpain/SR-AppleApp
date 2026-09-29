@@ -151,6 +151,9 @@ private final class RouteGathering: @unchecked Sendable {
         }
     }
 
+    private func historyStart(for kind: String) -> Date { outbox.state.sync.historyStarts?[kind] ?? outbox.state.historyStart }
+    private func recentStart(for kind: String) -> Date { outbox.state.sync.recentStarts?[kind] ?? outbox.state.sync.recentStart ?? Date().addingTimeInterval(-48 * 3600) }
+
     // MARK: - The passes
 
     func collect(until deadline: Date) async throws {
@@ -160,11 +163,16 @@ private final class RouteGathering: @unchecked Sendable {
         let startedGeneration = generation
         let live: () -> Bool = { self.generation == startedGeneration }
         guard !outbox.state.sync.paused else { return }
-        if outbox.state.sync.recentStart == nil {
-            try await outbox.change { $0.sync.recentStart = Date().addingTimeInterval(-48 * 3600) }
-        }
         let kinds = enabledKinds
         guard !kinds.isEmpty else { return }
+        try await outbox.change { state in
+            guard live() else { return }
+            for kind in kinds {
+                state.sync.prepareWindow(kind: kind, legacyHistoryStart: state.historyStart,
+                    hasHistoryCursor: state.anchors[kind] != nil || state.hourlyFrom[kind] != nil,
+                    hasRecentCursor: state.anchors["recent.\(kind)"] != nil)
+            }
+        }
         // Every kind gets one bounded page before another turn. The checkpoint
         // makes a short background wake resume where the previous one stopped.
         let jobs = kinds.map { ($0, true) } + kinds.map { ($0, false) }
@@ -222,11 +230,11 @@ private final class RouteGathering: @unchecked Sendable {
         guard let sampleType = HealthReadings.sampleType(for: kind) else { return }
         let limit = kind == "workout" ? 1 : 200
         let key = recent ? "recent.\(kind)" : kind
-        let start = recent ? (outbox.state.sync.recentStart ?? Date()) : outbox.state.historyStart
+        let start = recent ? recentStart(for: kind) : historyStart(for: kind)
         if Date() < deadline {
             let anchorData = outbox.state.anchors[key]
             let anchor = try anchorData.map { try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) } ?? nil
-            let (found, deleted, next) = try await changes(type: sampleType, anchor: anchor, limit: limit, start: start, end: recent ? nil : outbox.state.sync.recentStart)
+            let (found, deleted, next) = try await changes(type: sampleType, anchor: anchor, limit: limit, start: start, end: recent ? nil : recentStart(for: kind))
             guard live(), enabledKinds.contains(kind) else { return }
             try Task.checkCancellation()
             var records: [HealthRecord] = []
@@ -312,9 +320,9 @@ private final class RouteGathering: @unchecked Sendable {
     private func hourly(kind: String, id: HKQuantityTypeIdentifier, unit: HKUnit, options: HKStatisticsOptions, scale: Double, recent: Bool, live: () -> Bool) async throws {
         var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
         let key = recent ? "recent.\(kind)" : kind
-        let from = recent ? Date().addingTimeInterval(-48 * 3600) : max(outbox.state.hourlyFrom[key] ?? outbox.state.historyStart, outbox.state.historyStart)
+        let from = recent ? Date().addingTimeInterval(-48 * 3600) : max(outbox.state.hourlyFrom[key] ?? historyStart(for: kind), historyStart(for: kind))
         let start = utc.dateInterval(of: .hour, for: from)!.start
-        let cutoff = recent ? Date() : (outbox.state.sync.recentStart ?? Date())
+        let cutoff = recent ? Date() : recentStart(for: kind)
         let end = min(cutoff, start.addingTimeInterval(7 * 86400))
         guard start < end else { return }
         let label = DateFormatter()
@@ -364,7 +372,7 @@ private final class RouteGathering: @unchecked Sendable {
     private func steps(generation startedGeneration: Int) async throws {
         let calendar = Calendar.current
         let recentStart = calendar.date(byAdding: .day, value: -29, to: Date())!
-        let start = calendar.startOfDay(for: max(outbox.state.historyStart, recentStart))
+        let start = calendar.startOfDay(for: max(historyStart(for: "steps"), recentStart))
         let end = Date()
         let quantity = Self.quantityType(.stepCount)
         let tz = zone
@@ -408,7 +416,7 @@ private final class RouteGathering: @unchecked Sendable {
         let now = Date()
         let recentStart = calendar.date(byAdding: .day, value: -29, to: now)!
         let dayParts: Set<Calendar.Component> = [.era, .year, .month, .day]
-        var from = calendar.dateComponents(dayParts, from: max(outbox.state.historyStart, recentStart))
+        var from = calendar.dateComponents(dayParts, from: max(historyStart(for: enabledKinds.first(where: HealthReadings.isActivityGoal) ?? "steps"), recentStart))
         var to = calendar.dateComponents(dayParts, from: now)
         from.calendar = calendar; to.calendar = calendar
         let predicate = HKQuery.predicate(forActivitySummariesBetweenStart: from, end: to)

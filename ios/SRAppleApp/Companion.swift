@@ -125,7 +125,8 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                     // `hourlySent` too: the purge below unqueues those values, so
                     // a re-enable must send every bucket again, not skip them.
                     for kind in kinds { for key in [kind, "recent.\(kind)"] { $0.anchors.removeValue(forKey: key); $0.hourlyFrom.removeValue(forKey: key); $0.hourlySent.removeValue(forKey: key) }
-                        $0.sync.recentComplete.removeAll { $0 == kind }; $0.sync.historyComplete.removeAll { $0 == kind } }
+                        $0.sync.recentComplete.removeAll { $0 == kind }; $0.sync.historyComplete.removeAll { $0 == kind }
+                        $0.sync.historyStarts?.removeValue(forKey: kind); $0.sync.recentStarts?.removeValue(forKey: kind) }
                     if kinds.contains("workout") { $0.pendingRoutes.removeAll(); $0.sync.workoutParts = nil }
                     for index in $0.batches.indices { $0.batches[index].health.removeAll { kinds.contains($0.kind) } }
                     $0.batches.removeAll { $0.health.isEmpty && $0.locations.isEmpty && $0.deleted.isEmpty }
@@ -295,6 +296,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             $0.sync.historyDays = days
             $0.historyStart = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
             $0.anchors = [:]; $0.hourlyFrom = [:]; $0.hourlySent = [:]; $0.sync.workoutParts = nil
+            $0.sync.historyStarts = nil; $0.sync.recentStarts = nil
             $0.sync.historyComplete = []; $0.sync.recentComplete = []; $0.sync.nextJob = 0; $0.sync.recentStart = nil
         } } catch { message = error.localizedDescription }
         health.startObservers()

@@ -48,4 +48,19 @@ final class EfficiencyTests: XCTestCase {
         XCTAssertTrue(items.isEmpty)
     }
 
+    func testNewCategoryUsesChosenWindowInsteadOfAnOldInstallDate() {
+        let now = Date(timeIntervalSince1970: 1800000000)
+        let old = now.addingTimeInterval(-730 * 86400)
+        var sync = HealthSyncState()
+        sync.recentStart = old
+        sync.prepareWindow(kind: "new", legacyHistoryStart: old, hasHistoryCursor: false, hasRecentCursor: false, now: now)
+        XCTAssertEqual(sync.recentStarts?["new"], now.addingTimeInterval(-48 * 3600))
+        XCTAssertEqual(sync.historyStarts?["new"], Calendar.current.date(byAdding: .day, value: -30, to: now))
+        sync.prepareWindow(kind: "existing", legacyHistoryStart: old, hasHistoryCursor: true, hasRecentCursor: true, now: now)
+        XCTAssertEqual(sync.historyStarts?["existing"], old)
+        XCTAssertEqual(sync.recentStarts?["existing"], old)
+        sync.prepareWindow(kind: "new", legacyHistoryStart: old, hasHistoryCursor: true, hasRecentCursor: true, now: now.addingTimeInterval(86400))
+        XCTAssertEqual(sync.recentStarts?["new"], now.addingTimeInterval(-48 * 3600), "an anchor's predicate stays fixed across resumes")
+    }
+
 }
