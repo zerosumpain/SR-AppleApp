@@ -17,7 +17,9 @@ import Foundation
 // with a half-typed answer on the wrong letter, and a review with a shared
 // answer, a wrong letter and an answer Alex has vetoed out. Liar's Dice:
 // Alex's turn to bid over a timed-out raise of Sam's, a call with every cup
-// up, and a finished game. The room stream has no
+// up, and a finished game. Draw & Guess: one of Sam's mid-drawing with Alex
+// guessing (a close guess of Alex's own in the feed), and one where Alex is
+// drawing. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -39,6 +41,8 @@ extension SRDemoFixtures {
     static let demoLiarsRoom = "g_demo_liars"
     static let demoLiarsRevealRoom = "g_demo_liars_reveal"
     static let demoLiarsDoneRoom = "g_demo_liars_done"
+    static let demoDrawGuessRoom = "g_demo_drawguess"
+    static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -106,6 +110,8 @@ extension SRDemoFixtures {
          "rooms": [\(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
+                   {"id": \(s(demoDrawGuessRoom)), "game": "draw-guess", "phase": "drawing", "hostName": "Sam"},
+                   {"id": \(s(demoDrawGuessMineRoom)), "game": "draw-guess", "phase": "drawing", "hostName": "Alex"},
                    {"id": \(s(demoLobbyRoom)), "game": "tap-duel", "phase": "lobby", "hostName": "Alex"},
                    \(storeShotsSkipsWordle ? "" : wordleLobbyRow)
                    {"id": \(s(demoQuizRoom)), "game": "quiz-night", "phase": "question", "hostName": "Alex"},
@@ -131,6 +137,8 @@ extension SRDemoFixtures {
         if id == demoLiarsRoom { return liarsRoom(.bidding, clock: clock) }
         if id == demoLiarsRevealRoom { return liarsRoom(.reveal, clock: clock) }
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
+        if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
+        if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
             return quizLobby(id: id, fields: ["topic": "space", "audience": "kids", "difficulty": "easy"],
                              invited: [], hostIsMe: false, meJoined: meJoined, prep: "writing", clock: clock)
@@ -574,5 +582,70 @@ extension SRDemoFixtures {
              "reveal": null, "standings": null, "winnerIds": []}
             """
         }
+    }
+
+    // MARK: Draw & Guess
+
+    /// Draw & Guess, easy, three players. Not mine: Sam is drawing a boat, 46
+    /// seconds in — Robin has it, Alex guessed "ship" and then "bost" (close,
+    /// which only Alex sees). Mine: Alex is drawing a kite, the first turn.
+    static func drawGuessRoom(mine: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        func stroke(_ id: Int, _ color: String, _ width: Int, _ points: [[Int]]) -> String {
+            "{\"id\": \(id), \"color\": \(s(color)), \"width\": \(width), \"points\": \(points)}"
+        }
+        let palette = #"["black","red","orange","yellow","green","blue","purple","brown","white"]"#
+        if !mine {
+            let boat = [
+                stroke(1, "blue", 6, [[80, 830], [200, 800], [320, 830], [440, 800], [560, 830], [680, 800], [800, 830], [920, 800]]),
+                stroke(2, "brown", 14, [[180, 640], [820, 640], [710, 770], [290, 770], [180, 640]]),
+                stroke(3, "black", 14, [[500, 640], [500, 180]]),
+                stroke(4, "red", 14, [[510, 200], [760, 590], [510, 590], [510, 200]]),
+                stroke(5, "yellow", 32, [[150, 150], [170, 140], [190, 150], [170, 165], [150, 150]]),
+            ]
+            return """
+            {"id": \(s(demoDrawGuessRoom)), "game": "draw-guess", "difficulty": "easy", "phase": "drawing",
+             "hostId": "p_sam", "meId": "p_alex", "turnsEach": 1, "timeLimitMs": 80000, "pickMs": 10000, "revealMs": 5000,
+             "phaseEndsAt": \(ms(now.addingTimeInterval(34))),
+             "turn": {"index": 1, "of": 3, "drawerId": "p_sam", "startedAt": \(ms(now.addingTimeInterval(-46))),
+                      "choices": null, "word": null, "hint": "b___",
+                      "solvers": [{"id": "p_robin", "points": 5}], "drawerPoints": null, "ended": null,
+                      "feed": [{"n": 1, "playerId": "p_alex", "name": "Alex", "kind": "guess", "text": "ship"},
+                               {"n": 2, "playerId": "p_robin", "name": "Robin", "kind": "solved", "text": null},
+                               {"n": 3, "playerId": "p_alex", "name": "Alex", "kind": "close", "text": "bost"}]},
+             "drawing": {"revision": 14, "since": null, "strokes": \(list(boat)), "ops": null},
+             "palette": \(palette), "widths": [6, 14, 32],
+             "players": [
+               {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": true, "score": 4, "solved": false, "isDrawing": true},
+               {"id": "p_alex", "name": "Alex", "status": "joined", "isHost": false, "score": 2, "solved": false, "isDrawing": false},
+               {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "score": 5, "solved": true, "isDrawing": false}
+             ],
+             "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+            """
+        }
+        let kite = [
+            stroke(1, "purple", 14, [[500, 120], [720, 360], [500, 600], [280, 360], [500, 120]]),
+            stroke(2, "purple", 6, [[500, 120], [500, 600]]),
+            stroke(3, "purple", 6, [[280, 360], [720, 360]]),
+            stroke(4, "black", 6, [[500, 600], [460, 680], [540, 760], [470, 850], [520, 930]]),
+        ]
+        return """
+        {"id": \(s(demoDrawGuessMineRoom)), "game": "draw-guess", "difficulty": "easy", "phase": "drawing",
+         "hostId": "p_alex", "meId": "p_alex", "turnsEach": 1, "timeLimitMs": 80000, "pickMs": 10000, "revealMs": 5000,
+         "phaseEndsAt": \(ms(now.addingTimeInterval(55))),
+         "turn": {"index": 0, "of": 3, "drawerId": "p_alex", "startedAt": \(ms(now.addingTimeInterval(-25))),
+                  "choices": null, "word": "kite", "hint": "____",
+                  "solvers": [], "drawerPoints": null, "ended": null,
+                  "feed": [{"n": 1, "playerId": "p_sam", "name": "Sam", "kind": "guess", "text": "diamond"},
+                           {"n": 2, "playerId": "p_robin", "name": "Robin", "kind": "guess", "text": "balloon"}]},
+         "drawing": {"revision": 9, "since": null, "strokes": \(list(kite)), "ops": null},
+         "palette": \(palette), "widths": [6, 14, 32],
+         "players": [
+           {"id": "p_alex", "name": "Alex", "status": "joined", "isHost": true, "score": 0, "solved": false, "isDrawing": true},
+           {"id": "p_sam", "name": "Sam", "status": "joined", "isHost": false, "score": 0, "solved": false, "isDrawing": false},
+           {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "score": 0, "solved": false, "isDrawing": false}
+         ],
+         "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
     }
 }

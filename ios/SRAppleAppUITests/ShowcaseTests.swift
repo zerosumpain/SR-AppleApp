@@ -836,6 +836,46 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
+    /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
+    /// palette, widths, Undo and Clear.
+    @MainActor func testShowcaseDrawGuess() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let guessing = byId(app, "games-room-g_demo_drawguess")
+        if scroll(app, to: guessing) {
+            guessing.tap()
+            settle(app, on: byId(app, "drawguess-canvas"), seconds: 2)
+            soft(byId(app, "drawguess-word").exists, "no blanks")
+            soft(byId(app, "drawguess-timer").exists, "no clock")
+            soft(byId(app, "drawguess-guess-field").exists, "no guess box")
+            soft(byId(app, "drawguess-seat-p_sam").exists, "Sam is not in the strip")
+            soft(byId(app, "drawguess-feed").exists, "no feed")
+            soft(!byId(app, "drawguess-tools").exists, "a guesser has the drawing tools")
+            attach(app, "Showcase — Draw & Guess, guessing")
+            back(app)
+        } else {
+            soft(false, "no Draw & Guess to guess in")
+        }
+
+        let drawing = byId(app, "games-room-g_demo_drawguess_mine")
+        if scroll(app, to: drawing) {
+            drawing.tap()
+            settle(app, on: byId(app, "drawguess-canvas"), seconds: 2)
+            soft(byId(app, "drawguess-tools").exists, "no drawing tools")
+            soft(byId(app, "drawguess-color-white").exists, "no eraser")
+            soft(byId(app, "drawguess-undo").exists, "no Undo")
+            soft(byId(app, "drawguess-clear").exists, "no Clear")
+            soft(!byId(app, "drawguess-guess-field").exists, "the drawer has a guess box")
+            attach(app, "Showcase — Draw & Guess, drawing")
+            back(app)
+        } else {
+            soft(false, "no Draw & Guess of mine")
+        }
+    }
+
     // MARK: - A member
 
     /// A family member given Family and Games and nothing else. Chat, News and

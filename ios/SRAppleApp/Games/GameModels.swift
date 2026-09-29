@@ -32,6 +32,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case boggle
     case categories
     case liarsDice = "liars-dice"
+    case drawGuess = "draw-guess"
 
     var id: String { rawValue }
 
@@ -46,6 +47,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .boggle: return "Boggle"
         case .categories: return "Categories"
         case .liarsDice: return "Liar's Dice"
+        case .drawGuess: return "Draw & Guess"
         }
     }
 
@@ -61,6 +63,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .boggle: return "A grid of dice. Trace words through touching letters."
         case .categories: return "One letter, a card of categories. Fill every line."
         case .liarsDice: return "Hidden dice, bold bids. Call the liar."
+        case .drawGuess: return "Take turns drawing a word while everyone guesses."
         }
     }
 
@@ -85,6 +88,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone gets the same letter and card. Answer each category with that letter; an answer somebody else also wrote scores nothing, and the family can veto a cheeky one."
         case .liarsDice:
             return "Everyone rolls in secret. Bid on what the whole table holds, or call the last bid a lie. Lose a call, lose a die; last one with dice wins."
+        case .drawGuess:
+            return "Everyone draws in turn. Pick one of three words, draw it, and the others race to guess. The quicker the guess, the more it scores — for them and for you."
         }
     }
 
@@ -99,6 +104,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .boggle: return "square.grid.4x3.fill"
         case .categories: return "list.bullet.rectangle.fill"
         case .liarsDice: return "dice.fill"
+        case .drawGuess: return "scribble.variable"
         }
     }
 }
@@ -150,6 +156,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.liarsDice, .easy): return "Ones are just ones. 45 seconds a turn."
         case (.liarsDice, .medium): return "Ones are wild. 45 seconds a turn."
         case (.liarsDice, .hard): return "Ones are wild. 30 seconds a turn."
+        case (.drawGuess, .easy): return "Simple things: animals, food, toys."
+        case (.drawGuess, .medium): return "Trickier things to draw, and a few actions."
+        case (.drawGuess, .hard): return "Actions, places and ideas that need a whole scene."
         }
     }
 
@@ -583,6 +592,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// decoded from the same JSON by `LiarsDiceState`. Nil in other games.
     let liarsDice: LiarsDiceState?
 
+    /// Draw & Guess: its turn, drawing and feed, read from the same JSON
+    /// (`DrawGuessLogic.swift`). Nil in every other game's room.
+    let drawGuess: DrawGuessState?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
@@ -653,6 +666,11 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         categories = (try? c.decodeIfPresent([String].self, forKey: .categories)) ?? nil
         let isLiarsDice = (try? c.decodeIfPresent(String.self, forKey: .game)) == GameKind.liarsDice.rawValue
         liarsDice = isLiarsDice ? (try? LiarsDiceState(from: decoder)) : nil
+        if game == GameKind.drawGuess.rawValue {
+            drawGuess = try? DrawGuessState(from: decoder)
+        } else {
+            drawGuess = nil
+        }
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -699,6 +717,8 @@ struct CreateGameBody: Encodable, Equatable {
     var categoryCount: Int? = nil
     /// Liar's Dice: dice each (3 | 5).
     var dice: Int? = nil
+    /// Draw & Guess: times round the table (1 | 2); `seconds` is a drawing's clock.
+    var turnsEach: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -726,6 +746,14 @@ struct GameActionBody: Encodable {
     /// Liar's Dice: `{action:"bid", quantity, face}` (`liar` takes nothing).
     var quantity: Int? = nil
     var face: Int? = nil
+    /// Draw & Guess: `pick {index}`; `stroke {id, color, width, points:[[x,y],…]}`;
+    /// `undo`; `clear`; `guess {text}` (`text` as Categories'). `since` is the
+    /// drawing revision this phone holds, so the answer carries only the changes after it.
+    var id: Int? = nil
+    var color: String? = nil
+    var width: Int? = nil
+    var points: [[Int]]? = nil
+    var since: Int? = nil
     /// The host asking more people into the lobby: `{action:"invite", invite:[playerId]}`.
     var invite: [String]? = nil
 }
