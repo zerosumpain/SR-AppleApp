@@ -26,6 +26,7 @@ final class FamilyStore: ObservableObject {
     /// This phone's own view, as read. `view` is this — or, while the owner
     /// is viewing the app as somebody, that person's view instead.
     private var real: HouseholdView?
+    private var liveFixes: [String: LiveFamilyResponse.Fix] = [:]
 
     init(companion: Companion) {
         self.companion = companion
@@ -44,6 +45,7 @@ final class FamilyStore: ObservableObject {
         }
         guard companion.paired else {
             real = nil
+            liveFixes = [:]
             view = nil
             loaded = true
             return
@@ -61,7 +63,7 @@ final class FamilyStore: ObservableObject {
             message = nil
         } catch {
             if case .response(let status, _)? = error as? CompanionError, status == 401 || status == 403 {
-                real = nil; view = nil; updated = nil
+                real = nil; view = nil; updated = nil; liveFixes = [:]
                 await companion.adoptWatch(nil)
                 AccessStore.shared.adopt(previews: nil)
                 FamilyWidgetBridge.clear()
@@ -83,25 +85,20 @@ final class FamilyStore: ObservableObject {
                 try Task.checkCancellation()
                 revision = response.revision
                 if response.revision == "unavailable" {
-                    real = nil; view = nil
+                    real = nil; view = nil; liveFixes = [:]
                     await load()
                     try await Task.sleep(for: .seconds(5))
                     continue
                 }
                 // Owner preview views have their own scope and remain on their
                 // scoped snapshot until a fresh preview arrives.
-                for fix in response.positions {
-                    guard let index = real?.people.firstIndex(where: { $0.subject == fix.subject && $0.sharing }) else { continue }
-                    if let old = real?.people[index].position, old.at > fix.position.at { continue }
-                    real?.people[index].position = fix.position
-                    real?.people[index].lastSeenAt = fix.position.at
-                    real?.people[index].batteryPct = fix.battery
-                }
+                liveFixes = Dictionary(response.positions.map { ($0.subject, $0) }, uniquingKeysWith: { old, new in old.position.at > new.position.at ? old : new })
+                message = nil
                 applyViewingAs()
             } catch {
                 if Task.isCancelled { return }
                 if case .response(let status, _)? = error as? CompanionError, status == 401 || status == 403 {
-                    real = nil; view = nil; updated = nil
+                    real = nil; view = nil; updated = nil; liveFixes = [:]
                     FamilyWidgetBridge.clear()
                     return
                 }
@@ -114,8 +111,39 @@ final class FamilyStore: ObservableObject {
     /// Show the person the owner is viewing the app as, or this phone's own
     /// view. Called on every read, and when "View as" changes.
     func applyViewingAs() {
+        if var own = real {
+            liveFixes = liveFixes.filter { id, _ in own.people.contains { $0.subject == id && $0.sharing } }
+            for index in own.people.indices {
+                guard let fix = liveFixes[own.people[index].subject], own.people[index].sharing else { continue }
+                if let old = own.people[index].position, old.at > fix.position.at { continue }
+                own.people[index].position = fix.position
+                own.people[index].lastSeenAt = fix.position.at
+                own.people[index].batteryPct = fix.battery
+                if fix.moving, fix.speed >= 0.5, Self.fixAge(fix.position.at) < 30 {
+                    own.people[index].moving = FamilyPerson.Moving(mode: fix.speed < 2.8 ? "walking" : fix.speed < 7.5 ? "active" : "vehicle",
+                        speedKmh: fix.speed * 3.6, since: own.people[index].moving?.since ?? fix.position.at)
+                } else { own.people[index].moving = nil }
+            }
+            real = own
+        }
+        if var current = real {
+            for index in current.people.indices where Self.fixAge(current.people[index].position?.at) >= 30 {
+                current.people[index].moving = nil
+            }
+            real = current
+        }
         let shown = AccessStore.shared.viewingAs?.view ?? real
         view = shown?.showsHousehold == true ? shown : nil
+    }
+
+    private static func fixAge(_ at: String?) -> TimeInterval {
+        guard let at else { return .infinity }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let precise = formatter.date(from: at)
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = precise ?? formatter.date(from: at) else { return .infinity }
+        return Date().timeIntervalSince(date)
     }
 
     /// "Updated 2m ago", from when the server filed the view.

@@ -615,6 +615,8 @@ struct AppleHealthScreen: View {
                     Text("1 year").tag(365)
                 }
                 if companion.collectingHistory { Label("Collecting recent data, then history", systemImage: "arrow.triangle.2.circlepath") }
+                SRRow(title: "Import progress", subtitle: "\(outbox.state.sync.recentComplete.count) recent categories checked · \(outbox.state.sync.historyComplete.count) history categories checked")
+                ShareLink(item: SyncDiagnostics.report(outbox.state)) { Label("Share sync diagnostics", systemImage: "square.and.arrow.up") }
                 SRRow(title: "Last Health upload", subtitle: outbox.state.sync.lastHealthUpload.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "No Health upload yet")
                 SRRow(title: "Last location upload", subtitle: outbox.state.sync.lastLocationUpload.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "No location upload yet")
                 if !outbox.state.sync.refused.isEmpty {

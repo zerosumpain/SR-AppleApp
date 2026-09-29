@@ -37,6 +37,11 @@ final class NewsStore: ObservableObject {
         let requestedView = view
         loading = true
         defer { if requestGeneration == generation { loading = false } }
+        if feed == nil {
+            let saved = await client.cached("api/native/news?view=\(view.rawValue)&sort=\(sort)", as: NewsFeed.self)
+            guard requestGeneration == generation, view == requestedView else { return }
+            feed = saved
+        }
         do {
             var path = "api/native/news?view=\(view.rawValue)&sort=\(sort)"
             if force { path += "&fresh=1" }
@@ -52,7 +57,11 @@ final class NewsStore: ObservableObject {
             message = nil
         } catch SiteError.expired {
             guard requestGeneration == generation else { return }
+            feed = nil
             message = "This iPhone needs pairing again."
+        } catch SiteError.status(let code, let detail) where code == 403 {
+            guard requestGeneration == generation else { return }
+            feed = nil; message = detail
         } catch {
             guard requestGeneration == generation else { return }
             // A desk that has stories on screen keeps them. Replacing a readable
@@ -95,6 +104,12 @@ final class NewsStore: ObservableObject {
                 let nowSaved = result?.favourite ?? !isSaved(story)
                 savedOverrides[story.key] = nowSaved
                 message = nowSaved ? "Saved." : "Removed from saved."
+                if nowSaved {
+                    do {
+                        let _: NewsArticle = try await client.send("api/native/news/story/\(story.source)/\(story.storyId)")
+                        message = "Saved for offline reading."
+                    } catch { message = "Saved. Open the article when connected to keep an offline copy." }
+                }
             case .graph:
                 keptOverrides.insert(story.key)
                 message = "Kept in the graph."
@@ -130,9 +145,14 @@ final class StoryStore: ObservableObject {
     func load(source: String, id: String) async {
         loading = true
         defer { loading = false }
+        if article == nil { article = await client.cached("api/native/news/story/\(source)/\(id)", as: NewsArticle.self) }
         do {
             article = try await client.send("api/native/news/story/\(source)/\(id)")
             message = nil
+        } catch SiteError.expired {
+            article = nil; message = "This iPhone needs pairing again."
+        } catch SiteError.status(let code, let detail) where code == 403 {
+            article = nil; message = detail
         } catch {
             message = error.localizedDescription
         }

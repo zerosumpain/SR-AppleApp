@@ -215,7 +215,7 @@ private final class RouteGathering: @unchecked Sendable {
     }
 
     /// Anchored changes since historyStart; each page persists its anchor, so
-    /// an interrupted pass loses at most one page. Workouts page by 10: each
+    /// an interrupted pass loses at most one page. Workouts page one at a time: each
     /// costs a dozen queries, and a page that never fits the deadline would
     /// never commit its anchor.
     private func anchored(kind: String, recent: Bool, deadline: Date, live: () -> Bool) async throws {
@@ -233,7 +233,7 @@ private final class RouteGathering: @unchecked Sendable {
             for sample in found {
                 try Task.checkCancellation()
                 if kind == "workout", let w = sample as? HKWorkout {
-                    let parts = try await workoutRecords(w)
+                    let parts = try await workoutRecords(w, live: live)
                     records += parts
                 } else if let r = record(sample, kind: kind) {
                     records.append(r)
@@ -392,6 +392,7 @@ private final class RouteGathering: @unchecked Sendable {
         let (changed, sent) = HealthBatching.changed(records, since: outbox.state.hourlySent["steps"] ?? [:])
         guard !changed.isEmpty || sent != (outbox.state.hourlySent["steps"] ?? [:]) else { return }
         try await outbox.change {
+            guard generation == startedGeneration, enabledKinds.contains("steps") else { return }
             $0.batches = HealthBatching.queue(changed, into: $0.batches)
             $0.hourlySent["steps"] = sent
         }
@@ -437,7 +438,8 @@ private final class RouteGathering: @unchecked Sendable {
         }
         guard !updates.isEmpty else { return }
         try await outbox.change {
-            for update in updates {
+            guard generation == startedGeneration else { return }
+            for update in updates where enabledKinds.contains(update.kind) {
                 $0.batches = HealthBatching.queue(update.changed, into: $0.batches)
                 $0.hourlySent[update.kind] = update.sent
             }
@@ -478,7 +480,7 @@ private final class RouteGathering: @unchecked Sendable {
     /// and route as chunk records. The route may not exist yet — watchOS saves
     /// it after the workout — so an outdoor workout without one is queued for
     /// `retryRoutes`.
-    private func workoutRecords(_ w: HKWorkout) async throws -> [HealthRecord] {
+    private func workoutRecords(_ w: HKWorkout, live: () -> Bool) async throws -> [HealthRecord] {
         let id = w.uuid.uuidString, source = w.sourceRevision.source.name
         let metadata = w.metadata ?? [:]
         var r = HealthRecord(id: id, kind: "workout", start: timestamp(w.startDate), end: timestamp(w.endDate), value: w.duration, unit: "seconds", source: source)
@@ -515,7 +517,7 @@ private final class RouteGathering: @unchecked Sendable {
         }
         let out = [HealthBatching.finiteWorkoutFields(r)]
         let completed = outbox.state.sync.workoutParts?[id] ?? 0
-        if completed == 0 { try await commitWorkoutPart(out, id: id, next: 1) }
+        if completed == 0 { try await commitWorkoutPart(out, id: id, next: 1, live: live) }
         // Series: samples HealthKit ASSOCIATES with the workout; a third-party
         // app may associate none, so fall back to the workout's time window.
         var seen = Set<String>()
@@ -528,7 +530,7 @@ private final class RouteGathering: @unchecked Sendable {
             if found.isEmpty { found = try await fetchSamples(type, HKQuery.predicateForSamples(withStart: w.startDate, end: w.endDate, options: .strictStartDate)) }
             let points = Self.points(found, unit: s.unit)
             let chunks = HealthBatching.chunks(kind: "workout_series", workout: id, metric: s.metric, unit: HealthCatalogue.file.series[s.metric], points: points, source: source, size: HealthBatching.seriesChunk)
-            try await commitWorkoutPart(chunks, id: id, next: index + 2)
+            try await commitWorkoutPart(chunks, id: id, next: index + 2, live: live)
         }
         // Heart-rate recovery: the three minutes after the workout ends
         // (physio-service reads HRR60 from this).
@@ -536,19 +538,22 @@ private final class RouteGathering: @unchecked Sendable {
         if completed < recoveryPart {
         let after = try await fetchSamples(Self.quantityType(.heartRate), HKQuery.predicateForSamples(withStart: w.endDate, end: w.endDate.addingTimeInterval(180), options: []))
         let recovery = Self.points(after, unit: HealthReadings.bpm)
-        try await commitWorkoutPart(HealthBatching.chunks(kind: "workout_series", workout: id, metric: "heart_rate_recovery", unit: "bpm", points: recovery, source: source, size: HealthBatching.seriesChunk), id: id, next: recoveryPart)
+        try await commitWorkoutPart(HealthBatching.chunks(kind: "workout_series", workout: id, metric: "heart_rate_recovery", unit: "bpm", points: recovery, source: source, size: HealthBatching.seriesChunk), id: id, next: recoveryPart, live: live)
         }
         let route = try await routePoints(w)
         if route.isEmpty, r.indoor != true, Self.routed.contains(w.workoutActivityType), w.endDate > Date().addingTimeInterval(-7 * 86400) {
-            try await outbox.change { $0.pendingRoutes[id] = w.endDate }
+            try await outbox.change {
+                guard live(), enabledKinds.contains("workout") else { throw CancellationError() }
+                $0.pendingRoutes[id] = w.endDate
+            }
         }
-        try await commitWorkoutPart(HealthBatching.chunks(kind: "workout_route", workout: id, metric: nil, unit: nil, points: route, source: source, size: HealthBatching.routeChunk), id: id, next: recoveryPart + 1)
+        try await commitWorkoutPart(HealthBatching.chunks(kind: "workout_route", workout: id, metric: nil, unit: nil, points: route, source: source, size: HealthBatching.routeChunk), id: id, next: recoveryPart + 1, live: live)
         return out
     }
 
-    private func commitWorkoutPart(_ records: [HealthRecord], id: String, next: Int) async throws {
+    private func commitWorkoutPart(_ records: [HealthRecord], id: String, next: Int, live: () -> Bool) async throws {
         try await outbox.change { state in
-            guard enabledKinds.contains("workout") else { throw CancellationError() }
+            guard live(), enabledKinds.contains("workout") else { throw CancellationError() }
             state.batches = HealthBatching.queue(records.filter { HealthCatalogue.accepts($0) }, into: state.batches)
             if state.sync.workoutParts == nil { state.sync.workoutParts = [:] }
             state.sync.workoutParts?[id] = next
@@ -615,6 +620,7 @@ private final class RouteGathering: @unchecked Sendable {
             guard !route.isEmpty, live() else { continue }
             let chunks = HealthBatching.chunks(kind: "workout_route", workout: id, metric: nil, unit: nil, points: route, source: w.sourceRevision.source.name, size: HealthBatching.routeChunk)
             try await outbox.change {
+                guard live(), enabledKinds.contains("workout") else { return }
                 $0.batches += HealthBatching.batches(chunks)
                 $0.pendingRoutes.removeValue(forKey: id)
             }

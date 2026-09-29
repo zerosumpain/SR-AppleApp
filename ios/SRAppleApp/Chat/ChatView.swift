@@ -457,10 +457,11 @@ struct ChatScreen: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Message saved on this iPhone").font(SR.Text.bodyMedium())
                         Text(failed.text).font(SR.Text.secondary()).lineLimit(2)
+                        Text("The server may already have accepted this message. Reconnect to the same turn, or check the thread before sending again.").font(SR.Text.secondary())
                         HStack {
                             Button("Retry connection") { Task { await store.retrySend() } }
                             Spacer()
-                            Button("Return to draft") { Task { let text = await store.discardFailed(); draft = draft.isEmpty ? text : draft + "\n" + text } }
+                            Button("Check thread") { Task { _ = await store.discardFailed() } }
                         }.frame(minHeight: SR.tapTarget)
                     }.padding().background(SR.surface)
                 }

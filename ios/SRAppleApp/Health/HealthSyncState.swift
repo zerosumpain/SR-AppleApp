@@ -10,6 +10,7 @@ struct HealthSyncState: Codable {
     var recentStart: Date?
     var recentComplete: [String] = []
     var historyComplete: [String] = []
+    var enabledSince: Date?
     var lastCollected: Date?
     var lastHealthUpload: Date?
     var lastLocationUpload: Date?

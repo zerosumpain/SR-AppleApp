@@ -383,12 +383,12 @@ struct CodeBlock: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text)
                     .font(SR.mono(13))
-                    .foregroundStyle(SR.paper)
+                    .foregroundStyle(SR.onInk)
                     .textSelection(.enabled)
                     .padding(12)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SR.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(SR.inkBand, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

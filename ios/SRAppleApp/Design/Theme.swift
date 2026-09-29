@@ -26,7 +26,7 @@ import UIKit
 /// bar at the top edge so everything docks under it, and the content scrolls on
 /// cream beneath.
 enum SR {
-    private static func adaptive(_ light: UInt32, _ dark: UInt32, alpha: Double = 1) -> Color {
+    static func adaptive(_ light: UInt32, _ dark: UInt32, alpha: Double = 1) -> Color {
         Color(UIColor { traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255,

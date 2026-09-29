@@ -213,7 +213,11 @@ final class FamilyTasksStore: ObservableObject {
             replace(response.task)
             pendingActions.removeValue(forKey: pending.task.id)
             revision += 1
-            try await LocalJournal.shared.save(pendingActions, scope: scope, key: "family-task-actions")
+            do { try await LocalJournal.shared.save(pendingActions, scope: scope, key: "family-task-actions") }
+            catch {
+                message = "Saved on the site. Local recovery cleanup will retry when you reopen Tasks."
+                return true
+            }
             message = pendingActions.isEmpty ? nil : "Some changes are waiting to sync."
             SRHaptic.ok()
             return true
@@ -226,7 +230,14 @@ final class FamilyTasksStore: ObservableObject {
             pendingActions.removeValue(forKey: pending.task.id)
             replace(pending.task)
             try? await LocalJournal.shared.save(pendingActions, scope: scope, key: "family-task-actions")
-            if !loading { await load() }
+            if let failure = error as? SiteError, failure.status == 409 {
+                // This can run inside load's queue drain; do not call load
+                // recursively and leave the reverted, stale task on screen.
+                if let current: FamilyTasksBoard = try? await SiteClient.shared.send("api/native/family/tasks"), scope == SiteClient.shared.storageScope {
+                    board = current
+                    for other in pendingActions.values { optimistic(other) }
+                }
+            } else if !loading { await load() }
             message = Self.sentence(for: error)
             return false
         }

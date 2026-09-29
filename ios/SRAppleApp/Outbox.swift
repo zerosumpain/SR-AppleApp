@@ -41,6 +41,8 @@ import SQLite3
         defer { leave() }
         var next = state
         try transform(&next)
+        let ids = Set(next.batches.map { $0.id.uuidString })
+        next.sync.refused = next.sync.refused.filter { ids.contains($0.key) }
         let health = next.batches.reduce(0) { $0 + $1.health.count + $1.deleted.count }
         let total = health + next.batches.reduce(0) { $0 + $1.locations.count }
         // Leave room for location even when a Health backfill is offline.
@@ -102,7 +104,7 @@ actor OutboxStorage {
                 state = FileManager.default.fileExists(atPath: legacy.path)
                     ? try JSONDecoder().decode(PersistedState.self, from: Data(contentsOf: legacy)) : PersistedState()
                 try store(db, state: state, previous: PersistedState())
-                // Keep the original JSON as the migration recovery source.
+                // Remove the legacy file only after the committed rows decode below.
             }
             state.batches = try rows(db, "SELECT id,payload FROM batches ORDER BY ordinal").map { row in
                 var batch = try JSONDecoder().decode(UploadBatch.self, from: row[1])

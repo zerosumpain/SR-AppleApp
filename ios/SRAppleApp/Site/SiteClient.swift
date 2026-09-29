@@ -287,6 +287,17 @@ final class SiteClient {
         }
     }
 
+    /// First paint may use a dated snapshot while the authoritative read runs.
+    func cached<T: Decodable>(_ path: String, as type: T.Type) async -> T? {
+        guard OfflineSnapshots.allowed(path), let scope = storageScope else { return nil }
+        let generation = cacheGeneration
+        guard let entry = await OfflineSnapshots.shared.read(scope: scope, path: path),
+              generation == cacheGeneration, scope == storageScope,
+              let value = try? JSONDecoder().decode(type, from: entry.data) else { return nil }
+        OfflineSnapshotStatus.shared.message = "Saved \(entry.savedAt.formatted(date: .abbreviated, time: .shortened)) · checking for updates"
+        return value
+    }
+
     private func read(_ path: String) async throws -> Data {
         let scope = storageScope
         let key = (scope ?? "demo") + "|" + path

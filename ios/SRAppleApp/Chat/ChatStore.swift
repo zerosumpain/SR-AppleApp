@@ -232,7 +232,7 @@ final class ChatStore: ObservableObject {
     func retrySend() async {
         guard let turn = failedSend, !sending else { return }
         if let job = turn.jobId {
-            activeTurn = turn; failedSend = nil; jobId = job; sending = true
+            activeTurn = turn; failedSend = nil; jobId = job; lastEventId = nil; sending = true
             let assistant = ChatMessage.pending(id: "local-assistant-\(turn.requestId)", role: "assistant", content: "")
             messages.removeAll { $0.id == assistant.id }
             messages.append(assistant); liveBubbleId = assistant.id
@@ -241,9 +241,10 @@ final class ChatStore: ObservableObject {
     }
     func discardFailed() async -> String {
         guard let turn = failedSend, let scope = savedScope else { return "" }
-        await LocalJournal.shared.remove(scope: scope, key: "turn.\(conversationId)")
+        await LocalJournal.shared.removeIfMatching(PendingTurn.self, scope: scope, key: "turn.\(conversationId)") { $0.requestId == turn.requestId }
         failedSend = nil
-        return turn.text
+        await load()
+        return ""
     }
 
     let conversationId: String
@@ -586,8 +587,8 @@ final class ChatStore: ObservableObject {
     private func finish(with error: String?) {
         flushTokens()
         if error != nil { failedSend = activeTurn }
-        else if let scope = savedScope {
-            Task { await LocalJournal.shared.remove(scope: scope, key: "turn.\(conversationId)") }
+        else if let scope = savedScope, let completed = activeTurn {
+            Task { await LocalJournal.shared.removeIfMatching(PendingTurn.self, scope: scope, key: "turn.\(conversationId)") { $0.requestId == completed.requestId } }
             activeTurn = nil
         }
         sending = false

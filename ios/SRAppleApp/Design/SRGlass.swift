@@ -37,14 +37,14 @@ extension SR {
         static let bandInset: CGFloat = SR.gutter
         /// A cream tint on glass over paper, so a panel reads as a sheet of the
         /// page lifted rather than a hole in it.
-        static let paperTint = Color(hex: 0xF6EFE3, alpha: 0.55)
+        static let paperTint = SR.adaptive(0xF6EFE3, 0x302920, alpha: 0.55)
         /// The smoked slab. Ink, not black — the brown is the SR part.
         static let inkTint = Color(hex: 0x1A1008, alpha: 0.82)
         /// A grouped list row over the atmosphere: frosted cream, not opaque, so
         /// the ground shows through the sections the way it does through glass.
-        static let rowFill = Color(hex: 0xFBF6EE, alpha: 0.62)
+        static let rowFill = SR.adaptive(0xFBF6EE, 0x302920, alpha: 0.62)
         /// The accent, as glass wants it: saturated enough to read through.
-        static let accentTint = Color(hex: 0xC4570A, alpha: 0.85)
+        static let accentTint = SR.adaptive(0xC4570A, 0xE8863A, alpha: 0.85)
     }
 }
 
@@ -177,7 +177,7 @@ private func srGlassValue(_ kind: SRGlassKind, interactive: Bool) -> Glass {
 
 private func srFallbackTint(_ kind: SRGlassKind) -> Color {
     switch kind {
-    case .paper: return Color(hex: 0xF6EFE3, alpha: 0.6)
+    case .paper: return SR.adaptive(0xF6EFE3, 0x302920, alpha: 0.6)
     case .ink: return Color(hex: 0x1A1008, alpha: 0.9)
     case .accent: return SR.accent
     case .clear: return Color.white.opacity(0.2)

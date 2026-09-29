@@ -116,14 +116,17 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             try await outbox.change {
                 var groups = Set($0.healthEnabled)
                 groups.remove(group)
-                if enabled { groups.insert(group) }
+                if enabled {
+                    groups.insert(group)
+                    if $0.sync.enabledSince == nil { $0.sync.enabledSince = Date() }
+                }
                 $0.healthEnabled = HealthCatalogue.groupOrder.filter { groups.contains($0) }
                 if !enabled {
                     // `hourlySent` too: the purge below unqueues those values, so
                     // a re-enable must send every bucket again, not skip them.
                     for kind in kinds { for key in [kind, "recent.\(kind)"] { $0.anchors.removeValue(forKey: key); $0.hourlyFrom.removeValue(forKey: key); $0.hourlySent.removeValue(forKey: key) }
                         $0.sync.recentComplete.removeAll { $0 == kind }; $0.sync.historyComplete.removeAll { $0 == kind } }
-                    if kinds.contains("workout") { $0.pendingRoutes.removeAll() }
+                    if kinds.contains("workout") { $0.pendingRoutes.removeAll(); $0.sync.workoutParts = nil }
                     for index in $0.batches.indices { $0.batches[index].health.removeAll { kinds.contains($0.kind) } }
                     $0.batches.removeAll { $0.health.isEmpty && $0.locations.isEmpty && $0.deleted.isEmpty }
                 }
@@ -291,7 +294,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         do { try await outbox.change {
             $0.sync.historyDays = days
             $0.historyStart = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
-            $0.anchors = [:]; $0.hourlyFrom = [:]; $0.hourlySent = [:]
+            $0.anchors = [:]; $0.hourlyFrom = [:]; $0.hourlySent = [:]; $0.sync.workoutParts = nil
             $0.sync.historyComplete = []; $0.sync.recentComplete = []; $0.sync.nextJob = 0; $0.sync.recentStart = nil
         } } catch { message = error.localizedDescription }
         health.startObservers()
@@ -405,7 +408,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                             state.batches.replaceSubrange(index...index, with: HealthBatching.split(state.batches[index]))
                         }
                     case .drop:
-                        dropped += try await drop([batch.id], status: status, reason: reason)
+                        dropped += try await retainRefused([batch.id], status: status, reason: reason)
                     case .hold:
                         break
                     case .stop:
@@ -432,7 +435,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 if queueCount > 0 { message = "Uploading \(queueCount) record\(queueCount == 1 ? "" : "s")…" }
                 if Date().timeIntervalSince(lastPersist) >= 2 { try await outbox.persistIfDirty(); lastPersist = Date() }
                 let evidenced = round.accepted()
-                if !evidenced.isEmpty { dropped += try await drop(evidenced, status: 400, reason: "refused while others were accepted") }
+                if !evidenced.isEmpty { dropped += try await retainRefused(evidenced, status: 400, reason: "refused while others were accepted") }
             }
             // A held deletion (or a record no acceptance vouched against)
             // is still queued: retry it later, as for any failed upload.
@@ -482,9 +485,8 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         // would only make the wake wait longer for nothing.
         await drainHouseholdAlerts(uploadFailed: uploadFailed)
     }
-    /// Removes refused batches (each a lone record) and logs what went — kind
-    /// and id, never values. Returns how many records that was.
-    private func drop(_ ids: [UUID], status: Int, reason: String) async throws -> Int {
+    /// Keep refused records for an explicit retry; log metadata without values.
+    private func retainRefused(_ ids: [UUID], status: Int, reason: String) async throws -> Int {
         let gone = outbox.state.batches.filter { ids.contains($0.id) }
         try await outbox.change { state in
             for id in ids { state.sync.refused[id.uuidString] = "Server refused this record (\(status)). Retry after the server is updated." }

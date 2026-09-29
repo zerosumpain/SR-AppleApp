@@ -204,12 +204,7 @@ final class Router: ObservableObject {
 /// What replaced it is `Today`: the figures, the alerts and the headline on one
 /// screen, which is the thing a phone is actually opened for.
 ///
-/// The whole app is light-locked. That is not laziness about dark mode: the site
-/// has no dark mode. Its palette is one warm cream ground with ink type, and the
-/// ink is chrome — a bar, a footer, one ledger. Inverting it would not be the
-/// same design with different values, it would be a different design. CI runs the
-/// simulator in DARK appearance deliberately, so a regression here shows up as a
-/// screenshot rather than as a surprise on somebody's phone.
+/// Appearance follows the reader’s system/light/dark preference.
 struct ContentView: View {
     @ObservedObject var companion: Companion
     @ObservedObject var outbox: Outbox
@@ -529,7 +524,8 @@ struct ContentView: View {
             paired: companion.paired,
             healthEnabled: !outbox.state.healthEnabled.isEmpty,
             reviewNeeded: companion.healthReviewNeeded,
-            lastUpload: companion.lastHealthUpload
+            lastUpload: companion.lastHealthUpload,
+            enabledSince: outbox.state.sync.enabledSince
         ))
     }
 

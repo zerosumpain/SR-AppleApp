@@ -86,6 +86,7 @@ import UIKit
     /// `Outing.commitEvery` — see `commitOuting()`.
     private var outingBuffer: [LocationRecord] = []
     private var currentOuting: OutingState?
+    private var storagePaused = false
     private var committingOuting = false
     private var lastOutingCommit = Date()
     private var outingTimer: Timer?
@@ -568,6 +569,12 @@ import UIKit
     private func handleOutingFixes(_ locations: [CLLocation]) async {
         guard var state = currentOuting ?? outbox.state.outing else { return }
         for location in locations {
+            guard outingBuffer.count < 2_000 else {
+                manager.stopUpdatingLocation()
+                storagePaused = true
+                status = "Location collection paused: free storage so saved points can upload."
+                break
+            }
             guard abs(location.timestamp.timeIntervalSinceNow) < 120,
                   location.horizontalAccuracy >= 0,
                   location.horizontalAccuracy <= Outing.accuracyCeiling else { continue }
@@ -599,7 +606,7 @@ import UIKit
         let charging = device.batteryState == .charging || device.batteryState == .full
         if let end = Outing.shouldEnd(state, now: Date(), battery: level >= 0 ? Double(level) : nil, charging: charging) {
             await endOuting(reason: end.reason)
-        } else {
+        } else if !storagePaused {
             status = "Close tracking · left \(state.placeLabel)"
         }
     }
@@ -624,6 +631,10 @@ import UIKit
             let ids = Set(points.map(\.id))
             outingBuffer.removeAll { ids.contains($0.id) }
             lastOutingCommit = Date()
+            if storagePaused, outbox.state.sharing, currentOuting != nil {
+                storagePaused = false
+                manager.startUpdatingLocation()
+            }
             onUpdate?()
         } catch { status = "Could not save location. Open the app and retry." }
     }

@@ -685,6 +685,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         liveReaders.set(key, (liveReaders.get(key) ?? 0) + 1);
         try {
           const read = async () => {
+            if (auth.kind === 'session') {
+              const email = demoIdentity(req.headers.cookie, { demo, secure })
+                ?? await sessionIdentity(req.headers.cookie, authSecret);
+              if (email !== auth.email) fail(401, 'Sign in at strangeramblings.com');
+            }
             const member = db.prepare('SELECT * FROM users WHERE id=?').get(auth.user_id);
             if (!member) fail(401, 'Pair this iPhone again');
             await policy.requireUser(member, auth.kind === 'device' ? auth.access_version : undefined);

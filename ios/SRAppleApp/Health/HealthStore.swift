@@ -20,6 +20,7 @@ final class HealthStore: ObservableObject {
         guard !loading else { return }
         loading = true
         defer { loading = false }
+        if summary == nil { summary = await client.cached("api/native/health/summary", as: HealthSummary.self) }
         do {
             // Annotated, and assigned in two steps. Assigning straight into the
             // optional property makes `T` infer as `HealthSummary?`, which asks
@@ -31,6 +32,10 @@ final class HealthStore: ObservableObject {
             summary = payload
             unavailable = false
             message = nil
+        } catch SiteError.expired {
+            summary = nil; message = "This iPhone needs pairing again."
+        } catch SiteError.status(let code, let detail) where code == 403 {
+            summary = nil; message = detail
         } catch SiteError.unpaired {
             summary = nil
         } catch {

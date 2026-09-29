@@ -43,6 +43,7 @@ enum PersonalHealthCheck {
         healthEnabled: Bool,
         reviewNeeded: Bool,
         lastUpload: Date?,
+        enabledSince: Date? = nil,
         now: Date = Date()
     ) -> [ConnectionItem] {
         guard paired, healthEnabled else { return [] }
@@ -53,11 +54,19 @@ enum PersonalHealthCheck {
                 label: "Apple Health",
                 group: "personal",
                 status: "needs_permission",
-                detail: "Some categories you switched on have not been allowed yet.",
+                detail: "Some categories you switched on have not been requested yet.",
                 fixHint: "Allow them in Settings → Apple Health."
             )
             item.localFix = .healthPermissions
             item.headlineOverride = "Apple Health needs your permission"
+            out.append(item)
+        }
+        if lastUpload == nil, let enabledSince, now.timeIntervalSince(enabledSince) > staleAfter, !reviewNeeded {
+            var item = ConnectionItem(id: "\(prefix)health-first-upload", label: "Your health uploads", group: "personal", status: "pending",
+                detail: "No Health upload has reached the site yet. There may be no readable records, or an import may be waiting for Wi-Fi.",
+                fixHint: "Check Health import progress in Settings.")
+            item.localFix = .healthPermissions
+            item.headlineOverride = "Health is waiting for its first upload"
             out.append(item)
         }
         if let lastUpload, now.timeIntervalSince(lastUpload) > staleAfter {
@@ -87,7 +96,8 @@ enum PersonalHealthCheck {
     @MainActor
     static func backgroundPass(outbox: Outbox, paired: Bool, defaults: UserDefaults = .standard) async {
         let state = outbox.state
-        let found = items(paired: paired, healthEnabled: !state.healthEnabled.isEmpty, reviewNeeded: false, lastUpload: state.lastUpload)
+        guard !state.sync.paused else { return }
+        let found = items(paired: paired, healthEnabled: !state.healthEnabled.isEmpty, reviewNeeded: false, lastUpload: state.sync.lastHealthUpload, enabledSince: state.sync.enabledSince)
         await notifyOnce(found, defaults: defaults) { request in
             try await UNUserNotificationCenter.current().add(request)
         }

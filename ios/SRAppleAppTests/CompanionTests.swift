@@ -112,4 +112,50 @@ final class CompanionTests: XCTestCase {
         XCTAssertThrowsError(try PairingPayload.parse(String(repeating: "x", count: 2049)))
     }
 
+    @MainActor func testLegacyMigrationPreservesRecordsAndDefaults() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("state.json")
+        var old = PersistedState()
+        old.anchors["sleep"] = Data([4, 5])
+        old.batches = [UploadBatch(deleted: ["old-record"])]
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as! [String: Any]
+        json.removeValue(forKey: "sync")
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+        let migrated = try await Outbox.open(url: url)
+        XCTAssertEqual(migrated.state.anchors["sleep"], Data([4, 5]))
+        XCTAssertEqual(migrated.state.batches.first?.deleted, ["old-record"])
+        XCTAssertEqual(migrated.state.sync.historyDays, 30)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        let reopened = try await Outbox.open(url: url)
+        XCTAssertEqual(reopened.state.batches.first?.id, migrated.state.batches.first?.id)
+    }
+
+    @MainActor func testCapacityFailureNeverAdvancesAnchorAndRetainsRefusal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("state.json")
+        let box = try await Outbox.open(url: url)
+        let refused = UploadBatch(deleted: ["retained-record"])
+        try await box.change {
+            $0.batches = [refused]
+            $0.sync.refused[refused.id.uuidString] = "Please retry"
+            $0.anchors["sleep"] = Data([1])
+        }
+        do {
+            try await box.change {
+                $0.batches.append(UploadBatch(deleted: Array(repeating: "overflow", count: 45_001)))
+                $0.anchors["sleep"] = Data([2])
+            }
+            XCTFail("An over-capacity write must fail")
+        } catch { }
+        let reopened = try await Outbox.open(url: url)
+        XCTAssertEqual(reopened.state.anchors["sleep"], Data([1]))
+        XCTAssertEqual(reopened.state.batches.count, 1)
+        XCTAssertEqual(reopened.state.sync.refused[refused.id.uuidString], "Please retry")
+        try await box.change { $0.batches.removeAll() }
+        XCTAssertTrue(box.state.sync.refused.isEmpty)
+    }
+
 }

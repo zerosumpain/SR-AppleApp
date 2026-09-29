@@ -105,7 +105,7 @@ final class TodayStore: ObservableObject {
         healthRefresh = Task { [weak self] in
             try? await Task.sleep(for: .seconds(15))
             guard let self, !Task.isCancelled else { return }
-            await self.load()
+            await self.load(fresh: true)
             self.healthRefresh = nil
         }
     }
@@ -115,6 +115,7 @@ final class TodayStore: ObservableObject {
         if !fresh, let lastLoaded, Date().timeIntervalSince(lastLoaded) < 60 { return }
         loading = true
         defer { loading = false }
+        if payload == nil { payload = await client.cached("api/native/today", as: TodayPayload.self) }
         do {
             // Annotated: assigning into the optional would infer `TodayPayload?`
             // as the decoded type. See HealthStore for the same note.
@@ -124,6 +125,10 @@ final class TodayStore: ObservableObject {
             payload = fetched
             lastLoaded = Date()
             message = nil
+        } catch SiteError.expired {
+            payload = nil; message = "This iPhone needs pairing again."
+        } catch SiteError.status(let code, let detail) where code == 403 {
+            payload = nil; message = detail
         } catch SiteError.unpaired {
             payload = nil
         } catch {
