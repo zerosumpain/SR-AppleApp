@@ -42,6 +42,8 @@ struct GameRoomScreen: View {
                 SequenceMemoryScreen(roomId: ref.id)
             case .boggle?:
                 BoggleScreen(roomId: ref.id)
+            case .categories?:
+                CategoriesScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",

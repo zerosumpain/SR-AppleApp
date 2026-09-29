@@ -740,6 +740,55 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Categories in review — a shared answer, a wrong letter and a veto that
+    /// struck — then mid-play: the letter, the card of fields, the clock, and a
+    /// half-typed answer warning that it is on the wrong letter.
+    @MainActor func testShowcaseCategories() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let review = byId(app, "games-room-g_demo_categories_review")
+        if scroll(app, to: review) {
+            review.tap()
+            settle(app, on: byId(app, "categories-review"), seconds: 2)
+            soft(byId(app, "categories-letter").exists, "no letter on the review")
+            soft(byId(app, "categories-category-0").exists, "no first category")
+            soft(byId(app, "categories-answer-p_robin-0").exists, "Robin's wrong letter is not shown")
+            soft(byId(app, "categories-done-review").exists, "no Done reviewing")
+            attach(app, "Showcase — Categories, review")
+            let struck = byId(app, "categories-answer-p_robin-7")
+            if scroll(app, to: struck) {
+                attach(app, "Showcase — Categories, a vetoed answer")
+            } else {
+                soft(false, "the vetoed answer is not in the review")
+            }
+            back(app)
+        } else {
+            soft(false, "no Categories review")
+        }
+
+        let playing = byId(app, "games-room-g_demo_categories")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "categories-playing"), seconds: 2)
+            soft(byId(app, "categories-letter").exists, "no letter")
+            soft(byId(app, "categories-timer").exists, "no clock")
+            soft(byId(app, "categories-field-0").exists, "no first field")
+            soft(byId(app, "categories-other-p_sam").exists, "Sam is not in the strip")
+            attach(app, "Showcase — Categories, playing")
+            let warning = byId(app, "categories-warning-7")
+            if scroll(app, to: warning) {
+                attach(app, "Showcase — Categories, a wrong letter warned")
+            } else {
+                soft(false, "the half-typed answer does not warn")
+            }
+            back(app)
+        } else {
+            soft(false, "no Categories to resume")
+        }
+    }
+
     // MARK: - A member
 
     /// A family member given Family and Games and nothing else. Chat, News and

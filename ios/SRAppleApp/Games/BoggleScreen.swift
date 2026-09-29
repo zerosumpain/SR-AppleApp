@@ -49,7 +49,7 @@ struct BoggleScreen: View {
             GameEndedView(id: "boggle-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown, .armed, .result, .question, .reveal, .show, .input:
+            case .lobby, .unknown, .armed, .result, .question, .reveal, .show, .input, .review:
                 GameLobby(room: room, store: store, prefix: "boggle", done: { dismiss() },
                           panel: AnyView(BoggleRoundCard(room: room)))
             case .countdown:

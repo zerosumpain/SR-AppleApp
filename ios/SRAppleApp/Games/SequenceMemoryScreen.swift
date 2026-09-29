@@ -47,7 +47,7 @@ struct SequenceMemoryScreen: View {
             GameEndedView(id: "memory-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown, .armed, .playing, .question, .reveal:
+            case .lobby, .unknown, .armed, .playing, .question, .reveal, .review:
                 GameLobby(room: room, store: store, prefix: "memory", done: { dismiss() })
             case .countdown:
                 GameCountdownView(room: room, store: store,

@@ -202,7 +202,7 @@ struct GameRoomRow: View {
     private var phaseLabel: String {
         switch room.phase {
         case .lobby: return "Lobby"
-        case .countdown, .armed, .result, .playing, .question, .reveal, .show, .input: return "Playing"
+        case .countdown, .armed, .result, .playing, .question, .reveal, .show, .input, .review: return "Playing"
         case .finished: return "Finished"
         case .closed: return "Closed"
         case .unknown: return "Open"
@@ -253,6 +253,7 @@ struct GameCard: View {
         case .mathsSprint: return SR.ink
         case .sequenceMemory: return SR.error
         case .boggle: return SR.accentDeep
+        case .categories: return SR.good
         }
     }
 }
@@ -277,6 +278,9 @@ struct NewGameSheet: View {
     @State private var boggleSize = 4
     @State private var boggleSeconds = 120
     @State private var boggleScoring: BoggleScoring = .classic
+    // Categories.
+    @State private var categoriesCount = CategoriesSettings.defaultCount
+    @State private var categoriesSeconds = CategoriesSettings.defaultSeconds
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -316,6 +320,10 @@ struct NewGameSheet: View {
 
                     if game == .boggle {
                         boggleSettings
+                    }
+
+                    if game == .categories {
+                        categoriesSettings
                     }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -411,7 +419,35 @@ struct NewGameSheet: View {
             return BoggleSettings(difficulty: difficulty, size: boggleSize, seconds: boggleSeconds, scoring: boggleScoring)
                 .createBody(invite: invite)
         }
+        if game == .categories {
+            return CategoriesSettings(difficulty: difficulty, count: categoriesCount, seconds: categoriesSeconds)
+                .createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// Card size and clock — Categories' round.
+    private var categoriesSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Round")
+            segments(
+                title: "Categories",
+                options: CategoriesSettings.counts.map { (value: $0, label: "\($0)") },
+                selected: $categoriesCount,
+                id: "games-categories-count"
+            )
+            segments(
+                title: "Time",
+                options: CategoriesSettings.times.map { (value: $0, label: BoggleSettings.timeLabel($0)) },
+                selected: $categoriesSeconds,
+                id: "games-categories-time"
+            )
+            Text(CategoriesSettings.line(count: categoriesCount, seconds: categoriesSeconds))
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-categories-line")
+        }
     }
 
     /// Grid, clock and scoring — Boggle's round.

@@ -47,7 +47,7 @@ struct MathsSprintScreen: View {
             GameEndedView(id: "sprint-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
-            case .lobby, .unknown, .armed, .result, .question, .reveal, .show, .input:
+            case .lobby, .unknown, .armed, .result, .question, .reveal, .show, .input, .review:
                 GameLobby(room: room, store: store, prefix: "sprint", done: { dismiss() })
             case .countdown:
                 GameCountdownView(room: room, store: store,
