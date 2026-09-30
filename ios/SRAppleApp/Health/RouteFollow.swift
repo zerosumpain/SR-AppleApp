@@ -255,7 +255,7 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
         try? FileManager.default.removeItem(at: activeURL)
         guard orphan.track.count >= 2 else { return }
         if let lastSec = orphan.track.last?[3] ?? nil { orphan.finishedAt = orphan.startedAt + lastSec }
-        Task { @MainActor in RecordingQueue.shared.add(orphan) }
+        RecordingQueue.shared.add(orphan)
     }
 
     // MARK: Fixes

@@ -66,7 +66,7 @@ final class OfflineMaps: ObservableObject {
         })
         watch = MLNOfflineStorage.shared.observe(\.packs, options: [.initial, .new]) { [weak self] storage, _ in
             let current = storage.packs ?? []
-            DispatchQueue.main.async { self?.adopt(current) }
+            Task { @MainActor in self?.adopt(current) }
         }
     }
 
