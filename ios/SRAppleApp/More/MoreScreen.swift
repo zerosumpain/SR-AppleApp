@@ -209,23 +209,9 @@ struct MorePlaceCard: View {
     @ObservedObject var games: GamesStore
 
     var body: some View {
-        MoreCard(icon: icon, fill: fill, title: title, blurb: blurb, status: status) {
-            if place == .games { shelf }
-        }
-    }
-
-    /// The six games as a row of marks — what is on the shelf, at a glance.
-    private var shelf: some View {
-        HStack(spacing: 8) {
-            ForEach(GameKind.allCases) { kind in
-                Image(systemName: kind.icon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(SR.accent)
-                    .frame(width: 34, height: 34)
-                    .srGlass(.paper, in: Circle())
-            }
-        }
-        .accessibilityHidden(true)
+        // No row of game marks: the Games page lists them, once. Ten marks
+        // also ran past the edge of a phone.
+        MoreCard(icon: icon, fill: fill, title: title, blurb: blurb, status: status)
     }
 
     private var title: String {

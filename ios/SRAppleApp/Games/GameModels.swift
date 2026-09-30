@@ -51,7 +51,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// One line for the new-game sheet's game picker.
+    /// One line under the game's name at the top of the new-game sheet.
     var line: String {
         switch self {
         case .tapDuel: return "Reaction race: wait for green, tap first."

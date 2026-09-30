@@ -536,8 +536,8 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
-    /// Wordle Race: the new-game sheet opened from its card (game picked,
-    /// difficulty lines from the Wordle table), then Sam's race half played —
+    /// Wordle Race: the new-game sheet opened from its card (set to Wordle,
+    /// no game picker, difficulty lines from the Wordle table), then Sam's race half played —
     /// my three rows and the keyboard, Sam and Robin as colours only.
     @MainActor func testShowcaseWordleRace() {
         let app = launch()
@@ -548,7 +548,7 @@ final class ShowcaseTests: XCTestCase {
         if scroll(app, to: card) {
             card.tap()
             settle(app, on: byId(app, "games-game-wordle-race"))
-            soft(byId(app, "games-game-tap-duel").exists, "the sheet cannot switch game")
+            soft(!byId(app, "games-game-tap-duel").exists, "the sheet lists every game again")
             soft(byId(app, "games-difficulty-hard").exists, "no difficulty choices")
             attach(app, "Showcase — Games, new Wordle Race")
             let cancel = byId(app, "games-new-cancel")
