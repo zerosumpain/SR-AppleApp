@@ -82,3 +82,47 @@ final class RouteTests: XCTestCase {
         XCTAssertNil(planner.plan)
     }
 }
+
+/// The live walk contract (SR-Main `route-session.viewOf`), from the demo's answers.
+final class RouteLiveTests: XCTestCase {
+    func testALiveWalkDecodesWithItsTrailAsPositionsNotHeights() throws {
+        let walk = try JSONDecoder().decode(LiveWalk.self, from: Data(SRDemoFixtures.liveWalk(full: true).utf8))
+        XCTAssertEqual(walk.name, "Alex")
+        XCTAssertEqual(walk.trail.count, 65)
+        XCTAssertNil(walk.trail[0].ele, "the third number on a trail point is a time")
+        XCTAssertEqual(walk.fraction, 3260.0 / 8040.0, accuracy: 1e-9)
+        XCTAssertEqual(walk.line, "3.26 of 8.04 km · ~58:00 left")
+    }
+
+    func testTheListIsNamesAndProgressOnly() throws {
+        let page = try JSONDecoder().decode(LiveWalksPage.self, from: Data(
+            try XCTUnwrap(SRDemoFixtures.routeSessionRoute(method: "GET", parts: ["api", "native", "route-session"])).utf8
+        ))
+        XCTAssertEqual(page.sessions.count, 1)
+        XCTAssertTrue(page.sessions[0].trail.isEmpty)
+    }
+
+    func testAnOffRouteWalkSaysSo() throws {
+        let json = SRDemoFixtures.liveWalk(full: false)
+            .replacingOccurrences(of: #""offRouteM": 6, "offRoute": false"#, with: #""offRouteM": 140, "offRoute": true"#)
+        let walk = try JSONDecoder().decode(LiveWalk.self, from: Data(json.utf8))
+        XCTAssertEqual(walk.line, "Off route · 140 m from the line")
+    }
+
+    func testTheOwnerGetsWhoToSendTo() throws {
+        let page = try JSONDecoder().decode(RouteGiftsPage.self, from: Data(
+            try XCTUnwrap(SRDemoFixtures.routeGiftsRoute(method: "GET")).utf8
+        ))
+        XCTAssertTrue(page.gifts.isEmpty)
+        XCTAssertEqual(page.recipients.map(\.name), ["Alex", "Sam"])
+    }
+
+    func testARouteSentToAMemberArrivesWhole() throws {
+        let json = """
+        {"gifts": [{"id": "g1", "sentAt": "2026-09-29T18:00:00.000Z", "route": \(try XCTUnwrap(SRDemoFixtures.routeDetail(id: SRDemoFixtures.demoRouteImportedId)))}], "recipients": []}
+        """
+        let page = try JSONDecoder().decode(RouteGiftsPage.self, from: Data(json.utf8))
+        XCTAssertEqual(page.gifts.first?.route.name, "Park Drive loop")
+        XCTAssertGreaterThan(page.gifts.first?.route.route.count ?? 0, 100, "a gift carries the line to follow")
+    }
+}

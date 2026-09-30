@@ -119,6 +119,7 @@ struct HealthScreen: View {
             case .routes: RoutesScreen()
             case .planRoute: PlanRouteScreen()
             case .nearbyRoutes: NearbyRoutesScreen()
+            case .offlineMaps: OfflineMapsScreen()
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
             case .tripwires: if let h = hub.hub { TripwiresScreen(hub: h) }

@@ -18,6 +18,13 @@ settings:
     MARKETING_VERSION: '0.1.0'
     CURRENT_PROJECT_VERSION: '1'
     CODE_SIGN_STYLE: Automatic
+# MapLibre draws the route screens' maps, the only ones that work offline
+# (`Health/SRRouteMap.swift`, `Health/OfflineMaps.swift`). Pinned exactly: a
+# binary xcframework, so a bump is a new binary to re-verify, not a patch.
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    exactVersion: 6.31.0
 targets:
   SRAppleApp:
     type: application
@@ -38,6 +45,8 @@ targets:
       # refused batch wedges the outbox forever.
       - path: ../server/health-catalogue.json
         buildPhase: resources
+    dependencies:
+      - package: MapLibre
     settings:
       base:
         TARGETED_DEVICE_FAMILY: '1'

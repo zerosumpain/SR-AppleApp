@@ -23,6 +23,10 @@ struct FamilyScreen: View {
     /// The travel desk's forecast: next moves and what looks off. Optional —
     /// a phone without the site credential sees the positions alone.
     @ObservedObject private var forecast = FamilyForecastStore.shared
+    /// Route walks being shared live that this phone may follow.
+    @ObservedObject private var walks = LiveWalksStore.shared
+    /// Routes the owner sent this phone to walk.
+    @ObservedObject private var gifts = RouteGiftsStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
@@ -59,13 +63,17 @@ struct FamilyScreen: View {
         .navigationDestination(for: FamilyPersonRoute.self) { route in
             FamilyPersonScreen(store: store, subject: route.subject)
         }
+        .navigationDestination(for: LiveWalkRef.self) { LiveRouteScreen(ref: $0) }
         .task {
             await store.load()
             await forecast.load()
+            await walks.load()
+            await gifts.load()
             while !Task.isCancelled {
                 try? await Task.sleep(for: FamilyStore.refreshInterval)
                 guard !Task.isCancelled else { break }
                 await store.load()
+                await walks.load()
                 // At most once a minute: the store keeps its own clock.
                 await forecast.load()
             }
@@ -89,6 +97,10 @@ struct FamilyScreen: View {
                 .accessibilityIdentifier("family-map")
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
+                    LiveWalksCard(store: walks)
+                        .padding(.top, walks.walks.isEmpty ? 0 : 14)
+                    RouteGiftsCard(store: gifts)
+                        .padding(.top, gifts.gifts.isEmpty || !walks.walks.isEmpty ? 0 : 14)
                     if let items = forecast.forecast?.watch, !items.isEmpty {
                         FamilyWatchCard(items: items)
                             .padding(.top, 14)
@@ -121,7 +133,7 @@ struct FamilyScreen: View {
                 .padding(.horizontal, SR.gutter)
                 .padding(.bottom, 28)
             }
-            .srRefreshable { await store.load(); await forecast.load(force: true) }
+            .srRefreshable { await store.load(); await walks.load(); await gifts.load(); await forecast.load(force: true) }
         }
     }
 

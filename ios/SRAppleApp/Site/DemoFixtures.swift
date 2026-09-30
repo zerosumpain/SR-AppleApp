@@ -83,6 +83,16 @@ enum SRDemo {
         #endif
     }
 
+    /// `-SRDemoOffRoute` as well: following a route steps off it, so the
+    /// showcase can photograph the off-route banner without a GPS.
+    static var isOffRouteShot: Bool {
+        #if DEBUG
+        return isShowcase && ProcessInfo.processInfo.arguments.contains("-SRDemoOffRoute")
+        #else
+        return false
+        #endif
+    }
+
     /// What demo mode may use: everything, as the owner, unless a member.
     static var access: AppAccess {
         isMember ? AppAccess(family: true, games: true) : .everything
@@ -238,6 +248,14 @@ enum SRDemoFixtures {
             break
         }
 
+        // Routes sent to a family member — `Health/RouteDemoFixtures.swift`.
+        if joined == "api/native/route-gifts" || joined.hasPrefix("api/native/route-gifts/") {
+            return routeGiftsRoute(method: method)
+        }
+        // Route walks shared live — `Health/RouteDemoFixtures.swift`.
+        if joined == "api/native/route-session" || joined.hasPrefix("api/native/route-session/") {
+            return routeSessionRoute(method: method, parts: parts)
+        }
         // Planned routes — `Health/RouteDemoFixtures.swift`.
         if joined == "api/native/health/routes" || joined.hasPrefix("api/native/health/routes/") {
             return routesRoute(method: method, parts: parts, query: query, body: body)
