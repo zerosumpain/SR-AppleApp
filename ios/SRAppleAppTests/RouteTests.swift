@@ -109,12 +109,20 @@ final class RouteLiveTests: XCTestCase {
         XCTAssertEqual(walk.line, "Off route · 140 m from the line")
     }
 
-    func testARouteSentToAMemberArrivesWholeWithWhoItCanGoTo() throws {
+    func testTheOwnerGetsWhoToSendTo() throws {
         let page = try JSONDecoder().decode(RouteGiftsPage.self, from: Data(
             try XCTUnwrap(SRDemoFixtures.routeGiftsRoute(method: "GET")).utf8
         ))
+        XCTAssertTrue(page.gifts.isEmpty)
+        XCTAssertEqual(page.recipients.map(\.name), ["Alex", "Sam"])
+    }
+
+    func testARouteSentToAMemberArrivesWhole() throws {
+        let json = """
+        {"gifts": [{"id": "g1", "sentAt": "2026-09-29T18:00:00.000Z", "route": \(try XCTUnwrap(SRDemoFixtures.routeDetail(id: SRDemoFixtures.demoRouteImportedId)))}], "recipients": []}
+        """
+        let page = try JSONDecoder().decode(RouteGiftsPage.self, from: Data(json.utf8))
         XCTAssertEqual(page.gifts.first?.route.name, "Park Drive loop")
         XCTAssertGreaterThan(page.gifts.first?.route.route.count ?? 0, 100, "a gift carries the line to follow")
-        XCTAssertEqual(page.recipients.map(\.name), ["Alex", "Sam"])
     }
 }

@@ -169,9 +169,14 @@ extension SRDemoFixtures {
     static func routeGiftsRoute(method: String) -> String? {
         switch method {
         case "GET":
+            // The owner sends routes and never receives one; a member receives
+            // them and has nobody to send to — as the site answers.
+            if !SRDemo.isMember {
+                return #"{"gifts": [], "recipients": [{"subject": "alex", "name": "Alex"}, {"subject": "sam", "name": "Sam"}]}"#
+            }
             return """
             {"gifts": [{"id": "gift-demo-1", "sentAt": "2026-09-29T18:00:00.000Z", "route": \(routeDetail(id: demoRouteImportedId) ?? "null")}],
-             "recipients": [{"subject": "alex", "name": "Alex"}, {"subject": "sam", "name": "Sam"}]}
+             "recipients": []}
             """
         case "POST":
             return #"{"id": "gift-demo-2"}"#
