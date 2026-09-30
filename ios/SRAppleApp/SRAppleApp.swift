@@ -313,6 +313,10 @@ import UIKit
                 EntryGate(companion: companion, battery: battery)
                     .task {
                         battery.start()
+                        // A route walk the app was killed during becomes a
+                        // recording, then anything waiting goes up.
+                        FollowSession.recoverInterrupted()
+                        await RecordingQueue.shared.flush()
                         if companion.paired { await companion.sync() }
                     }
                     .onChange(of: scenePhase) { _, phase in
@@ -323,6 +327,7 @@ import UIKit
                             battery.sample()
                             if companion.paired { Task { await companion.sync() } }
                             Task { await SiteClient.shared.retryPendingRevocations(); await PushRegistration.shared.sync() }
+                            Task { await RecordingQueue.shared.flush() }
                         }
                         if phase == .background {
                             battery.sample()

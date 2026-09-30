@@ -11,6 +11,7 @@ import MapKit
 
 struct RoutesScreen: View {
     @StateObject private var store = RoutesStore()
+    @ObservedObject private var queue = RecordingQueue.shared
 
     var body: some View {
         List {
@@ -24,6 +25,17 @@ struct RoutesScreen: View {
                     SRRow(title: "Published routes nearby", subtitle: "Waymarked trails within 15 km", icon: "signpost.right.and.left")
                 }
                 .srGlassRow()
+            }
+
+            if !queue.pending.isEmpty {
+                Section {
+                    SRRow(
+                        title: queue.pending.count == 1 ? "1 walk waiting to upload" : "\(queue.pending.count) walks waiting to upload",
+                        subtitle: queue.lastError ?? "Sent when there is signal.",
+                        icon: "icloud.and.arrow.up"
+                    )
+                    .srGlassRow()
+                }
             }
 
             if store.rows.isEmpty {
@@ -63,8 +75,14 @@ struct RoutesScreen: View {
         .srPaper()
         .navigationTitle("Routes")
         .navigationBarTitleDisplayMode(.inline)
-        .srRefreshable { await store.load() }
-        .task { await store.load() }
+        .srRefreshable {
+            await store.load()
+            await queue.flush()
+        }
+        .task {
+            await store.load()
+            await queue.flush()
+        }
     }
 
     private func reload() {
@@ -598,11 +616,22 @@ struct PlannedRouteScreen: View {
 
 struct PlannedRouteBody: View {
     let detail: PlannedRouteDetail
+    @State private var following = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 RouteMap(route: detail.coordinates, height: 300)
+
+                Button {
+                    following = true
+                } label: {
+                    Label("Follow this route", systemImage: "figure.walk.motion")
+                        .frame(maxWidth: .infinity)
+                }
+                .srButton(.prominent)
+                .padding(.horizontal, 16)
+                .accessibilityIdentifier("route-follow")
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Sport.label(detail.sport).uppercased())
@@ -649,6 +678,9 @@ struct PlannedRouteBody: View {
                 }
             }
             .padding(.vertical, 16)
+        }
+        .fullScreenCover(isPresented: $following) {
+            FollowRouteScreen(detail: detail)
         }
     }
 

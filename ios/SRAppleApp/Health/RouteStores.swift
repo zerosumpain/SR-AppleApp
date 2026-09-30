@@ -44,6 +44,7 @@ final class RoutesStore: ObservableObject {
         rows.removeAll { $0.id == id }
         do {
             try await client.call(RoutePath.route(id), method: "DELETE")
+            RouteCache.remove(id)
         } catch {
             // Put it back: a row that vanished and is still on the server
             // would reappear on the next refresh looking like a ghost.
@@ -59,12 +60,22 @@ final class PlannedRouteStore: ObservableObject {
 
     private let client = SiteClient.shared
 
+    /// Whether what is on screen came from the phone's own copy.
+    @Published private(set) var fromCache = false
+
     func load(_ id: String) async {
         guard state != .loading else { return }
+        if detail == nil, let kept = RouteCache.load(id) {
+            detail = kept
+            fromCache = true
+        }
         state = .loading
         do {
-            let fetched: PlannedRouteDetail = try await client.send(RoutePath.route(id))
+            let data = try await client.bytes(RoutePath.route(id))
+            let fetched = try JSONDecoder().decode(PlannedRouteDetail.self, from: data)
+            RouteCache.store(data, id: id)
             detail = fetched
+            fromCache = false
             state = .loaded
         } catch {
             state = detail == nil ? TrailLoad.from(error) : .loaded
