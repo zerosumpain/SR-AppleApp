@@ -111,10 +111,14 @@ struct HealthScreen: View {
         // back. Registered once, here, at the root.
         .navigationDestination(for: ActivityRef.self) { ActivityDetailScreen(ref: $0) }
         .navigationDestination(for: SegmentRef.self) { SegmentDetailScreen(ref: $0) }
+        .navigationDestination(for: RouteRef.self) { PlannedRouteScreen(ref: $0) }
         .navigationDestination(for: HealthRoute.self) { route in
             switch route {
             case .activities: ActivitiesScreen()
             case .segments: SegmentsScreen()
+            case .routes: RoutesScreen()
+            case .planRoute: PlanRouteScreen()
+            case .nearbyRoutes: NearbyRoutesScreen()
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
             case .tripwires: if let h = hub.hub { TripwiresScreen(hub: h) }
@@ -174,6 +178,11 @@ struct HealthScreen: View {
                 }
                 .srGlassRow()
                 .accessibilityIdentifier("health-all-activities")
+                NavigationLink(value: HealthRoute.routes) {
+                    SRRow(title: "Routes", icon: "point.topleft.down.to.point.bottomright.curvepath")
+                }
+                .srGlassRow()
+                .accessibilityIdentifier("health-routes")
                 // Once the digest is here, Segments lives in "The full picture"
                 // with its form counts; two rows to one place is clutter.
                 if hub.hub?.segments == nil {

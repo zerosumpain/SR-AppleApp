@@ -238,6 +238,10 @@ enum SRDemoFixtures {
             break
         }
 
+        // Planned routes — `Health/RouteDemoFixtures.swift`.
+        if joined == "api/native/health/routes" || joined.hasPrefix("api/native/health/routes/") {
+            return routesRoute(method: method, parts: parts, query: query, body: body)
+        }
         // Paths with an id in them.
         if parts.count == 5, joined.hasPrefix("api/native/health/activities/") {
             return method == "GET" ? activityDetail(id: parts[4], clock: clock) : nil
