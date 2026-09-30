@@ -3,9 +3,10 @@ import UIKit
 
 /// The Games tab: invitations waiting, rooms I am in, and a game to start.
 ///
-/// A shelf of games rather than one game's front door — one card per game
-/// (Tap Duel, Wordle Race, Quiz Night, Anagram Blitz, Quick Maths Sprint,
-/// Sequence Memory), and the rooms and invites above them say which game each is.
+/// A shelf of games rather than one game's front door — one card per game,
+/// and the rooms and invites above them say which game each is. This is the
+/// only place the games are listed: a card opens the new-game sheet already
+/// set to that game.
 struct GamesScreen: View {
     @ObservedObject var store: GamesStore
     @EnvironmentObject private var router: Router
@@ -294,8 +295,9 @@ struct GameCard: View {
     }
 }
 
-/// Which game, how hard, who to invite, Start.
+/// How hard, who to invite, Start — for the game whose card was tapped.
 struct NewGameSheet: View {
+    let game: GameKind
     let players: [GamePerson]
     let busy: Bool
     /// Creates the room. Nil when it did (the sheet is then closed by its
@@ -303,7 +305,6 @@ struct NewGameSheet: View {
     let start: (CreateGameBody) async -> String?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var game: GameKind
     @State private var difficulty: GameDifficulty = .easy
     @State private var invited: Set<String> = []
     @State private var working = false
@@ -325,35 +326,15 @@ struct NewGameSheet: View {
     /// Why the last Start was refused.
     @State private var refusal: String?
 
-    /// Opens on the game whose card was tapped; the first section can change it.
-    init(game: GameKind = .tapDuel, players: [GamePerson], busy: Bool,
-         start: @escaping (CreateGameBody) async -> String?) {
-        self.players = players
-        self.busy = busy
-        self.start = start
-        _game = State(initialValue: game)
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
-                    SRPageHeader(kicker: "New game", title: game.title)
-
-                    VStack(alignment: .leading, spacing: SR.cardGap) {
-                        SRSectionLabel(text: "Game")
-                        ForEach(GameKind.allCases) { kind in
-                            choice(
-                                title: kind.title,
-                                line: kind.line,
-                                selected: game == kind,
-                                id: "games-game-\(kind.rawValue)"
-                            ) {
-                                game = kind
-                                refusal = nil
-                            }
-                        }
-                    }
+                    // The game was picked on its card, so the sheet does not
+                    // offer the whole shelf again: it sets this game up.
+                    SRPageHeader(kicker: "New game", title: game.title, strap: game.line)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("games-game-\(game.rawValue)")
 
                     if game == .quizNight {
                         quizSettings
