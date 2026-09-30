@@ -1,5 +1,4 @@
 import SwiftUI
-import MapKit
 
 /// Walking a route: the map with you on it, how far along, how far left, how
 /// long, and a banner when you leave the line. Full screen — a thing you
@@ -7,7 +6,6 @@ import MapKit
 struct FollowRouteScreen: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var session: FollowSession
-    @State private var camera: MapCameraPosition = .userLocation(followsHeading: false, fallback: .automatic)
     @State private var confirmFinish = false
     @State private var finished: RouteRecording?
 
@@ -59,38 +57,15 @@ struct FollowRouteScreen: View {
         }
     }
 
+    /// MapLibre, not MapKit: this is the map that has to work on a hill with
+    /// no signal, from the route's downloaded pack.
     private var map: some View {
-        Map(position: $camera) {
-            MapPolyline(coordinates: session.coordinates)
-                .stroke(SR.accent.opacity(0.85), lineWidth: 5)
-            if session.walked.count > 1 {
-                MapPolyline(coordinates: session.walked)
-                    .stroke(SR.ink, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-            }
-            if let start = session.coordinates.first {
-                Annotation("Start", coordinate: start, anchor: .center) {
-                    Circle().fill(SR.good).frame(width: 12, height: 12).overlay(Circle().stroke(SR.paper, lineWidth: 2))
-                }
-                .annotationTitles(.hidden)
-            }
-            if SRDemo.isOn, let here = session.here {
-                Annotation("You", coordinate: here.coordinate, anchor: .center) {
-                    Circle().fill(Color.blue).frame(width: 16, height: 16).overlay(Circle().stroke(.white, lineWidth: 3))
-                }
-                .annotationTitles(.hidden)
-            } else {
-                UserAnnotation()
-            }
-        }
-        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
-        .mapControls {
-            MapUserLocationButton()
-            MapCompass()
-            MapScaleView()
-        }
-        .onAppear {
-            if SRDemo.isOn { camera = .automatic }
-        }
+        SRRouteMap(
+            route: session.coordinates,
+            walked: session.walked,
+            followsUser: true,
+            marker: SRDemo.isOn ? session.here?.coordinate : nil
+        )
     }
 
     private func offRouteBanner(_ p: RouteNav.Progress) -> some View {

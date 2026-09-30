@@ -45,6 +45,7 @@ final class RoutesStore: ObservableObject {
         do {
             try await client.call(RoutePath.route(id), method: "DELETE")
             RouteCache.remove(id)
+            OfflineMaps.shared.delete(id)
         } catch {
             // Put it back: a row that vanished and is still on the server
             // would reappear on the next refresh looking like a ghost.

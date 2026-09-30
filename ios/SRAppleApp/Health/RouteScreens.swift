@@ -12,6 +12,7 @@ import MapKit
 struct RoutesScreen: View {
     @StateObject private var store = RoutesStore()
     @ObservedObject private var queue = RecordingQueue.shared
+    @ObservedObject private var offline = OfflineMaps.shared
 
     var body: some View {
         List {
@@ -25,6 +26,19 @@ struct RoutesScreen: View {
                     SRRow(title: "Published routes nearby", subtitle: "Waymarked trails within 15 km", icon: "signpost.right.and.left")
                 }
                 .srGlassRow()
+            }
+
+            if !offline.saved.isEmpty {
+                Section {
+                    NavigationLink(value: HealthRoute.offlineMaps) {
+                        SRRow(
+                            title: "Offline maps",
+                            subtitle: "\(offline.saved.count) route\(offline.saved.count == 1 ? "" : "s") · \(ByteCountFormatter.string(fromByteCount: Int64(offline.totalBytes), countStyle: .file))",
+                            icon: "arrow.down.circle"
+                        )
+                    }
+                    .srGlassRow()
+                }
             }
 
             if !queue.pending.isEmpty {
@@ -621,7 +635,10 @@ struct PlannedRouteBody: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                RouteMap(route: detail.coordinates, height: 300)
+                SRRouteMap(route: detail.coordinates)
+                    .frame(height: 300)
+                    .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
+                    .accessibilityIdentifier("route-map")
 
                 Button {
                     following = true
@@ -632,6 +649,9 @@ struct PlannedRouteBody: View {
                 .srButton(.prominent)
                 .padding(.horizontal, 16)
                 .accessibilityIdentifier("route-follow")
+
+                OfflineRow(detail: detail)
+                    .padding(.horizontal, 16)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Sport.label(detail.sport).uppercased())
@@ -699,5 +719,113 @@ struct PlannedRouteBody: View {
         // A phone chart draws ~200 points; a 4,000-point route is payload.
         let every = max(1, out.count / 200)
         return out.enumerated().filter { $0.offset % every == 0 || $0.offset == out.count - 1 }.map(\.element)
+    }
+}
+
+// MARK: - Offline
+
+/// Download this route's map for no signal — or how far that has got, or how
+/// much it takes.
+struct OfflineRow: View {
+    let detail: PlannedRouteDetail
+    @ObservedObject private var maps = OfflineMaps.shared
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(SR.accent)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(SR.Text.title()).foregroundStyle(SR.ink)
+                Text(subtitle)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if case .downloading(let f) = maps.state(for: detail.id) {
+                    ProgressView(value: f).tint(SR.accent)
+                }
+            }
+            Spacer()
+            switch maps.state(for: detail.id) {
+            case .none, .failed:
+                Button("Download") { maps.download(detail) }
+                    .srButton(.regular)
+                    .accessibilityIdentifier("route-download")
+            case .ready:
+                Button(role: .destructive) { maps.delete(detail.id) } label: { Image(systemName: "trash") }
+                    .accessibilityLabel("Remove the offline map")
+            case .downloading:
+                EmptyView()
+            }
+        }
+        .padding(14)
+        .srGlassCard()
+    }
+
+    private var icon: String {
+        if case .ready = maps.state(for: detail.id) { return "checkmark.circle.fill" }
+        return "arrow.down.circle"
+    }
+
+    private var title: String {
+        switch maps.state(for: detail.id) {
+        case .none: return "Offline map"
+        case .downloading: return "Downloading…"
+        case .ready: return "Available offline"
+        case .failed: return "Download stopped"
+        }
+    }
+
+    private var subtitle: String {
+        switch maps.state(for: detail.id) {
+        case .none: return "The map along this route, to follow it with no signal. A few MB."
+        case .downloading(let f): return "\(Int((f * 100).rounded()))%"
+        case .ready(let bytes): return "\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) on this iPhone. The route itself is kept too."
+        case .failed(let why): return why
+        }
+    }
+}
+
+/// Every route with a map on this phone, and what each takes.
+struct OfflineMapsScreen: View {
+    @ObservedObject private var maps = OfflineMaps.shared
+
+    var body: some View {
+        List {
+            if maps.saved.isEmpty {
+                SREmpty(title: "No offline maps", icon: "arrow.down.circle",
+                        message: "Open a saved route and press Download to keep its map on this iPhone.")
+                    .srBareRow()
+            } else {
+                Section {
+                    ForEach(maps.saved) { s in
+                        NavigationLink(value: RouteRef(id: s.routeId, name: s.name)) {
+                            SRRow(
+                                title: s.name,
+                                subtitle: ByteCountFormatter.string(fromByteCount: Int64(s.bytes), countStyle: .file)
+                                    + (s.complete ? "" : " · incomplete"),
+                                icon: "map"
+                            )
+                        }
+                        .srGlassRow()
+                        .swipeActions {
+                            Button(role: .destructive) { maps.delete(s.routeId) } label: { Label("Delete", systemImage: "trash") }
+                        }
+                    }
+                } header: {
+                    SRSectionLabel(text: "On this iPhone",
+                                   trailing: ByteCountFormatter.string(fromByteCount: Int64(maps.totalBytes), countStyle: .file))
+                } footer: {
+                    Text("Map data © OpenStreetMap contributors, OpenMapTiles, served by OpenFreeMap.")
+                        .font(SR.Text.secondary(12))
+                        .foregroundStyle(SR.inkMuted)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .srPaper()
+        .navigationTitle("Offline maps")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

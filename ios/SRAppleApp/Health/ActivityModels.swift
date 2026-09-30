@@ -469,6 +469,7 @@ enum HealthRoute: Hashable {
     case routes
     case planRoute
     case nearbyRoutes
+    case offlineMaps
     // /health's deeper sections, each pushed from "The full picture".
     case instruments
     case forecast

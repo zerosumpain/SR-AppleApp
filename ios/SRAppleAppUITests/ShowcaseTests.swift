@@ -347,6 +347,37 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Following a saved route, a third of the way round and just off it —
+    /// the demo walks it without a GPS (`-SRDemoOffRoute`).
+    @MainActor func testShowcaseFollowRoute() {
+        let app = launch(["-SRDemoOffRoute"])
+        openTab(app, "Health")
+        let routes = byId(app, "health-routes")
+        guard scroll(app, to: routes) else {
+            soft(false, "no Routes row on the Health tab")
+            return
+        }
+        routes.tap()
+        let saved = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Reservoir and the Ramble")).firstMatch
+        guard saved.waitForExistence(timeout: 10) else {
+            soft(false, "no saved route row")
+            return
+        }
+        saved.tap()
+        settle(app, on: byId(app, "route-follow"), seconds: 5)
+        attach(app, "Showcase — Saved route with offline row")
+
+        byId(app, "route-follow").tap()
+        let start = byId(app, "follow-start")
+        if start.waitForExistence(timeout: 10) {
+            start.tap()
+            settle(app, seconds: 5)
+            attach(app, "Showcase — Following, off route")
+        } else {
+            soft(false, "no Start button on the follow screen")
+        }
+    }
+
     /// An outing the SR app caught by itself: the origin note under the hero is
     /// the thing to look at.
     @MainActor func testShowcaseCapturedWalk() {
