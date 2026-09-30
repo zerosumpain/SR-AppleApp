@@ -252,11 +252,35 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Health, scrolled further")
     }
 
-    /// The health notes, under "The read".
+    /// Insights, one push off the Health tab.
+    @MainActor func testShowcaseHealthInsights() {
+        let app = launch()
+        openTab(app, "Health")
+        let insights = byId(app, "health-insights")
+        guard scroll(app, to: insights) else {
+            soft(false, "no Insights tile on the Health tab")
+            return
+        }
+        insights.tap()
+        settle(app)
+        attach(app, "Showcase — Health, insights")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Health, insights scrolled")
+    }
+
+    /// The health notes, under "The read" in Insights.
     @MainActor func testShowcaseHealthNoticed() {
         let app = launch()
         openTab(app, "Health")
         settle(app, on: app.staticTexts["Primed"])
+        let insights = byId(app, "health-insights")
+        guard scroll(app, to: insights) else {
+            soft(false, "no Insights tile on the Health tab")
+            return
+        }
+        insights.tap()
         let useful = app.buttons.matching(identifier: "noticed-useful").firstMatch
         soft(scroll(app, to: useful), "no Noticed section on Health")
         settle(app)
