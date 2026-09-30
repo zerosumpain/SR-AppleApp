@@ -710,6 +710,7 @@ final class ShowcaseTests: XCTestCase {
             soft(byId(app, "boggle-standings").exists, "no standings")
             soft(byId(app, "boggle-board").exists, "no board on the reveal")
             soft(byId(app, "boggle-possible").exists, "no count of the board's words")
+            soft(byId(app, "game-record").exists, "no new-high-score line on a round that set one")
             attach(app, "Showcase — Boggle, finished")
             let found = byId(app, "boggle-found-trap")
             if scroll(app, to: found) {
@@ -873,6 +874,36 @@ final class ShowcaseTests: XCTestCase {
             back(app)
         } else {
             soft(false, "no Draw & Guess of mine")
+        }
+    }
+
+    /// The leaderboard from the Games tab: the week's overall table, a board
+    /// per game (Boggle's best with what it was set on, Wordle Race by wins),
+    /// then today.
+    @MainActor func testShowcaseGameLeaderboard() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let entry = byId(app, "games-leaderboard")
+        if scroll(app, to: entry) {
+            entry.tap()
+            settle(app, on: byId(app, "leaderboard-overall"), seconds: 2)
+            soft(byId(app, "leaderboard-window").exists, "no Day / Week / All")
+            soft(byId(app, "leaderboard-overall-p_sam").exists, "Sam is not on the overall table")
+            soft(byId(app, "leaderboard-game-boggle").exists, "no Boggle board")
+            attach(app, "Showcase — Games leaderboard, this week")
+            let day = app.segmentedControls.buttons["Day"]
+            if day.waitForExistence(timeout: 3) {
+                day.tap()
+                settle(app, on: byId(app, "leaderboard-overall"), seconds: 2)
+                attach(app, "Showcase — Games leaderboard, today")
+            } else {
+                soft(false, "no Day segment")
+            }
+            back(app)
+        } else {
+            soft(false, "no way to the leaderboard from Games")
         }
     }
 

@@ -64,6 +64,40 @@ struct GamesScreen: View {
                     }
                 }
 
+                // Every finished game, every game: today, this week, all time.
+                Button {
+                    SRHaptic.tap()
+                    router.push(GameLeaderboardRef(), on: .games)
+                } label: {
+                    SRCard(interactive: true) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "trophy.fill")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(SR.accent)
+                                .frame(width: 28)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Leaderboard")
+                                    .font(SR.Text.title())
+                                    .foregroundStyle(SR.ink)
+                                Text("High scores and wins — today, this week, all time.")
+                                    .font(SR.Text.secondary())
+                                    .foregroundStyle(SR.inkMuted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(SR.inkGhost)
+                        }
+                        .frame(minHeight: SR.tapTarget)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("games-leaderboard")
+
                 section("Play", trailing: nil) {
                     ForEach(GameKind.allCases) { kind in
                         Button {

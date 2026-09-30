@@ -438,6 +438,7 @@ extension SRDemoFixtures {
          "standings": [{"id": "p_alex", "name": "Alex", "score": 3, "words": 3, "longest": "noise"},
                        {"id": "p_sam", "name": "Sam", "score": 1, "words": 2, "longest": "trap"}],
          "winnerIds": ["p_alex"],
+         "records": {"p_alex": "week"},
          "serverNow": \(ms(now))}
         """
     }
@@ -646,6 +647,55 @@ extension SRDemoFixtures {
            {"id": "p_robin", "name": "Robin", "status": "joined", "isHost": false, "score": 0, "solved": false, "isDrawing": false}
          ],
          "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: - The leaderboard
+
+    /// `GET api/native/games/leaderboard?window=`. Alex leads Boggle with a
+    /// best set on a 5×5; Sam leads on wins; Wordle Race has no score and
+    /// ranks by wins. Today is a smaller board than the week, all time a bigger
+    /// one. Boggle and Wordle Race are left out of the store shots (marks).
+    static func gamesLeaderboard(window: String) -> String {
+        let scale: Int
+        switch window {
+        case "day": scale = 1
+        case "all": scale = 9
+        default: scale = 3
+        }
+        let shots = storeShotsSkipsWordle
+        var games: [String] = []
+        if !shots {
+            games.append("""
+            {"game": "boggle", "title": "Boggle", "scored": true, "rows": [
+              {"rank": 1, "playerId": "p_alex", "name": "Alex", "best": \(14 + scale), "bestLabel": "5×5 · 2 minutes · medium", "wins": \(scale), "played": \(2 * scale)},
+              {"rank": 2, "playerId": "p_sam", "name": "Sam", "best": \(9 + scale), "bestLabel": "4×4 · 90 seconds · easy", "wins": \(scale), "played": \(2 * scale)}
+            ]}
+            """)
+        }
+        games.append("""
+        {"game": "maths-sprint", "title": "Quick Maths Sprint", "scored": true, "rows": [
+          {"rank": 1, "playerId": "p_sam", "name": "Sam", "best": \(20 + scale), "bestLabel": "medium", "wins": \(scale), "played": \(scale + 1)},
+          {"rank": 2, "playerId": "p_robin", "name": "Robin", "best": \(12 + scale), "bestLabel": "easy", "wins": 0, "played": \(scale)},
+          {"rank": 3, "playerId": "p_alex", "name": "Alex", "best": 11, "bestLabel": "hard", "wins": 1, "played": \(scale + 1)}
+        ]}
+        """)
+        if !shots {
+            games.append("""
+            {"game": "wordle-race", "title": "Wordle Race", "scored": false, "rows": [
+              {"rank": 1, "playerId": "p_robin", "name": "Robin", "best": null, "bestLabel": null, "wins": \(scale), "played": \(scale)},
+              {"rank": 2, "playerId": "p_alex", "name": "Alex", "best": null, "bestLabel": null, "wins": 0, "played": \(scale)}
+            ]}
+            """)
+        }
+        return """
+        {"me": {"id": "p_alex"}, "window": \(s(window)), "from": null,
+         "overall": [
+           {"rank": 1, "playerId": "p_sam", "name": "Sam", "wins": \(2 * scale), "played": \(3 * scale + 1)},
+           {"rank": 2, "playerId": "p_alex", "name": "Alex", "wins": \(scale + 1), "played": \(4 * scale + 1)},
+           {"rank": 3, "playerId": "p_robin", "name": "Robin", "wins": \(scale), "played": \(2 * scale)}
+         ],
+         "games": [\(games.joined(separator: ","))]}
         """
     }
 }

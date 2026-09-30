@@ -697,6 +697,7 @@ struct QuizFinished: View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 SRPageHeader(kicker: "Quiz Night · final", title: title, strap: strap)
+                GameRecordLine(room: room)
 
                 VStack(alignment: .leading, spacing: SR.cardGap) {
                     SRSectionLabel(text: room.solo ? "Your quiz" : "Standings", trailing: room.title)
