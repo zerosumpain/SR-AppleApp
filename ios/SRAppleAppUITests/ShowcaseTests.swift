@@ -302,6 +302,51 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Activity detail, scrolled further")
     }
 
+    /// Routes: the saved list, the plan form, three candidates, a saved route.
+    @MainActor func testShowcaseRoutePlanner() {
+        let app = launch()
+        openTab(app, "Health")
+
+        let routes = byId(app, "health-routes")
+        guard scroll(app, to: routes) else {
+            soft(false, "no Routes row on the Health tab")
+            return
+        }
+        routes.tap()
+        settle(app)
+        attach(app, "Showcase — Routes")
+
+        let plan = byId(app, "routes-plan")
+        if plan.waitForExistence(timeout: 10) {
+            plan.tap()
+            settle(app, seconds: 4)
+            attach(app, "Showcase — Plan a route")
+        } else {
+            soft(false, "no Plan a route row")
+            return
+        }
+
+        let go = byId(app, "plan-go")
+        if scroll(app, to: go) {
+            go.tap()
+            settle(app, on: byId(app, "plan-candidate-2"), seconds: 4)
+            app.swipeDown()
+            settle(app)
+            attach(app, "Showcase — Three candidates")
+        } else {
+            soft(false, "no Plan button")
+        }
+
+        let save = byId(app, "plan-save")
+        if scroll(app, to: save) {
+            save.tap()
+            settle(app, seconds: 4)
+            attach(app, "Showcase — Saved route")
+        } else {
+            soft(false, "no Save button")
+        }
+    }
+
     /// An outing the SR app caught by itself: the origin note under the hero is
     /// the thing to look at.
     @MainActor func testShowcaseCapturedWalk() {

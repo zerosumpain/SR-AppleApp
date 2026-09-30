@@ -259,8 +259,15 @@ final class SiteClient {
 
     private struct APIError: Decodable { let error: String; var field: String? = nil }
 
-    func send<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, asSelf: Bool = false) async throws -> T {
-        let (data, response) = try await session.data(for: try request(path, method: method, body: body, asSelf: asSelf))
+    /// `timeout`: for the few calls that legitimately think for longer than the
+    /// session's 30 s — planning a route is up to eight openrouteservice round
+    /// trips in a row on the server.
+    func send<T: Decodable>(
+        _ path: String, method: String = "GET", body: Data? = nil, asSelf: Bool = false, timeout: TimeInterval? = nil
+    ) async throws -> T {
+        var req = try request(path, method: method, body: body, asSelf: asSelf)
+        if let timeout { req.timeoutInterval = timeout }
+        let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {
             return try JSONDecoder().decode(T.self, from: data)
