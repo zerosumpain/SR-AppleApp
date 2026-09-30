@@ -248,6 +248,10 @@ enum SRDemoFixtures {
             break
         }
 
+        // Routes sent to a family member — `Health/RouteDemoFixtures.swift`.
+        if joined == "api/native/route-gifts" || joined.hasPrefix("api/native/route-gifts/") {
+            return routeGiftsRoute(method: method)
+        }
         // Route walks shared live — `Health/RouteDemoFixtures.swift`.
         if joined == "api/native/route-session" || joined.hasPrefix("api/native/route-session/") {
             return routeSessionRoute(method: method, parts: parts)

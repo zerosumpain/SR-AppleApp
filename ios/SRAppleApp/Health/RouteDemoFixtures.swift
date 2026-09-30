@@ -162,3 +162,23 @@ extension SRDemoFixtures {
         """
     }
 }
+
+// MARK: - Routes sent to a family member
+
+extension SRDemoFixtures {
+    static func routeGiftsRoute(method: String) -> String? {
+        switch method {
+        case "GET":
+            return """
+            {"gifts": [{"id": "gift-demo-1", "sentAt": "2026-09-29T18:00:00.000Z", "route": \(routeDetail(id: demoRouteImportedId) ?? "null")}],
+             "recipients": [{"subject": "alex", "name": "Alex"}, {"subject": "sam", "name": "Sam"}]}
+            """
+        case "POST":
+            return #"{"id": "gift-demo-2"}"#
+        case "DELETE":
+            return #"{"ok": true}"#
+        default:
+            return nil
+        }
+    }
+}

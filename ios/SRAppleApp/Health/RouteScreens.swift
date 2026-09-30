@@ -631,6 +631,7 @@ struct PlannedRouteScreen: View {
 struct PlannedRouteBody: View {
     let detail: PlannedRouteDetail
     @State private var following = false
+    @ObservedObject private var gifts = RouteGiftsStore.shared
 
     var body: some View {
         ScrollView {
@@ -652,6 +653,20 @@ struct PlannedRouteBody: View {
 
                 OfflineRow(detail: detail)
                     .padding(.horizontal, 16)
+
+                if !gifts.recipients.isEmpty {
+                    Menu {
+                        ForEach(gifts.recipients) { person in
+                            Button(person.name) { Task { await gifts.send(routeId: detail.id, to: person) } }
+                        }
+                    } label: {
+                        Label("Send to someone in the family", systemImage: "paperplane")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .srButton(.regular)
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("route-send")
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Sport.label(detail.sport).uppercased())
@@ -701,6 +716,12 @@ struct PlannedRouteBody: View {
         }
         .fullScreenCover(isPresented: $following) {
             FollowRouteScreen(detail: detail)
+        }
+        .task { if gifts.recipients.isEmpty { await gifts.load() } }
+        .alert("Route", isPresented: Binding(get: { gifts.message != nil }, set: { if !$0 { gifts.message = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(gifts.message ?? "")
         }
     }
 

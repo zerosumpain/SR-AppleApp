@@ -237,7 +237,9 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
         // walked to its end; otherwise it is a stop.
         let completed = (progress?.remainingM ?? .infinity) < 150
         Task { await live.end(finished: completed) }
-        guard recording.track.count >= 2 else { return nil }
+        // A family member's walk is theirs, not a line in the owner's Health:
+        // only the owner's phone saves one as an activity.
+        guard recording.track.count >= 2, AccessStore.ownerSite else { return nil }
         recording.finishedAt = Date().timeIntervalSince1970
         let done = recording
         RecordingQueue.shared.add(done)

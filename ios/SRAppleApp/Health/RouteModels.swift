@@ -87,7 +87,7 @@ struct RouteWaypoint: Decodable, Hashable, Identifiable {
     let note: String?
 }
 
-struct PlannedRouteDetail: Decodable, Hashable {
+struct PlannedRouteDetail: Decodable, Hashable, Identifiable {
     let id: String
     let name: String
     let sport: String

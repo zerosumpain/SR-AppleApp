@@ -108,4 +108,13 @@ final class RouteLiveTests: XCTestCase {
         let walk = try JSONDecoder().decode(LiveWalk.self, from: Data(json.utf8))
         XCTAssertEqual(walk.line, "Off route · 140 m from the line")
     }
+
+    func testARouteSentToAMemberArrivesWholeWithWhoItCanGoTo() throws {
+        let page = try JSONDecoder().decode(RouteGiftsPage.self, from: Data(
+            try XCTUnwrap(SRDemoFixtures.routeGiftsRoute(method: "GET")).utf8
+        ))
+        XCTAssertEqual(page.gifts.first?.route.name, "Park Drive loop")
+        XCTAssertGreaterThan(page.gifts.first?.route.route.count ?? 0, 100, "a gift carries the line to follow")
+        XCTAssertEqual(page.recipients.map(\.name), ["Alex", "Sam"])
+    }
 }

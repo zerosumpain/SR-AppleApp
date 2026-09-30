@@ -120,3 +120,43 @@ struct LiveWalksCard: View {
         }
     }
 }
+
+/// "Routes sent to you" on the Family tab: a route the owner sent this phone,
+/// ready to follow — and to share live, like any other.
+struct RouteGiftsCard: View {
+    @ObservedObject var store: RouteGiftsStore
+    @State private var following: PlannedRouteDetail?
+
+    var body: some View {
+        if !store.gifts.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                SRSectionLabel(text: "Routes sent to you", trailing: "\(store.gifts.count)")
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(store.gifts) { g in
+                        HStack(spacing: 12) {
+                            Image(systemName: Sport.icon(g.route.sport)).foregroundStyle(SR.accent).frame(width: 26)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(g.route.name).font(SR.Text.title()).foregroundStyle(SR.ink)
+                                Text(g.route.summaryLine).font(SR.Text.mono(13)).foregroundStyle(SR.inkSecondary)
+                            }
+                            Spacer()
+                            Button("Follow") { following = g.route }
+                                .srButton(.regular)
+                                .accessibilityIdentifier("gift-follow-\(g.id)")
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .contextMenu {
+                            Button(role: .destructive) { Task { await store.dismiss(g.id) } } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .srGlassCard(.paper)
+            }
+            .fullScreenCover(item: $following) { FollowRouteScreen(detail: $0) }
+        }
+    }
+}

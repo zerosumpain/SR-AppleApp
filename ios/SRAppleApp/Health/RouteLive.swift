@@ -249,3 +249,61 @@ final class LiveWalkStore: ObservableObject {
         }
     }
 }
+
+// MARK: - Routes sent to a family member
+
+/// A saved route the owner sent to this phone to walk. The route arrives
+/// whole — a member cannot read the owner's routes, only what was sent.
+struct RouteGift: Decodable, Identifiable {
+    let id: String
+    let sentAt: String
+    let route: PlannedRouteDetail
+}
+
+struct RouteGiftRecipient: Decodable, Identifiable, Hashable {
+    let subject: String
+    let name: String
+    var id: String { subject }
+}
+
+struct RouteGiftsPage: Decodable {
+    let gifts: [RouteGift]
+    /// Who the owner can send to; empty for anyone else.
+    let recipients: [RouteGiftRecipient]
+}
+
+enum RouteGiftPath {
+    static let gifts = "api/native/route-gifts"
+    static func gift(_ id: String) -> String { "\(gifts)/\(TrailPath.escape(id))" }
+}
+
+@MainActor
+final class RouteGiftsStore: ObservableObject {
+    static let shared = RouteGiftsStore()
+    @Published private(set) var gifts: [RouteGift] = []
+    @Published private(set) var recipients: [RouteGiftRecipient] = []
+    @Published var message: String?
+
+    func load() async {
+        guard SiteClient.shared.isPaired else { return }
+        if let page: RouteGiftsPage = try? await SiteClient.shared.send(RouteGiftPath.gifts) {
+            gifts = page.gifts
+            recipients = page.recipients
+        }
+    }
+
+    func send(routeId: String, to person: RouteGiftRecipient) async {
+        struct Body: Encodable { let routeId: String; let toSubject: String }
+        do {
+            try await SiteClient.shared.post(RouteGiftPath.gifts, body: try JSONEncoder().encode(Body(routeId: routeId, toSubject: person.subject)))
+            message = "Sent to \(person.name). It is on their Family tab."
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    func dismiss(_ id: String) async {
+        gifts.removeAll { $0.id == id }
+        _ = try? await SiteClient.shared.call(RouteGiftPath.gift(id), method: "DELETE")
+    }
+}

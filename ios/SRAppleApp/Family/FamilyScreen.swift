@@ -25,6 +25,8 @@ struct FamilyScreen: View {
     @ObservedObject private var forecast = FamilyForecastStore.shared
     /// Route walks being shared live that this phone may follow.
     @ObservedObject private var walks = LiveWalksStore.shared
+    /// Routes the owner sent this phone to walk.
+    @ObservedObject private var gifts = RouteGiftsStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
@@ -66,6 +68,7 @@ struct FamilyScreen: View {
             await store.load()
             await forecast.load()
             await walks.load()
+            await gifts.load()
             while !Task.isCancelled {
                 try? await Task.sleep(for: FamilyStore.refreshInterval)
                 guard !Task.isCancelled else { break }
@@ -96,6 +99,8 @@ struct FamilyScreen: View {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
                     LiveWalksCard(store: walks)
                         .padding(.top, walks.walks.isEmpty ? 0 : 14)
+                    RouteGiftsCard(store: gifts)
+                        .padding(.top, gifts.gifts.isEmpty || !walks.walks.isEmpty ? 0 : 14)
                     if let items = forecast.forecast?.watch, !items.isEmpty {
                         FamilyWatchCard(items: items)
                             .padding(.top, 14)
@@ -128,7 +133,7 @@ struct FamilyScreen: View {
                 .padding(.horizontal, SR.gutter)
                 .padding(.bottom, 28)
             }
-            .srRefreshable { await store.load(); await walks.load(); await forecast.load(force: true) }
+            .srRefreshable { await store.load(); await walks.load(); await gifts.load(); await forecast.load(force: true) }
         }
     }
 
