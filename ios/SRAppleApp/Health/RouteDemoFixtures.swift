@@ -80,7 +80,7 @@ extension SRDemoFixtures {
          "createdAt": "2026-09-28T07:10:00.000Z", "notes": null,
          "bounds": {"n": 40.796, "s": 40.767, "e": -73.953, "w": -73.980},
          "route": \(routeJSON3(routeLoop(scale: planned ? 1.0 : 1.15, points: 160))),
-         "targetDistanceM": \(planned ? 8000 : "null"),
+         "targetDistanceM": \(planned ? "8000" : "null"),
          "waypoints": [{"id": "w1", "name": "Water fountain", "icon": "water", "lat": 40.7853, "lng": -73.9621, "note": null}]}
         """
     }
