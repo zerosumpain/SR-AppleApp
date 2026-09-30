@@ -341,7 +341,7 @@ enum OneFix {
     static func current(timeout: Duration = .seconds(10)) async -> CLLocationCoordinate2D? {
         // The demo has no location and must not ask for one.
         if SRDemo.isOn { return CLLocationCoordinate2D(latitude: 40.7812, longitude: -73.9665) }
-        await withTaskGroup(of: CLLocationCoordinate2D?.self) { group in
+        return await withTaskGroup(of: CLLocationCoordinate2D?.self) { group in
             group.addTask {
                 do {
                     for try await update in CLLocationUpdate.liveUpdates() {
