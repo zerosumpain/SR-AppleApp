@@ -11,11 +11,38 @@ import MapKit
 
 // MARK: - All activities
 
+/// The whole history, with the week as its headline.
+///
+/// Read top down it answers three questions in the order they get asked: how
+/// has this week gone (the band), what are my bests (the records, sideways),
+/// and what did I do (the history, by month — "September · 12 · 84 km" is how
+/// anybody remembers a training log, and a flat list of sixty rows is not).
+/// The sport chips only appear when there is more than one sport to choose.
 struct ActivitiesScreen: View {
+    /// The summary's week and records — the tab's, handed down, so the band
+    /// is drawn by the same numbers the tab's tile quoted.
+    var week: HealthWeek? = nil
+    var records: [HealthRecordHighlight] = []
     @StateObject private var store = ActivitiesStore(pageSize: 30)
+    @State private var sport: String?
 
     var body: some View {
         List {
+            if week != nil || !store.rows.isEmpty {
+                ActivitiesWeekBand(week: week, days: ActivityWeekDay.lastSeven(store.rows))
+                    .srInkRow()
+            }
+            if !records.isEmpty {
+                Section {
+                    RecordsStrip(records: records)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                } header: {
+                    SRSectionLabel(text: "Personal records")
+                }
+            }
+
             if store.rows.isEmpty {
                 if store.state == .loaded {
                     SREmpty(
@@ -29,26 +56,50 @@ struct ActivitiesScreen: View {
                         .srBareRow()
                 }
             } else {
-                ForEach(store.rows) { row in
-                    NavigationLink(value: ActivityRef(id: row.id, name: row.name)) {
-                        ActivityListRow(row: row)
-                    }
-                    .srGlassRow()
-                    .onAppear {
-                        // The list continuing is what every iPhone list does; a
-                        // "More" button at the end is a control you have to find.
-                        if row.id == store.rows.last?.id { Task { await store.loadMore() } }
+                if sportChips.count > 2 {
+                    HealthChips(chips: sportChips, selection: $sport)
+                        .srBareRow()
+                }
+                ForEach(months) { month in
+                    Section {
+                        ForEach(month.rows) { row in
+                            NavigationLink(value: ActivityRef(id: row.id, name: row.name)) {
+                                ActivityListRow(row: row)
+                            }
+                            .srGlassRow()
+                            .onAppear {
+                                // The list continuing is what every iPhone list does; a
+                                // "More" button at the end is a control you have to find.
+                                if row.id == filtered.last?.id { Task { await store.loadMore() } }
+                            }
+                        }
+                    } header: {
+                        SRSectionLabel(text: ActivityDay.month(month.key), trailing: monthTotal(month))
                     }
                 }
-                if store.loadingMore {
+                if filtered.isEmpty {
+                    if store.hasMore {
+                        // No row of this sport in what has loaded, so no row
+                        // appears to ask for the next page: this does instead.
+                        HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                            .srBareRow()
+                            .padding(.vertical, 12)
+                            .onAppear { Task { await store.loadMore() } }
+                    } else {
+                        Text("Nothing in this sport yet.")
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
+                            .srBareRow()
+                    }
+                } else if store.loadingMore {
                     HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                        .srGlassRow()
+                        .srBareRow()
                         .padding(.vertical, 12)
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .srPaper()
+        .srGround(.vital)
         .navigationTitle("Activities")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -65,12 +116,67 @@ struct ActivitiesScreen: View {
     private func reload() {
         Task { await store.load() }
     }
+
+    // MARK: Filtering and grouping
+
+    private var filtered: [ActivityRow] {
+        guard let sport else { return store.rows }
+        return store.rows.filter { Sport.key($0.activityType) == sport }
+    }
+
+    /// "All", then each sport by how often it is done.
+    private var sportChips: [HealthChip] {
+        let counts = Dictionary(grouping: store.rows, by: { Sport.key($0.activityType) }).mapValues(\.count)
+        let sports = counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+        return [HealthChip(key: nil, label: "All", count: store.rows.count)]
+            + sports.map { HealthChip(key: $0.key, label: Sport.label($0.key), count: $0.value) }
+    }
+
+    private struct Month: Identifiable {
+        let key: String
+        var rows: [ActivityRow]
+        var id: String { key }
+    }
+
+    /// Consecutive rows by the month they were lived in. The rows arrive
+    /// newest first, so this keeps their order.
+    private var months: [Month] {
+        var out: [Month] = []
+        for row in filtered {
+            let key = ActivityDay.key(row).map { String($0.prefix(7)) } ?? "earlier"
+            if out.last?.key == key {
+                out[out.count - 1].rows.append(row)
+            } else {
+                out.append(Month(key: key, rows: [row]))
+            }
+        }
+        return out
+    }
+
+    /// "12 · 84.2 km" — but not on the last month while older pages are still
+    /// to come: a half-loaded month's total would be a wrong number, said
+    /// confidently.
+    private func monthTotal(_ month: Month) -> String? {
+        if store.hasMore && month.id == months.last?.id { return nil }
+        let km = month.rows.compactMap(\.distanceM).reduce(0, +)
+        let count = "\(month.rows.count)"
+        return km > 0 ? "\(count) · \(TrailFormat.km(km)) km" : count
+    }
 }
 
 // MARK: - Segments
 
+/// Every stretch covered more than once, with form as the headline.
+///
+/// The band says which way things are going; "Within reach" is the question
+/// the reader actually brings to this screen — where is a best gettable — as
+/// /health answered it; then the list, filterable by form.
 struct SegmentsScreen: View {
+    /// /health's gettable bests, from the tab's digest. Matched to rows by
+    /// name, so one the list does not carry still shows, just without a push.
+    var gettable: [HubDigest.Segments.Gettable] = []
     @StateObject private var store = SegmentsStore()
+    @State private var form: String?
 
     var body: some View {
         List {
@@ -87,21 +193,49 @@ struct SegmentsScreen: View {
                         .srBareRow()
                 }
             } else {
+                SegmentsFormBand(rows: store.rows).srInkRow()
+
+                if !gettable.isEmpty {
+                    Section {
+                        ForEach(gettable) { near in
+                            if let row = store.rows.first(where: { $0.name == near.name }) {
+                                NavigationLink(value: SegmentRef(id: row.id, name: row.name)) {
+                                    WithinReachRow(gettable: near)
+                                }
+                                .srGlassRow()
+                            } else {
+                                WithinReachRow(gettable: near).srGlassRow()
+                            }
+                        }
+                    } header: {
+                        SRSectionLabel(text: "Within reach", trailing: "a best is gettable")
+                    }
+                }
+
+                if formChips.count > 2 {
+                    HealthChips(chips: formChips, selection: $form)
+                        .srBareRow()
+                }
                 Section {
-                    ForEach(store.rows) { row in
+                    if filtered.isEmpty {
+                        Text("None \(form ?? "") right now.")
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
+                            .srGlassRow()
+                    }
+                    ForEach(filtered) { row in
                         NavigationLink(value: SegmentRef(id: row.id, name: row.name)) {
                             SegmentListRow(row: row)
                         }
                         .srGlassRow()
                     }
                 } header: {
-                    SRSectionLabel(text: "Most recently covered", trailing: "\(store.rows.count)")
-                        .padding(.vertical, 6)
+                    SRSectionLabel(text: "Most recently covered", trailing: "\(filtered.count)")
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .srPaper()
+        .srGround(.vital)
         .navigationTitle("Segments")
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable { await store.load() }
@@ -110,6 +244,21 @@ struct SegmentsScreen: View {
 
     private func reload() {
         Task { await store.load() }
+    }
+
+    private var filtered: [SegmentRow] {
+        guard let form else { return store.rows }
+        return store.rows.filter { ($0.form?.direction ?? "unknown") == form }
+    }
+
+    /// "All", then the three directions that have any segments in them.
+    private var formChips: [HealthChip] {
+        let all = HealthChip(key: nil, label: "All", count: store.rows.count)
+        let directions = ["improving", "holding", "slipping"].compactMap { direction -> HealthChip? in
+            let count = store.rows.filter { $0.form?.direction == direction }.count
+            return count == 0 ? nil : HealthChip(key: direction, label: direction.capitalized, count: count)
+        }
+        return [all] + directions
     }
 }
 
@@ -156,6 +305,11 @@ struct ActivityDetailBody: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ActivityHero(detail: activity)
+                // In the order the outing is remembered: where it went and
+                // its shape, what stood out (highlights, then segments — a PB
+                // is the thing anybody opens a run to see), how hard it was,
+                // and last the kilometre-by-kilometre detail, which is long
+                // and read least.
                 VStack(alignment: .leading, spacing: 30) {
                     if !row.origin.isEmpty {
                         ActivityOriginNote(row: row)
@@ -163,13 +317,16 @@ struct ActivityDetailBody: View {
                     if !activity.route.isEmpty {
                         RouteMap(route: activity.route)
                     }
-                    if !detail.highlights.isEmpty {
-                        highlights
-                    }
                     if activity.elevation.count > 1 {
                         TrailSection(title: "Elevation", trailing: elevationTrailing) {
                             ElevationChart(points: activity.elevation).frame(height: 150)
                         }
+                    }
+                    if !detail.highlights.isEmpty {
+                        highlights
+                    }
+                    if !detail.segments.isEmpty {
+                        segments
                     }
                     if activity.heartRate.count > 1 {
                         TrailSection(title: "Heart rate", trailing: heartTrailing) {
@@ -181,14 +338,6 @@ struct ActivityDetailBody: View {
                             ZoneStrip(zones: zones)
                         }
                     }
-                    if !activity.splits.isEmpty {
-                        TrailSection(title: "Splits", trailing: "\(activity.splits.count)") {
-                            SplitsTable(splits: activity.splits, activityType: row.activityType)
-                        }
-                    }
-                    if !detail.segments.isEmpty {
-                        segments
-                    }
                     if let physio = detail.physio, !load(physio).isEmpty {
                         TrailSection(title: "Load") {
                             SRTileGrid {
@@ -196,6 +345,11 @@ struct ActivityDetailBody: View {
                                     SRStatTile(value: tile.value, unit: tile.unit, label: tile.label, caption: tile.caption)
                                 }
                             }
+                        }
+                    }
+                    if !activity.splits.isEmpty {
+                        TrailSection(title: "Splits", trailing: "\(activity.splits.count)") {
+                            SplitsTable(splits: activity.splits, activityType: row.activityType)
                         }
                     }
                 }
@@ -248,12 +402,18 @@ struct ActivityDetailBody: View {
 
     static let highlightLimit = 4
 
+    /// "3 · 1 PB" — the PB count is why anybody reads this section.
+    private var segmentsTrailing: String {
+        let pbs = detail.segments.filter { $0.rankByTime == 1 && $0.rankedByTimeOf > 1 }.count
+        return pbs == 0 ? "\(detail.segments.count)" : "\(detail.segments.count) · \(pbs) PB"
+    }
+
     private var shownHighlights: [ActivityHighlight] {
         allHighlights ? detail.highlights : Array(detail.highlights.prefix(Self.highlightLimit))
     }
 
     private var segments: some View {
-        TrailSection(title: "Segments", trailing: "\(detail.segments.count)") {
+        TrailSection(title: "Segments", trailing: segmentsTrailing) {
             SRLedger {
                 ForEach(detail.segments) { effort in
                     NavigationLink(value: SegmentRef(id: effort.segmentId, name: effort.name)) {
@@ -412,12 +572,12 @@ private struct ActivitySegmentLine: View {
             VStack(alignment: .trailing, spacing: 3) {
                 Text(TrailFormat.duration(effort.durationS))
                     .font(SR.Text.mono(15))
-                    .foregroundStyle(SR.ink)
+                    .foregroundStyle(best ? SR.accent : SR.ink)
                 if let rank = effort.rankLine {
                     Text(rank.uppercased())
                         .font(SR.Text.label())
                         .tracking(1)
-                        .foregroundStyle(effort.rankByTime == 1 ? SR.accent : SR.inkMuted)
+                        .foregroundStyle(best ? SR.accent : SR.inkMuted)
                 }
             }
             Image(systemName: "chevron.right")
@@ -427,10 +587,22 @@ private struct ActivitySegmentLine: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(minHeight: SR.tapTarget)
-        .background(SR.paper)
+        // The same mark a best effort carries on the segment's own screen:
+        // a PB looks like a PB wherever it is seen.
+        .background {
+            ZStack {
+                SR.paper
+                if best { SR.accent.opacity(0.06) }
+            }
+        }
+        .overlay(alignment: .leading) {
+            if best { Rectangle().fill(SR.accent).frame(width: 3) }
+        }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
+
+    private var best: Bool { effort.rankByTime == 1 && effort.rankedByTimeOf > 1 }
 
     private var subline: String {
         var parts = ["\(TrailFormat.km(effort.distanceM)) km"]

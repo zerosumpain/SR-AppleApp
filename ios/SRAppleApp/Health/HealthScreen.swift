@@ -100,13 +100,13 @@ struct HealthScreen: View {
         .navigationDestination(for: RouteRef.self) { PlannedRouteScreen(ref: $0) }
         .navigationDestination(for: HealthRoute.self) { route in
             switch route {
-            case .activities: ActivitiesScreen()
-            case .segments: SegmentsScreen()
+            case .activities: ActivitiesScreen(week: store.summary?.week, records: store.summary?.records ?? [])
+            case .segments: SegmentsScreen(gettable: hub.hub?.segments?.gettable ?? [])
             case .routes: RoutesScreen()
             case .planRoute: PlanRouteScreen()
             case .nearbyRoutes: NearbyRoutesScreen()
             case .offlineMaps: OfflineMapsScreen()
-            case .insights: HealthInsightsScreen(store: store, hub: hub, noticed: noticed)
+            case .insights: HealthInsightsScreen(hub: hub, noticed: noticed)
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
             case .tripwires: if let h = hub.hub { TripwiresScreen(hub: h) }

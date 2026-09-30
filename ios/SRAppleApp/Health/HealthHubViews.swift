@@ -176,44 +176,65 @@ struct HeartRateCard: View {
 
 // MARK: - The read
 
-/// The one-line read, readiness's four factors, and what the planner would
-/// commission — /health's "State of play" minus the figures the hero already
-/// shows.
-struct HubReadCard: View {
+/// Insights' headline, on ink: the one-line read and readiness's factors —
+/// /health's "State of play" minus the figures the tab's hero already shows.
+///
+/// The factors' bars are accent-on-dark: on this band they are the lit thing,
+/// what readiness is made of, and nothing else on it is orange but the kicker.
+struct InsightsReadBand: View {
     let hub: HubDigest
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        SRInkBand(kicker: "The read", meta: updated, inset: 0) {
             if let lede = hub.lede, !lede.isEmpty {
                 Text(lede)
                     .font(SR.Text.body(17))
-                    .foregroundStyle(SR.ink)
+                    .foregroundStyle(SR.onInk(.primary))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let readiness = hub.readiness, !readiness.factors.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("WHAT READINESS IS MADE OF")
+                        .font(SR.Text.label())
+                        .tracking(SR.inkLabelTracking)
+                        .foregroundStyle(SR.onInk(.label))
                     ForEach(readiness.factors) { factor in
                         FactorBar(factor: factor)
                     }
                 }
             }
-            if let planner = hub.planner {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("THE PLANNER WOULD COMMISSION")
-                        .font(SR.Text.label())
-                        .tracking(1.2)
-                        .foregroundStyle(SR.inkMuted)
-                    Text(planner.headline)
-                        .font(SR.Text.title(16))
-                        .foregroundStyle(SR.ink)
-                    if let detail = planner.detail {
-                        Text(detail)
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+            if hub.isMock {
+                SRInkMockNote()
+            }
+        }
+    }
+
+    private var updated: String? {
+        let ago = shortAgo(hub.generatedAt)
+        return ago.isEmpty ? nil : "Updated \(ago) ago"
+    }
+}
+
+/// What the planner would commission, on paper under the band.
+struct HubPlannerCard: View {
+    let planner: HubDigest.Planner
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("THE PLANNER WOULD COMMISSION")
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(SR.inkMuted)
+            Text(planner.headline)
+                .font(SR.Text.title(16))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail = planner.detail {
+                Text(detail)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(SR.cardPadding)
@@ -222,6 +243,7 @@ struct HubReadCard: View {
     }
 }
 
+/// One factor, on the band.
 private struct FactorBar: View {
     let factor: HubDigest.Readiness.Factor
 
@@ -229,19 +251,19 @@ private struct FactorBar: View {
         HStack(spacing: 10) {
             Text(factor.label)
                 .font(SR.Text.secondary(13))
-                .foregroundStyle(SR.inkSecondary)
+                .foregroundStyle(SR.onInk(.note))
                 .frame(width: 110, alignment: .leading)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(SR.line)
-                    Capsule().fill(SR.accent)
+                    Capsule().fill(SR.onInk(.track))
+                    Capsule().fill(SR.accentOnDark)
                         .frame(width: geo.size.width * CGFloat(min(max(factor.score, 0), 100) / 100))
                 }
             }
             .frame(height: 6)
             Text("\(Int(factor.score.rounded()))")
                 .font(SR.Text.mono(12))
-                .foregroundStyle(SR.ink)
+                .foregroundStyle(SR.onInk(.primary))
                 .frame(width: 28, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
