@@ -122,3 +122,43 @@ extension SRDemoFixtures {
         """
     }
 }
+
+// MARK: - Live route walks
+
+extension SRDemoFixtures {
+    static let demoLiveWalkId = "route-demoWalk1"
+
+    static func routeSessionRoute(method: String, parts: [String]) -> String? {
+        // parts: ["api", "native", "route-session", ...]
+        let rest = Array(parts.dropFirst(3))
+        switch (method, rest.count, rest.last) {
+        case ("POST", 0, _):
+            return #"{"id": "route-demoMine", "followers": 2, "shareUrl": "https://strangeramblings.com/follow/demo-link-not-real-000000000000000000000"}"#
+        case ("GET", 0, _):
+            return "{\"sessions\": [\(liveWalk(full: false))]}"
+        case ("GET", 1, _):
+            return rest[0] == demoLiveWalkId ? liveWalk(full: true) : nil
+        case ("POST", 2, "fixes"?):
+            return #"{"ok": true, "ended": false}"#
+        case ("POST", 2, "end"?):
+            return #"{"ok": true}"#
+        default:
+            return nil
+        }
+    }
+
+    /// Alex, two fifths of the way round the park loop.
+    static func liveWalk(full: Bool) -> String {
+        let loop = routeLoop(scale: 1.0, points: 160)
+        let walked = Array(loop.prefix(65))
+        let t0 = 1_790_000_000.0
+        let route = full ? list(loop.map { "[\(coord($0.0)), \(coord($0.1))]" }) : list([loop.first!, loop.last!].map { "[\(coord($0.0)), \(coord($0.1))]" })
+        let trail = full ? list(walked.enumerated().map { "[\(coord($0.element.0)), \(coord($0.element.1)), \(Int(t0) + $0.offset * 20)]" }) : "[]"
+        return """
+        {"id": \(s(demoLiveWalkId)), "name": "Alex", "routeName": "Reservoir and the Ramble", "sport": "walk",
+         "route": \(route), "trail": \(trail), "totalM": 8040,
+         "progress": {"alongM": 3260, "remainingM": 4780, "offRouteM": 6, "offRoute": false, "timeLeftS": 3480},
+         "startedAt": "2026-09-30T08:10:00.000Z", "lastFixAt": "2026-09-30T08:52:00.000Z", "endedAt": null, "endReason": null}
+        """
+    }
+}

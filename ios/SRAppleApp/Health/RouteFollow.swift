@@ -135,8 +135,8 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
     @Published private(set) var weakSignal = false
     @Published private(set) var denied = false
 
-    /// Called once per fix accepted — the live share hangs off this.
-    var onFix: ((CLLocation, RouteNav.Progress?) -> Void)?
+    /// Sharing this walk live with the family, when the walker asked.
+    let live = LiveShare()
 
     private var follower: RouteFollower
     private let manager = CLLocationManager()
@@ -147,6 +147,9 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
     private var pausedAt: Date?
     private var pausedTotal: TimeInterval = 0
     private var lastPersist = Date.distantPast
+
+    /// The live share's changes redrawn with the session's own.
+    private var liveChanges: AnyCancellable?
 
     private static let activeURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("route-follow-active.json")
@@ -171,6 +174,7 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
         manager.distanceFilter = 3
         manager.pausesLocationUpdatesAutomatically = false
         manager.showsBackgroundLocationIndicator = true
+        liveChanges = live.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     var coordinates: [CLLocationCoordinate2D] { follower.coordinates }
@@ -229,6 +233,10 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
         UIApplication.shared.isIdleTimerDisabled = false
         phase = .finished
         try? FileManager.default.removeItem(at: Self.activeURL)
+        // Followers' cards say "finished" only when the route was actually
+        // walked to its end; otherwise it is a stop.
+        let completed = (progress?.remainingM ?? .infinity) < 150
+        Task { await live.end(finished: completed) }
         guard recording.track.count >= 2 else { return nil }
         recording.finishedAt = Date().timeIntervalSince1970
         let done = recording
@@ -299,7 +307,7 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
             fix.coordinate.longitude, fix.coordinate.latitude,
             fix.verticalAccuracy >= 0 ? fix.altitude : nil, sec.rounded(),
         ])
-        onFix?(fix, progress)
+        live.add(fix, progress: progress, timeLeftS: timeLeftS)
         persistActive()
     }
 

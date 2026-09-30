@@ -8,6 +8,8 @@ struct FollowRouteScreen: View {
     @StateObject private var session: FollowSession
     @State private var confirmFinish = false
     @State private var finished: RouteRecording?
+    @State private var shareLive = true
+    @State private var withLink = false
 
     init(detail: PlannedRouteDetail) {
         _session = StateObject(wrappedValue: FollowSession(detail: detail))
@@ -102,10 +104,16 @@ struct FollowRouteScreen: View {
                     .font(SR.Text.secondary(12))
                     .foregroundStyle(SR.inkMuted)
             }
+            liveRow
             HStack(spacing: 12) {
                 switch session.phase {
                 case .ready:
-                    Button { session.start() } label: { Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity) }
+                    Button {
+                        session.start()
+                        if shareLive {
+                            Task { await session.live.start(detail: session.detail, withLink: withLink) }
+                        }
+                    } label: { Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity) }
                         .srButton(.prominent)
                         .accessibilityIdentifier("follow-start")
                 case .following:
@@ -123,6 +131,52 @@ struct FollowRouteScreen: View {
         .srGlassCard()
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    /// Before the start: whether to share it. After: who can see it, and the link.
+    @ViewBuilder
+    private var liveRow: some View {
+        if session.phase == .ready {
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Share live with the family", isOn: $shareLive)
+                    .font(SR.Text.body(15))
+                    .tint(SR.accent)
+                if shareLive {
+                    Toggle("Also make a link for someone without the app", isOn: $withLink)
+                        .font(SR.Text.secondary(13))
+                        .tint(SR.accent)
+                }
+            }
+        } else {
+            switch session.live.state {
+            case .starting:
+                Text("Starting the live share…").font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted)
+            case .live(let followers):
+                HStack(spacing: 10) {
+                    Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(SR.accent)
+                    Text(followers == 0 ? "Live — family can follow in the app" : "Live on \(followers) Lock Screen\(followers == 1 ? "" : "s")")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkSecondary)
+                    Spacer()
+                    if let url = session.live.shareURL {
+                        ShareLink(item: url, subject: Text(session.detail.name), message: Text("Follow me round \(session.detail.name)")) {
+                            Label("Link", systemImage: "square.and.arrow.up")
+                        }
+                        .font(SR.Text.secondary(13))
+                        .accessibilityIdentifier("follow-share-link")
+                    }
+                }
+                if session.live.backlog > 20 {
+                    Text("No signal — \(session.live.backlog) positions waiting to send.")
+                        .font(SR.Text.secondary(12))
+                        .foregroundStyle(SR.inkMuted)
+                }
+            case .failed(let why):
+                Text("Not shared live: \(why)").font(SR.Text.secondary(12)).foregroundStyle(SR.inkMuted)
+            case .off, .ended:
+                EmptyView()
+            }
+        }
     }
 
     private func figure(_ label: String, _ value: String) -> some View {

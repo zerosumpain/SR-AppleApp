@@ -378,6 +378,22 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Somebody in the family out on a route, followed from the Family tab.
+    @MainActor func testShowcaseLiveWalk() {
+        let app = launch()
+        openTab(app, "Family")
+        let row = byId(app, "live-walk-route-demoWalk1")
+        guard scroll(app, to: row) else {
+            soft(false, "no live walk on the Family tab")
+            return
+        }
+        settle(app)
+        attach(app, "Showcase — Family, out on a route")
+        row.tap()
+        settle(app, on: byId(app, "live-walk-map"), seconds: 4)
+        attach(app, "Showcase — Following a live walk")
+    }
+
     /// An outing the SR app caught by itself: the origin note under the hero is
     /// the thing to look at.
     @MainActor func testShowcaseCapturedWalk() {
