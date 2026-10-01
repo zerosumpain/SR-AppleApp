@@ -621,25 +621,47 @@ final class TrailSnapshotTests: XCTestCase {
 
     @MainActor func testTheHealthHero() throws {
         let summary: HealthSummary = try TrailSamples.decode(Self.summary)
-        let activities: ActivitiesPage = try TrailSamples.decode(TrailSamples.activities)
         snapshot(
             List {
-                HealthHero(summary: summary).srInkRow()
-                Section {
-                    ForEach(activities.activities) { row in
-                        NavigationLink(value: ActivityRef(id: row.id, name: row.name)) { ActivityListRow(row: row) }
-                            .srPlainRow()
-                    }
-                } header: {
-                    SRSectionLabel(text: "Recent activities").srPlainRow().padding(.vertical, 6)
-                }
+                HealthCompactHero(summary: summary, rings: ActivityRingsStore.demo).srInkRow()
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             .srPaper()
             .navigationTitle("Health")
             .navigationBarTitleDisplayMode(.inline),
-            name: "Health — the ink hero band",
-            height: 1300
+            name: "Health — the compact hero",
+            height: 600
+        )
+    }
+
+    @MainActor func testTheReadinessScreen() throws {
+        let summary: HealthSummary = try TrailSamples.decode(Self.summary)
+        snapshot(
+            List {
+                ReadinessBand(summary: summary, factors: [
+                    ReadinessFactorLine(key: "recovery", label: "Recovery", score: 68),
+                    ReadinessFactorLine(key: "sleepQuality", label: "Sleep quality", score: 81),
+                ]).srInkRow()
+                Section {
+                    ActivityTodayCard(rings: ActivityRingsStore.demo).srBareRow()
+                } header: {
+                    SRSectionLabel(text: "Activity · today", trailing: "From this iPhone")
+                }
+                Section {
+                    SRTileGrid {
+                        ForEach(summary.figures) { FigureTrendTile(figure: $0) }
+                    }
+                    .srBareRow()
+                } header: {
+                    SRSectionLabel(text: "Last 7 days", trailing: "Tap for more")
+                }
+            }
+            .listStyle(.insetGrouped)
+            .srPaper()
+            .navigationTitle("Readiness")
+            .navigationBarTitleDisplayMode(.inline),
+            name: "Readiness — band, rings, fortnight",
+            height: 1400
         )
     }
 

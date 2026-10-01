@@ -240,7 +240,7 @@ final class ShowcaseTests: XCTestCase {
     @MainActor func testShowcaseHealth() {
         let app = launch()
         openTab(app, "Health")
-        settle(app, on: app.staticTexts["Primed"])
+        settle(app, on: byId(app, "health-readiness"))
         attach(app, "Showcase — Health")
 
         app.swipeUp()
@@ -250,6 +250,25 @@ final class ShowcaseTests: XCTestCase {
         app.swipeUp()
         settle(app)
         attach(app, "Showcase — Health, scrolled further")
+    }
+
+    /// Readiness in full, one tap on the Health tab's hero.
+    @MainActor func testShowcaseReadiness() {
+        let app = launch()
+        openTab(app, "Health")
+        let hero = byId(app, "health-readiness")
+        guard scroll(app, to: hero) else {
+            soft(false, "no readiness card on the Health tab")
+            return
+        }
+        hero.waitUntilStill()
+        hero.tap()
+        settle(app, on: app.staticTexts["WHAT READINESS IS MADE OF"])
+        attach(app, "Showcase — Readiness")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Readiness, scrolled")
     }
 
     /// Insights, one push off the Health tab.
@@ -274,7 +293,7 @@ final class ShowcaseTests: XCTestCase {
     @MainActor func testShowcaseHealthNoticed() {
         let app = launch()
         openTab(app, "Health")
-        settle(app, on: app.staticTexts["Primed"])
+        settle(app, on: byId(app, "health-readiness"))
         let insights = byId(app, "health-insights")
         guard scroll(app, to: insights) else {
             soft(false, "no Insights tile on the Health tab")

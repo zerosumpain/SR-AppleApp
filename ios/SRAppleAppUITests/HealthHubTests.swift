@@ -60,6 +60,24 @@ final class HealthHubTests: XCTestCase {
         shoot(app, "Health — heart rate")
     }
 
+    /// The compact hero opens Readiness: the verdict, its parts, today's
+    /// rings and the fortnight — and a figure there opens its own page.
+    @MainActor func testTheHeroOpensReadiness() {
+        let app = openHealth()
+        let hero = app.descendants(matching: .any)["health-readiness"].firstMatch
+        XCTAssertTrue(reveal(app, hero), "no readiness card on the tab")
+        XCTAssertTrue(hero.label.localizedCaseInsensitiveContains("Primed"), "the card does not say the verdict")
+        hero.tap()
+        XCTAssertTrue(app.navigationBars["Readiness"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["WHAT READINESS IS MADE OF"].waitForExistence(timeout: 10))
+        shoot(app, "Health — readiness")
+
+        let hrv = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "HRV")).firstMatch
+        XCTAssertTrue(reveal(app, hrv), "no HRV tile on Readiness")
+        hrv.tap()
+        XCTAssertTrue(app.navigationBars["HRV"].waitForExistence(timeout: 10), "the HRV tile did not open its page")
+    }
+
     /// Insights: the read and the live tripwires, one push off the tab.
     @MainActor func testTheReadDrawsInInsights() {
         let app = openInsights()
