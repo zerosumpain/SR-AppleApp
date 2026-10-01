@@ -4,80 +4,67 @@ import MapKit
 /// The health tab.
 ///
 /// /health has nine sections and is read top to bottom at a desk. A phone is
-/// opened for one question — "how am I doing" — so the order here is the
-/// answer, then the evidence, then everything else:
+/// opened for one question — "how am I doing" — so the tab is the answer and
+/// then the way to everything else:
 ///
 /// 1. the hero: readiness and four figures (the summary, which answers fast);
-/// 2. the read: the one-line read, readiness's factors, what the planner
-///    would commission, and today's session;
+/// 2. four areas, two by two — Activities, Segments, Routes and Insights —
+///    each one push away (`HealthAreasGrid`). Insights holds the read, what
+///    the loop noticed, tripwires, moves and "The full picture";
 /// 3. heart rate over the last day, from this iPhone;
-/// 4. only the tripwires that are live, and the top three moves;
-/// 5. activities;
-/// 6. "The full picture": instruments, forecast, every tripwire and move,
-///    experiments, segments and the verdict, each one push away;
-/// 7. the week, the records, and the family.
+/// 4. the family.
 ///
-/// Everything /health concludes is on the phone — but the tab shows what needs
-/// attention and pushes the rest, rather than stacking nine sections a thumb
-/// has to scroll past to reach the one that changed.
+/// Everything /health concludes is on the phone — but the tab says where it
+/// lives, rather than stacking nine sections a thumb has to scroll past to
+/// reach the one that changed.
 struct HealthScreen: View {
     @ObservedObject var companion: Companion
     @StateObject private var store = HealthStore()
     @StateObject private var hub = HealthHubStore()
     @StateObject private var heart = HeartTimelineStore()
-    /// The latest few activities. The full history is its own screen.
-    @StateObject private var recent = ActivitiesStore(pageSize: 5)
     /// What the daydream loop noticed about health. Silent when it fails.
+    /// Loaded here so Insights opens on it; the grid counts it.
     @StateObject private var noticed = HealthNoticedStore()
-    /// So a note rated here, or on Today, leaves this list too.
     @ObservedObject private var feedback = NoticedFeedback.shared
-    /// The site's sections — the hero, the read, what the loop noticed, the
-    /// activities — are the owner's /health. Gated on OWNER, not on the site
-    /// being paired: a member's phone may hold a site credential for chat or
-    /// news. Everybody keeps what is theirs: this phone's heart rate and the
-    /// family rows.
+    /// The site's sections — the hero, the areas — are the owner's /health.
+    /// Gated on OWNER, not on the site being paired: a member's phone may hold
+    /// a site credential for chat or news. Everybody keeps what is theirs:
+    /// this phone's heart rate and the family rows.
     @ObservedObject private var access = AccessStore.shared
     @EnvironmentObject private var router: Router
 
     var body: some View {
         List {
-            if access.current.owner, let summary = store.summary {
-                // The ink band: readiness and today's figures, /health's hero.
-                HealthHero(summary: summary).srInkRow()
-                if let digest = hub.hub { readSection(digest) }
-                noticedSection
-                heartSection
-                if let digest = hub.hub { attentionSections(digest) }
-                recentActivities
-                if let digest = hub.hub {
-                    fullPicture(digest)
-                } else if hub.failed {
-                    Text("The deeper read did not load. Pull to try again.")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
+            if access.current.owner {
+                if let summary = store.summary {
+                    // The ink band: readiness and today's figures, /health's hero.
+                    HealthHero(summary: summary).srInkRow()
+                } else if store.unavailable {
+                    SREmpty(
+                        title: "Health is not answering",
+                        icon: "heart.slash",
+                        message: "The health service did not reply. Your uploaded records are still here.",
+                        actionLabel: "Try again",
+                        action: reload
+                    )
+                    .srBareRow()
+                } else if store.loading {
+                    HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                        .padding(.vertical, 40)
                         .srBareRow()
                 }
-                if let week = summary.week { weekSection(week) }
-                if !summary.records.isEmpty { records(summary.records) }
-            } else if access.current.owner && store.unavailable {
-                SREmpty(
-                    title: "Health is not answering",
-                    icon: "heart.slash",
-                    message: "The health service did not reply. Your uploaded records are still here.",
-                    actionLabel: "Try again",
-                    action: reload
-                )
-                .srBareRow()
-            } else if access.current.owner && store.loading {
-                HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                    .padding(.vertical, 40)
+                // The areas stand whether or not the summary answered: each
+                // screen behind them loads for itself.
+                Section {
+                    HealthAreasGrid(
+                        week: store.summary?.week,
+                        hub: hub.hub,
+                        noticed: noticed.notes.filter(feedback.isShowing).count
+                    )
                     .srBareRow()
+                }
             }
-
-            if store.summary == nil || !access.current.owner {
-                heartSection
-                if access.current.owner { recentActivities }
-            }
+            heartSection
             family
         }
         .listStyle(.insetGrouped)
@@ -95,7 +82,6 @@ struct HealthScreen: View {
             async let heartRate: Void = heart.load(companion: companion)
             async let notes: Void = noticed.load()
             _ = await (summary, deep, heartRate, notes)
-            await recent.load()
             try? await companion.refresh()
         }
         .toolbar {
@@ -114,12 +100,13 @@ struct HealthScreen: View {
         .navigationDestination(for: RouteRef.self) { PlannedRouteScreen(ref: $0) }
         .navigationDestination(for: HealthRoute.self) { route in
             switch route {
-            case .activities: ActivitiesScreen()
-            case .segments: SegmentsScreen()
+            case .activities: ActivitiesScreen(week: store.summary?.week, records: store.summary?.records ?? [])
+            case .segments: SegmentsScreen(gettable: hub.hub?.segments?.gettable ?? [])
             case .routes: RoutesScreen()
             case .planRoute: PlanRouteScreen()
             case .nearbyRoutes: NearbyRoutesScreen()
             case .offlineMaps: OfflineMapsScreen()
+            case .insights: HealthInsightsScreen(hub: hub, noticed: noticed)
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
             case .tripwires: if let h = hub.hub { TripwiresScreen(hub: h) }
@@ -136,7 +123,6 @@ struct HealthScreen: View {
             async let heartRate: Void = heart.load(companion: companion)
             async let notes: Void = noticed.load()
             _ = await (deep, heartRate, notes)
-            if recent.rows.isEmpty { await recent.load() }
         }
     }
 
@@ -145,143 +131,6 @@ struct HealthScreen: View {
     /// action tuple crashes the type checker.
     private func reload() {
         Task { await store.load(fresh: true) }
-    }
-
-    // MARK: - Sections
-
-    /// The latest activities, each a push to its detail, then the way into
-    /// the whole history and the segments.
-    ///
-    /// Shown only once the store has tried: an unpaired phone has nothing to
-    /// ask, and an empty "Recent activities" header over nothing reads as a
-    /// fault.
-    @ViewBuilder
-    private var recentActivities: some View {
-        if recent.state != .idle || !recent.rows.isEmpty {
-            Section {
-                if recent.rows.isEmpty {
-                    Text(recentEmptyLine)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .srGlassRow()
-                        .padding(.vertical, 10)
-                } else {
-                    ForEach(recent.rows.prefix(5)) { row in
-                        NavigationLink(value: ActivityRef(id: row.id, name: row.name)) {
-                            ActivityListRow(row: row)
-                        }
-                        .srGlassRow()
-                    }
-                }
-                NavigationLink(value: HealthRoute.activities) {
-                    SRRow(title: "All activities", icon: "list.bullet")
-                }
-                .srGlassRow()
-                .accessibilityIdentifier("health-all-activities")
-                NavigationLink(value: HealthRoute.routes) {
-                    SRRow(title: "Routes", icon: "point.topleft.down.to.point.bottomright.curvepath")
-                }
-                .srGlassRow()
-                .accessibilityIdentifier("health-routes")
-                // Once the digest is here, Segments lives in "The full picture"
-                // with its form counts; two rows to one place is clutter.
-                if hub.hub?.segments == nil {
-                    NavigationLink(value: HealthRoute.segments) {
-                        SRRow(title: "Segments", icon: "flag.checkered")
-                    }
-                    .srGlassRow()
-                    .accessibilityIdentifier("health-segments")
-                }
-            } header: {
-                SRSectionLabel(text: "Recent activities")
-            }
-        }
-    }
-
-    private var recentEmptyLine: String {
-        switch recent.state {
-        case .loading, .idle: return "Loading activities…"
-        case .loaded: return "No activities yet."
-        case .unavailable: return "Health is not answering. Pull to try again."
-        case .missing, .failed: return "Activities could not be loaded."
-        }
-    }
-
-    @ViewBuilder
-    private func weekSection(_ week: HealthWeek) -> some View {
-        Section {
-            SRTileGrid {
-                // Each opens the activities that add up to it.
-                SRStatTile(value: "\(week.activities)", label: "Activities", caption: "7 days", onTap: openActivities)
-                SRStatTile(value: TrailFormat.km(fromKm: week.distanceKm), unit: "km", label: "Distance", caption: "7 days", onTap: openActivities)
-                SRStatTile(value: TrailFormat.minutes(week.durationMinutes), label: "Moving", caption: "7 days", onTap: openActivities)
-                SRStatTile(value: "\(week.elevationM)", unit: "m", label: "Climbed", caption: "7 days", onTap: openActivities)
-            }
-            .srBareRow()
-        } header: {
-            SRSectionLabel(text: "This week")
-        }
-    }
-
-    @ViewBuilder
-    private func records(_ records: [HealthRecordHighlight]) -> some View {
-        Section {
-            ForEach(records) { record in
-                SRRow(title: record.label, subtitle: record.date) {
-                    Text(record.display)
-                        .font(SR.Text.mono(14))
-                        .foregroundStyle(SR.ink)
-                }
-                .srGlassRow()
-            }
-        } header: {
-            SRSectionLabel(text: "Personal records")
-        }
-    }
-
-    // MARK: - The read
-
-    @ViewBuilder
-    private func readSection(_ digest: HubDigest) -> some View {
-        if digest.lede != nil || digest.readiness != nil || digest.planner != nil || digest.plan != nil {
-            Section {
-                HubReadCard(hub: digest).srBareRow()
-                // The tiles the hero does not already carry — the week's volume
-                // and VO₂max — with /health's own footnote under each.
-                let extra = digest.tiles.filter { !HealthScreen.heroKeys.contains($0.key) }
-                if !extra.isEmpty {
-                    SRTileGrid {
-                        ForEach(extra) { tile in
-                            SRStatTile(value: tile.display, unit: tile.unit, label: tile.label, caption: tile.foot)
-                        }
-                    }
-                    .srBareRow()
-                }
-                if let plan = digest.plan { HubPlanCard(plan: plan).srBareRow() }
-            } header: {
-                SRSectionLabel(text: "The read")
-            }
-        }
-    }
-
-    // MARK: - Noticed
-
-    /// The daydream loop's health notes, under the read: the read is what
-    /// /health concludes, these are what the loop noticed beside it. No
-    /// header over nothing, and never an error card — see `HealthNoticedStore`.
-    @ViewBuilder
-    private var noticedSection: some View {
-        let notes = noticed.notes.filter(feedback.isShowing)
-        if access.current.owner, !notes.isEmpty {
-            Section {
-                ForEach(notes) { note in
-                    NoticedNoteRow(note: note).srGlassRow()
-                }
-            } header: {
-                SRSectionLabel(text: "Noticed")
-            }
-        }
     }
 
     // MARK: - Heart rate
@@ -330,99 +179,6 @@ struct HealthScreen: View {
         return nil
     }
 
-    // MARK: - What needs attention
-
-    @ViewBuilder
-    private func attentionSections(_ digest: HubDigest) -> some View {
-        let live = digest.tripwires.filter(\.live)
-        if !digest.tripwires.isEmpty {
-            Section {
-                if live.isEmpty {
-                    SRRow(title: "All \(digest.tripwires.count) clear", subtitle: "Nothing has crossed its line", icon: "checkmark.circle") { EmptyView() }
-                        .srGlassRow()
-                } else {
-                    ForEach(live) { TripwireRow(tripwire: $0).srGlassRow() }
-                }
-            } header: {
-                SRSectionLabel(text: "Tripwires", trailing: live.isEmpty ? nil : "\(live.count) of \(digest.tripwires.count)")
-            }
-        }
-        if !digest.moves.isEmpty {
-            Section {
-                ForEach(digest.moves.prefix(3)) { MoveRow(move: $0).srGlassRow() }
-                if digest.moves.count > 3 {
-                    NavigationLink(value: HealthRoute.moves) {
-                        SRRow(title: "All \(digest.moves.count) moves", icon: "list.number") { EmptyView() }
-                    }
-                    .srGlassRow()
-                }
-            } header: {
-                SRSectionLabel(text: "Ranked moves")
-            }
-        }
-    }
-
-    // MARK: - The full picture
-
-    @ViewBuilder
-    private func fullPicture(_ digest: HubDigest) -> some View {
-        Section {
-            if !digest.instruments.isEmpty {
-                let watching = digest.instruments.filter { $0.tone == .watch || $0.tone == .bad }.count
-                NavigationLink(value: HealthRoute.instruments) {
-                    SRRow(title: "Instruments",
-                          subtitle: watching == 0 ? "All \(digest.instruments.count) in range" : "\(watching) of \(digest.instruments.count) to watch",
-                          icon: "gauge.with.dots.needle.33percent") { EmptyView() }
-                }
-                .srGlassRow()
-            }
-            if !digest.forecasts.isEmpty {
-                NavigationLink(value: HealthRoute.forecast) {
-                    SRRow(title: "Forecast",
-                          subtitle: digest.forecasts.map(\.label).joined(separator: " · "),
-                          icon: "chart.line.uptrend.xyaxis") { EmptyView() }
-                }
-                .srGlassRow()
-            }
-            if !digest.tripwires.isEmpty {
-                NavigationLink(value: HealthRoute.tripwires) {
-                    SRRow(title: "Every tripwire", subtitle: "\(digest.tripwires.count) lines, and where each stands", icon: "exclamationmark.triangle") { EmptyView() }
-                }
-                .srGlassRow()
-            }
-            if !digest.experiments.isEmpty {
-                let live = digest.experiments.filter(\.live).count
-                NavigationLink(value: HealthRoute.experiments) {
-                    SRRow(title: "Experiments", subtitle: "\(live) live · \(digest.experiments.count - live) queued", icon: "testtube.2") { EmptyView() }
-                }
-                .srGlassRow()
-            }
-            if let segments = digest.segments {
-                NavigationLink(value: HealthRoute.segments) {
-                    SRRow(title: "Segments",
-                          subtitle: "\(segments.improving) improving · \(segments.holding) holding · \(segments.slipping) slipping",
-                          icon: "flag.checkered") { EmptyView() }
-                }
-                .srGlassRow()
-                .accessibilityIdentifier("health-segments")
-            }
-            if let verdict = digest.verdict {
-                NavigationLink(value: HealthRoute.verdict) {
-                    SRRow(title: "The verdict", subtitle: verdict.headline.joined(separator: " "), icon: "text.quote") { EmptyView() }
-                }
-                .srGlassRow()
-            }
-        } header: {
-            SRSectionLabel(text: "The full picture")
-        } footer: {
-            if digest.isMock {
-                Text("Demonstration data: no real measurement landed in this window.")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.accent)
-            }
-        }
-    }
-
     @ViewBuilder
     private var family: some View {
         if !companion.family.isEmpty {
@@ -446,10 +202,6 @@ struct HealthScreen: View {
 
     /// The four figures the ink hero draws from the summary.
     static let heroKeys: Set<String> = ["recovery", "hrv", "rhr", "sleep"]
-
-    private func openActivities() {
-        router.health.append(HealthRoute.activities)
-    }
 
     /// A HealthKit-ish kind ("heart_rate_variability") as a reader-facing
     /// label ("Heart rate variability"). Kinds are catalogued with their

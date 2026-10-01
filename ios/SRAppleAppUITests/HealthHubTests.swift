@@ -20,6 +20,15 @@ final class HealthHubTests: XCTestCase {
         return app
     }
 
+    @MainActor private func openInsights() -> XCUIApplication {
+        let app = openHealth()
+        let insights = app.buttons["health-insights"]
+        XCTAssertTrue(reveal(app, insights), "no Insights tile on the tab")
+        insights.tap()
+        XCTAssertTrue(app.navigationBars["Insights"].waitForExistence(timeout: 10))
+        return app
+    }
+
     @MainActor private func shoot(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name
@@ -36,25 +45,37 @@ final class HealthHubTests: XCTestCase {
         return element.exists && element.isHittable
     }
 
-    @MainActor func testTheReadAndTheHeartRateDraw() {
+    /// The tab itself: the hero, the four areas two by two, and this iPhone's
+    /// heart rate under them.
+    @MainActor func testTheAreasAndTheHeartRateDraw() {
         let app = openHealth()
-        // A List builds rows as they scroll in, so nothing below the hero
+        for id in ["health-all-activities", "health-segments", "health-routes", "health-insights"] {
+            let tile = app.buttons[id]
+            XCTAssertTrue(reveal(app, tile), "no \(id) tile on the tab")
+        }
+        shoot(app, "Health — the four areas")
+
+        let chart = app.descendants(matching: .any)["Heart rate over the last 24 hours"].firstMatch
+        XCTAssertTrue(reveal(app, chart), "the heart-rate chart did not draw")
+        shoot(app, "Health — heart rate")
+    }
+
+    /// Insights: the read and the live tripwires, one push off the tab.
+    @MainActor func testTheReadDrawsInInsights() {
+        let app = openInsights()
+        // A List builds rows as they scroll in, so nothing below the top
         // EXISTS until it is on screen: scroll first, then assert.
         let lede = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Today: recovery at")).firstMatch
         XCTAssertTrue(reveal(app, lede), "the one-line read did not draw")
         shoot(app, "Health — the read")
 
-        let chart = app.descendants(matching: .any)["Heart rate over the last 24 hours"].firstMatch
-        XCTAssertTrue(reveal(app, chart), "the heart-rate chart did not draw")
-        shoot(app, "Health — heart rate")
-
         let tripped = app.staticTexts["TRIPPED"].firstMatch
-        XCTAssertTrue(reveal(app, tripped), "a live tripwire should be on the tab")
+        XCTAssertTrue(reveal(app, tripped), "a live tripwire should be in Insights")
         shoot(app, "Health — tripwires and moves")
     }
 
     @MainActor func testTheFullPicturePushes() {
-        let app = openHealth()
+        let app = openInsights()
         let instruments = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Instruments")).firstMatch
         XCTAssertTrue(reveal(app, instruments, swipes: 14), "the full picture did not draw")
         shoot(app, "Health — the full picture")

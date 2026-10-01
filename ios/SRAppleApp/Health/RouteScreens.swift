@@ -16,20 +16,21 @@ struct RoutesScreen: View {
 
     var body: some View {
         List {
+            // The headline, and the screen's one orange action: plan another.
+            RoutesBand(
+                saved: store.rows,
+                loaded: store.state == .loaded,
+                offline: offline.saved.count,
+                waiting: queue.pending.count
+            )
+            .srInkRow()
+
             Section {
-                NavigationLink(value: HealthRoute.planRoute) {
-                    SRRow(title: "Plan a route", subtitle: "A loop or A to B, to your spec", icon: "point.topleft.down.to.point.bottomright.curvepath")
-                }
-                .srGlassRow()
-                .accessibilityIdentifier("routes-plan")
                 NavigationLink(value: HealthRoute.nearbyRoutes) {
                     SRRow(title: "Published routes nearby", subtitle: "Waymarked trails within 15 km", icon: "signpost.right.and.left")
                 }
                 .srGlassRow()
-            }
-
-            if !offline.saved.isEmpty {
-                Section {
+                if !offline.saved.isEmpty {
                     NavigationLink(value: HealthRoute.offlineMaps) {
                         SRRow(
                             title: "Offline maps",
@@ -68,7 +69,7 @@ struct RoutesScreen: View {
                 Section {
                     ForEach(store.rows) { row in
                         NavigationLink(value: RouteRef(id: row.id, name: row.name)) {
-                            RouteListRow(row: row)
+                            RouteListRow(row: row, offline: offline.saved.contains { $0.id == row.id })
                         }
                         .srGlassRow()
                         .swipeActions {
@@ -81,12 +82,11 @@ struct RoutesScreen: View {
                     }
                 } header: {
                     SRSectionLabel(text: "Saved", trailing: "\(store.rows.count)")
-                        .padding(.vertical, 6)
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .srPaper()
+        .srGround(.vital)
         .navigationTitle("Routes")
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
@@ -106,6 +106,9 @@ struct RoutesScreen: View {
 
 struct RouteListRow: View {
     let row: PlannedRouteSummary
+    /// Its map is on the phone, so it works with no signal. Said on the row,
+    /// because that is the thing to know before setting out.
+    var offline = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -123,11 +126,19 @@ struct RouteListRow: View {
                 Text(row.summaryLine)
                     .font(SR.Text.mono(13))
                     .foregroundStyle(SR.inkSecondary)
-                if row.source == "imported" {
-                    Text("PUBLISHED ROUTE")
-                        .font(SR.Text.mono())
-                        .tracking(0.8)
-                        .foregroundStyle(SR.inkMuted)
+                if row.source == "imported" || offline {
+                    HStack(spacing: 10) {
+                        if row.source == "imported" {
+                            Text("PUBLISHED ROUTE")
+                        }
+                        if offline {
+                            Label("OFFLINE", systemImage: "arrow.down.circle.fill")
+                                .labelStyle(.titleAndIcon)
+                        }
+                    }
+                    .font(SR.Text.mono())
+                    .tracking(0.8)
+                    .foregroundStyle(SR.inkMuted)
                 }
             }
             Spacer(minLength: 4)
@@ -636,6 +647,13 @@ struct PlannedRouteBody: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                // The headline, as an activity and a segment have theirs: the
+                // name, and distance lit.
+                SRInkBand(kicker: kicker) {
+                    SRInkTitle(text: detail.name, size: 28)
+                    SRInkCellGrid(figures: Self.figures(detail))
+                }
+
                 SRRouteMap(route: detail.coordinates)
                     .frame(height: 300)
                     .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
@@ -667,22 +685,6 @@ struct PlannedRouteBody: View {
                     .padding(.horizontal, 16)
                     .accessibilityIdentifier("route-send")
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(Sport.label(detail.sport).uppercased())
-                        .font(SR.Text.mono())
-                        .tracking(1.1)
-                        .foregroundStyle(SR.inkMuted)
-                    Text(detail.summaryLine)
-                        .font(SR.Text.mono(17))
-                        .foregroundStyle(SR.ink)
-                    if let score = detail.score {
-                        Text("Loop score \(RouteFormat.score(score)) of 100")
-                            .font(SR.Text.secondary(13))
-                            .foregroundStyle(SR.inkSecondary)
-                    }
-                }
-                .padding(.horizontal, 16)
 
                 if elevations.count > 2 {
                     VStack(alignment: .leading, spacing: 6) {
@@ -723,6 +725,27 @@ struct PlannedRouteBody: View {
         } message: {
             Text(gifts.message ?? "")
         }
+    }
+
+    private var kicker: String {
+        "\(Sport.label(detail.sport)) · \(detail.source == "imported" ? "Published route" : "Planned")"
+    }
+
+    static func figures(_ detail: PlannedRouteDetail) -> [SRInkFigure] {
+        var figures = [SRInkFigure(label: "Distance", value: TrailFormat.km(detail.distanceM), unit: "km", lit: true)]
+        if let up = detail.ascentM, up >= 1 {
+            figures.append(SRInkFigure(label: "Up", value: TrailFormat.metres(up), unit: "m"))
+        }
+        if let down = detail.descentM, down >= 1 {
+            figures.append(SRInkFigure(label: "Down", value: TrailFormat.metres(down), unit: "m"))
+        }
+        if let time = detail.durationS, time > 0 {
+            figures.append(SRInkFigure(label: "Takes about", value: TrailFormat.duration(time)))
+        }
+        if let score = detail.score {
+            figures.append(SRInkFigure(label: "Loop score", value: RouteFormat.score(score), unit: "/100"))
+        }
+        return figures
     }
 
     /// Distance along the route against height, from the route's own points —
