@@ -2,55 +2,47 @@ import SwiftUI
 
 /// One turn in the transcript.
 ///
-/// Not a chat bubble in the iMessage sense. The system has no shadows and only
-/// three radii, so a turn is distinguished by a mono role label and a rule down
-/// its left edge — a user turn takes the accent, an assistant turn the hairline.
-/// That reads as the site rather than as every other chat app.
+/// The web chat's register, brought to the phone (2026-10-01): a small mono
+/// byline per turn (`YOU · 14:02`, `JKAI · 14:02`), jkai's prose full-width on
+/// the page with no bubble round it, your own turns marked by a 2pt accent rule
+/// down their leading edge, and everything a turn RAN folded to one line —
+/// `● 4 tools · on the desk` — that opens the desk drawer at this answer.
+///
+/// The earlier smoked-ink bubble for your turns went: the desk reads a thread
+/// as a document, and a document marks who is speaking with a rule and a
+/// byline, not a balloon.
 struct ChatBubble: View {
     let message: ChatMessage
+    /// Opens the desk at this turn. Nil where there is no desk.
+    var openDesk: (() -> Void)? = nil
 
     var body: some View {
         if message.isUser { userTurn } else { assistantTurn }
     }
 
-    /// Your turn: smoked ink, trailing, the one dark shape in the transcript.
-    ///
-    /// Not an accent bubble. Cream on burnt orange measures under 4:1 at body
-    /// size, and a whole paragraph in the accent would spend the colour that is
-    /// supposed to mean "this matters" on "you said this".
+    /// Your turn: the accent rule, then what you said, in ink on the page.
     private var userTurn: some View {
-        VStack(alignment: .trailing, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            byline
             VStack(alignment: .leading, spacing: 8) {
-                MarkdownText(raw: message.content, register: .ink)
-                attachments(register: .ink)
+                MarkdownText(raw: message.content)
+                attachments(register: .paper)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .srGlass(.ink, in: UnevenRoundedRectangle(
-                topLeadingRadius: 22, bottomLeadingRadius: 22,
-                bottomTrailingRadius: 8, topTrailingRadius: 22,
-                style: .continuous
-            ))
-            .environment(\.colorScheme, .dark)
-            meta
+            .padding(.leading, 14)
+            .padding(.vertical, 2)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(SR.accent).frame(width: 2)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.leading, 44)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
     }
 
     /// jkai's turn: prose on the page, the way an answer reads on the desk.
     /// Glass around a long answer would be a box around an essay.
     private var assistantTurn: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                // The monogram as jkai's avatar — the one place the brand mark
-                // speaks.
-                SRMark(register: .ink, size: 11)
-                    .frame(width: 28, height: 28)
-                    .background(SR.ink, in: Circle())
-                    .accessibilityHidden(true)
-                meta
-            }
+            byline
 
             if message.content.isEmpty {
                 // An assistant bubble with nothing in it yet is a turn that has
@@ -69,33 +61,50 @@ struct ChatBubble: View {
                 ArtifactCard(artifact: artifact)
             }
 
-            // The quiet line under an answer: what it cited, then what it ran.
-            // Both folded — the answer is the thing on the page.
+            // The quiet lines under an answer: what it cited, then what it ran
+            // and whether that is on the desk.
             if let sources = message.sources, !sources.isEmpty {
                 SourcesLine(sources: sources)
             }
-            if !message.toolSteps.isEmpty {
-                FoldedSteps(steps: message.toolSteps)
+            if !message.toolSteps.isEmpty || onDesk {
+                DeskToolLine(steps: message.toolSteps, onDesk: onDesk, openDesk: openDesk)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var meta: some View {
+    /// Whether this answer has a desk page to open.
+    private var onDesk: Bool {
+        openDesk != nil && (message.panel?.hasContent ?? false)
+    }
+
+    /// `YOU · 14:02` — who, then when, in the mono label face.
+    private var byline: some View {
         HStack(spacing: 8) {
-            Text(message.isUser ? "YOU" : "JKAI")
-                .font(SR.monoMedium(12))
-                .tracking(1.2)
+            (Text(message.isUser ? "YOU" : "JKAI")
                 .foregroundStyle(message.isUser ? SR.accent : SR.inkSecondary)
+             + Text(message.createdAt.map { " · " + Self.clock($0) } ?? "")
+                .foregroundStyle(SR.inkMuted))
+                .font(SR.Text.label(12))
+                .tracking(1.2)
             if message.source == "whatsapp" {
                 SRPill(text: "WhatsApp", tone: SR.good)
             }
-            if let stamp = message.createdAt {
-                Text(shortAgo(stamp))
-                    .font(SR.mono(12))
-                    .foregroundStyle(SR.inkMuted)
-            }
         }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// `14:02` today, `30 Sep 14:02` before it. A clock, not "2h ago": the
+    /// byline is a timestamp on a document, and it should not change while
+    /// you read.
+    static func clock(_ iso: String, now: Date = Date(), calendar: Calendar = .current) -> String {
+        guard let date = parseTimestamp(iso) else { return "" }
+        let format = DateFormatter()
+        format.calendar = calendar
+        format.timeZone = calendar.timeZone
+        format.locale = Locale(identifier: "en_GB")
+        format.dateFormat = calendar.isDate(date, inSameDayAs: now) ? "HH:mm" : "d MMM HH:mm"
+        return format.string(from: date)
     }
 
     @ViewBuilder

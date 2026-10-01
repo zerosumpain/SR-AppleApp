@@ -114,6 +114,39 @@ final class ChatComposerTests: XCTestCase {
         }
     }
 
+    /// The desk drawer: opens from the toolbar on the answer being read,
+    /// pages back to the earlier answer, and a desk button PREFILLS the
+    /// composer rather than sending.
+    @MainActor func testTheDeskOpensPagesAndAsksIntoTheComposer() {
+        let app = openTrainingThread()
+        let desk = app.buttons["chat-desk"]
+        XCTAssertTrue(desk.waitForExistence(timeout: 15))
+        // Wait for the transcript before opening, so the desk has its pages.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "2 sources")).firstMatch.waitForExistence(timeout: 15))
+        desk.tap()
+
+        XCTAssertTrue(app.buttons["desk-close"].waitForExistence(timeout: 5), "the drawer did not open")
+        XCTAssertTrue(app.staticTexts["WEEK 7, TUESDAY OFF"].waitForExistence(timeout: 5), "the desk should open on the answer being read")
+        shoot(app, "Chat — desk drawer")
+
+        app.buttons["Previous page"].tap()
+        XCTAssertTrue(app.staticTexts["WEEK 6, AT A GLANCE"].waitForExistence(timeout: 5), "paging back should show the earlier answer's page")
+        shoot(app, "Chat — desk drawer, health page")
+
+        let draft = app.buttons["desk-action-draft"]
+        for _ in 0..<5 where !(draft.exists && draft.isHittable) { app.swipeUp() }
+        XCTAssertTrue(draft.exists, "the ask button did not draw")
+        draft.tap()
+
+        // An ask closes the drawer and fills the composer — and sends nothing.
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["desk-close"])
+        let composer = app.descendants(matching: .any)["chat-composer"].firstMatch
+        expectation(for: NSPredicate(format: "value CONTAINS[c] %@", "Draft week 7"), evaluatedWith: composer)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.buttons["chat-send"].waitForExistence(timeout: 3), "a prefilled composer offers Send")
+        shoot(app, "Chat — desk ask prefilled")
+    }
+
     @MainActor func testModelAndThinkingSheet() {
         let app = openTrainingThread()
         let actions = app.buttons["Thread actions"]

@@ -342,6 +342,11 @@ struct ChatScreen: View {
     @State private var holdingMic = false
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openURL) private var openURL
+    /// The desk drawer, and the turn it opened on (nil: the one being read).
+    @State private var deskOpen = false
+    @State private var deskFocus: String?
+    @State private var deskVisibility = DeskVisibility()
 
     init(conversation: Conversation) {
         self.conversation = conversation
@@ -370,7 +375,10 @@ struct ChatScreen: View {
                     }
 
                     ForEach(store.messages) { message in
-                        ChatBubble(message: message).id(message.id)
+                        ChatBubble(message: message, openDesk: { openDesk(at: message.id) })
+                            .id(message.id)
+                            .onAppear { deskVisibility.onScreen.insert(message.id) }
+                            .onDisappear { deskVisibility.onScreen.remove(message.id) }
                     }
 
                     if !store.activity.isEmpty {
@@ -417,6 +425,19 @@ struct ChatScreen: View {
             }
             .srGround(.quiet)
             .scrollDismissesKeyboard(.interactively)
+            // A swipe in from the RIGHT edge opens the desk. The left edge is
+            // the system's swipe-back and stays that way.
+            .overlay(alignment: .trailing) {
+                Color.clear
+                    .frame(width: 14)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 10).onEnded { value in
+                        if value.translation.width < -30 && abs(value.translation.width) > abs(value.translation.height) {
+                            openDesk(at: nil)
+                        }
+                    })
+                    .accessibilityHidden(true)
+            }
             // Dragging up means "I am reading something", and an answer that
             // keeps arriving must not snatch the view back. `atBottom` goes
             // false on any drag and true again when the reader sends, taps the
@@ -467,12 +488,33 @@ struct ChatScreen: View {
                 .transition(.opacity)
             }
         }
+        .overlay {
+            DeskDrawer(isOpen: $deskOpen) {
+                DeskView(turns: deskTurns, focus: deskFocus) { closeDesk() }
+                    .environment(\.deskActions, DeskActions(
+                        ask: { detail in askFromDesk(detail) },
+                        open: { href in
+                            if let url = DeskLinks.resolve(href, origin: SiteClient.shared.origin) { openURL(url) }
+                        }
+                    ))
+            }
+        }
         .navigationTitle(store.title ?? conversation.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         // A thread is the composer's screen. The tab bar under it was a second
         // floating bar competing for the thumb.
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    SRHaptic.tap()
+                    if deskOpen { closeDesk() } else { openDesk(at: nil) }
+                } label: {
+                    Image(systemName: "sidebar.right")
+                }
+                .accessibilityLabel("Desk")
+                .accessibilityIdentifier("chat-desk")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     if access.current.owner {
@@ -513,6 +555,39 @@ struct ChatScreen: View {
         // same job up from its last sequence number on the way back.
         .onDisappear { store.stop() }
         .onAppear { store.resume() }
+    }
+
+    // MARK: - The desk
+
+    /// The thread as the desk sees it.
+    private var deskTurns: [DeskTurn] {
+        store.messages.map { DeskTurn(id: $0.id, isAssistant: !$0.isUser, page: $0.panel) }
+    }
+
+    /// Open the drawer at `id`, or — from the toolbar or the edge — at the
+    /// answer being read: the newest one on screen when following the foot of
+    /// the thread, the topmost one when scrolled back into it.
+    private func openDesk(at id: String?) {
+        composerFocused = false
+        deskFocus = id ?? readingTurn
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.3)) { deskOpen = true }
+    }
+
+    private var readingTurn: String? {
+        let visible = store.messages.filter { !$0.isUser && deskVisibility.onScreen.contains($0.id) }
+        return atBottom ? visible.last?.id : visible.first?.id
+    }
+
+    private func closeDesk() {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.28)) { deskOpen = false }
+    }
+
+    /// A desk button's prompt goes into the composer, NOT to the model: the
+    /// reader sees it, can change it, and sends it themselves.
+    private func askFromDesk(_ detail: String) {
+        draft = detail
+        closeDesk()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { composerFocused = true }
     }
 
     private func follow(_ proxy: ScrollViewProxy, animated: Bool = false) {
