@@ -186,9 +186,10 @@ final class DeskTests: XCTestCase {
     @MainActor func testTheBylineIsAClock() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
-        let now = ISO8601DateFormatter().date(from: "2026-10-01T15:00:00Z")!
-        XCTAssertEqual(ChatBubble.clock("2026-10-01T14:02:00Z", now: now, calendar: calendar), "14:02")
-        XCTAssertEqual(ChatBubble.clock("2026-09-30T09:05:00Z", now: now, calendar: calendar), "30 Sep 09:05")
+        // November, not September: en_GB spells that month "Sept" on iOS 17+.
+        let now = ISO8601DateFormatter().date(from: "2026-11-02T15:00:00Z")!
+        XCTAssertEqual(ChatBubble.clock("2026-11-02T14:02:00Z", now: now, calendar: calendar), "14:02")
+        XCTAssertEqual(ChatBubble.clock("2026-11-01T09:05:00Z", now: now, calendar: calendar), "1 Nov 09:05")
         XCTAssertEqual(ChatBubble.clock("not a date", now: now, calendar: calendar), "")
     }
 }

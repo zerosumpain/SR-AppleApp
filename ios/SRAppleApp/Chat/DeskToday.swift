@@ -61,7 +61,7 @@ enum DeskToday {
                     title: alert.title,
                     sub: alert.category.capitalized,
                     meta: shortAgo(alert.createdAt),
-                    tone: alert.severity == "critical" || alert.severity == "warning" ? "warn" : nil
+                    tone: ["alert", "high", "warn"].contains(alert.severity) ? "warn" : nil
                 )
             }
             sections.append(PanelSection(id: "today-alerts", label: "Alerts", blocks: [
@@ -104,11 +104,11 @@ enum DeskToday {
         )
     }
 
-    /// The unit to print beside a figure. Percent and hours are already in
-    /// the display string ("68%", "7h 24m").
+    /// The unit to print beside a figure. Hours are already in the display
+    /// string ("7h 24m"); percent is not ("68"), see `displayWithUnit`.
     static func unit(of figure: HealthFigure) -> String? {
         switch figure.unit {
-        case "%", "h", "": return nil
+        case "h", "": return nil
         default: return figure.unit
         }
     }

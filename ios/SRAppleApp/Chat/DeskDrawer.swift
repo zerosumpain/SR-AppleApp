@@ -38,7 +38,9 @@ struct DeskDrawer<Content: View>: View {
                             Rectangle().fill(SR.line).frame(width: 0.75).ignoresSafeArea(edges: .bottom)
                         }
                         .offset(x: max(0, drag))
-                        .gesture(
+                        // Simultaneous, so the desk's own scroll view keeps
+                        // its vertical drags; only a sideways one moves the sheet.
+                        .simultaneousGesture(
                             DragGesture(minimumDistance: 14)
                                 .updating($drag) { value, state, _ in
                                     // Only a sideways drag moves the sheet; a
@@ -55,6 +57,7 @@ struct DeskDrawer<Content: View>: View {
                                 }
                         )
                         .transition(reduceMotion ? .opacity : .move(edge: .trailing))
+                        .accessibilityElement(children: .contain)
                         .accessibilityAddTraits(.isModal)
                         .accessibilityAction(.escape) { close() }
                         .accessibilityIdentifier("desk-drawer")
