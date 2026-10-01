@@ -83,9 +83,11 @@ final class AppStoreShotsTests: XCTestCase {
         let app = launch()
         require(app.tabBars.buttons["Today"], "the Today tab")
         XCTAssertTrue(app.openTab("Health"), "no way to the Health tab")
-        // The verdict draws uppercased ("PRIMED"): match its label, any case.
-        require(app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Primed")).firstMatch,
-                "the readiness verdict on Health")
+        // The compact hero carries the verdict in its label ("Readiness 72,
+        // Primed. …"): the card itself, then that it says so.
+        require(byId(app, "health-readiness"), "the readiness card on Health")
+        XCTAssertTrue(byId(app, "health-readiness").label.localizedCaseInsensitiveContains("Primed"),
+                      "the readiness verdict on Health")
         noBanners(app)
         shoot(app, "Store 06 — Health")
     }

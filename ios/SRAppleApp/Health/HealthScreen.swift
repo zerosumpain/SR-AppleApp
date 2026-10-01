@@ -7,7 +7,8 @@ import MapKit
 /// opened for one question — "how am I doing" — so the tab is the answer and
 /// then the way to everything else:
 ///
-/// 1. the hero: readiness and four figures (the summary, which answers fast);
+/// 1. the hero: readiness inside today's rings, and four figures as where
+///    today sits (the summary, which answers fast) — a tap opens Readiness;
 /// 2. four areas, two by two — Activities, Segments, Routes and Insights —
 ///    each one push away (`HealthAreasGrid`). Insights holds the read, what
 ///    the loop noticed, tripwires, moves and "The full picture";
@@ -22,6 +23,8 @@ struct HealthScreen: View {
     @StateObject private var store = HealthStore()
     @StateObject private var hub = HealthHubStore()
     @StateObject private var heart = HeartTimelineStore()
+    /// Today's Move, Exercise and Stand, from this iPhone, for the hero.
+    @StateObject private var rings = ActivityRingsStore()
     /// What the daydream loop noticed about health. Silent when it fails.
     /// Loaded here so Insights opens on it; the grid counts it.
     @StateObject private var noticed = HealthNoticedStore()
@@ -37,8 +40,9 @@ struct HealthScreen: View {
         List {
             if access.current.owner {
                 if let summary = store.summary {
-                    // The ink band: readiness and today's figures, /health's hero.
-                    HealthHero(summary: summary).srInkRow()
+                    // The ink band: readiness in today's rings and the four
+                    // figures, one tap from Readiness in full.
+                    HealthCompactHero(summary: summary, rings: rings.rings).srInkRow()
                 } else if store.unavailable {
                     SREmpty(
                         title: "Health is not answering",
@@ -82,6 +86,7 @@ struct HealthScreen: View {
             async let heartRate: Void = heart.load(companion: companion)
             async let notes: Void = noticed.load()
             _ = await (summary, deep, heartRate, notes)
+            rings.start()
             try? await companion.refresh()
         }
         .toolbar {
@@ -106,6 +111,7 @@ struct HealthScreen: View {
             case .planRoute: PlanRouteScreen()
             case .nearbyRoutes: NearbyRoutesScreen()
             case .offlineMaps: OfflineMapsScreen()
+            case .readiness: ReadinessScreen(store: store, hub: hub, rings: rings)
             case .insights: HealthInsightsScreen(hub: hub, noticed: noticed)
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
@@ -116,8 +122,10 @@ struct HealthScreen: View {
             }
         }
         .task {
-            // The hero first — it is one small request — then the deep read and
-            // the heart-rate day together, filling in beneath it.
+            // The rings are local and answer at once; then the hero — one small
+            // request — then the deep read and the heart-rate day together,
+            // filling in beneath it.
+            rings.start()
             await store.load()
             async let deep: Void = hub.load()
             async let heartRate: Void = heart.load(companion: companion)
@@ -216,54 +224,7 @@ fileprivate extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }
 
-// MARK: - The ink hero
-
-/// Readiness and today's figures on an ink band — the top of /health.
-///
-/// The only ink on the tab. Everything under it stays paper: a tall ink area
-/// reads as intensity, and the band is there to be the headline, not the page.
-struct HealthHero: View {
-    let summary: HealthSummary
-    @EnvironmentObject private var router: Router
-
-    var body: some View {
-        // Inset 0: the grouped list already holds it off the screen edge.
-        SRInkBand(kicker: "Readiness · Today", meta: updated, inset: 0) {
-            if let readiness = summary.readiness {
-                SRInkReadiness(readiness: readiness)
-            } else {
-                Text(summary.strap)
-                    .font(SR.Text.body(15))
-                    .foregroundStyle(SR.onInk(.note))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            SRTileGrid {
-                // Buttons that push, not NavigationLinks: inside a List row a
-                // NavigationLink earns a disclosure chevron, and four of them
-                // drew chevrons in the gutters between the tiles.
-                ForEach(summary.figures) { figure in
-                    Button {
-                        SRHaptic.tap()
-                        router.health.append(figure)
-                    } label: {
-                        InkFigureTile(figure: figure)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            if summary.isMock {
-                SRInkMockNote()
-            }
-        }
-    }
-
-    private var updated: String? {
-        let ago = shortAgo(summary.generatedAt)
-        return ago.isEmpty ? nil : "Updated \(ago) ago"
-    }
-}
+// MARK: - On the band
 
 /// "These are not you", said on the band where the figures are.
 struct SRInkMockNote: View {
@@ -277,31 +238,6 @@ struct SRInkMockNote: View {
                 .foregroundStyle(SR.onInk(.note))
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-/// A /health figure as an ink tile: value and unit apart, the sparkline where
-/// the series travelled, and the movement coloured by whether it is good for
-/// THIS metric.
-struct InkFigureTile: View {
-    let figure: HealthFigure
-
-    var body: some View {
-        SRInkTile(
-            label: figure.label,
-            value: figure.inkValue.value,
-            unit: figure.inkValue.unit,
-            spark: figure.series,
-            foot: figure.deltaDisplay ?? figure.caption,
-            footGood: figure.deltaDisplay == nil ? nil : figure.improving,
-            footIcon: figure.deltaDisplay == nil ? nil : (figure.direction == "down" ? "arrow.down.right" : "arrow.up.right")
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "\(figure.label): \(figure.displayWithUnit)"
-            + (figure.deltaDisplay.map { ", \($0) \(figure.caption)" } ?? ", \(figure.caption)")
-            + (figure.improving == nil ? "" : figure.improving! ? ", improving" : ", worse")
-        )
     }
 }
 

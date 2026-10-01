@@ -56,4 +56,53 @@ final class HealthAreasTests: XCTestCase {
         // Ten days ago is not in the week.
         XCTAssertFalse(days.contains { $0.key == tenAgo })
     }
+
+    // MARK: - Where today sits
+
+    private func figure(value: Double, series: [Double]?, display: String = "1") throws -> HealthFigure {
+        var object: [String: Any] = [
+            "key": "k", "label": "K", "value": value, "unit": "ms", "display": display, "caption": "",
+        ]
+        if let series { object["series"] = series }
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return try JSONDecoder().decode(HealthFigure.self, from: data)
+    }
+
+    func testTodayIsPlacedInTheWindowAndTheTickIsTheWeek() throws {
+        // The demo's HRV: 55…65 over the fortnight, 64 today, the last seven
+        // averaging 62.29 — the artboard's dot at 90%, tick at 72.9%.
+        let hrv = try figure(value: 64, series: [57, 59, 58, 55, 60, 61, 59, 62, 58, 63, 61, 65, 63, 64])
+        let range = try XCTUnwrap(FigureRange.make(hrv))
+        XCTAssertEqual(range.position, 0.9, accuracy: 0.001)
+        XCTAssertEqual(range.baseline, 0.729, accuracy: 0.001)
+    }
+
+    func testTodayAtTheLowEndSitsAtZero() throws {
+        let rhr = try figure(value: 52, series: [56, 55, 55, 56, 54, 54, 53, 54, 53, 53, 52, 53, 52, 52])
+        let range = try XCTUnwrap(FigureRange.make(rhr))
+        XCTAssertEqual(range.position, 0, accuracy: 0.001)
+        XCTAssertEqual(range.baseline, 0.179, accuracy: 0.001)
+    }
+
+    func testNoBarWithoutAWindowToPlaceItIn() throws {
+        XCTAssertNil(FigureRange.make(try figure(value: 5, series: nil)))
+        XCTAssertNil(FigureRange.make(try figure(value: 5, series: [5])))
+        // A flat series has no range: a bar would put the dot at NaN.
+        XCTAssertNil(FigureRange.make(try figure(value: 5, series: [5, 5, 5])))
+        // No reading today is not a position.
+        XCTAssertNil(FigureRange.make(try figure(value: 0, series: [1, 2, 3], display: "—")))
+    }
+
+    func testAValueOutsideTheWindowIsClamped() throws {
+        let range = try XCTUnwrap(FigureRange.make(try figure(value: 99, series: [1, 2, 3])))
+        XCTAssertEqual(range.position, 1)
+    }
+
+    func testRingFractionsAndWords() {
+        let move = ActivityRingsStore.demo.move!
+        XCTAssertEqual(move.fraction, 412.0 / 600.0, accuracy: 0.0001)
+        XCTAssertEqual(move.spoken, "Move 412 of 600 kcal")
+        XCTAssertFalse(ActivityRingsStore.demo.isEmpty)
+        XCTAssertTrue(ActivityRingsStore.Rings(move: nil, exercise: nil, stand: nil).isEmpty)
+    }
 }
