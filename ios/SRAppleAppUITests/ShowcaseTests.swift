@@ -472,7 +472,10 @@ final class ShowcaseTests: XCTestCase {
         settle(app, on: brief)
         attach(app, "Showcase — Flows")
 
-        if brief.exists {
+        // The demo's connections banner can still be sliding in above the
+        // list: tap the row once it has stopped moving, not where it was.
+        if scroll(app, to: brief) {
+            brief.waitUntilStill()
             brief.tap()
         } else {
             let byTitle = app.staticTexts["Morning brief"]
@@ -488,6 +491,7 @@ final class ShowcaseTests: XCTestCase {
 
         let step = byId(app, "flow-step-brief")
         if scroll(app, to: step) {
+            step.waitUntilStill()
             step.tap()
             settle(app, on: app.staticTexts["Instructions"])
             attach(app, "Showcase — Flow step editor")
