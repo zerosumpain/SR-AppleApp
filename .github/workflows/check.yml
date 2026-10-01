@@ -98,19 +98,30 @@ jobs:
       # demo harness does not exist. An unguarded reference is green here and
       # fails only at upload.
       - run: node scripts/check-demo-guard.mjs
-  ios:
+  # ---------------------------------------------------------------------------
+  # The iPhone app: build once, test in three shards at once, Release alongside.
+  #
+  # Was one job, and every step waited on the one before: the Debug build
+  # (~12 min), every test one after another (~66 min, 47 of them the
+  # screenshot-only ShowcaseTests), then a Release build for BOTH simulator
+  # architectures (~13 min) — ~96 min a run, against a 110-minute timeout.
+  #
+  # Now `ios-build` compiles the app and its test bundles once
+  # (`build-for-testing`) and hands them on; three `ios-test` shards each run a
+  # third of the suite against that same build (`test-without-building`) on
+  # their own runner, while `ios-release` compiles Release for arm64 only (the
+  # simulator the runners have; an x86_64 slice proves nothing extra). Wall
+  # time is the build plus the longest shard, ~40 min. Mac minutes stay about
+  # the same: the tests are split, not repeated, and each extra runner costs a
+  # couple of minutes to start.
+  #
+  # `ios` at the end is the one status to read, as before.
+  # ---------------------------------------------------------------------------
+  ios-build:
     needs: scope
     if: needs.scope.outputs.ios == 'true'
     runs-on: macos-26
-    # Was 35, and green runs took ~30. The Watch app adds a build of its own,
-    # and the UI suite covers six games (35 was hit by it alone, 2026-09-26).
-    # Was 50: the Release build (a few minutes) and the review-demo UI walk
-    # (~4) took a green run past it on 2026-09-28 with the last showcase
-    # tests still going. Was 75: Liar's Dice's green suite reached the
-    # Release build at ~68 min and was cut off (2026-09-29), with Categories,
-    # Liar's Dice and Draw & Guess all adding UI walks. A timeout is for a
-    # wedged simulator, not the suite.
-    timeout-minutes: 110
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Verify current Apple toolchain
@@ -122,50 +133,173 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate --spec ios/project.yml
-      # The iPhone app embeds the Watch app, so the test step below builds it
-      # too; this step builds it on its own first, so a Watch compile error is
-      # reported as one rather than as a failed iPhone test run. Xcode ships
-      # platforms separately: if this image lacks watchOS, fetch it once.
+      # MapLibre is a binary package: fetching it is network time every run.
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            DerivedData/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/app.yml', 'ios/watch.yml', 'ios/project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      # The iPhone app embeds the Watch app, so the build below builds it too;
+      # this builds it on its own first, so a Watch compile error is reported as
+      # one rather than as a failed iPhone build. Xcode ships platforms
+      # separately: if this image lacks watchOS, fetch it once.
       - name: Build the Watch app
         run: |
           set -o pipefail
           if ! xcodebuild -showsdks | grep -q watchsimulator; then
             xcodebuild -downloadPlatform watchOS
           fi
-          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleWatch -destination 'generic/platform=watchOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee watch-build.log
-      - name: Build and test on iPhone simulator
+          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleWatch -destination 'generic/platform=watchOS Simulator' -derivedDataPath DerivedData ARCHS=arm64 CODE_SIGNING_ALLOWED=NO | tee watch-build.log
+      - name: Build for testing
         run: |
           set -o pipefail
+          xcodebuild build-for-testing -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData ARCHS=arm64 CODE_SIGNING_ALLOWED=NO | tee build.log
+      # Tarred: upload-artifact drops file modes, and an app whose binary has
+      # lost its executable bit installs and then will not launch.
+      - name: Pack the build
+        run: tar -cf products.tar -C DerivedData/Build Products
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-products
+          path: products.tar
+          compression-level: 1
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ios-build-logs
+          path: |
+            build.log
+            watch-build.log
+          retention-days: 7
+
+  ios-test:
+    needs: [scope, ios-build]
+    if: needs.scope.outputs.ios == 'true'
+    runs-on: macos-26
+    # A shard runs ~20-25 min. A timeout is for a wedged simulator, not the suite.
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The unit tests and every UI test that asserts: onboarding, chat,
+          # health, the review demo, the App Store set.
+          - shard: behaviour
+            select: -skip-testing:SRAppleAppUITests/ShowcaseTests
+          # The game walks: the four longest showcases are here (~3 min each).
+          - shard: showcase-games
+            select: >-
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseGames
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseWordleRace
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseQuizNight
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseAnagramSprintMemory
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseBoggle
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseCategories
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseLiarsDice
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseDrawGuess
+              -only-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseGameLeaderboard
+          # Every other showcase, by SKIPPING the games rather than listing the
+          # rest: a showcase added later lands here, never in no shard at all.
+          - shard: showcase-screens
+            select: >-
+              -only-testing:SRAppleAppUITests/ShowcaseTests
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseGames
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseWordleRace
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseQuizNight
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseAnagramSprintMemory
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseBoggle
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseCategories
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseLiarsDice
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseDrawGuess
+              -skip-testing:SRAppleAppUITests/ShowcaseTests/testShowcaseGameLeaderboard
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-products
+      - name: Unpack the build
+        run: |
+          mkdir -p DerivedData/Build
+          tar -xf products.tar -C DerivedData/Build
+          ls DerivedData/Build/Products
+      - name: Test (${{ matrix.shard }})
+        run: |
+          set -o pipefail
+          XCTESTRUN=$(ls DerivedData/Build/Products/*.xctestrun | head -1)
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl ui "$DEVICE_ID" appearance dark
-          xcodebuild test -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Tests.xcresult CODE_SIGNING_ALLOWED=NO | tee build.log
-      # The TestFlight archive builds RELEASE; everything above is Debug. The
-      # App Review demo runs on fixtures that compile in both, and a reference
-      # that exists only in Debug is green above and fails at upload (the
-      # Health hub, #29). So compile exactly what the archive compiles — for
-      # the simulator, unsigned: the configuration is the point, not the device.
-      - name: Build Release (what TestFlight archives)
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee release-build.log
+          xcodebuild test-without-building -parallel-testing-enabled NO -xctestrun "$XCTESTRUN" -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath "artifacts/Tests-${{ matrix.shard }}.xcresult" ${{ matrix.select }} | tee test.log
       - name: Export simulator screenshots
         if: ${{ !cancelled() }}
         run: |
-          if [ -d artifacts/Tests.xcresult ]; then
-            xcrun xcresulttool export attachments --path artifacts/Tests.xcresult --output-path artifacts/screenshots
+          if [ -d "artifacts/Tests-${{ matrix.shard }}.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "artifacts/Tests-${{ matrix.shard }}.xcresult" --output-path artifacts/screenshots
           fi
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: ios-simulator-results
+          name: ios-results-${{ matrix.shard }}
           path: |
-            build.log
-            watch-build.log
-            release-build.log
-            artifacts/Tests.xcresult
-            artifacts/screenshots
-            DerivedData/Build/Products/Debug-iphonesimulator/SRAppleApp.app
+            test.log
+            artifacts
           retention-days: 7
+
+  # The TestFlight archive builds RELEASE; the tests run Debug. The App Review
+  # demo runs on fixtures that compile in both, and a reference that exists only
+  # in Debug is green in the tests and fails at upload (the Health hub, #29). So
+  # compile exactly what the archive compiles — for the simulator, unsigned: the
+  # configuration is the point, not the device. Alongside the tests, not after.
+  ios-release:
+    needs: scope
+    if: needs.scope.outputs.ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec ios/project.yml
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            DerivedData/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/app.yml', 'ios/watch.yml', 'ios/project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Build Release (what TestFlight archives)
+        run: |
+          set -o pipefail
+          if ! xcodebuild -showsdks | grep -q watchsimulator; then
+            xcodebuild -downloadPlatform watchOS
+          fi
+          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData ARCHS=arm64 CODE_SIGNING_ALLOWED=NO | tee release-build.log
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ios-release-log
+          path: release-build.log
+          retention-days: 7
+
+  # The one status to read: green only when the build, every shard and the
+  # Release build are. Skipped (and so not red) when the change does not touch
+  # the iPhone app.
+  ios:
+    needs: [scope, ios-build, ios-test, ios-release]
+    if: ${{ always() && needs.scope.outputs.ios == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every iPhone job passed
+        run: |
+          echo "build:   ${{ needs.ios-build.result }}"
+          echo "tests:   ${{ needs.ios-test.result }}"
+          echo "release: ${{ needs.ios-release.result }}"
+          test "${{ needs.ios-build.result }}" = success
+          test "${{ needs.ios-test.result }}" = success
+          test "${{ needs.ios-release.result }}" = success
