@@ -31,13 +31,10 @@ extension XCUIApplication {
         // store loads, and moves every card down as it does. A tap aimed
         // while that happens lands on whatever slid into the card's old place
         // — the banner's own details button, which opens a sheet over
-        // everything. Wait for the card to be still, and on screen.
+        // everything. Wait for the card to be still, then tap: `tap()` scrolls
+        // a card below the fold into view itself. (Gating on `isHittable` and
+        // swiping instead lost the Tasks card in the review-demo test.)
         card.waitUntilStill()
-        for _ in 0..<4 where !card.isHittable {
-            swipeUp()
-            card.waitUntilStill()
-        }
-        guard card.isHittable else { return false }
         card.tap()
         return true
     }
