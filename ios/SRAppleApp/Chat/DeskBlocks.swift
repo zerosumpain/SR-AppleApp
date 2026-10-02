@@ -4,7 +4,7 @@ import Charts
 // MARK: - The desk's blocks, drawn natively
 //
 // One view per block type in `DeskModels.swift`, in the desk's register: mono
-// labels, Archivo Black figures and card titles, DM Sans reading copy, petrol
+// labels, Inter Display figures and card titles, DM Sans reading copy, petrol
 // for "up" and the accent for "down" (the /health/analytics convention — a
 // direction is not a verdict, so never good/error). The desk's 12-column grid
 // collapses to one column at this width, exactly as the web desk does under

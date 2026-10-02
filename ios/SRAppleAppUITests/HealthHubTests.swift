@@ -60,22 +60,21 @@ final class HealthHubTests: XCTestCase {
         shoot(app, "Health — heart rate")
     }
 
-    /// The compact hero opens Readiness: the verdict, its parts, today's
-    /// rings and the fortnight — and a figure there opens its own page.
-    @MainActor func testTheHeroOpensReadiness() {
+    /// The compact hero is the readiness answer, not a door to a second
+    /// Readiness screen: it says the verdict, and a figure line opens that
+    /// figure's own page.
+    @MainActor func testTheHeroSaysTheVerdictAndOpensAFigure() {
         let app = openHealth()
         let hero = app.descendants(matching: .any)["health-readiness"].firstMatch
         XCTAssertTrue(reveal(app, hero), "no readiness card on the tab")
         XCTAssertTrue(hero.label.localizedCaseInsensitiveContains("Primed"), "the card does not say the verdict")
-        hero.tap()
-        XCTAssertTrue(app.navigationBars["Readiness"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["WHAT READINESS IS MADE OF"].waitForExistence(timeout: 10))
-        shoot(app, "Health — readiness")
+        XCTAssertFalse(app.navigationBars["Readiness"].exists)
+        shoot(app, "Health — readiness hero")
 
         let hrv = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "HRV")).firstMatch
-        XCTAssertTrue(reveal(app, hrv), "no HRV tile on Readiness")
+        XCTAssertTrue(reveal(app, hrv), "no HRV line on the hero")
         hrv.tap()
-        XCTAssertTrue(app.navigationBars["HRV"].waitForExistence(timeout: 10), "the HRV tile did not open its page")
+        XCTAssertTrue(app.navigationBars["HRV"].waitForExistence(timeout: 10), "the HRV line did not open its page")
     }
 
     /// Insights: the read and the live tripwires, one push off the tab.
@@ -87,9 +86,24 @@ final class HealthHubTests: XCTestCase {
         XCTAssertTrue(reveal(app, lede), "the one-line read did not draw")
         shoot(app, "Health — the read")
 
-        let tripped = app.staticTexts["TRIPPED"].firstMatch
+        let tripped = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "TRIPPED")).firstMatch
         XCTAssertTrue(reveal(app, tripped), "a live tripwire should be in Insights")
+        XCTAssertFalse(app.staticTexts["THE PLANNER WOULD COMMISSION"].exists, "Today is gone from Insights")
         shoot(app, "Health — tripwires and moves")
+    }
+
+    /// The forecast is a two-by-two grid on the page: four tiles, each one
+    /// element, each opening the charts.
+    @MainActor func testTheForecastGridPushes() {
+        let app = openInsights()
+        let tiles = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "forecast:"))
+        XCTAssertTrue(reveal(app, tiles.firstMatch), "no forecast tile")
+        XCTAssertEqual(tiles.count, 4, "the demo's four forecasts should be four tiles")
+        shoot(app, "Health — forecast grid")
+        tiles.firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Rising at +0.03 a month."].firstMatch.waitForExistence(timeout: 10))
+        shoot(app, "Health — forecast")
     }
 
     @MainActor func testTheFullPicturePushes() {
@@ -101,13 +115,6 @@ final class HealthHubTests: XCTestCase {
         instruments.tap()
         XCTAssertTrue(app.staticTexts["ACWR · EWMA"].waitForExistence(timeout: 10))
         shoot(app, "Health — instruments")
-        app.navigationBars.buttons.firstMatch.tap()
-
-        let forecast = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Forecast")).firstMatch
-        XCTAssertTrue(reveal(app, forecast), "no Forecast row")
-        forecast.tap()
-        XCTAssertTrue(app.staticTexts["Rising at +0.03 a month."].firstMatch.waitForExistence(timeout: 10))
-        shoot(app, "Health — forecast")
         app.navigationBars.buttons.firstMatch.tap()
 
         let verdict = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "The verdict")).firstMatch

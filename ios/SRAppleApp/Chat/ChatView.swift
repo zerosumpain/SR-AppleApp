@@ -4,7 +4,7 @@ import PhotosUI
 /// The thread library.
 ///
 /// It used to open with the website's masthead — a lettered kicker, "PICK ONE
-/// UP, / OR START AGAIN" set in Archivo Black across two hand-broken lines, and
+/// UP, / OR START AGAIN" set in Inter Display across two hand-broken lines, and
 /// a standfirst — and then a search box drawn by hand, and only then a thread.
 /// On a 390×844 screen that is the whole of the first screenful spent on
 /// furniture. A page can afford a masthead because a page is tall and a reader
@@ -127,7 +127,7 @@ struct ThreadListScreen: View {
         // Inline, not large. A large title renders BLANK on this OS with this
         // appearance proxy — the bar lays out at full height and paints no text.
         // Verified in CI screenshots; inline titles in the same build draw in
-        // Archivo Black correctly. A compact bar also gives a list more of the
+        // Inter Display correctly. A compact bar also gives a list more of the
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
         // Default placement: on iOS 26 that is the glass field the system puts

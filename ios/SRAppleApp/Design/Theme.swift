@@ -86,9 +86,13 @@ enum SR {
     // its variable original; `Fonts/` holds the faces and their OFL licences.
 
     enum Face {
-        /// Archivo Black. Headlines. The live site DELIBERATELY keeps this —
-        /// the design repo says Zilla Slab; do not "fix" it.
-        static let display = "ArchivoBlack-Regular"
+        /// Inter Display ExtraBold. Headlines and figures. The app's own
+        /// choice since 2026-10-02, not the site's: the website keeps Archivo
+        /// Black, and John asked for something more modern on the phone — a
+        /// neo-grotesque in the Arial/Helvetica family that sits beside SF
+        /// rather than fighting it. A static instance, so no variable-font
+        /// instancing trap; licence in `Fonts/OFL-Inter.txt`.
+        static let display = "InterDisplay-ExtraBold"
         /// DM Mono. The 'sr.' brand mark and the wordmark.
         static let brand = "DMMono-Regular"
         static let brandMedium = "DMMono-Medium"
@@ -206,7 +210,7 @@ extension Color {
 extension SR {
     /// Type scaled to the reader's setting. Every new surface uses these.
     enum Text {
-        /// The one big figure on a screen. Archivo Black.
+        /// The one big figure on a screen. Inter Display.
         static func hero(_ size: CGFloat = 34) -> Font { .custom(Face.display, size: size, relativeTo: .largeTitle) }
         /// A section's headline.
         static func display(_ size: CGFloat = 22) -> Font { .custom(Face.display, size: size, relativeTo: .title2) }

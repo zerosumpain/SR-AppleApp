@@ -191,6 +191,7 @@ enum ForecastWords {
             let who = item.subjects.first.map { names[$0] ?? $0.capitalized } ?? "their"
             return "\(minutes) · from \(t.samples) of \(who)'s trips"
         case "household": return "\(minutes) · from the family's trips"
+        case "corrected": return "\(minutes) \(t.mode == "vehicle" ? "by car" : "on foot") · your destination, timed by Apple Maps"
         default: return "\(minutes) \(t.mode == "vehicle" ? "by car" : "on foot") · routed, nobody has made this trip yet"
         }
     }
@@ -233,7 +234,9 @@ final class FamilyForecastStore: ObservableObject {
             // Only this phone's own view: "View as" is somebody else's seat,
             // and their diary is not yours to be reminded of.
             if AccessStore.shared.viewingAs == nil {
-                await LeaveByReminders.sync(fetched.upcoming, names: fetched.names)
+                // With this phone's corrections: a dismissed journey must
+                // not ring, and a corrected one rings at its own time.
+                await LeaveByReminders.sync(JourneyCorrections.shared.apply(fetched.upcoming), names: fetched.names)
             }
         } catch {
             // The forecast is an extra over the positions: a failed read keeps
@@ -255,6 +258,7 @@ final class FamilyForecastStore: ObservableObject {
 /// costs Today no space. Tap → the Family tab.
 struct TodayForecastCard: View {
     @ObservedObject private var store = FamilyForecastStore.shared
+    @ObservedObject private var corrections = JourneyCorrections.shared
     let open: () -> Void
 
     /// The next leave-by in the coming six hours, if there is one.
@@ -272,7 +276,7 @@ struct TodayForecastCard: View {
     static let flagsShown = 2
 
     var body: some View {
-        let soon = store.forecast.flatMap { Self.nextLeave($0.upcoming) }
+        let soon = store.forecast.flatMap { Self.nextLeave(corrections.apply($0.upcoming)) }
         if let f = store.forecast, !(f.next.isEmpty && f.watch.isEmpty && soon == nil) {
             let names = f.names
             let moves = f.next.sorted { (parseTimestamp($0.leaveAt) ?? .distantFuture) < (parseTimestamp($1.leaveAt) ?? .distantFuture) }
@@ -283,15 +287,20 @@ struct TodayForecastCard: View {
                 SRCard(interactive: true) {
                     VStack(alignment: .leading, spacing: 10) {
                         SRSectionLabel(text: "Family · next", trailing: f.watch.isEmpty ? nil : "\(f.watch.count) to look at")
-                        if let soon, let leave = soon.leaveBy.flatMap(ForecastWords.clock) {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text("Leave \(leave)")
-                                    .font(SR.Text.display(18))
-                                    .foregroundStyle(SR.accent)
-                                Text("\(soon.title) · \(soon.place)")
-                                    .font(SR.Text.bodyMedium(15))
-                                    .foregroundStyle(SR.ink)
-                                    .lineLimit(2)
+                        if let soon, let leave = soon.leaveBy.flatMap(parseTimestamp) {
+                            HStack(alignment: .center, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(soon.title)
+                                        .font(SR.Text.title(16))
+                                        .foregroundStyle(SR.ink)
+                                        .lineLimit(1)
+                                    Text(soon.place)
+                                        .font(SR.Text.secondary(14))
+                                        .foregroundStyle(SR.inkSecondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                LeaveCountdown(leaveBy: leave, size: 20)
                             }
                             .accessibilityIdentifier("today-leave-by")
                         }
@@ -330,32 +339,92 @@ struct TodayForecastCard: View {
 }
 
 /// Coming up, on the owner's phone: the next two days of diary events with a
-/// location, each with who is going, when to leave and what the time stands on.
-/// A diary that could not be read says so — an empty list would read as a free
-/// day.
+/// location, each with who is going, what the time stands on and — on the
+/// right — a countdown to leaving. A diary that could not be read says so —
+/// an empty list would read as a free day.
+///
+/// A row is a proposal, and the reader can overrule it: tap to point it at
+/// the right place (re-timed by Apple Maps) or to dismiss it as not a journey
+/// being made. See `JourneyCorrections`.
 struct FamilyUpcomingCard: View {
     let upcoming: FamilyForecast.Upcoming
     let names: [String: String]
+    @ObservedObject private var corrections = JourneyCorrections.shared
+    @State private var choosing: FamilyForecast.UpcomingItem?
+    @State private var correcting: FamilyForecast.UpcomingItem?
     static let shown = 5
 
     var body: some View {
+        let shown = corrections.apply(upcoming) ?? upcoming
+        let dismissed = upcoming.items.filter { corrections.isDismissed($0.id) }
         VStack(alignment: .leading, spacing: 8) {
             SRSectionLabel(text: "Coming up", trailing: "next two days").padding(.horizontal, 4)
             VStack(alignment: .leading, spacing: 0) {
-                if !upcoming.available {
+                if !shown.available {
                     note("Your calendar could not be read just now, so nothing is planned and no reminder is set. That is not the same as a free diary.")
-                } else if upcoming.items.isEmpty {
-                    note("Nothing with a location in the next two days.")
+                } else if shown.items.isEmpty {
+                    note(dismissed.isEmpty
+                         ? "Nothing with a location in the next two days."
+                         : "Nothing left to travel to in the next two days.")
                 } else {
-                    ForEach(Array(upcoming.items.prefix(Self.shown).enumerated()), id: \.element.id) { index, item in
+                    ForEach(Array(shown.items.prefix(Self.shown).enumerated()), id: \.element.id) { index, item in
                         if index > 0 { Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, SR.cardPadding) }
-                        row(item)
+                        Button {
+                            SRHaptic.tap()
+                            choosing = item
+                        } label: {
+                            row(item)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Change the destination or dismiss this journey")
+                        .accessibilityIdentifier("family-upcoming-\(item.id)")
                     }
+                }
+                if !dismissed.isEmpty {
+                    Rectangle().fill(SR.divider).frame(height: 1)
+                    Button {
+                        SRHaptic.tap()
+                        for item in dismissed { corrections.restore(item.id) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("\(dismissed.count) dismissed · put back")
+                                .font(SR.Text.mono())
+                        }
+                        .foregroundStyle(SR.inkMuted)
+                        .padding(.horizontal, SR.cardPadding)
+                        .frame(maxWidth: .infinity, minHeight: SR.tapTarget, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("family-upcoming-restore")
                 }
             }
             .srGlassCard(.paper)
         }
         .accessibilityIdentifier("family-upcoming")
+        .confirmationDialog(
+            choosing.map { "\($0.title) · \($0.place)" } ?? "",
+            isPresented: Binding(get: { choosing != nil }, set: { if !$0 { choosing = nil } }),
+            titleVisibility: .visible,
+            presenting: choosing
+        ) { item in
+            Button("Change destination…") { correcting = item }
+            if corrections.all[item.id]?.destination != nil {
+                Button("Put back as planned") { corrections.restore(item.id) }
+            }
+            Button("Not going — dismiss this journey", role: .destructive) {
+                SRHaptic.ok()
+                withAnimation(.snappy) { corrections.dismiss(item.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Corrections stay on this iPhone and move its leave-by reminder.")
+        }
+        .sheet(item: $correcting) { item in
+            JourneyDestinationSheet(item: item)
+        }
     }
 
     private func note(_ text: String) -> some View {
@@ -367,33 +436,41 @@ struct FamilyUpcomingCard: View {
     }
 
     private func row(_ item: FamilyForecast.UpcomingItem) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("\(ForecastWords.clock(item.start) ?? "")  \(item.title)")
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("\(item.subjects.map { names[$0] ?? $0.capitalized }.joined(separator: ", ")) · \(item.place)\(item.from.map { " · from \($0)" } ?? "")")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
+                HStack(spacing: 4) {
+                    if item.travel?.source == "corrected" {
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(SR.accentInk)
+                            .accessibilityLabel("Corrected destination")
+                    }
+                    Text("\(item.subjects.map { names[$0] ?? $0.capitalized }.joined(separator: ", ")) · \(item.place)\(item.from.map { " · from \($0)" } ?? "")")
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkSecondary)
+                }
                 if let line = ForecastWords.travelLine(item, names: names) {
                     Text(line).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let issue = item.issue {
                     Text(issue.text).font(SR.Text.mono()).foregroundStyle(SR.accent)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 6)
-            if let leave = item.leaveBy.flatMap(ForecastWords.clock) {
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text(leave).font(SR.Text.display(20)).foregroundStyle(SR.accent)
-                    Text("LEAVE BY").font(SR.Text.label()).tracking(1.1).foregroundStyle(SR.inkMuted)
-                }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let leave = item.leaveBy.flatMap(parseTimestamp) {
+                LeaveCountdown(leaveBy: leave)
+                    .fixedSize()
             }
         }
         .padding(.horizontal, SR.cardPadding)
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }

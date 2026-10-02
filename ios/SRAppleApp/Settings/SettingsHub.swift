@@ -142,7 +142,7 @@ struct SettingsScreen: View {
             // Inline, not large. A large title renders BLANK on this OS with this
             // appearance proxy — the bar lays out at full height and paints no text.
             // Verified in CI screenshots; inline titles in the same build draw in
-            // Archivo Black correctly. A compact bar also gives a list more of the
+            // Inter Display correctly. A compact bar also gives a list more of the
             // screen, which on a phone is the thing actually being asked for.
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -730,7 +730,7 @@ struct AboutScreen: View {
             }
 
             Section {
-                Text("Archivo Black, DM Sans, DM Mono and JetBrains Mono, all under the SIL Open Font Licence. Their licences ship in the app bundle.")
+                Text("Inter Display, DM Sans, DM Mono and JetBrains Mono, all under the SIL Open Font Licence. Their licences ship in the app bundle.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)

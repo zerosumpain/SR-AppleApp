@@ -8,7 +8,7 @@
 <key>CFBundlePackageType</key><string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
-<key>UIAppFonts</key><array><string>ArchivoBlack-Regular.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string><string>DMSans-Medium.ttf</string></array>
+<key>UIAppFonts</key><array><string>InterDisplay-ExtraBold.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string><string>DMSans-Medium.ttf</string></array>
 <key>SRSharedKeychainGroup</key><string>$(AppIdentifierPrefix)$(SR_BUNDLE_ID).shared</string>
 <key>NSExtension</key><dict>
   <key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string>

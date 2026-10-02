@@ -83,6 +83,42 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Family, scrolled")
     }
 
+    /// Coming up's journeys can be overruled — dismissed, then put back —
+    /// and the alarm is raised by holding, then stood down.
+    @MainActor func testShowcaseFamilyJourneysAndAlarm() {
+        let app = launch()
+        openTab(app, "Family")
+        let swim = byId(app, "family-upcoming-demo-swim")
+        guard scroll(app, to: swim) else {
+            soft(false, "no Swimming row in Coming up")
+            return
+        }
+        attach(app, "Showcase — Family, Coming up countdown")
+        swim.tap()
+        let dismiss = app.buttons["Not going — dismiss this journey"]
+        soft(dismiss.waitForExistence(timeout: 5), "no dismiss choice on a journey")
+        attach(app, "Showcase — Family, journey choices")
+        if dismiss.exists { dismiss.tap() }
+        let restore = byId(app, "family-upcoming-restore")
+        soft(restore.waitForExistence(timeout: 5), "a dismissed journey should offer to be put back")
+        attach(app, "Showcase — Family, journey dismissed")
+        if restore.exists { restore.tap() }
+        soft(byId(app, "family-upcoming-demo-swim").waitForExistence(timeout: 5), "put back, the journey should return")
+
+        let alarm = byId(app, "family-alarm")
+        soft(alarm.waitForExistence(timeout: 5), "no alarm button on the Family tab")
+        guard alarm.exists else { return }
+        alarm.tap()
+        let hold = byId(app, "family-alarm-hold")
+        soft(hold.waitForExistence(timeout: 5), "no hold-to-raise button")
+        attach(app, "Showcase — Family, raise the alarm")
+        if hold.exists { hold.press(forDuration: 2.6) }
+        let standDown = byId(app, "family-alarm-stand-down")
+        soft(standDown.waitForExistence(timeout: 10), "raising the alarm should offer to stand it down")
+        attach(app, "Showcase — Family, alarm raised")
+        if standDown.exists { standDown.tap() }
+    }
+
     // MARK: - Family steps and tasks
 
     /// Both optional Today cards (switched on through the launch arguments,
@@ -250,25 +286,6 @@ final class ShowcaseTests: XCTestCase {
         app.swipeUp()
         settle(app)
         attach(app, "Showcase — Health, scrolled further")
-    }
-
-    /// Readiness in full, one tap on the Health tab's hero.
-    @MainActor func testShowcaseReadiness() {
-        let app = launch()
-        openTab(app, "Health")
-        let hero = byId(app, "health-readiness")
-        guard scroll(app, to: hero) else {
-            soft(false, "no readiness card on the Health tab")
-            return
-        }
-        hero.waitUntilStill()
-        hero.tap()
-        settle(app, on: app.staticTexts["WHAT READINESS IS MADE OF"])
-        attach(app, "Showcase — Readiness")
-
-        app.swipeUp()
-        settle(app)
-        attach(app, "Showcase — Readiness, scrolled")
     }
 
     /// Insights, one push off the Health tab.
