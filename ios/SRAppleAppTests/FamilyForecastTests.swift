@@ -127,13 +127,6 @@ final class FamilyForecastTests: XCTestCase {
         XCTAssertTrue(LeaveByReminders.plan(items, names: [:], now: gone).isEmpty)
     }
 
-    func testTodayShowsTheNextLeaveByWithinSixHours() throws {
-        let up = try XCTUnwrap(try forecast().upcoming)
-        let now = try XCTUnwrap(parseTimestamp("2026-09-28T13:00:00Z"))
-        XCTAssertEqual(TodayForecastCard.nextLeave(up, now: now)?.id, "ev1")
-        XCTAssertNil(TodayForecastCard.nextLeave(up, now: try XCTUnwrap(parseTimestamp("2026-09-28T06:00:00Z"))))
-        XCTAssertNil(TodayForecastCard.nextLeave(.init(available: false, items: up.items), now: now))
-    }
 
     // MARK: - Corrections
 
@@ -143,7 +136,6 @@ final class FamilyForecastTests: XCTestCase {
         let applied = try XCTUnwrap(JourneyCorrections.apply(up, corrections: fixes))
         XCTAssertEqual(applied.items.map(\.id), ["ev2"])
         let now = try XCTUnwrap(parseTimestamp("2026-09-28T13:00:00Z"))
-        XCTAssertNil(TodayForecastCard.nextLeave(applied, now: now))
         XCTAssertTrue(LeaveByReminders.plan(applied.items, names: [:], now: now).isEmpty)
     }
 

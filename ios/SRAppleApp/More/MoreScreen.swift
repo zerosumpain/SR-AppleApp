@@ -33,43 +33,17 @@ struct MoreScreen: View {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 if places.contains(.games) { waiting }
 
-                VStack(alignment: .leading, spacing: SR.cardGap) {
-                    // The daydream loop is the owner's, over the site.
-                    if AccessStore.ownerSite {
-                        Button {
-                            SRHaptic.tap()
-                            router.more.append(Router.MorePage.daydream)
-                        } label: {
-                            MoreCard(
-                                icon: "sparkles",
-                                fill: SR.accentInk,
-                                title: "Daydream",
-                                blurb: "What jkai spotted in your days, and your call on each.",
-                                status: toDecide > 0 ? "\(toDecide) to decide" : nil
-                            )
+                // Two by two: every place a tile of the same size, so the
+                // page reads as a set of doors rather than a list to scroll.
+                VStack(spacing: SR.cardGap) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        HStack(alignment: .top, spacing: SR.cardGap) {
+                            ForEach(row, id: \.self) { tile($0) }
+                            if row.count == 1 { Color.clear.frame(maxWidth: .infinity) }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("more-daydream")
-                    }
-                    // The family's step board and task list: pages, not tabs,
-                    // for everyone with the family and the site credential.
-                    if access.familyBoards {
-                        familyCard(.steps)
-                        familyCard(.tasks)
-                    }
-                    ForEach(places, id: \.self) { place in
-                        Button {
-                            SRHaptic.tap()
-                            router.show(place)
-                        } label: {
-                            MorePlaceCard(place: place, games: games)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("more-\(place.rawValue)")
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-
-                settingsRow
             }
             .padding(.horizontal, SR.gutter)
             .padding(.top, 4)
@@ -135,38 +109,76 @@ struct MoreScreen: View {
         daydream.toDecide(feedback: feedback, commissions: commissions)
     }
 
-    /// Settings, moved off Today's bar: a row, not a card — it is where you
-    /// change things, not somewhere you go to read.
-    private var settingsRow: some View {
-        Button {
-            SRHaptic.tap()
-            router.openSettings()
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(SR.inkSecondary)
-                    .frame(width: 34, height: 34)
-                    .background(SR.ink.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .accessibilityHidden(true)
-                Text("Settings")
-                    .font(SR.Text.title())
-                    .foregroundStyle(SR.ink)
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(SR.inkGhost)
-                    .accessibilityHidden(true)
+    /// What sits in More, in order, as tiles.
+    enum Item: Hashable {
+        case daydream, steps, tasks, settings
+        case place(Router.Tab)
+    }
+
+    private var items: [Item] {
+        var all: [Item] = []
+        // The daydream loop is the owner's, over the site.
+        if AccessStore.ownerSite { all.append(.daydream) }
+        // The family's step board and task list: pages, not tabs, for
+        // everyone with the family and the site credential.
+        if access.familyBoards { all += [.steps, .tasks] }
+        all += places.map(Item.place)
+        // Settings last, a tile like the rest.
+        all.append(.settings)
+        return all
+    }
+
+    /// Pairs, for the grid. A plain stack of rows rather than a lazy grid: a
+    /// lazy container whose last child is measured at a different height than
+    /// it was estimated at loops at the bottom.
+    private var rows: [[Item]] {
+        stride(from: 0, to: items.count, by: 2).map { Array(items[$0..<min($0 + 2, items.count)]) }
+    }
+
+    @ViewBuilder
+    private func tile(_ item: Item) -> some View {
+        switch item {
+        case .daydream:
+            Button {
+                SRHaptic.tap()
+                router.more.append(Router.MorePage.daydream)
+            } label: {
+                MoreCard(
+                    icon: "sparkles",
+                    fill: SR.accentInk,
+                    title: "Daydream",
+                    blurb: "What jkai spotted in your days, and your call on each.",
+                    status: toDecide > 0 ? "\(toDecide) to decide" : nil
+                )
             }
-            .padding(.horizontal, SR.cardPadding)
-            .padding(.vertical, 8)
-            .frame(minHeight: SR.tapTarget + 12)
-            .srGlassCard(.paper, interactive: true)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("more-daydream")
+        case .steps: familyCard(.steps)
+        case .tasks: familyCard(.tasks)
+        case .place(let place):
+            Button {
+                SRHaptic.tap()
+                router.show(place)
+            } label: {
+                MorePlaceCard(place: place, games: games)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("more-\(place.rawValue)")
+        case .settings:
+            Button {
+                SRHaptic.tap()
+                router.openSettings()
+            } label: {
+                MoreCard(
+                    icon: "gearshape.fill",
+                    fill: SR.inkSecondary,
+                    title: "Settings",
+                    blurb: "Notifications, connections, Apple Health and this iPhone."
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("open-settings")
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("open-settings")
     }
 
     /// Invitations and games in progress — the reason to open More at all,
@@ -273,35 +285,39 @@ struct MoreCard<Extra: View>: View {
 
     var body: some View {
         SRCard(interactive: true) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
                     Image(systemName: icon)
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(SR.paper)
-                        .frame(width: 48, height: 48)
+                        .frame(width: 44, height: 44)
                         .background(Circle().fill(fill))
                         .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(SR.Text.display(22))
-                            .foregroundStyle(SR.ink)
-                        Text(blurb)
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 4)
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(SR.inkGhost)
-                        .padding(.top, 4)
+                        .accessibilityHidden(true)
                 }
+                Text(title)
+                    .font(SR.Text.display(19))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(blurb)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkSecondary)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
                 extra()
                 if let status {
                     SRGlassChip(text: status, tone: SR.accent)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
     }

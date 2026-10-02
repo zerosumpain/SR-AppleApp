@@ -252,89 +252,51 @@ final class FamilyForecastStore: ObservableObject {
     }
 }
 
-/// Today's line on the family's day ahead: what looks off, then the next few
-/// moves by time — "Sam · Leaves 15:40 for Home · there 16:02–16:10". Draws
-/// NOTHING when nobody has a move due and nothing looks off, so a quiet day
-/// costs Today no space. Tap → the Family tab.
-struct TodayForecastCard: View {
-    @ObservedObject private var store = FamilyForecastStore.shared
-    @ObservedObject private var corrections = JourneyCorrections.shared
-    let open: () -> Void
-
-    /// The next leave-by in the coming six hours, if there is one.
-    static func nextLeave(_ upcoming: FamilyForecast.Upcoming?, now: Date = Date()) -> FamilyForecast.UpcomingItem? {
-        guard let upcoming, upcoming.available else { return nil }
-        return upcoming.items
-            .compactMap { item -> (FamilyForecast.UpcomingItem, Date)? in
-                guard let t = item.leaveBy.flatMap(parseTimestamp), t > now, t.timeIntervalSince(now) <= 6 * 3600 else { return nil }
-                return (item, t)
-            }
-            .min { $0.1 < $1.1 }?.0
-    }
-
-    static let movesShown = 3
-    static let flagsShown = 2
+/// Where everyone is going: each person's next likely move, soonest first —
+/// "Sam · Leaves 15:40 for Home · there 16:02–16:10", or "Arriving Office
+/// 08:35–08:40" while they are on the way. Each line says how many trips it
+/// stands on. Lived on Today until 2026-10-02; the Family tab is where the
+/// people are, so it is here now.
+struct FamilyMovesCard: View {
+    let moves: [FamilyForecast.NextMove]
+    let names: [String: String]
 
     var body: some View {
-        let soon = store.forecast.flatMap { Self.nextLeave(corrections.apply($0.upcoming)) }
-        if let f = store.forecast, !(f.next.isEmpty && f.watch.isEmpty && soon == nil) {
-            let names = f.names
-            let moves = f.next.sorted { (parseTimestamp($0.leaveAt) ?? .distantFuture) < (parseTimestamp($1.leaveAt) ?? .distantFuture) }
-            Button {
-                SRHaptic.tap()
-                open()
-            } label: {
-                SRCard(interactive: true) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SRSectionLabel(text: "Family · next", trailing: f.watch.isEmpty ? nil : "\(f.watch.count) to look at")
-                        if let soon, let leave = soon.leaveBy.flatMap(parseTimestamp) {
-                            HStack(alignment: .center, spacing: 10) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(soon.title)
-                                        .font(SR.Text.title(16))
-                                        .foregroundStyle(SR.ink)
-                                        .lineLimit(1)
-                                    Text(soon.place)
-                                        .font(SR.Text.secondary(14))
-                                        .foregroundStyle(SR.inkSecondary)
-                                        .lineLimit(1)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                LeaveCountdown(leaveBy: leave, size: 20)
-                            }
-                            .accessibilityIdentifier("today-leave-by")
+        let sorted = moves.sorted { (parseTimestamp($0.leaveAt) ?? .distantFuture) < (parseTimestamp($1.leaveAt) ?? .distantFuture) }
+        VStack(alignment: .leading, spacing: 8) {
+            SRSectionLabel(text: "Next moves", trailing: "from the family's own trips").padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(sorted.enumerated()), id: \.offset) { index, move in
+                    if index > 0 { Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 44) }
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: move.kind == "arriving" ? "location.north.fill" : "clock")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkMuted)
+                            .frame(width: 20)
+                            .padding(.top, 2)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(names[move.subject] ?? move.subject.capitalized)
+                                .font(SR.Text.title(16))
+                                .foregroundStyle(SR.ink)
+                            Text(ForecastWords.nextLine(move))
+                                .font(SR.Text.secondary())
+                                .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(ForecastWords.ofDays(move.days, move.of, move.dayType))
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
                         }
-                        ForEach(f.watch.prefix(Self.flagsShown)) { item in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Image(systemName: ForecastWords.symbol(item))
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(item.severity == "alert" ? SR.error : SR.warn)
-                                Text(item.title)
-                                    .font(SR.Text.bodyMedium(15))
-                                    .foregroundStyle(SR.ink)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        ForEach(Array(moves.prefix(Self.movesShown).enumerated()), id: \.offset) { _, move in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(names[move.subject] ?? move.subject.capitalized)
-                                    .font(SR.Text.bodyMedium(15))
-                                    .foregroundStyle(SR.ink)
-                                    .frame(minWidth: 52, alignment: .leading)
-                                Text(ForecastWords.nextLine(move))
-                                    .font(SR.Text.mono(13))
-                                    .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
+                        Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, SR.cardPadding)
+                    .padding(.vertical, 12)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("family-next-\(move.subject)")
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityHint("Opens Family")
-            .accessibilityIdentifier("today-forecast")
+            .srGlassCard(.paper)
         }
+        .accessibilityIdentifier("family-moves")
     }
 }
 

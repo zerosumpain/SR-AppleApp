@@ -282,6 +282,8 @@ struct RaiseAlarmSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var kind: FamilyAlarmKind = .siren
     @State private var message = ""
+    /// The sound playing here as a test, for what remains of its ten seconds.
+    @State private var testing: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -306,8 +308,10 @@ struct RaiseAlarmSheet: View {
                             .background(RoundedRectangle(cornerRadius: 12).fill(SR.surface))
                             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(SR.line, lineWidth: 1))
                         HoldToRaise(sending: store.sending) {
+                            stopTest()
                             Task { await store.raise(kind, message: message) }
                         }
+                        testButton
                     }
                     if let failure = store.failure {
                         Text(failure)
@@ -330,6 +334,46 @@ struct RaiseAlarmSheet: View {
             }
         }
         .presentationDetents([.large])
+        .onDisappear { stopTest() }
+    }
+
+    /// Play the chosen sound on THIS phone for ten seconds — exactly as a
+    /// family member's phone plays it with the app open, through the silent
+    /// switch — without telling anyone. Raising an alarm never rings the
+    /// sender's own phone, so this is the only way to hear it.
+    private var testButton: some View {
+        Button {
+            SRHaptic.tap()
+            if testing != nil {
+                stopTest()
+            } else {
+                AlarmPlayer.shared.start(kind)
+                testing = Task {
+                    try? await Task.sleep(for: .seconds(10))
+                    guard !Task.isCancelled else { return }
+                    AlarmPlayer.shared.stop()
+                    testing = nil
+                }
+            }
+        } label: {
+            Label(testing == nil ? "Test the \(kind.title.lowercased()) on this phone" : "Stop the test",
+                  systemImage: testing == nil ? "speaker.wave.3.fill" : "stop.fill")
+                .font(SR.Text.title(15))
+                .foregroundStyle(SR.error)
+                .frame(maxWidth: .infinity, minHeight: SR.tapTarget)
+                .overlay(Capsule().strokeBorder(SR.error.opacity(0.5), lineWidth: 1.5))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Plays for ten seconds here only. Nobody else is told.")
+        .accessibilityIdentifier("family-alarm-test")
+    }
+
+    private func stopTest() {
+        guard let task = testing else { return }
+        task.cancel()
+        testing = nil
+        AlarmPlayer.shared.stop()
     }
 
     private func kindRow(_ option: FamilyAlarmKind) -> some View {

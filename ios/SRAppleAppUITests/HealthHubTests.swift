@@ -102,8 +102,11 @@ final class HealthHubTests: XCTestCase {
         XCTAssertEqual(tiles.count, 4, "the demo's four forecasts should be four tiles")
         shoot(app, "Health — forecast grid")
         tiles.firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Rising at +0.03 a month."].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Sleep"].waitForExistence(timeout: 10), "the Sleep tile should open Sleep's forecast")
         shoot(app, "Health — forecast")
+        // ONE screen was pushed: a single Back is Insights again.
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Insights"].waitForExistence(timeout: 10), "one Back should return to Insights")
     }
 
     @MainActor func testTheFullPicturePushes() {

@@ -56,8 +56,6 @@ final class ShowcaseTests: XCTestCase {
         let mini = byId(app, "today-family")
         soft(mini.waitForExistence(timeout: 15), "no family map on Today")
         settle(app, seconds: 3)
-        // The travel desk card under the map: Kit's quiet phone, then the next moves.
-        soft(byId(app, "today-forecast").waitForExistence(timeout: 5), "no 'Family · next' card on Today")
         attach(app, "Showcase — Today, family map")
 
         if mini.exists && mini.isHittable {
@@ -66,8 +64,8 @@ final class ShowcaseTests: XCTestCase {
             openTab(app, "Family")
         }
         settle(app, on: byId(app, "family-person-sam"), seconds: 3)
-        // The travel desk forecast: Sam's next move under the row, Kit's quiet phone above the list.
-        soft(byId(app, "family-next-sam").waitForExistence(timeout: 5), "no forecast line for Sam")
+        // The travel desk forecast: the next moves under everyone, Kit's quiet phone above.
+        soft(byId(app, "family-people").exists, "no people grid on Family")
         soft(byId(app, "family-watch").exists, "no 'what looks off' card")
         soft(byId(app, "family-upcoming").exists, "no 'Coming up' card on the owner's Family tab")
         attach(app, "Showcase — Family")
@@ -111,6 +109,7 @@ final class ShowcaseTests: XCTestCase {
         alarm.tap()
         let hold = byId(app, "family-alarm-hold")
         soft(hold.waitForExistence(timeout: 5), "no hold-to-raise button")
+        soft(byId(app, "family-alarm-test").exists, "no way to hear the siren on this phone")
         attach(app, "Showcase — Family, raise the alarm")
         if hold.exists { hold.press(forDuration: 2.6) }
         let standDown = byId(app, "family-alarm-stand-down")
