@@ -40,7 +40,10 @@ struct FamilyPersonScreen: View {
                     .frame(height: 280)
                     .overlay(alignment: .topTrailing) {
                         if person.today?.trail.isEmpty == false {
-                            FamilyTracksToggle(on: $showTracks).padding(10)
+                            FamilyTracksButton(on: $showTracks)
+                                .frame(width: 40, height: 40)
+                                .srGlass(.paper, in: Circle(), interactive: true)
+                                .padding(10)
                         }
                     }
                     .accessibilityIdentifier("family-person-map")

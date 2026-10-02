@@ -29,6 +29,8 @@ struct FamilyScreen: View {
     @ObservedObject private var gifts = RouteGiftsStore.shared
     /// The family alarm: raise one, and the pull floor for receiving one.
     @ObservedObject private var alarm = FamilyAlarmStore.shared
+    /// The map, full screen.
+    @State private var mapExpanded = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
@@ -54,6 +56,9 @@ struct FamilyScreen: View {
             if alarm.available {
                 ToolbarItem(placement: .topBarLeading) { FamilyAlarmButton() }
             }
+            // Today's lines on the map: a glyph the size of the alarm's,
+            // opposite it, instead of a capsule over the map.
+            ToolbarItem(placement: .topBarTrailing) { FamilyTracksButton(on: $showTracks) }
             // Steps and Tasks live in More; with no More (a member with four
             // places or fewer) they are here instead, or there is no way in.
             if access.familyBoards && !access.allows(.more) {
@@ -102,10 +107,15 @@ struct FamilyScreen: View {
                 // Two thirds of what it was: the people and their moves
                 // below are the page now, the map is where.
                 .frame(height: 212)
-                .overlay(alignment: .topTrailing) {
-                    FamilyTracksToggle(on: $showTracks).padding(10)
+                .overlay(alignment: .bottomTrailing) {
+                    FamilyMapExpandButton(expanded: false) { mapExpanded = true }.padding(10)
                 }
                 .accessibilityIdentifier("family-map")
+                .fullScreenCover(isPresented: $mapExpanded) {
+                    FamilyFullMap(people: view.people, showTracks: $showTracks, camera: $camera) {
+                        mapExpanded = false
+                    }
+                }
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
                     LiveWalksCard(store: walks)
@@ -116,8 +126,10 @@ struct FamilyScreen: View {
                         FamilyWatchCard(items: items)
                             .padding(.top, 14)
                     }
-                    // The owner's phone only (null for anyone else).
-                    if let f = forecast.forecast, let upcoming = f.upcoming {
+                    // The owner's phone only (null for anyone else), and only
+                    // when there is something in it: an empty diary is no card.
+                    if let f = forecast.forecast, let upcoming = f.upcoming,
+                       FamilyUpcomingCard.hasContent(upcoming) {
                         FamilyUpcomingCard(upcoming: upcoming, names: f.names)
                             .padding(.top, f.watch.isEmpty ? 14 : 0)
                     }
@@ -126,7 +138,7 @@ struct FamilyScreen: View {
                     SRSectionLabel(text: "Everyone", trailing: view.summary)
                         .padding(.horizontal, 4)
                         .padding(.top, 14)
-                    FamilyPeopleGrid(people: view.people)
+                    FamilyPlaceStacks(view: view)
                     // Where everyone is going: the travel desk's next moves.
                     if let f = forecast.forecast, !f.next.isEmpty {
                         FamilyMovesCard(moves: f.next, names: f.names)
@@ -189,8 +201,8 @@ enum FamilyTracks {
     static let key = "family-show-tracks"
 }
 
-/// A small glass switch in the map's corner: today's lines on or off.
-struct FamilyTracksToggle: View {
+/// Today's lines on or off: one glyph in the bar, petrol when on.
+struct FamilyTracksButton: View {
     @Binding var on: Bool
 
     var body: some View {
@@ -198,20 +210,10 @@ struct FamilyTracksToggle: View {
             SRHaptic.select()
             withAnimation(.snappy) { on.toggle() }
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: on ? "point.topleft.down.to.point.bottomright.curvepath.fill" : "point.topleft.down.to.point.bottomright.curvepath")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(on ? "TRACKS ON" : "TRACKS OFF")
-                    .font(SR.Text.label())
-                    .tracking(1.1)
-            }
-            .foregroundStyle(on ? SR.accent : SR.inkMuted)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 34)
-            .srGlass(.paper, in: Capsule(), interactive: true)
-            .contentShape(Capsule())
+            Image(systemName: on ? "point.topleft.down.to.point.bottomright.curvepath.fill" : "point.topleft.down.to.point.bottomright.curvepath")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(on ? SR.accentInk : SR.inkMuted)
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("Show today's tracks")
         .accessibilityValue(on ? "On" : "Off")
         .accessibilityAddTraits(.isToggle)
@@ -219,26 +221,113 @@ struct FamilyTracksToggle: View {
     }
 }
 
-/// Everyone as icons: their pin, their name, their battery. A tap opens
-/// their page — where they are, their day, their next move and routines.
-///
-/// Icons, not rows: on a phone the family is four or five people, and a grid
-/// shows all of them at once under the map instead of a list to scroll.
-struct FamilyPeopleGrid: View {
-    let people: [FamilyPerson]
-    private let columns = [GridItem(.adaptive(minimum: 76, maximum: 120), spacing: 8)]
+/// The map's corner button: full screen, or back.
+struct FamilyMapExpandButton: View {
+    let expanded: Bool
+    let action: () -> Void
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(people) { person in
-                NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
-                    FamilyPersonTile(person: person)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("family-person-\(person.subject)")
+        Button {
+            SRHaptic.tap()
+            action()
+        } label: {
+            Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(SR.ink)
+                .frame(width: 40, height: 40)
+                .srGlass(.paper, in: Circle(), interactive: true)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(expanded ? "Close the full-screen map" : "Show the map full screen")
+        .accessibilityIdentifier(expanded ? "family-map-collapse" : "family-map-expand")
+    }
+}
+
+/// The family map, full screen: the same camera, the same tracks switch.
+struct FamilyFullMap: View {
+    let people: [FamilyPerson]
+    @Binding var showTracks: Bool
+    @Binding var camera: MapCameraPosition
+    let close: () -> Void
+
+    var body: some View {
+        FamilyMapCanvas(people: people, interactive: true, showTrails: showTracks, camera: $camera)
+            .ignoresSafeArea()
+            .overlay(alignment: .topTrailing) {
+                FamilyTracksButton(on: $showTracks)
+                    .frame(width: 40, height: 40)
+                    .srGlass(.paper, in: Circle(), interactive: true)
+                    .padding(16)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                FamilyMapExpandButton(expanded: true, action: close).padding(16)
+            }
+            .accessibilityIdentifier("family-map-full")
+    }
+}
+
+/// Everyone, grouped by where they are: a place's name, then its people as
+/// cards dealt over one another — each a third under the one before — so a
+/// crowd at home reads as one pile and somebody out alone stands apart.
+/// Anybody not seen lately is the last pile, with the site's own words.
+/// A card opens that person's page.
+struct FamilyPlaceStacks: View {
+    let view: HouseholdView
+    /// A card's width, and how much of it the next one covers.
+    static let card: CGFloat = 84
+    static let overlap: CGFloat = 0.33
+
+    var body: some View {
+        let groups = view.places()
+        let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(groups) { place in
+                pile(title: place.name, icon: place.isHome ? "house.fill" : place.isMoving ? "arrow.triangle.turn.up.right.circle.fill" : "mappin.circle.fill",
+                     people: place.people, id: place.name.lowercased())
+            }
+            if !absent.isEmpty {
+                pile(title: "Not seen lately", icon: "questionmark.circle", people: absent, id: "absent")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("family-people")
+    }
+
+    private func pile(title: String, icon: String, people: [FamilyPerson], id: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SR.accentInk)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(SR.ink)
+                Text("\(people.count)")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+            }
+            .padding(.horizontal, 4)
+            .accessibilityAddTraits(.isHeader)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: -Self.card * Self.overlap) {
+                    ForEach(Array(people.enumerated()), id: \.element.id) { index, person in
+                        NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
+                            FamilyPersonTile(person: person).frame(width: Self.card)
+                        }
+                        .buttonStyle(.plain)
+                        // The first card on top, the rest dealt under it.
+                        .zIndex(Double(people.count - index))
+                        .accessibilityIdentifier("family-person-\(person.subject)")
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.vertical, 4)
+            }
+            .scrollClipDisabled()
+        }
+        .accessibilityIdentifier("family-place-\(id)")
     }
 }
 
@@ -264,8 +353,12 @@ struct FamilyPersonTile: View {
         }
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
-        .srGlassCard(.paper, interactive: true)
-        .contentShape(Rectangle())
+        // Opaque, edged and lifted: overlapped, a translucent card would
+        // show the one beneath through it.
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(SR.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
+        .shadow(color: SR.ink.opacity(0.14), radius: 4, x: 2, y: 1)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(person.name). \(FamilyWords.line(person, places: places))\(person.batteryPct.map { ". Battery \($0) percent" } ?? "")")
         .accessibilityHint("Shows their day and week")
