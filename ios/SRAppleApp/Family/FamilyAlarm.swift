@@ -22,6 +22,9 @@ import UserNotifications
 ///   moment `APNS_CRITICAL_ALERTS=1` is set — after Apple grants it and the
 ///   entitlement is in the provisioning profile (an entitlement the profile
 ///   lacks fails the archive, so it is NOT in `SRAppleApp.entitlements` yet).
+/// - **The push is usually redacted:** a phone with notification details off
+///   (the default) gets "Family alarm" with no name or place, so the app
+///   fills both in from `GET /api/native/family/alarm` as soon as it rings.
 /// - **A phone that cannot be pushed** (no site pairing, or a push lost):
 ///   the Family tab polls `GET /api/native/family/alarm` while it is open, and
 ///   the app checks once on every return to the foreground.
@@ -155,8 +158,18 @@ final class FamilyAlarmStore: ObservableObject {
     /// A push arrived (or was tapped). Ring, unless it was already dismissed.
     func receive(_ alarm: FamilyAlarm) {
         guard !seen.contains(alarm.alarmId), !alarm.cancelled else { return }
+        // The same alarm again (a poll after the push): keep ringing, and
+        // keep whichever copy says more.
+        if incoming?.alarmId == alarm.alarmId {
+            if alarm.lat != nil || alarm.message != nil { incoming = alarm }
+            return
+        }
         incoming = alarm
         AlarmPlayer.shared.start(FamilyAlarmKind(rawValue: alarm.kind) ?? .siren)
+        // Most phones get the push REDACTED — "Family alarm", no name, no
+        // place — because notification details are off by default. The
+        // site's list has who and where.
+        if alarm.lat == nil { Task { await poll() } }
     }
 
     /// The sender stood it down: stop ringing, and say so.
@@ -175,8 +188,14 @@ final class FamilyAlarmStore: ObservableObject {
         guard available, !SRDemo.isOn else { return }
         struct Reply: Decodable { let alarms: [FamilyAlarm] }
         guard let reply: Reply = try? await SiteClient.shared.send("api/native/family/alarm", asSelf: true) else { return }
-        if let current = incoming, let fresh = reply.alarms.first(where: { $0.alarmId == current.alarmId }), fresh.cancelled {
-            cancelled(current.alarmId)
+        // The list holds only ACTIVE alarms: one that has dropped out of it
+        // was stood down (or is over half an hour old).
+        if let current = incoming, !current.cancelled {
+            if let fresh = reply.alarms.first(where: { $0.alarmId == current.alarmId }) {
+                receive(fresh)
+            } else {
+                cancelled(current.alarmId)
+            }
         }
         if incoming == nil, let next = reply.alarms.first(where: { !$0.cancelled && !seen.contains($0.alarmId) }) {
             receive(next)
