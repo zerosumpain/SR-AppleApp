@@ -1,0 +1,77 @@
+name: Showcase screenshots
+
+# `ShowcaseTests` — every tab, full, on demo fixtures — for reviewing the look.
+# Its lookups are soft: a missing element is noted and the screen is still
+# photographed, so the walk cannot fail a change and does not belong in the
+# required check, where it was ~40 of a ~85-minute Mac job (until 2026-10-02).
+#
+# By hand, or on a pull request by adding the `showcase` label. Dark, as the
+# check ran it. The soft misses are listed on the run's summary page: each one
+# is a screen that no longer looks the way its test expects.
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+concurrency:
+  group: showcase-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  showcase:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'showcase'
+    runs-on: macos-26
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec ios/project.yml
+      - name: Start booting the iPhone simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          nohup sh -c "xcrun simctl boot '$DEVICE_ID' || true; xcrun simctl bootstatus '$DEVICE_ID' -b" > boot.log 2>&1 &
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          if ! xcodebuild -showsdks | grep -q watchsimulator; then
+            xcodebuild -downloadPlatform watchOS
+          fi
+          xcodebuild build-for-testing -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee build.log
+      - name: Shoot
+        run: |
+          set -o pipefail
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl ui "$DEVICE_ID" appearance dark
+          xcodebuild test-without-building -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Showcase.xcresult \
+            -only-testing:SRAppleAppUITests/ShowcaseTests | tee test.log
+      - name: List soft misses
+        if: ${{ !cancelled() }}
+        run: |
+          [ -f test.log ] || exit 0
+          # Each miss under the test it happened in.
+          MISSES="$(awk '/Test Case .* started/ { match($0, /ShowcaseTests [A-Za-z]+/); t = substr($0, RSTART + 14, RLENGTH - 14) }
+                         /Soft miss: / { sub(/.*Soft miss: /, ""); print t ": " $0 }' test.log | sort | uniq -c || true)"
+          {
+            echo '## Showcase soft misses'
+            if [ -z "$MISSES" ]; then echo 'None.'; else printf '```\n%s\n```\n' "$MISSES"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$MISSES" ]; then
+            echo "::warning::$(printf '%s\n' "$MISSES" | awk '{n+=$1} END {print n}') soft misses — see the run summary."
+          fi
+      - name: Export screenshots
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -d artifacts/Showcase.xcresult ]; then
+            xcrun xcresulttool export attachments --path artifacts/Showcase.xcresult --output-path artifacts/screenshots
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: showcase-screenshots
+          path: |
+            test.log
+            artifacts/screenshots
+          retention-days: 7

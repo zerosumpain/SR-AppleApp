@@ -97,7 +97,7 @@ identity headers and issue short-lived assertions for their own audiences.
 ios/                 SwiftUI app, HealthKit/Core Location collectors, XCTest
 server/              Node HTTP API, SQLite
 server/test/         API integration and privacy tests
-.github/workflows/   Mac simulator checks and manual signed TestFlight upload
+.github/workflows/   Mac simulator checks, screenshot walks and signed TestFlight upload
 scripts/             Signing setup and iOS source checks
 deploy/              Container configuration
 ```
@@ -144,8 +144,15 @@ socket. Its host, paths and volume name are deliberately not published here.
 
 The `ios` job runs on macOS, which GitHub bills at a **10x minute multiplier**
 and which takes ~20 minutes cold. `check.yml` therefore runs on **pull requests
-and `main`**, not on every branch push, and skips the Mac job entirely unless the
-change touches `ios/`.
+and `main`**, not on every branch push, and skips the Mac jobs entirely unless the
+change touches `ios/`. A merged pull request is not rebuilt on `main`: it was
+checked as a pull request, and `testflight.yml` archives it on merge.
+
+The required check runs the unit tests and the behavioural UI tests. The
+screenshot walks are separate: `ShowcaseTests` in **Showcase screenshots**
+(`showcase.yml`, by hand or with the `showcase` label on a pull request) and
+`AppStoreShotsTests` in **App Store screenshots**. Showcase's lookups are soft,
+so its run summary lists what it missed instead of failing.
 
 If jobs start failing in under ten seconds with no steps, that is not the code —
 it is the Actions spending limit, and the message is only visible in the check
