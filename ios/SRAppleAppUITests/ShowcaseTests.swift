@@ -80,14 +80,15 @@ final class ShowcaseTests: XCTestCase {
             soft(false, "no expand button on the map")
         }
 
-        // A pile fans out at a tap; then Sam's card is a link.
+        // A pile opens its people below at a tap — for three seconds — and
+        // then Sam's card is a link. No settling in between: it folds.
         if !byId(app, "family-person-sam").exists {
             let pile = app.descendants(matching: .any)
                 .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "family-pile-", "Sam")).firstMatch
             if pile.exists {
                 pile.tap()
-                settle(app)
-                attach(app, "Showcase — Family, a pile fanned out")
+                soft(byId(app, "family-person-sam").waitForExistence(timeout: 2), "the pile did not open below")
+                attach(app, "Showcase — Family, a pile opened below")
             }
         }
         let sam = byId(app, "family-person-sam")

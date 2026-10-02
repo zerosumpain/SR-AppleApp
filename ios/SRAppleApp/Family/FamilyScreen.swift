@@ -250,143 +250,208 @@ struct FamilyFullMap: View {
     @Binding var showTracks: Bool
     @Binding var camera: MapCameraPosition
     let close: () -> Void
+    /// Its own copy of the switch. A full-screen cover is presented outside
+    /// the tab's hierarchy and does not reliably redraw when the tab's state
+    /// changes, so the tracks button here flipped the tab's flag and the map
+    /// never heard. Seeded from the tab, and handed back as it changes.
+    @State private var tracks = false
 
     var body: some View {
-        FamilyMapCanvas(people: people, interactive: true, showTrails: showTracks, camera: $camera)
-            .ignoresSafeArea()
-            .overlay(alignment: .topTrailing) {
-                FamilyTracksButton(on: $showTracks)
-                    .frame(width: 40, height: 40)
-                    .srGlass(.paper, in: Circle(), interactive: true)
-                    .padding(16)
+        ZStack {
+            FamilyMapCanvas(people: people, interactive: true, showTrails: tracks, camera: $camera)
+                .ignoresSafeArea()
+            // The buttons INSIDE the safe area: laid over a map that ignores
+            // it, the top corner sat under the status bar and took no taps.
+            VStack {
+                HStack {
+                    Spacer()
+                    FamilyTracksButton(on: $tracks)
+                        .frame(width: 44, height: 44)
+                        .srGlass(.paper, in: Circle(), interactive: true)
+                }
+                Spacer()
+                HStack {
+                    Spacer()
+                    FamilyMapExpandButton(expanded: true, action: close)
+                }
             }
-            .overlay(alignment: .bottomTrailing) {
-                FamilyMapExpandButton(expanded: true, action: close).padding(16)
-            }
-            .accessibilityIdentifier("family-map-full")
+            .padding(16)
+        }
+        .onAppear { tracks = showTracks }
+        .onChange(of: tracks) { _, on in showTracks = on }
+        .accessibilityIdentifier("family-map-full")
     }
 }
 
 /// Everyone, grouped by where they are: a place's name, then its people as
-/// cards dealt over one another — each a third under the one before — so a
-/// crowd at home reads as one pile and somebody out alone stands apart.
-/// The piles sit side by side and wrap like words on a line, so two people
-/// out alone share a row instead of each taking the full width.
-/// Anybody not seen lately is the last pile, with the site's own words.
-/// A card opens that person's page.
+/// small cards dealt half over one another, so a crowd at home reads as one
+/// pile and somebody out alone stands apart. The piles sit side by side and
+/// wrap like words, sized so a family's usual day fits one row.
+///
+/// A pile of one is a card that opens the person. A bigger pile opens its
+/// people BELOW the row, whole and side by side, to pick from — and folds
+/// away again after three seconds untouched. Anybody not seen lately is the
+/// last pile.
 struct FamilyPlaceStacks: View {
     let view: HouseholdView
     /// A card's width, and how much of it the next one covers.
-    static let card: CGFloat = 84
-    static let overlap: CGFloat = 0.33
+    static let card: CGFloat = 66
+    static let overlap: CGFloat = 0.5
+    /// How long an opened pile waits for a choice.
+    static let linger: Duration = .seconds(3)
+
+    @State private var open: String?
+    @State private var fold: Task<Void, Never>?
+
+    private struct Pile: Identifiable {
+        let id: String
+        let title: String
+        let icon: String
+        let people: [FamilyPerson]
+    }
+
+    private var piles: [Pile] {
+        var all = view.places().map {
+            Pile(id: $0.name.lowercased(), title: $0.name,
+                 icon: $0.isHome ? "house.fill" : $0.isMoving ? "arrow.triangle.turn.up.right.circle.fill" : "mappin.circle.fill",
+                 people: $0.people)
+        }
+        let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
+        if !absent.isEmpty { all.append(Pile(id: "absent", title: "Not seen", icon: "questionmark.circle", people: absent)) }
+        return all
+    }
 
     var body: some View {
-        let groups = view.places()
-        let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
-        DaydreamWrap(spacing: 16) {
-            ForEach(groups) { place in
-                pile(title: place.name, icon: place.isHome ? "house.fill" : place.isMoving ? "arrow.triangle.turn.up.right.circle.fill" : "mappin.circle.fill",
-                     people: place.people, id: place.name.lowercased())
+        let piles = piles
+        VStack(alignment: .leading, spacing: 10) {
+            DaydreamWrap(spacing: 12) {
+                ForEach(piles) { pile($0) }
             }
-            if !absent.isEmpty {
-                pile(title: "Not seen lately", icon: "questionmark.circle", people: absent, id: "absent")
+            if let id = open, let chosen = piles.first(where: { $0.id == id }) {
+                chooser(chosen)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .onDisappear { collapse() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("family-people")
     }
 
-    /// Piles fanned out by a tap. A pile of one is never a pile: its card
-    /// opens the person straight away.
-    @State private var expanded: Set<String> = []
+    // MARK: A pile
 
     @ViewBuilder
-    private func pile(title: String, icon: String, people: [FamilyPerson], id: String) -> some View {
-        let open = expanded.contains(id) || people.count == 1
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                guard people.count > 1 else { return }
-                SRHaptic.select()
-                withAnimation(.snappy) { toggle(id) }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: icon)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(SR.accentInk)
-                        .accessibilityHidden(true)
-                    Text(title)
-                        .font(SR.Text.title(15))
-                        .foregroundStyle(SR.ink)
-                        .lineLimit(1)
-                        // A long place name truncates rather than pushing its
-                        // pile wider than the screen.
-                        .frame(maxWidth: 220, alignment: .leading)
-                    Text("\(people.count)")
+    private func pile(_ pile: Pile) -> some View {
+        let single = pile.people.count == 1
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: pile.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(SR.accentInk)
+                    .accessibilityHidden(true)
+                Text(pile.title)
+                    .font(SR.Text.title(13))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    // A long place name truncates rather than pushing its
+                    // pile wider than the row.
+                    .frame(maxWidth: 140, alignment: .leading)
+                if !single {
+                    Text("\(pile.people.count)")
                         .font(SR.Text.mono())
                         .foregroundStyle(SR.inkMuted)
-                    if people.count > 1 {
-                        Image(systemName: open ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(SR.inkGhost)
-                            .accessibilityHidden(true)
-                    }
                 }
-                .padding(.horizontal, 4)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 2)
             .accessibilityAddTraits(.isHeader)
-            .accessibilityHint(people.count > 1 ? (open ? "Stacks the cards again" : "Spreads the cards out") : "")
 
-            if open {
-                // Fanned out: every card whole, wrapping if the place is
-                // crowded, each one the way into that person.
-                DaydreamWrap(spacing: 8) {
-                    ForEach(people) { person in
-                        NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
-                            FamilyPersonTile(person: person).frame(width: Self.card)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("family-person-\(person.subject)")
-                    }
+            if single, let person = pile.people.first {
+                NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
+                    FamilyPersonTile(person: person).frame(width: Self.card)
                 }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 4)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("family-person-\(person.subject)")
             } else {
-                // Dealt: a tap anywhere on the pile fans it out — the cards
-                // are a third hidden, too little to aim a finger at.
                 Button {
                     SRHaptic.select()
-                    withAnimation(.snappy) { toggle(id) }
+                    toggle(pile.id)
                 } label: {
                     HStack(spacing: -Self.card * Self.overlap) {
-                        ForEach(Array(people.enumerated()), id: \.element.id) { index, person in
+                        ForEach(Array(pile.people.enumerated()), id: \.element.id) { index, person in
                             FamilyPersonTile(person: person, isLink: false)
                                 .frame(width: Self.card)
                                 // The first card on top, the rest dealt under it.
-                                .zIndex(Double(people.count - index))
+                                .zIndex(Double(pile.people.count - index))
                         }
                     }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 4)
+                    .padding(3)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(SR.accentInk, lineWidth: open == pile.id ? 2 : 0)
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(title): \(people.map(\.name).joined(separator: ", "))")
-                .accessibilityHint("Spreads the cards out to choose one")
+                .accessibilityLabel("\(pile.title): \(pile.people.map(\.name).joined(separator: ", "))")
+                .accessibilityHint(open == pile.id ? "Closes the choice below" : "Shows them below to choose one")
                 .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("family-pile-\(id)")
+                .accessibilityIdentifier("family-pile-\(pile.id)")
             }
         }
-        // Stacked, a pile is its own width so the next can sit beside it;
-        // fanned out, it takes the row.
-        .fixedSize(horizontal: !open || people.count == 1, vertical: true)
-        .frame(maxWidth: open && people.count > 1 ? .infinity : nil, alignment: .leading)
-        .accessibilityIdentifier("family-place-\(id)")
+        // Its own width: the wrap measures each pile to decide whether the
+        // next one fits beside it.
+        .fixedSize()
+        .accessibilityIdentifier("family-place-\(pile.id)")
     }
 
+    // MARK: The choice below
+
+    private func chooser(_ pile: Pile) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(pile.title.uppercased()) · CHOOSE ONE")
+                .font(SR.Text.label(11))
+                .tracking(1.1)
+                .foregroundStyle(SR.accentInk)
+            DaydreamWrap(spacing: 8) {
+                ForEach(pile.people) { person in
+                    NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
+                        FamilyPersonTile(person: person).frame(width: Self.card + 8)
+                    }
+                    .buttonStyle(.plain)
+                    // Folded by `onDisappear` once the person's page is
+                    // pushed — not here, which would pull the link out from
+                    // under its own tap.
+                    .accessibilityIdentifier("family-person-\(person.subject)")
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(SR.accentInk.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(SR.accentInk.opacity(0.25), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("family-chooser")
+    }
+
+    // MARK: Open and fold
+
     private func toggle(_ id: String) {
-        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+        if open == id { collapse(); return }
+        withAnimation(.snappy) { open = id }
+        fold?.cancel()
+        // VoiceOver needs longer than three seconds to reach a card; with it
+        // on, the choice stays until it is closed.
+        guard !UIAccessibility.isVoiceOverRunning else { return }
+        fold = Task { @MainActor in
+            try? await Task.sleep(for: Self.linger)
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy) { open = nil }
+        }
+    }
+
+    private func collapse() {
+        fold?.cancel()
+        fold = nil
+        withAnimation(.snappy) { open = nil }
     }
 }
 
@@ -397,12 +462,11 @@ struct FamilyPersonTile: View {
     @ObservedObject private var places = PlaceNamer.shared
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             FamilyPin(person: person, emphasised: true)
-                .scaleEffect(1.25)
-                .frame(width: 52, height: 52)
+                .frame(width: 42, height: 42)
             Text(person.isSelf ? "You" : person.name)
-                .font(SR.Text.title(14))
+                .font(SR.Text.title(13))
                 .foregroundStyle(SR.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -412,7 +476,7 @@ struct FamilyPersonTile: View {
                 Text("—").font(SR.monoMedium(13)).foregroundStyle(SR.inkGhost)
             }
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         // Opaque, edged and lifted: overlapped, a translucent card would
         // show the one beneath through it.
