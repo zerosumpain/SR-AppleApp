@@ -408,8 +408,8 @@ struct InsightsForecastGrid: View {
                     InsightsForecastTile(forecast: forecast)
                 }
                 .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
                 .accessibilityLabel(InsightsForecastTile.spoken(forecast))
+                .accessibilityAddTraits(.isButton)
             }
         }
         .accessibilityIdentifier("insights-forecast-grid")
