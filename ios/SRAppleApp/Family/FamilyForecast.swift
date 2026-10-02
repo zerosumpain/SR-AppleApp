@@ -316,6 +316,13 @@ struct FamilyUpcomingCard: View {
     @State private var correcting: FamilyForecast.UpcomingItem?
     static let shown = 5
 
+    /// Worth a card: something to travel to, or (all of it dismissed) a
+    /// journey to put back. An empty diary — or one that could not be
+    /// read — is no card.
+    static func hasContent(_ upcoming: FamilyForecast.Upcoming) -> Bool {
+        upcoming.available && !upcoming.items.isEmpty
+    }
+
     var body: some View {
         let shown = corrections.apply(upcoming) ?? upcoming
         let dismissed = upcoming.items.filter { corrections.isDismissed($0.id) }

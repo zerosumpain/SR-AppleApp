@@ -65,10 +65,20 @@ final class ShowcaseTests: XCTestCase {
         }
         settle(app, on: byId(app, "family-person-sam"), seconds: 3)
         // The travel desk forecast: the next moves under everyone, Kit's quiet phone above.
-        soft(byId(app, "family-people").exists, "no people grid on Family")
+        soft(byId(app, "family-people").exists, "no people on Family")
+        soft(byId(app, "family-place-home").exists, "nobody grouped at Home")
         soft(byId(app, "family-watch").exists, "no 'what looks off' card")
         soft(byId(app, "family-upcoming").exists, "no 'Coming up' card on the owner's Family tab")
         attach(app, "Showcase — Family")
+        let expand = byId(app, "family-map-expand")
+        if expand.exists {
+            expand.tap()
+            soft(byId(app, "family-map-collapse").waitForExistence(timeout: 5), "the map did not go full screen")
+            attach(app, "Showcase — Family, map full screen")
+            byId(app, "family-map-collapse").tap()
+        } else {
+            soft(false, "no expand button on the map")
+        }
 
         let sam = byId(app, "family-person-sam")
         if sam.exists && sam.isHittable { sam.tap() }
