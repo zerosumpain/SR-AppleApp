@@ -109,6 +109,7 @@ final class ShowcaseTests: XCTestCase {
         alarm.tap()
         let hold = byId(app, "family-alarm-hold")
         soft(hold.waitForExistence(timeout: 5), "no hold-to-raise button")
+        soft(byId(app, "family-alarm-test").exists, "no way to hear the siren on this phone")
         attach(app, "Showcase — Family, raise the alarm")
         if hold.exists { hold.press(forDuration: 2.6) }
         let standDown = byId(app, "family-alarm-stand-down")
