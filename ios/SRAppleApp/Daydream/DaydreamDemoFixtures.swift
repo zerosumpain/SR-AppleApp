@@ -31,6 +31,10 @@ extension SRDemoFixtures {
         /// A double-check in `CommissionDemoFixtures`, by id and state.
         var commissionId: String? = nil
         var commissionState: String? = nil
+        /// The ruling on the claim, as the detailed wire sends it (raw JSON).
+        var review: String? = nil
+        /// "Do it for me", as the detailed wire sends it (raw JSON).
+        var act: String? = nil
     }
 
     static let demoNotes: [DemoNote] = [
@@ -91,7 +95,8 @@ extension SRDemoFixtures {
             body: "The insurance, the breakdown cover and a domain name all renew within five days of each other. Each reminder arrives separately, a fortnight ahead.\n\nNext: Put all three on one diary reminder the week before.",
             minutesAgo: 60 * 9,
             next: "Put all three on one diary reminder the week before.",
-            sources: ["Mail (facts, not bodies) · “renewal” · last 30 days", "Your diary · today to 45 days ahead"]
+            sources: ["Mail (facts, not bodies) · “renewal” · last 30 days", "Your diary · today to 45 days ahead"],
+            act: #"{"status": "ready", "label": "Add “Renewals: insurance, breakdown, domain” to your diary on Mon 9 Nov", "doneAt": null}"#
         ),
         DemoNote(
             id: "demo-note-zone2",
@@ -105,7 +110,8 @@ extension SRDemoFixtures {
             stage: "result",
             bucket: "done",
             commissionId: CommissionDemoFixtures.completedId,
-            commissionState: "completed"
+            commissionState: "completed",
+            review: #"{"verdict": "holds", "by": "check", "reasoning": "It holds: four of the last ten easy runs went above 140 bpm after 25 minutes, on different days.", "lesson": null}"#
         ),
     ]
 
@@ -121,8 +127,22 @@ extension SRDemoFixtures {
     static func detailedNoteJSON(_ note: DemoNote, clock: DemoClock) -> String {
         let summary = SRDemoFixtures.summary(of: note.body)
         return """
-        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState))}
+        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState)), "review": \(note.review ?? "null"), "act": \(note.act ?? "null")}
         """
+    }
+
+    /// `POST api/native/daydream/act` — done, or undone, as asked. SYNTHETIC:
+    /// the demo writes to no calendar.
+    static func daydreamAct(_ body: Data?) -> String {
+        let request = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        switch request["op"] as? String {
+        case "undo":
+            return #"{"ok": true, "status": "undone", "label": "Add “Renewals: insurance, breakdown, domain” to your diary on Mon 9 Nov", "calendar": "Home"}"#
+        case "calendar":
+            return #"{"ok": true}"#
+        default:
+            return #"{"ok": true, "status": "done", "label": "Added “Renewals: insurance, breakdown, domain” to your Home calendar on Mon 9 Nov", "calendar": "Home"}"#
+        }
     }
 
     /// The body without its closing "Next:" paragraph, as the site sends it.

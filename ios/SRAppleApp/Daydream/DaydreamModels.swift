@@ -14,10 +14,12 @@ import Foundation
 //   GET  api/native/daydream?scope=health&limit=5 → { "notes": [Note] }
 //   GET  api/native/daydream?detail=1&limit=40   → { "notes": [Note+detail], "pipeline"?, "impact"? }
 //        Note+detail adds summary, next, sources, stage, bucket, checkable,
-//        commissionId, commissionState. An older server ignores `detail`;
+//        commissionId, commissionState, review, act. An older server ignores `detail`;
 //        every added key is optional and derived when absent (see
 //        `DaydreamNote.split` and `derivedBucket`).
 //   POST api/native/daydream/feedback        { "id", "verdict": useful|not_useful|never } → { "ok": true }
+//                                            { "id", "verdict": wrong|right, "why" } — a ruling on the claim
+//                                            (`DaydreamRuling.swift`)
 //
 // Everything decodes defensively. The server side is being built in parallel
 // with this, and a Today payload that throws is a blank first screen, so an
@@ -207,6 +209,12 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
     let checkable: Bool?
     let commissionId: String?
     let commissionState: String?
+    /// The ruling on the note's claim — yours, or a double-check's. `nil`
+    /// when there is none, and from an older server.
+    let review: DaydreamReview?
+    /// "Do it for me" — what it would do, or did. `nil` when the step is not
+    /// something it can carry out itself, and from an older server.
+    let act: DaydreamAct?
     /// Whether this copy came from the detailed read. A plain copy (Today's
     /// block) must not overwrite what a detailed one knows — see `merged`.
     let detailed: Bool
@@ -215,7 +223,8 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
          createdAt: String, url: String? = nil, feedback: DaydreamVerdict? = nil,
          summary: String? = nil, next: String? = nil, sources: [String] = [],
          stage: DaydreamStage? = nil, bucket: DaydreamBucket? = nil, checkable: Bool? = nil,
-         commissionId: String? = nil, commissionState: String? = nil, detailed: Bool = false) {
+         commissionId: String? = nil, commissionState: String? = nil, review: DaydreamReview? = nil,
+         act: DaydreamAct? = nil, detailed: Bool = false) {
         self.id = id
         self.outcome = outcome
         self.channel = channel
@@ -229,18 +238,21 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
         // nil: derive it from the body. "": the server said there is none.
         if let next { self.next = next.isEmpty ? nil : next } else { self.next = split.next }
         self.sources = sources
-        let derived = DaydreamNote.derivedBucket(feedback: feedback, commissionState: commissionState)
+        let derived = DaydreamNote.derivedBucket(feedback: feedback, commissionState: commissionState,
+                                                 ruled: review?.byOwner == true || act?.status == .done || act?.status == .sent)
         self.bucket = bucket ?? derived
         self.stage = stage ?? (bucket ?? derived).stage
         self.checkable = checkable
         self.commissionId = commissionId
         self.commissionState = commissionState
+        self.review = review
+        self.act = act
         self.detailed = detailed
     }
 
     enum CodingKeys: String, CodingKey {
         case id, outcome, channel, title, body, createdAt, url, feedback
-        case summary, next, sources, stage, bucket, checkable, commissionId, commissionState
+        case summary, next, sources, stage, bucket, checkable, commissionId, commissionState, review, act
     }
 
     /// An id and a title are the note; without either there is nothing to show
@@ -282,6 +294,9 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
             checkable: c.lenient(Bool.self, .checkable),
             commissionId: commissionId,
             commissionState: commissionState,
+            // A ruling of the wrong shape costs the ruling, never the note.
+            review: c.lenient(DaydreamReview.self, .review),
+            act: c.lenient(DaydreamAct.self, .act),
             detailed: detailed
         )
     }
@@ -314,12 +329,14 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
     /// The list a note belongs in, from what the phone knows. Used for an
     /// older server that sends no bucket, and for a note the reader just
     /// answered here, which the server's bucket has not caught up with.
-    static func derivedBucket(feedback: DaydreamVerdict?, commissionState: String?) -> DaydreamBucket {
+    /// Your own ruling on the claim (`ruled`) answers a note as surely as a
+    /// rating does; a double-check's verdict is information, not your answer.
+    static func derivedBucket(feedback: DaydreamVerdict?, commissionState: String?, ruled: Bool = false) -> DaydreamBucket {
         switch commissionState {
         case "queued", "running", "needs_attention": return .motion
         case "completed": return .done
         case "awaiting_approval", "deferred": return .decide
-        default: return feedback == nil ? .decide : .done
+        default: return feedback == nil && !ruled ? .decide : .done
         }
     }
 
@@ -332,8 +349,10 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
         return DaydreamNote(
             id: id, outcome: outcome, channel: channel, title: title, body: body, createdAt: createdAt,
             url: url, feedback: verdict, summary: summary, next: next, sources: sources,
-            stage: nil, bucket: DaydreamNote.derivedBucket(feedback: verdict, commissionState: commissionState),
-            checkable: checkable, commissionId: commissionId, commissionState: commissionState, detailed: true
+            stage: nil, bucket: DaydreamNote.derivedBucket(feedback: verdict, commissionState: commissionState,
+                                                           ruled: review?.byOwner == true),
+            checkable: checkable, commissionId: commissionId, commissionState: commissionState, review: review,
+            act: act, detailed: true
         )
     }
 }

@@ -209,9 +209,16 @@ final class DaydreamStore: ObservableObject {
         let verdict = feedback.verdict(for: note)
         let live = commissions.commission(for: note)?.state
         let state = live ?? note.commissionState
-        guard verdict != note.feedback || state != note.commissionState else { return note.bucket }
-        let now = DaydreamNote.derivedBucket(feedback: verdict, commissionState: state)
-        if now == .done, note.bucket == .decide, feedback.isShowing(note) { return .decide }
+        // A ruling given here ("It's wrong") answers the note too.
+        let rulings = DaydreamRulings.shared
+        let ruledHere = rulings.ruledHere(note) || DaydreamActions.shared.act(for: note) != note.act
+        guard verdict != note.feedback || state != note.commissionState || ruledHere else { return note.bucket }
+        let acted = DaydreamActions.shared.act(for: note)?.status
+        let ruled = rulings.review(for: note)?.byOwner == true || acted == .done || acted == .sent
+        let now = DaydreamNote.derivedBucket(feedback: verdict, commissionState: state, ruled: ruled)
+        // Answered here: it stays where it is, showing the answer, until the
+        // next read moves it — as a rating does while it settles.
+        if now == .done, note.bucket == .decide, feedback.isShowing(note) || ruledHere { return .decide }
         return now
     }
 

@@ -201,6 +201,8 @@ enum SRDemoFixtures {
             return CommissionDemoFixtures.reply(method: method, query: query, body: body)
         case ("POST", "api/native/daydream/feedback"):
             return #"{"ok":true}"#
+        case ("POST", "api/native/daydream/act"):
+            return daydreamAct(body)
         case ("GET", "api/native/health/summary"):
             return healthSummary(clock)
         case ("GET", "api/native/health/hub"):

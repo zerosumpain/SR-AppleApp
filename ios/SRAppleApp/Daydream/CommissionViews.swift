@@ -207,10 +207,81 @@ struct CommissionDetailScreen: View {
 
     // MARK: - The report
 
+    /// The verdict first: what it concluded, how it tried to prove the note
+    /// wrong, and the lesson kept when it was.
+    private func verdict(_ review: CommissionReview) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: review.verdict.icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(review.verdict.label)
+                    .font(SR.Text.title(19))
+            }
+            .foregroundStyle(review.verdict == .unclear ? SR.ink : review.verdict.tone)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("commission-verdict")
+            if !review.claim.isEmpty {
+                Text("It checked: \(review.claim)")
+                    .font(SR.Text.secondary(14))
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(review.reasoning)
+                .font(SR.Text.body(17))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("commission-verdict-reasoning")
+            if let overruled = review.overruled {
+                Text(overruled)
+                    .font(SR.Text.secondary(14))
+                    .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !review.challenges.isEmpty {
+                SRSectionLabel(text: "How it tried to prove the note wrong")
+                ForEach(Array(review.challenges.enumerated()), id: \.offset) { _, challenge in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(challenge.survives ? "SURVIVED" : "SANK IT")
+                            .font(SR.Text.label(11))
+                            .tracking(1)
+                            .foregroundStyle(challenge.survives ? SR.good : SR.warn)
+                            .frame(width: 72, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(challenge.doubt)
+                                .font(SR.Text.bodyMedium(15))
+                                .foregroundStyle(SR.ink)
+                            if !challenge.finding.isEmpty {
+                                Text(challenge.finding)
+                                    .font(SR.Text.secondary(14))
+                                    .foregroundStyle(SR.inkSecondary)
+                            }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            if let lesson = review.lesson {
+                Text("Lesson kept: “\(lesson)”")
+                    .font(SR.Text.body(15))
+                    .foregroundStyle(SR.ink)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) { Rectangle().fill(SR.accent).frame(width: 2) }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("commission-verdict-lesson")
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
     private func report(_ c: DaydreamCommission, _ result: EvidenceReport) -> some View {
         VStack(alignment: .leading, spacing: 12) {
+            if let review = result.review { verdict(review) }
             SRSectionLabel(text: "What the sources say now")
-            Text(result.summary)
+            Text(result.review?.reasoning.isEmpty == false ? "Re-read just now — open each to see what it said." : result.summary)
                 .font(SR.Text.body(17))
                 .foregroundStyle(SR.ink)
                 .fixedSize(horizontal: false, vertical: true)

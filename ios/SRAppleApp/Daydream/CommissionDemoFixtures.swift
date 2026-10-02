@@ -200,6 +200,22 @@ enum CommissionDemoFixtures {
                 evidence("r2", "activities", text: "10 runs, 38–44 minutes each. Four crossed 140 bpm after minute 25; median heart rate 136 bpm.", minutesAgo: 60 * 19 - 2, seed: "2"),
                 evidence("r3", "fetch_url", text: "", minutesAgo: 60 * 19 - 2, seed: "3", status: "unavailable"),
             ],
+            // The second look: it argued against the note and the note stood.
+            "review": [
+                "verdict": "holds",
+                "claim": "Easy runs should stay under about 140 bpm, and some recent ones went over.",
+                "challenges": [
+                    ["doubt": "Is 140 bpm really the easy ceiling for these runs?",
+                     "finding": "The guidance puts easy below the first threshold, which these runs place near 140.", "survives": true],
+                    ["doubt": "Was the drift just one hot day?",
+                     "finding": "Four separate runs over three weeks crossed it, all after minute 25.", "survives": true],
+                ],
+                "reasoning": "It holds: four of the last ten easy runs went above 140 bpm after 25 minutes, on different days.",
+                "lesson": NSNull(),
+                "overruled": NSNull(),
+                "model": "demo",
+                "checkedAt": iso(minutesAgo: 60 * 19 - 3),
+            ] as [String: Any],
         ] as [String: Any]
         for commission in [completed, running, awaiting] {
             let id = commission["id"] as? String ?? ""
@@ -261,7 +277,7 @@ enum CommissionDemoFixtures {
     }
 
     private static func evidence(_ ref: String, _ tool: String, text: String, minutesAgo: Double, seed: String,
-                                 status: String = "read") -> [String: Any] {
+                                 status: String = "available") -> [String: Any] {
         ["sourceRef": ref, "tool": tool, "retrievedAt": iso(minutesAgo: minutesAgo),
          "contentHash": String(repeating: seed, count: 64), "text": text, "status": status, "provenance": "demo"]
     }
