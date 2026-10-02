@@ -207,7 +207,7 @@ enum FamilyWidgetInk {
 
 /// The three faces a widget uses, each scaling with the reader's text size.
 enum FamilyWidgetFont {
-    static func display(_ size: CGFloat) -> Font { .custom("ArchivoBlack-Regular", size: size, relativeTo: .title) }
+    static func display(_ size: CGFloat) -> Font { .custom("InterDisplay-ExtraBold", size: size, relativeTo: .title) }
     static func name(_ size: CGFloat) -> Font { .custom("DMSans-Medium", size: size, relativeTo: .body) }
     static func label(_ size: CGFloat) -> Font { .custom("JetBrainsMono-Medium", size: size, relativeTo: .caption) }
     static func figure(_ size: CGFloat) -> Font { .custom("JetBrainsMono-Medium", size: size, relativeTo: .body) }

@@ -324,9 +324,11 @@ from that page at any time. Only the SHA-256 is stored server-side.
 
 ## Design
 
-The app wears the site's design system — Archivo Black display, DM Sans body,
+The app wears the site's design system — DM Sans body,
 DM Mono brand mark, JetBrains Mono labels, the warm-brutalist palette from
-`src/app.css`, radius 0 (pills and dots at 100), no shadows.
+`src/app.css`, radius 0 (pills and dots at 100), no shadows. Its one departure
+is the display face: Inter Display ExtraBold for headlines and figures, where
+the website keeps Archivo Black.
 
 It follows the **/health methodology** rather than a reading of the tokens:
 `SectionHead`'s mono kicker → uppercase headline as an array of lines →

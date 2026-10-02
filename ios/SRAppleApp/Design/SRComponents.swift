@@ -3,7 +3,7 @@ import SwiftUI
 /// The masthead every section opens with.
 ///
 /// A direct port of `src/lib/components/shell/SectionHead.svelte`: a lettered
-/// mono kicker, an uppercase Archivo Black headline, and one standfirst.
+/// mono kicker, an uppercase Inter Display headline, and one standfirst.
 ///
 /// The headline arrives as an ARRAY OF LINES, exactly as it does on the web, and
 /// for the same reason — where "EIGHT ANALYTICS / ALREADY RUNNING" folds is a

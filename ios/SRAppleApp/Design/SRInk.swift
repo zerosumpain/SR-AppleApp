@@ -128,7 +128,7 @@ struct SRInkBand<Content: View>: View {
     }
 }
 
-/// An Archivo Black headline on ink, uppercase and tight.
+/// An Inter Display headline on ink, uppercase and tight.
 struct SRInkTitle: View {
     let text: String
     var size: CGFloat = 34
