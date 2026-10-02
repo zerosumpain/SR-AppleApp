@@ -270,6 +270,8 @@ struct FamilyFullMap: View {
 /// Everyone, grouped by where they are: a place's name, then its people as
 /// cards dealt over one another — each a third under the one before — so a
 /// crowd at home reads as one pile and somebody out alone stands apart.
+/// The piles sit side by side and wrap like words on a line, so two people
+/// out alone share a row instead of each taking the full width.
 /// Anybody not seen lately is the last pile, with the site's own words.
 /// A card opens that person's page.
 struct FamilyPlaceStacks: View {
@@ -281,7 +283,7 @@ struct FamilyPlaceStacks: View {
     var body: some View {
         let groups = view.places()
         let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
-        VStack(alignment: .leading, spacing: 14) {
+        DaydreamWrap(spacing: 16) {
             ForEach(groups) { place in
                 pile(title: place.name, icon: place.isHome ? "house.fill" : place.isMoving ? "arrow.triangle.turn.up.right.circle.fill" : "mappin.circle.fill",
                      people: place.people, id: place.name.lowercased())
@@ -304,29 +306,33 @@ struct FamilyPlaceStacks: View {
                 Text(title)
                     .font(SR.Text.title(15))
                     .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    // A long place name truncates rather than pushing its
+                    // pile wider than the screen.
+                    .frame(maxWidth: 220, alignment: .leading)
                 Text("\(people.count)")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
             }
             .padding(.horizontal, 4)
             .accessibilityAddTraits(.isHeader)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: -Self.card * Self.overlap) {
-                    ForEach(Array(people.enumerated()), id: \.element.id) { index, person in
-                        NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
-                            FamilyPersonTile(person: person).frame(width: Self.card)
-                        }
-                        .buttonStyle(.plain)
-                        // The first card on top, the rest dealt under it.
-                        .zIndex(Double(people.count - index))
-                        .accessibilityIdentifier("family-person-\(person.subject)")
+            HStack(spacing: -Self.card * Self.overlap) {
+                ForEach(Array(people.enumerated()), id: \.element.id) { index, person in
+                    NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
+                        FamilyPersonTile(person: person).frame(width: Self.card)
                     }
+                    .buttonStyle(.plain)
+                    // The first card on top, the rest dealt under it.
+                    .zIndex(Double(people.count - index))
+                    .accessibilityIdentifier("family-person-\(person.subject)")
                 }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 4)
             }
-            .scrollClipDisabled()
+            .padding(.horizontal, 2)
+            .padding(.vertical, 4)
         }
+        // Its own width, not the row's: the wrap measures each pile to
+        // decide whether the next one fits beside it.
+        .fixedSize()
         .accessibilityIdentifier("family-place-\(id)")
     }
 }
