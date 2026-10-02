@@ -1,5 +1,19 @@
 name: Upload to TestFlight
+# On every merge that changes what the app is built from — the pull request's
+# check already passed — and by hand for anything else. Every upload until
+# 2026-10-02 was a hand dispatch minutes after a merge, so the trigger only
+# removes the wait for someone to press it. This archive is also the Release
+# compile of `main`: `check.yml` does not rebuild a merged pull request.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      # Bundled into the app (`ios/app.yml`).
+      - 'server/health-catalogue.json'
+      - 'scripts/install-signing.sh'
+      - 'scripts/asc-watch-profiles.py'
+      - '.github/workflows/testflight.yml'
   workflow_dispatch:
     inputs:
       verify_only:
@@ -8,6 +22,11 @@ on:
         default: false
 permissions:
   contents: read
+# Merges close together upload in turn, and an upload in progress is never cut
+# off; GitHub keeps only the newest one waiting, which is the one worth having.
+concurrency:
+  group: testflight
+  cancel-in-progress: false
 jobs:
   testflight:
     runs-on: macos-26
