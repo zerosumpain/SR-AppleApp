@@ -27,6 +27,8 @@ struct FamilyScreen: View {
     @ObservedObject private var walks = LiveWalksStore.shared
     /// Routes the owner sent this phone to walk.
     @ObservedObject private var gifts = RouteGiftsStore.shared
+    /// The family alarm: raise one, and the pull floor for receiving one.
+    @ObservedObject private var alarm = FamilyAlarmStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
@@ -47,6 +49,11 @@ struct FamilyScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { SRBarMark() }
+            // The alarm: on the left, away from Steps and Tasks, so it is
+            // never the thing a thumb was reaching past.
+            if alarm.available {
+                ToolbarItem(placement: .topBarLeading) { FamilyAlarmButton() }
+            }
             // Steps and Tasks live in More; with no More (a member with four
             // places or fewer) they are here instead, or there is no way in.
             if access.familyBoards && !access.allows(.more) {
@@ -69,9 +76,11 @@ struct FamilyScreen: View {
             await forecast.load()
             await walks.load()
             await gifts.load()
+            await alarm.poll()
             while !Task.isCancelled {
                 try? await Task.sleep(for: FamilyStore.refreshInterval)
                 guard !Task.isCancelled else { break }
+                await alarm.poll()
                 await store.load()
                 await walks.load()
                 // At most once a minute: the store keeps its own clock.
