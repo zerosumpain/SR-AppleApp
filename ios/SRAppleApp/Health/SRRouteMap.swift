@@ -81,9 +81,9 @@ struct SRRouteMap: UIViewRepresentable {
         }
 
         private func draw(_ spec: SRRouteMap, on style: MLNStyle) {
-            line("sr-route", spec.route, color: UIColor(SR.accent), width: 5, on: style)
-            line("sr-walked", spec.walked, color: UIColor(SR.ink), width: 3, on: style)
-            point("sr-start", spec.route.first, color: UIColor(SR.good), radius: 6, on: style)
+            line("sr-route", spec.route, color: UIColor(hex: SR.Fixed.accent), width: 5, on: style)
+            line("sr-walked", spec.walked, color: UIColor(hex: SR.Fixed.ink), width: 3, on: style)
+            point("sr-start", spec.route.first, color: UIColor(hex: SR.Fixed.good), radius: 6, on: style)
             point("sr-marker", spec.marker, color: .systemBlue, radius: 8, on: style)
         }
 

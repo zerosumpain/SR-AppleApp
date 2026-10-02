@@ -367,7 +367,6 @@ struct ContentView: View {
         // On iOS 26 the glass tab bar shrinks to a pill while you read and
         // comes back when you scroll up — the content gets the screen.
         .srTabBarMinimizes()
-        .preferredColorScheme(.light)
         .environmentObject(router)
         .environmentObject(alerts)
         .environmentObject(connections)

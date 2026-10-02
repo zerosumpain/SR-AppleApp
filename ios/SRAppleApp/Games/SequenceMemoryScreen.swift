@@ -89,7 +89,10 @@ extension SequencePalette {
     /// Nine SR tokens: the six strong ones, then three light ones — so a
     /// 3×3 grid has lightness steps as well as hues.
     static func fill(_ tile: Int) -> Color {
-        let fills: [Color] = [SR.accent, SR.accentInk, SR.good, SR.warn, SR.error, SR.inkSecondary,
+        // Fixed, not the mode-following tokens: in dark mode `SR.accent`
+        // becomes `accentOnDark`, and two tiles would share a colour.
+        let fills: [Color] = [Color(hex: SR.Fixed.accent), Color(hex: SR.Fixed.accentInk), Color(hex: SR.Fixed.good),
+                              Color(hex: SR.Fixed.warn), Color(hex: SR.Fixed.error), Color(hex: SR.Fixed.inkSecondary),
                               SR.accentOnDark, SR.accentInkOnDark, SR.goodOnDark]
         return fills[tile % fills.count]
     }
@@ -97,8 +100,8 @@ extension SequencePalette {
     /// The symbol's colour on its fill: paper on the strong ones, ink on the light.
     static func mark(_ tile: Int) -> Color {
         switch tile % 9 {
-        case 3, 6, 7, 8: return SR.ink
-        default: return SR.paper
+        case 3, 6, 7, 8: return SR.band
+        default: return SR.cream
         }
     }
 }

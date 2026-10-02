@@ -325,7 +325,7 @@ struct InkRangeBar: View {
                     .offset(x: inset + width * range.baseline - 0.75)
                 Circle()
                     .fill(tone)
-                    .overlay(Circle().strokeBorder(SR.ink, lineWidth: 1.2))
+                    .overlay(Circle().strokeBorder(SR.band, lineWidth: 1.2))
                     .frame(width: 9, height: 9)
                     .offset(x: inset + width * range.position - 4.5, y: 0.5)
             }

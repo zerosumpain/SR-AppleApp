@@ -61,7 +61,7 @@ struct PairingScanner: View {
                 }
                 ready = true
             }
-        }.preferredColorScheme(.light)
+        }
     }
 }
 

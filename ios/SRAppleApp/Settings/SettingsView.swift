@@ -524,10 +524,10 @@ struct LocationSettingsScreen: View {
     private var saveBar: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let saved {
-                Text(saved).font(SR.body(14)).foregroundStyle(SR.paper)
+                Text(saved).font(SR.body(14)).foregroundStyle(SR.cream)
             } else {
                 Text("Changed. Applies at the next fix.")
-                    .font(SR.body(14)).foregroundStyle(SR.paper)
+                    .font(SR.body(14)).foregroundStyle(SR.cream)
             }
             if dirty {
                 HStack(spacing: 10) {
@@ -538,7 +538,7 @@ struct LocationSettingsScreen: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SR.ink)
+        .background(SR.band)
         .padding(.horizontal, SR.gutter)
         .padding(.bottom, 10)
     }

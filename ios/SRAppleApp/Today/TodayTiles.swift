@@ -325,7 +325,7 @@ struct TodayUrgentBanner: View {
                             .lineLimit(1)
                         Text(alert.title)
                             .font(SR.Text.title(15))
-                            .foregroundStyle(SR.paper)
+                            .foregroundStyle(SR.cream)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }

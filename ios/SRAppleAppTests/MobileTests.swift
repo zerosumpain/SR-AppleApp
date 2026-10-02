@@ -238,9 +238,11 @@ final class DynamicTypeTests: XCTestCase {
 /// noticed.
 final class ContrastTests: XCTestCase {
 
-    private func components(_ color: Color) -> (r: Double, g: Double, b: Double, a: Double) {
+    /// Resolved for one appearance: the palette is a light/dark pair, and an
+    /// unresolved token measures whichever mode the test host happens to be in.
+    private func components(_ color: Color, _ style: UIUserInterfaceStyle) -> (r: Double, g: Double, b: Double, a: Double) {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
         return (Double(r), Double(g), Double(b), Double(a))
     }
 
@@ -252,9 +254,9 @@ final class ContrastTests: XCTestCase {
     /// parameter rather than a constant: `creamOnDark` is cream at 70% and is
     /// only ever painted on the ink band — blending it over paper would measure
     /// a colour that never appears on screen.
-    private func luminance(_ color: Color, over ground: Color) -> Double {
-        let top = components(color)
-        let base = components(ground)
+    private func luminance(_ color: Color, over ground: Color, _ style: UIUserInterfaceStyle) -> Double {
+        let top = components(color, style)
+        let base = components(ground, style)
         let blend = { (channel: Double, under: Double) in channel * top.a + under * (1 - top.a) }
         let linear = { (value: Double) -> Double in
             value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
@@ -264,8 +266,8 @@ final class ContrastTests: XCTestCase {
              + 0.0722 * linear(blend(top.b, base.b))
     }
 
-    private func contrast(_ tone: Color, on ground: Color) -> Double {
-        let (x, y) = (luminance(tone, over: ground), luminance(ground, over: ground))
+    private func contrast(_ tone: Color, on ground: Color, _ style: UIUserInterfaceStyle = .light) -> Double {
+        let (x, y) = (luminance(tone, over: ground, style), luminance(ground, over: ground, style))
         return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 
@@ -303,8 +305,31 @@ final class ContrastTests: XCTestCase {
                               ("goodOnDark", SR.goodOnDark),
                               ("errorOnDark", SR.errorOnDark),
                               ("creamOnDark", SR.creamOnDark)] {
-            let ratio = contrast(token, on: SR.ink)
-            XCTAssertGreaterThanOrEqual(ratio, 3.0, "\(name) measures \(String(format: "%.2f", ratio)):1 on ink")
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                let ratio = contrast(token, on: SR.band, style)
+                XCTAssertGreaterThanOrEqual(ratio, 3.0, "\(name) measures \(String(format: "%.2f", ratio)):1 on ink")
+            }
+        }
+    }
+
+    func testDarkModeBodyCopyClearsTheFloor() {
+        // The dark page is the light one inverted; the same reading tokens
+        // must hold AA on it, or dark mode is a regression, not a feature.
+        for (name, token) in [("ink", SR.ink), ("inkSecondary", SR.inkSecondary), ("inkMuted", SR.inkMuted),
+                              ("accentInk", SR.accentInk), ("error", SR.error), ("accentDeep", SR.accentDeep)] {
+            let ratio = contrast(token, on: SR.paper, .dark)
+            XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(name) measures \(String(format: "%.2f", ratio)):1 on dark paper")
+        }
+    }
+
+    func testPaperTypeOnTheInvertingFillsReadsInBothModes() {
+        // `SR.paper` on an `SR.ink` or `SR.accentDeep` fill is the pair that
+        // inverts together: cream-on-ink in light, ink-on-cream in dark.
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            for (name, fill) in [("ink", SR.ink), ("accentDeep", SR.accentDeep)] {
+                let ratio = contrast(SR.paper, on: fill, style)
+                XCTAssertGreaterThanOrEqual(ratio, 4.5, "paper on \(name) measures \(String(format: "%.2f", ratio)):1 (\(style == .dark ? "dark" : "light"))")
+            }
         }
     }
 }

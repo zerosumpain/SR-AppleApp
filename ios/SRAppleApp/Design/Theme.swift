@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The Strange Ramblings design system, as the app sees it.
 ///
@@ -27,56 +28,101 @@ import SwiftUI
 enum SR {
 
     // MARK: - Palette (src/app.css `:root`)
+    //
+    // ## Dark mode
+    //
+    // Every paper-register token below is a pair: the site's value for a light
+    // phone, and its partner for a dark one. Dark is the page INVERTED, not
+    // re-picked — the ground goes to a deep warm brown and the ink goes to
+    // cream, and every accent swaps to the `-on-dark` value the site already
+    // measured against `#1a1008`. That is why the pairs exist: a fill of
+    // `SR.ink` carrying `SR.paper` type is cream-on-ink in light and ink-on-cream
+    // in dark, and holds its contrast both ways.
+    //
+    // The ink BAND does not invert. It is chrome, it is dark in both modes, and
+    // anything on it asks `SRRegister.ink` (or `SR.band` / `SR.cream`) for its
+    // colour — the fixed pair — never `SR.ink` / `SR.paper`.
 
-    /// Warm cream. `--bg`.
-    static let paper = Color(hex: 0xEDE4D4)
+    /// Warm cream. `--bg`. Deep warm brown in dark mode.
+    static let paper = Color(uiColor: UI.paper)
     /// `--surface-elevated` — the opaque panel ground. Never a tint: `--card-bg`
     /// is 7% ink and reads as transparent the moment it sits over anything.
-    static let surface = Color(hex: 0xE8DECE)
-    /// `--text-primary`, and the ink band's ground.
-    static let ink = Color(hex: 0x1A1008)
+    static let surface = Color(light: Fixed.surface, dark: 0x221A12)
+    /// `--text-primary`. Cream in dark mode. For the band's ground, `SR.band`.
+    static let ink = Color(uiColor: UI.ink)
     /// `--text-secondary`.
-    static let inkSecondary = Color(hex: 0x3D2E1A)
+    static let inkSecondary = Color(light: Fixed.inkSecondary, dark: 0xCFC3AE)
     /// `--text-muted` — 65% ink on paper. PAPER ONLY.
-    static let inkMuted = Color(hex: 0x1A1008, alpha: 0.65)
+    static let inkMuted = Color(uiColor: UI.inkMuted)
     /// `--text-ghost` — 45%. PAPER ONLY.
-    static let inkGhost = Color(hex: 0x1A1008, alpha: 0.45)
+    static let inkGhost = Color(light: Fixed.ink, dark: Fixed.paper, alpha: 0.45)
+
+    /// The ink band's ground, in BOTH modes. Chrome, not page.
+    static let band = Color(hex: Fixed.ink)
+    /// Cream type on the band, in BOTH modes.
+    static let cream = Color(hex: Fixed.paper)
 
     /// `--accent`, burnt orange. Punchy, not regal. PAPER ONLY.
-    static let accent = Color(hex: 0xC4570A)
+    static let accent = Color(uiColor: UI.accent)
     /// The accent one step deeper, for a FILL that carries cream text — the
     /// Ask button, a selected tab's label. `--accent` under cream measures
     /// 3.5:1; this holds 5.5:1, and 4.8:1 as text on paper. Not a second
     /// accent: use it only where the accent itself would fail the text.
-    static let accentDeep = Color(hex: 0xA8470A)
+    /// In dark mode the fill carries `SR.paper` (dark) type, so it lifts.
+    static let accentDeep = Color(light: 0xA8470A, dark: 0xE8863A)
     /// `--accent-on-dark`. `--accent` scores 2.6:1 on `#1a1008`, under the
     /// floor; this is its partner, not a second accent.
     static let accentOnDark = Color(hex: 0xE8863A)
     /// `--accent-ink`, deep petrol. The counter-accent, and PAPER ONLY — it has
     /// no role on an ink band, which is why petrol left the vitals rail.
-    static let accentInk = Color(hex: 0x0E5B66)
+    static let accentInk = Color(light: Fixed.accentInk, dark: 0x7FB8C0)
     /// `--accent-ink-on-dark`.
     static let accentInkOnDark = Color(hex: 0x7FB8C0)
 
     /// `--good`, olive. The one hue meaning a number is going the right way.
-    static let good = Color(hex: 0x55663A)
+    static let good = Color(light: Fixed.good, dark: 0x8A9A5B)
     /// `--good-on-dark`. Measured off the dashboard reference; the handoff's
     /// token table names #6b7f4a but every appearance of that shade is on paper.
     static let goodOnDark = Color(hex: 0x8A9A5B)
 
-    static let warn = Color(hex: 0xB0892A)
-    static let error = Color(hex: 0xCC4444)
+    static let warn = Color(light: Fixed.warn, dark: 0xD4AE4E)
+    static let error = Color(light: Fixed.error, dark: 0xE08B8B)
     /// Error, lifted for ink. The paper value is a smudge on `#1a1008`.
     static let errorOnDark = Color(hex: 0xE08B8B)
 
     /// `--card-border`.
-    static let line = Color(hex: 0x1A1008, alpha: 0.18)
+    static let line = Color(uiColor: UI.line)
     /// `--divider`.
-    static let divider = Color(hex: 0x1A1008, alpha: 0.08)
+    static let divider = Color(light: Fixed.ink, dark: Fixed.paper, alpha: 0.08)
     /// The hairline on an ink band. `--line-hair` is invisible there.
     static let lineOnDark = Color(hex: 0xEDE4D4, alpha: 0.14)
     /// Cream at reading weight on ink.
     static let creamOnDark = Color(hex: 0xEDE4D4, alpha: 0.70)
+
+    /// The mode-following tokens UIKit's appearance proxies need as a
+    /// `UIColor` — built here, once, so the proxy holds the dynamic colour
+    /// itself rather than a conversion that may have resolved it.
+    enum UI {
+        static let paper = UIColor(light: Fixed.paper, dark: 0x120D08)
+        static let ink = UIColor(light: Fixed.ink, dark: Fixed.paper)
+        static let inkMuted = UIColor(light: Fixed.ink, dark: Fixed.paper, alpha: 0.65)
+        static let accent = UIColor(light: Fixed.accent, dark: 0xE8863A)
+        static let line = UIColor(light: Fixed.ink, dark: Fixed.paper, alpha: 0.18)
+    }
+
+    /// The site's light values, raw. For the few surfaces that must look the
+    /// same in both modes — a game's coloured tiles, a widget preview.
+    enum Fixed {
+        static let paper: UInt32 = 0xEDE4D4
+        static let surface: UInt32 = 0xE8DECE
+        static let ink: UInt32 = 0x1A1008
+        static let inkSecondary: UInt32 = 0x3D2E1A
+        static let accent: UInt32 = 0xC4570A
+        static let accentInk: UInt32 = 0x0E5B66
+        static let good: UInt32 = 0x55663A
+        static let warn: UInt32 = 0xB0892A
+        static let error: UInt32 = 0xCC4444
+    }
 
     // MARK: - Type
     //
@@ -166,8 +212,8 @@ enum SRRegister {
     case paper
     case ink
 
-    var background: Color { self == .paper ? SR.paper : SR.ink }
-    var primary: Color { self == .paper ? SR.ink : SR.paper }
+    var background: Color { self == .paper ? SR.paper : SR.band }
+    var primary: Color { self == .paper ? SR.ink : SR.cream }
     var secondary: Color { self == .paper ? SR.inkSecondary : SR.creamOnDark }
     var muted: Color { self == .paper ? SR.inkMuted : Color(hex: 0xEDE4D4, alpha: 0.55) }
     var accent: Color { self == .paper ? SR.accent : SR.accentOnDark }
@@ -188,6 +234,30 @@ extension Color {
             blue: Double(hex & 0xFF) / 255,
             opacity: alpha
         )
+    }
+
+    /// A token that follows the phone's appearance: `light` on a light phone,
+    /// `dark` on a dark one. Backed by a dynamic `UIColor`, so UIKit's
+    /// appearance proxies resolve it per trait too.
+    init(light: UInt32, dark: UInt32, alpha: Double = 1) {
+        self.init(uiColor: UIColor(light: light, dark: dark, alpha: alpha))
+    }
+}
+
+extension UIColor {
+    convenience init(hex: UInt32, alpha: Double = 1) {
+        self.init(
+            red: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: alpha
+        )
+    }
+
+    convenience init(light: UInt32, dark: UInt32, alpha: Double = 1) {
+        let light = UIColor(hex: light, alpha: alpha)
+        let dark = UIColor(hex: dark, alpha: alpha)
+        self.init { $0.userInterfaceStyle == .dark ? dark : light }
     }
 }
 
