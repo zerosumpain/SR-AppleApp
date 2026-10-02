@@ -99,7 +99,9 @@ struct FamilyScreen: View {
     private func content(_ view: HouseholdView) -> some View {
         VStack(spacing: 0) {
             FamilyMapCanvas(people: view.people, interactive: true, showTrails: showTracks, camera: $camera)
-                .frame(height: 320)
+                // Two thirds of what it was: the people and their moves
+                // below are the page now, the map is where.
+                .frame(height: 212)
                 .overlay(alignment: .topTrailing) {
                     FamilyTracksToggle(on: $showTracks).padding(10)
                 }
@@ -124,19 +126,12 @@ struct FamilyScreen: View {
                     SRSectionLabel(text: "Everyone", trailing: view.summary)
                         .padding(.horizontal, 4)
                         .padding(.top, 14)
-                    VStack(spacing: 0) {
-                        ForEach(Array(view.people.enumerated()), id: \.element.id) { index, person in
-                            if index > 0 {
-                                Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 52)
-                            }
-                            NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
-                                FamilyPersonRow(person: person, next: forecast.forecast?.next(for: person.subject))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("family-person-\(person.subject)")
-                        }
+                    FamilyPeopleGrid(people: view.people)
+                    // Where everyone is going: the travel desk's next moves.
+                    if let f = forecast.forecast, !f.next.isEmpty {
+                        FamilyMovesCard(moves: f.next, names: f.names)
+                            .padding(.top, 14)
                     }
-                    .srGlassCard(.paper)
                     footer(view)
                 }
                 .padding(.horizontal, SR.gutter)
@@ -224,69 +219,57 @@ struct FamilyTracksToggle: View {
     }
 }
 
-/// One person, one row: pin, name, where, battery. The day is on their page.
+/// Everyone as icons: their pin, their name, their battery. A tap opens
+/// their page — where they are, their day, their next move and routines.
 ///
-/// A row, not a card: five people as cards were a screen of scrolling under
-/// a map that already says where everyone is. The line truncates rather than
-/// wraps, so every person costs the same height.
-struct FamilyPersonRow: View {
+/// Icons, not rows: on a phone the family is four or five people, and a grid
+/// shows all of them at once under the map instead of a list to scroll.
+struct FamilyPeopleGrid: View {
+    let people: [FamilyPerson]
+    private let columns = [GridItem(.adaptive(minimum: 76, maximum: 120), spacing: 8)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(people) { person in
+                NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
+                    FamilyPersonTile(person: person)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("family-person-\(person.subject)")
+            }
+        }
+        .accessibilityIdentifier("family-people")
+    }
+}
+
+struct FamilyPersonTile: View {
     let person: FamilyPerson
-    /// Their next likely move, from the forecast — a second line only when
-    /// there is one, so a quiet day costs no height.
-    var next: FamilyForecast.NextMove? = nil
     @ObservedObject private var places = PlaceNamer.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            row
-            if let next {
-                HStack(spacing: 5) {
-                    Image(systemName: next.kind == "arriving" ? "location.north.fill" : "clock")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(ForecastWords.nextLine(next))
-                        .font(SR.Text.mono())
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundStyle(SR.accentInk)
-                .padding(.leading, 52)
-                .padding(.trailing, SR.cardPadding)
-                .padding(.bottom, 8)
-                .accessibilityIdentifier("family-next-\(person.subject)")
-            }
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Shows their day and week")
-    }
-
-    private var row: some View {
-        HStack(alignment: .center, spacing: 10) {
-            FamilyPin(person: person)
-            HStack(spacing: 5) {
-                Text(person.name)
-                    .font(SR.Text.title())
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                if person.isSelf {
-                    Text("YOU").font(SR.Text.label()).tracking(1.2).foregroundStyle(SR.accent)
-                }
-            }
-            Text(FamilyWords.line(person, places: places))
-                .font(SR.Text.secondary())
-                .foregroundStyle(person.moving != nil ? SR.accentInk : SR.inkSecondary)
+        VStack(spacing: 6) {
+            FamilyPin(person: person, emphasised: true)
+                .scaleEffect(1.25)
+                .frame(width: 52, height: 52)
+            Text(person.isSelf ? "You" : person.name)
+                .font(SR.Text.title(14))
+                .foregroundStyle(SR.ink)
                 .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if let pct = person.batteryPct { FamilyBattery(pct: pct) }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(SR.inkGhost)
-                .accessibilityHidden(true)
+                .minimumScaleFactor(0.8)
+            if let pct = person.batteryPct {
+                FamilyBattery(pct: pct)
+            } else {
+                Text("—").font(SR.monoMedium(13)).foregroundStyle(SR.inkGhost)
+            }
         }
-        .padding(.horizontal, SR.cardPadding)
-        .frame(minHeight: SR.tapTarget + 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .srGlassCard(.paper, interactive: true)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(person.name). \(FamilyWords.line(person, places: places))\(person.batteryPct.map { ". Battery \($0) percent" } ?? "")")
+        .accessibilityHint("Shows their day and week")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
