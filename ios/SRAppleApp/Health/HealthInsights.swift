@@ -396,15 +396,23 @@ struct InsightsAllClear: View {
 /// charts.
 struct InsightsForecastGrid: View {
     let forecasts: [HubDigest.Forecast]
+    /// A tile tapped here, when the grid is showing the others under one
+    /// forecast: swap rather than push.
+    var choose: ((String) -> Void)? = nil
+    @EnvironmentObject private var router: Router
 
     private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 10) {
             ForEach(forecasts) { forecast in
-                // One element per tile, and it is the link: the tile itself
-                // must not also be a button, or VoiceOver reads each twice.
-                NavigationLink(value: HealthRoute.forecast) {
+                // BUTTONS, not NavigationLinks. Four links in one List row
+                // all fire on a single tap — the row is the link — which
+                // pushed four screens and took four Backs to undo.
+                Button {
+                    SRHaptic.tap()
+                    if let choose { choose(forecast.key) } else { router.health.append(HealthRoute.forecastDetail(forecast.key)) }
+                } label: {
                     InsightsForecastTile(forecast: forecast)
                 }
                 .buttonStyle(.plain)
@@ -421,12 +429,12 @@ struct InsightsForecastTile: View {
 
     /// "Sleep · 30d mean" → "Sleep": the tile is narrow, the window is on the
     /// chart screen.
-    private var title: String {
+    var title: String {
         forecast.label.components(separatedBy: " · ").first ?? forecast.label
     }
 
     /// Up, down or flat, by more than 2% of where it is now.
-    private var trend: (symbol: String, word: String) {
+    var trend: (symbol: String, word: String) {
         guard let now = forecast.now, let projected = forecast.projected else { return ("minus", "flat") }
         let change = projected - now
         if abs(change) <= max(abs(now) * 0.02, 0.001) { return ("arrow.right", "holding") }

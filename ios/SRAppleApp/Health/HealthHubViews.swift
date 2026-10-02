@@ -461,26 +461,48 @@ struct MovesScreen: View {
     }
 }
 
+/// One forecast in full, in the grid's own colours: the tile's kicker,
+/// figure and trend, the chart large with its axes, and the other forecasts
+/// as tiles under it — a tap there swaps which one is open, rather than
+/// pushing another screen to come back through.
 struct ForecastScreen: View {
     let hub: HubDigest
+    @State private var focus: String?
+
+    init(hub: HubDigest, focus: String? = nil) {
+        self.hub = hub
+        _focus = State(initialValue: focus ?? hub.forecasts.first?.key)
+    }
+
+    private var current: HubDigest.Forecast? {
+        hub.forecasts.first { $0.key == focus } ?? hub.forecasts.first
+    }
 
     var body: some View {
         List {
-            ForEach(hub.forecasts) { forecast in
+            if let current {
                 Section {
-                    ForecastCard(forecast: forecast).srBareRow()
+                    ForecastCard(forecast: current).srBareRow()
                 }
-            }
-            Section {
-                EmptyView()
-            } footer: {
-                Text("A trend with its cone: the band widens because the future is less certain than the past, not because the line is wrong.")
-                    .font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                let others = hub.forecasts.filter { $0.key != current.key }
+                if !others.isEmpty {
+                    Section {
+                        InsightsForecastGrid(forecasts: others) { key in
+                            withAnimation(.snappy) { focus = key }
+                        }
+                        .srBareRow()
+                    } header: {
+                        InsightsHeader(text: "Other forecasts", icon: "chart.line.uptrend.xyaxis", tint: SR.accentInk)
+                    } footer: {
+                        Text("A trend with its cone: the band widens because the future is less certain than the past, not because the line is wrong.")
+                            .font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
         .srGround(.vital)
-        .navigationTitle("Forecast")
+        .navigationTitle(current.map { InsightsForecastTile(forecast: $0).title } ?? "Forecast")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -522,14 +544,31 @@ struct ForecastCard: View {
     }
 
     var body: some View {
+        let tile = InsightsForecastTile(forecast: forecast)
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(spacing: 6) {
                 Text(forecast.label.uppercased())
                     .font(SR.Text.label())
                     .tracking(1.2)
-                    .foregroundStyle(SR.inkMuted)
+                    .foregroundStyle(SR.accentInk)
                 Spacer()
-                Text("\(forecast.horizonDays) days")
+                Image(systemName: tile.trend.symbol)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(SR.accentInk)
+                Text(tile.trend.word.uppercased())
+                    .font(SR.Text.label(11))
+                    .tracking(1)
+                    .foregroundStyle(SR.accentInk)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(InsightsForecastTile.format(forecast.projected ?? forecast.now))
+                    .font(SR.Text.figure(40))
+                    .foregroundStyle(SR.ink)
+                if let unit = forecast.unit {
+                    Text(unit).font(SR.Text.mono(14)).foregroundStyle(SR.inkMuted)
+                }
+                Spacer()
+                Text("from \(InsightsForecastTile.format(forecast.now)) · \(forecast.horizonDays)d")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
             }
@@ -542,17 +581,17 @@ struct ForecastCard: View {
                 Chart {
                     ForEach(cone) { p in
                         AreaMark(x: .value("Day", p.at), yStart: .value("Low", p.low), yEnd: .value("High", p.high))
-                            .foregroundStyle(SR.accent.opacity(0.14))
+                            .foregroundStyle(SR.accentInk.opacity(0.14))
                     }
                     ForEach(history) { p in
                         LineMark(x: .value("Day", p.at), y: .value(forecast.label, p.value), series: .value("Line", "Observed"))
-                            .foregroundStyle(SR.ink)
+                            .foregroundStyle(SR.ink.opacity(0.75))
                             .interpolationMethod(.monotone)
                     }
                     ForEach(cone) { p in
                         LineMark(x: .value("Day", p.at), y: .value(forecast.label, p.value), series: .value("Line", "Projected"))
-                            .foregroundStyle(SR.accent)
-                            .lineStyle(StrokeStyle(lineWidth: 1.6, dash: [4, 3]))
+                            .foregroundStyle(SR.accentInk)
+                            .lineStyle(StrokeStyle(lineWidth: 1.8, dash: [4, 3]))
                     }
                 }
                 // Fitted, as on the heart chart: `.automatic(includesZero:
@@ -570,13 +609,22 @@ struct ForecastCard: View {
                         AxisValueLabel().font(SR.mono(11)).foregroundStyle(SR.inkMuted)
                     }
                 }
-                .frame(height: 150)
+                .frame(height: 220)
                 .accessibilityLabel("\(forecast.label) forecast: \(forecast.reading)")
             }
         }
         .padding(SR.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        // The grid tile's ground and edge, so the drill-in reads as that
+        // tile, opened.
+        .background(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                .fill(SR.accentInk.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                .strokeBorder(SR.accentInk.opacity(0.22), lineWidth: 1)
+        )
     }
 }
 

@@ -116,6 +116,7 @@ struct HealthScreen: View {
             case .insights: HealthInsightsScreen(hub: hub, noticed: noticed)
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
+            case .forecastDetail(let key): if let h = hub.hub { ForecastScreen(hub: h, focus: key) }
             case .tripwires: if let h = hub.hub { TripwiresScreen(hub: h) }
             case .moves: if let h = hub.hub { MovesScreen(hub: h) }
             case .experiments: if let h = hub.hub { ExperimentsScreen(hub: h) }

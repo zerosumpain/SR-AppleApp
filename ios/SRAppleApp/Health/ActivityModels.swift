@@ -475,6 +475,8 @@ enum HealthRoute: Hashable {
     // /health's deeper sections, each pushed from Insights.
     case instruments
     case forecast
+    /// One forecast, by key, from its tile in Insights.
+    case forecastDetail(String)
     case tripwires
     case moves
     case experiments
