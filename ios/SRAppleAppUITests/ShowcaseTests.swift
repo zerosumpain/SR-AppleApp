@@ -63,7 +63,7 @@ final class ShowcaseTests: XCTestCase {
         } else {
             openTab(app, "Family")
         }
-        settle(app, on: byId(app, "family-person-sam"), seconds: 3)
+        settle(app, on: byId(app, "family-people"), seconds: 3)
         // The travel desk forecast: the next moves under everyone, Kit's quiet phone above.
         soft(byId(app, "family-people").exists, "no people on Family")
         soft(byId(app, "family-place-home").exists, "nobody grouped at Home")
@@ -80,6 +80,16 @@ final class ShowcaseTests: XCTestCase {
             soft(false, "no expand button on the map")
         }
 
+        // A pile fans out at a tap; then Sam's card is a link.
+        if !byId(app, "family-person-sam").exists {
+            let pile = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "family-pile-", "Sam")).firstMatch
+            if pile.exists {
+                pile.tap()
+                settle(app)
+                attach(app, "Showcase — Family, a pile fanned out")
+            }
+        }
         let sam = byId(app, "family-person-sam")
         if sam.exists && sam.isHittable { sam.tap() }
         settle(app, seconds: 3)

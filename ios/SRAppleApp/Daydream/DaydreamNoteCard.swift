@@ -552,7 +552,8 @@ enum DaydreamCommissionStatus {
     }
 }
 
-/// Chips that wrap onto as many rows as they need.
+/// Chips that wrap onto as many rows as they need. Also the Family tab's
+/// place piles (`FamilyPlaceStacks`).
 struct DaydreamWrap: Layout {
     var spacing: CGFloat = 6
 

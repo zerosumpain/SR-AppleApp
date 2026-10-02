@@ -270,6 +270,8 @@ struct FamilyFullMap: View {
 /// Everyone, grouped by where they are: a place's name, then its people as
 /// cards dealt over one another — each a third under the one before — so a
 /// crowd at home reads as one pile and somebody out alone stands apart.
+/// The piles sit side by side and wrap like words on a line, so two people
+/// out alone share a row instead of each taking the full width.
 /// Anybody not seen lately is the last pile, with the site's own words.
 /// A card opens that person's page.
 struct FamilyPlaceStacks: View {
@@ -281,7 +283,7 @@ struct FamilyPlaceStacks: View {
     var body: some View {
         let groups = view.places()
         let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
-        VStack(alignment: .leading, spacing: 14) {
+        DaydreamWrap(spacing: 16) {
             ForEach(groups) { place in
                 pile(title: place.name, icon: place.isHome ? "house.fill" : place.isMoving ? "arrow.triangle.turn.up.right.circle.fill" : "mappin.circle.fill",
                      people: place.people, id: place.name.lowercased())
@@ -294,45 +296,104 @@ struct FamilyPlaceStacks: View {
         .accessibilityIdentifier("family-people")
     }
 
+    /// Piles fanned out by a tap. A pile of one is never a pile: its card
+    /// opens the person straight away.
+    @State private var expanded: Set<String> = []
+
+    @ViewBuilder
     private func pile(title: String, icon: String, people: [FamilyPerson], id: String) -> some View {
+        let open = expanded.contains(id) || people.count == 1
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(SR.accentInk)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(SR.Text.title(15))
-                    .foregroundStyle(SR.ink)
-                Text("\(people.count)")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
+            Button {
+                guard people.count > 1 else { return }
+                SRHaptic.select()
+                withAnimation(.snappy) { toggle(id) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(SR.accentInk)
+                        .accessibilityHidden(true)
+                    Text(title)
+                        .font(SR.Text.title(15))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1)
+                        // A long place name truncates rather than pushing its
+                        // pile wider than the screen.
+                        .frame(maxWidth: 220, alignment: .leading)
+                    Text("\(people.count)")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                    if people.count > 1 {
+                        Image(systemName: open ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(SR.inkGhost)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 4)
+            .buttonStyle(.plain)
             .accessibilityAddTraits(.isHeader)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: -Self.card * Self.overlap) {
-                    ForEach(Array(people.enumerated()), id: \.element.id) { index, person in
+            .accessibilityHint(people.count > 1 ? (open ? "Stacks the cards again" : "Spreads the cards out") : "")
+
+            if open {
+                // Fanned out: every card whole, wrapping if the place is
+                // crowded, each one the way into that person.
+                DaydreamWrap(spacing: 8) {
+                    ForEach(people) { person in
                         NavigationLink(value: FamilyPersonRoute(subject: person.subject)) {
                             FamilyPersonTile(person: person).frame(width: Self.card)
                         }
                         .buttonStyle(.plain)
-                        // The first card on top, the rest dealt under it.
-                        .zIndex(Double(people.count - index))
                         .accessibilityIdentifier("family-person-\(person.subject)")
                     }
                 }
                 .padding(.horizontal, 2)
                 .padding(.vertical, 4)
+            } else {
+                // Dealt: a tap anywhere on the pile fans it out — the cards
+                // are a third hidden, too little to aim a finger at.
+                Button {
+                    SRHaptic.select()
+                    withAnimation(.snappy) { toggle(id) }
+                } label: {
+                    HStack(spacing: -Self.card * Self.overlap) {
+                        ForEach(Array(people.enumerated()), id: \.element.id) { index, person in
+                            FamilyPersonTile(person: person, isLink: false)
+                                .frame(width: Self.card)
+                                // The first card on top, the rest dealt under it.
+                                .zIndex(Double(people.count - index))
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(title): \(people.map(\.name).joined(separator: ", "))")
+                .accessibilityHint("Spreads the cards out to choose one")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("family-pile-\(id)")
             }
-            .scrollClipDisabled()
         }
+        // Stacked, a pile is its own width so the next can sit beside it;
+        // fanned out, it takes the row.
+        .fixedSize(horizontal: !open || people.count == 1, vertical: true)
+        .frame(maxWidth: open && people.count > 1 ? .infinity : nil, alignment: .leading)
         .accessibilityIdentifier("family-place-\(id)")
+    }
+
+    private func toggle(_ id: String) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
 }
 
 struct FamilyPersonTile: View {
     let person: FamilyPerson
+    /// False inside a stacked pile, where a tap fans the pile out instead.
+    var isLink = true
     @ObservedObject private var places = PlaceNamer.shared
 
     var body: some View {
@@ -361,8 +422,8 @@ struct FamilyPersonTile: View {
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(person.name). \(FamilyWords.line(person, places: places))\(person.batteryPct.map { ". Battery \($0) percent" } ?? "")")
-        .accessibilityHint("Shows their day and week")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(isLink ? "Shows their day and week" : "")
+        .accessibilityAddTraits(isLink ? .isButton : [])
     }
 }
 
