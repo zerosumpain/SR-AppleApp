@@ -38,7 +38,8 @@ final class AppStoreShotsTests: XCTestCase {
         require(app.tabBars.buttons["Today"], "the Today tab")
         XCTAssertTrue(app.openTab("Family"), "no way to the Family tab")
         require(byId(app, "family-map"), "the family map")
-        require(byId(app, "family-person-sam"), "Sam's row on Family")
+        // Sam is a card on his own, or in a pile with others.
+        require(byId(app, "family-people"), "everyone on Family")
         noBanners(app)
         // Map tiles and pins draw after the page does.
         shoot(app, "Store 02 — Family map", extra: 3)
