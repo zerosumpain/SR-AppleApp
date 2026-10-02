@@ -176,8 +176,10 @@ struct HeartRateCard: View {
 
 // MARK: - The read
 
-/// Insights' headline, on ink: the one-line read and readiness's factors —
-/// /health's "State of play" minus the figures the tab's hero already shows.
+/// Insights' headline, on ink — the one place on the page set big. Readiness
+/// as a verdict with its advice, then the one-line read, then what readiness
+/// is made of. The verdict is what Readiness used to be a whole screen for;
+/// it lives here now, once, beside the reasons for it.
 ///
 /// The factors' bars are accent-on-dark: on this band they are the lit thing,
 /// what readiness is made of, and nothing else on it is orange but the kicker.
@@ -186,10 +188,42 @@ struct InsightsReadBand: View {
 
     var body: some View {
         SRInkBand(kicker: "The read", meta: updated, inset: 0) {
+            if let readiness = hub.readiness {
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(spacing: 0) {
+                        Text("\(Int(readiness.score.rounded()))")
+                            .font(SR.Text.hero(46))
+                            .tracking(-1)
+                            .foregroundStyle(SR.onInk(.primary))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        Text("READINESS")
+                            .font(SR.Text.label(11))
+                            .tracking(SR.inkLabelTracking)
+                            .foregroundStyle(SR.onInk(.label))
+                    }
+                    .frame(minWidth: 84)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(readiness.label.uppercased())
+                            .font(SR.Text.display(22))
+                            .foregroundStyle(SR.accentOnDark)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !readiness.recommendation.isEmpty {
+                            Text(readiness.recommendation)
+                                .font(SR.Text.bodyMedium(15))
+                                .foregroundStyle(SR.onInk(.primary))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("insights-readiness")
+            }
             if let lede = hub.lede, !lede.isEmpty {
                 Text(lede)
-                    .font(SR.Text.body(17))
-                    .foregroundStyle(SR.onInk(.primary))
+                    .font(SR.Text.body(16))
+                    .foregroundStyle(SR.onInk(.note))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -213,33 +247,6 @@ struct InsightsReadBand: View {
     private var updated: String? {
         let ago = shortAgo(hub.generatedAt)
         return ago.isEmpty ? nil : "Updated \(ago) ago"
-    }
-}
-
-/// What the planner would commission, on paper under the band.
-struct HubPlannerCard: View {
-    let planner: HubDigest.Planner
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("THE PLANNER WOULD COMMISSION")
-                .font(SR.Text.label())
-                .tracking(1.2)
-                .foregroundStyle(SR.inkMuted)
-            Text(planner.headline)
-                .font(SR.Text.title(16))
-                .foregroundStyle(SR.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            if let detail = planner.detail {
-                Text(detail)
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(SR.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
     }
 }
 
@@ -268,71 +275,6 @@ private struct FactorBar: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(factor.label): \(Int(factor.score.rounded())) out of 100")
-    }
-}
-
-// MARK: - Today's plan
-
-struct HubPlanCard: View {
-    let plan: HubDigest.Plan
-    @State private var open = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("TODAY · \(plan.sport.uppercased())")
-                    .font(SR.Text.label())
-                    .tracking(1.2)
-                    .foregroundStyle(SR.accent)
-                Spacer()
-            }
-            Text(plan.headline)
-                .font(SR.Text.title(17))
-                .foregroundStyle(SR.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            if !plan.evidence.isEmpty {
-                SRTileGrid {
-                    ForEach(plan.evidence) { item in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(item.label.uppercased())
-                                .font(SR.Text.label(11))
-                                .tracking(1)
-                                .foregroundStyle(SR.inkMuted)
-                            Text(item.display)
-                                .font(SR.Text.mono(15))
-                                .foregroundStyle(SR.ink)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            if !plan.why.isEmpty {
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) { open.toggle() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
-                        Text("Why").font(SR.Text.label()).tracking(1)
-                    }
-                    .foregroundStyle(SR.inkMuted)
-                    .frame(minHeight: 30)
-                }
-                .buttonStyle(.plain)
-                if open {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(plan.why, id: \.self) { line in
-                            Text("•  \(line)")
-                                .font(SR.Text.secondary())
-                                .foregroundStyle(SR.inkSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(SR.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
     }
 }
 
@@ -399,8 +341,8 @@ struct MoveRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(String(format: "%02d", move.rank))
-                .font(SR.Text.mono(15))
-                .foregroundStyle(SR.accent)
+                .font(SR.Text.figure(17))
+                .foregroundStyle(SR.good)
                 .frame(width: 26, alignment: .leading)
             VStack(alignment: .leading, spacing: 5) {
                 Text(move.title)

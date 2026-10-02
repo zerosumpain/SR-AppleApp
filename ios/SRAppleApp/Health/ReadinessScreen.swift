@@ -125,13 +125,13 @@ struct FigureRange: Equatable {
 
 // MARK: - The compact hero
 
-/// The top of the Health tab: readiness inside today's three rings, and the
-/// four figures as where-today-sits lines. One card, one tap to Readiness,
-/// where the verdict, its reasons and the fortnight are.
+/// The top of the Health tab: readiness inside today's three rings, the
+/// verdict beside the kicker, and the four figures as where-today-sits lines.
 ///
-/// It was a tall band — the donut, the verdict, four tiles with sparklines —
-/// that pushed the four areas below the first screen. This keeps the numbers
-/// and moves the reading of them one push away.
+/// The card is the readiness answer, not a door to it. It used to open a
+/// Readiness screen that repeated this card, then repeated Insights' read —
+/// the same score three times. Now the verdict's reasons and advice are in
+/// Insights, and each figure line opens that figure's own page.
 struct HealthCompactHero: View {
     let summary: HealthSummary
     let rings: ActivityRingsStore.Rings?
@@ -139,58 +139,61 @@ struct HealthCompactHero: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        Button {
-            SRHaptic.tap()
-            router.health.append(HealthRoute.readiness)
-        } label: {
-            SRInkBand(inset: 0) {
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        SRInkKicker(text: "Readiness · Today")
-                        if let updated {
-                            Text(updated.uppercased())
-                                .font(SR.Text.mono())
-                                .tracking(1)
-                                .foregroundStyle(SR.onInk(.unit))
-                                .lineLimit(1)
-                        }
+        SRInkBand(inset: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
+                    SRInkKicker(text: "Readiness · Today")
+                    if let updated {
+                        Text(updated.uppercased())
+                            .font(SR.Text.mono())
+                            .tracking(1)
+                            .foregroundStyle(SR.onInk(.unit))
+                            .lineLimit(1)
                     }
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(SR.onInk(.note))
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(SR.onInk(.fill)))
-                        .overlay(Circle().strokeBorder(SR.onInk(.hairline), lineWidth: 1))
                 }
-
-                // Side by side; stacked once the reader's text is large
-                // enough that four figure lines beside the rings would be a
-                // word a line.
-                let layout = typeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
-                    : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
-                layout {
-                    ReadinessRings(score: score, rings: rings)
-                        .frame(width: 120, height: 120)
-                    VStack(alignment: .leading, spacing: 9) {
-                        ForEach(summary.figures.prefix(4)) { figure in
-                            InkFigureLine(figure: figure)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if summary.isMock {
-                    SRInkMockNote()
+                Spacer(minLength: 8)
+                if let readiness = summary.readiness {
+                    Text(readiness.label.uppercased())
+                        .font(SR.Text.display(17))
+                        .foregroundStyle(SR.accentOnDark)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
+
+            // Side by side; stacked once the reader's text is large
+            // enough that four figure lines beside the rings would be a
+            // word a line.
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+                : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+            layout {
+                ReadinessRings(score: score, rings: rings)
+                    .frame(width: 120, height: 120)
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(summary.figures.prefix(4)) { figure in
+                        Button {
+                            SRHaptic.tap()
+                            router.health.append(figure)
+                        } label: {
+                            InkFigureLine(figure: figure).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(figure.label) \(figure.displayWithUnit)")
+                        .accessibilityHint("Opens \(figure.label)")
+                        .accessibilityAddTraits(.isButton)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if summary.isMock {
+                SRInkMockNote()
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(spoken)
-        .accessibilityHint("Opens readiness")
-        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("health-readiness")
     }
 
@@ -332,290 +335,5 @@ struct InkRangeBar: View {
         }
         .frame(height: 10)
         .accessibilityHidden(true)
-    }
-}
-
-// MARK: - Readiness, one push away
-
-/// Readiness in full: the verdict and what to do about it, what it is made
-/// of, today's rings from this iPhone, and the fortnight behind each figure.
-///
-/// The stores are the tab's own, handed down, so the numbers here are the
-/// ones the hero just drew.
-struct ReadinessScreen: View {
-    @ObservedObject var store: HealthStore
-    @ObservedObject var hub: HealthHubStore
-    @ObservedObject var rings: ActivityRingsStore
-
-    var body: some View {
-        List {
-            if let summary = store.summary {
-                ReadinessBand(summary: summary, factors: factors(summary)).srInkRow()
-
-                Section {
-                    ActivityTodayCard(rings: rings.rings).srBareRow()
-                } header: {
-                    SRSectionLabel(text: "Activity · today", trailing: "From this iPhone")
-                }
-
-                if !summary.figures.isEmpty {
-                    Section {
-                        SRTileGrid {
-                            ForEach(summary.figures) { FigureTrendTile(figure: $0) }
-                        }
-                        .srBareRow()
-                    } header: {
-                        SRSectionLabel(text: window(summary), trailing: "Tap for more")
-                    } footer: {
-                        Text("Measured and derived on the website. The phone shows what /health computed; it does not recompute anything.")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                            .padding(.vertical, 4)
-                    }
-                }
-            } else if store.unavailable {
-                SREmpty(
-                    title: "Health is not answering",
-                    icon: "heart.slash",
-                    message: "The health service did not reply. Pull to try again."
-                )
-                .srBareRow()
-            } else {
-                HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                    .padding(.vertical, 40)
-                    .srBareRow()
-            }
-        }
-        .listStyle(.insetGrouped)
-        .srGround(.vital)
-        .navigationTitle("Readiness")
-        .navigationBarTitleDisplayMode(.inline)
-        .srRefreshable {
-            async let summary: Void = store.load(fresh: true)
-            async let deep: Void = hub.load(fresh: true)
-            _ = await (summary, deep)
-            rings.start()
-        }
-        .task { rings.start() }
-    }
-
-    /// The summary's own factors, else the deep read's: either may be the
-    /// one that arrived.
-    private func factors(_ summary: HealthSummary) -> [ReadinessFactorLine] {
-        if let factors = summary.readiness?.factors, !factors.isEmpty {
-            return factors.map { ReadinessFactorLine(key: $0.key, label: $0.label, score: $0.score) }
-        }
-        return (hub.hub?.readiness?.factors ?? []).map {
-            ReadinessFactorLine(key: $0.key, label: $0.label, score: $0.score)
-        }
-    }
-
-    /// "Last 14 days" — as long as the series the tiles draw.
-    private func window(_ summary: HealthSummary) -> String {
-        let days = summary.figures.compactMap { $0.series?.count }.max() ?? 0
-        return days > 1 ? "Last \(days) days" : "Recent"
-    }
-}
-
-struct ReadinessFactorLine: Identifiable, Hashable {
-    let key: String
-    let label: String
-    let score: Double
-    var id: String { key }
-}
-
-/// The verdict on ink: the donut, the word, what to do, and its parts.
-struct ReadinessBand: View {
-    let summary: HealthSummary
-    let factors: [ReadinessFactorLine]
-
-    var body: some View {
-        SRInkBand(kicker: "Readiness · Today", meta: updated, inset: 0) {
-            if let readiness = summary.readiness {
-                SRInkReadiness(readiness: readiness)
-            } else {
-                Text(summary.strap)
-                    .font(SR.Text.body(15))
-                    .foregroundStyle(SR.onInk(.note))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !factors.isEmpty {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("WHAT READINESS IS MADE OF")
-                        .font(SR.Text.label())
-                        .tracking(SR.inkLabelTracking)
-                        .foregroundStyle(SR.onInk(.label))
-                    ForEach(factors) { factor in
-                        InkFactorBar(factor: factor)
-                    }
-                }
-            }
-            if summary.isMock {
-                SRInkMockNote()
-            }
-        }
-    }
-
-    private var updated: String? {
-        let ago = shortAgo(summary.generatedAt)
-        return ago.isEmpty ? nil : "Updated \(ago) ago"
-    }
-}
-
-private struct InkFactorBar: View {
-    let factor: ReadinessFactorLine
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(factor.label.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.4)
-                    .foregroundStyle(SR.onInk(.label))
-                Spacer(minLength: 8)
-                Text("\(Int(factor.score.rounded()))")
-                    .font(SR.Text.figure(14))
-                    .foregroundStyle(SR.onInk(.primary))
-            }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(SR.onInk(.track))
-                    Capsule().fill(SR.accentOnDark)
-                        .frame(width: proxy.size.width * CGFloat(min(max(factor.score, 0), 100) / 100))
-                }
-            }
-            .frame(height: 6)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(factor.label): \(Int(factor.score.rounded())) out of 100")
-    }
-}
-
-/// Move, Exercise and Stand as three bars on paper, with their goals.
-struct ActivityTodayCard: View {
-    let rings: ActivityRingsStore.Rings?
-
-    /// The paper partners of the hero's ring colours.
-    static let tints: [String: Color] = ["move": SR.accent, "exercise": SR.good, "stand": SR.accentInk]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let rings, !rings.isEmpty {
-                ForEach(rings.all.compactMap { $0 }) { ring in
-                    row(ring)
-                }
-            } else {
-                Text("No rings from Apple Health yet today. They appear here once the Watch or this iPhone has recorded some.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(SR.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper, radius: 20)
-    }
-
-    private func row(_ ring: ActivityRingsStore.Ring) -> some View {
-        let tint = Self.tints[ring.key] ?? SR.accent
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                HStack(spacing: 7) {
-                    Circle().fill(tint).frame(width: 8, height: 8)
-                    Text(ring.label.uppercased())
-                        .font(SR.Text.label())
-                        .tracking(1.2)
-                        .foregroundStyle(SR.inkMuted)
-                }
-                Spacer(minLength: 8)
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(Int(ring.value.rounded()))")
-                        .font(SR.Text.figure(17))
-                        .foregroundStyle(SR.ink)
-                    Text("/ \(Int(ring.goal.rounded())) \(ring.unit)")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                }
-                .lineLimit(1)
-            }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(SR.line)
-                    Capsule().fill(tint)
-                        .frame(width: proxy.size.width * CGFloat(min(max(ring.fraction, 0), 1)))
-                }
-            }
-            .frame(height: 6)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ring.spoken)
-    }
-}
-
-/// A figure over its window: the value, the line, and the movement — each
-/// a push to the figure's own page.
-struct FigureTrendTile: View {
-    let figure: HealthFigure
-    @EnvironmentObject private var router: Router
-
-    var body: some View {
-        Button {
-            SRHaptic.tap()
-            router.health.append(figure)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(figure.label.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.2)
-                    .foregroundStyle(SR.inkMuted)
-                    .lineLimit(1)
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text(figure.inkValue.value)
-                        .font(SR.Text.figure(26))
-                        .foregroundStyle(SR.ink)
-                    if let unit = figure.inkValue.unit {
-                        Text(unit)
-                            .font(SR.Text.mono(13))
-                            .foregroundStyle(SR.inkMuted)
-                    }
-                }
-                .lineLimit(1)
-                if let series = figure.series, series.count > 1 {
-                    SRSparkline(values: series)
-                        .frame(height: 34)
-                }
-                Text(foot.uppercased())
-                    .font(SR.Text.mono())
-                    .tracking(1)
-                    .foregroundStyle(tone)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(SR.cardPadding)
-            .srGlassCard(.paper, radius: 20, interactive: true)
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "\(figure.label): \(figure.displayWithUnit), \(foot)"
-            + (figure.improving == nil ? "" : figure.improving! ? ", improving" : ", worse")
-        )
-        .accessibilityAddTraits(.isButton)
-    }
-
-    /// "↗ +5 vs 7d", or the caption when there is no movement to show.
-    private var foot: String {
-        guard let delta = figure.deltaDisplay else { return figure.caption }
-        let arrow = figure.direction == "down" ? "↘" : figure.direction == "up" ? "↗" : "→"
-        return "\(arrow) \(delta)"
-    }
-
-    private var tone: Color {
-        switch figure.improving {
-        case .some(true): return SR.good
-        case .some(false): return SR.accent
-        case .none: return SR.inkMuted
-        }
     }
 }

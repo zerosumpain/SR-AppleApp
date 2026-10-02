@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The ink register, on a wrist: cream type on ink, one accent. watchOS is
 /// always dark, and the site's ink band is the part of its palette made for
-/// that. Two faces only — Archivo Black for figures, JetBrains Mono for labels.
+/// that. Two faces only — Inter Display for figures, JetBrains Mono for labels.
 enum WatchInk {
     static let ground = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
     static let cream = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
@@ -15,7 +15,7 @@ enum WatchInk {
 
     /// Scaled with the wearer's text size, like every face in the phone app.
     static func figure(_ size: CGFloat) -> Font {
-        .custom("ArchivoBlack-Regular", size: size, relativeTo: .title3)
+        .custom("InterDisplay-ExtraBold", size: size, relativeTo: .title3)
     }
 
     static func label(_ size: CGFloat = 12) -> Font {

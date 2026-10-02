@@ -28,6 +28,14 @@ extension SRDemoFixtures {
             return SRDemoSession.shared.createTask(body: body, clock: clock)
         case ("PATCH", 2, "tasks"):
             return SRDemoSession.shared.actOnTask(id: rest[1], body: body, clock: clock)
+        // The family alarm: raising one reaches the demo's three others;
+        // nobody else's is ever active, so the demo never rings.
+        case ("POST", 1, "alarm"):
+            return #"{"alarmId":"demo-alarm","pushed":3,"recipients":3}"#
+        case ("GET", 1, "alarm"):
+            return #"{"alarms":[]}"#
+        case ("POST", 2, "alarm") where rest[1] == "cancel":
+            return #"{"ok":true}"#
         default:
             return nil
         }

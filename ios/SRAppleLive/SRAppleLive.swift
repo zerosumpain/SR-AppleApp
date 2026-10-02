@@ -34,9 +34,9 @@ private enum Ink {
 }
 
 private extension Font {
-    /// Archivo Black: the headline face. Falls back to a heavy system font if
+    /// Inter Display: the headline face. Falls back to a heavy system font if
     /// the file did not register, which reads close enough.
-    static func display(_ size: CGFloat) -> Font { .custom("ArchivoBlack-Regular", size: size, relativeTo: .headline) }
+    static func display(_ size: CGFloat) -> Font { .custom("InterDisplay-ExtraBold", size: size, relativeTo: .headline) }
     /// JetBrains Mono: labels and figures.
     static func mono(_ size: CGFloat) -> Font { .custom("JetBrainsMono-Medium", size: size, relativeTo: .caption) }
 }

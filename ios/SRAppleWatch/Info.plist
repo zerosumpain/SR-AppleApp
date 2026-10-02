@@ -18,5 +18,5 @@
 <!-- Required by App Store Connect for any bundle with the HealthKit
      entitlement (ITMS-90683), even though nothing here writes. -->
 <key>NSHealthUpdateUsageDescription</key><string>SR does not write to Apple Health from your Watch. It only reads today's Move ring.</string>
-<key>UIAppFonts</key><array><string>ArchivoBlack-Regular.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string></array>
+<key>UIAppFonts</key><array><string>InterDisplay-ExtraBold.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string></array>
 </dict></plist>

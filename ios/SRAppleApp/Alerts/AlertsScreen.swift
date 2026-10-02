@@ -196,7 +196,7 @@ struct AlertRoutingScreen: View {
                     .onChange(of: leaveBy) { _, _ in
                         Task { @MainActor in
                             let f = FamilyForecastStore.shared.forecast
-                            await LeaveByReminders.sync(f?.upcoming, names: f?.names ?? [:])
+                            await LeaveByReminders.sync(JourneyCorrections.shared.apply(f?.upcoming), names: f?.names ?? [:])
                         }
                     }
                 }

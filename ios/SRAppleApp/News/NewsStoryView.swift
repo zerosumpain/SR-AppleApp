@@ -90,7 +90,7 @@ struct NewsStoryScreen: View {
             }
         }
         if !current.isEmpty { lines.append(current) }
-        // Three lines of Archivo Black at 30pt is most of a phone screen.
+        // Three lines of Inter Display at 30pt is most of a phone screen.
         return Array(lines.prefix(3))
     }
 

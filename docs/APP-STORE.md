@@ -139,4 +139,4 @@ right eight screens:
 The `app-store-screenshots` artifact is those eight, named as above: the workflow picks the `Store NN — …`
 attachments out of the result bundle's export by its `manifest.json`. `store-shots-raw` is the whole export,
 for when a test failed and the set is short. Look at every picture before uploading it. `ShowcaseTests`
-still photographs everything, banners included, for reviewing the look; its pictures are not for the store.
+(the **Showcase screenshots** workflow) still photographs everything, banners included, for reviewing the look; its pictures are not for the store.

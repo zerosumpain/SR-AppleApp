@@ -7,8 +7,9 @@ import MapKit
 /// opened for one question — "how am I doing" — so the tab is the answer and
 /// then the way to everything else:
 ///
-/// 1. the hero: readiness inside today's rings, and four figures as where
-///    today sits (the summary, which answers fast) — a tap opens Readiness;
+/// 1. the hero: readiness inside today's rings, its verdict, and four figures
+///    as where today sits (the summary, which answers fast) — a figure opens
+///    its own page; the reasons and the advice are in Insights;
 /// 2. four areas, two by two — Activities, Segments, Routes and Insights —
 ///    each one push away (`HealthAreasGrid`). Insights holds the read, what
 ///    the loop noticed, tripwires, moves and "The full picture";
@@ -41,7 +42,8 @@ struct HealthScreen: View {
             if access.current.owner {
                 if let summary = store.summary {
                     // The ink band: readiness in today's rings and the four
-                    // figures, one tap from Readiness in full.
+                    // figures. Not a door to a Readiness screen any more —
+                    // that screen repeated this card and Insights' read.
                     HealthCompactHero(summary: summary, rings: rings.rings).srInkRow()
                 } else if store.unavailable {
                     SREmpty(
@@ -77,7 +79,7 @@ struct HealthScreen: View {
         // Inline, not large. A large title renders BLANK on this OS with this
         // appearance proxy — the bar lays out at full height and paints no text.
         // Verified in CI screenshots; inline titles in the same build draw in
-        // Archivo Black correctly. A compact bar also gives a list more of the
+        // Inter Display correctly. A compact bar also gives a list more of the
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
@@ -111,7 +113,6 @@ struct HealthScreen: View {
             case .planRoute: PlanRouteScreen()
             case .nearbyRoutes: NearbyRoutesScreen()
             case .offlineMaps: OfflineMapsScreen()
-            case .readiness: ReadinessScreen(store: store, hub: hub, rings: rings)
             case .insights: HealthInsightsScreen(hub: hub, noticed: noticed)
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
