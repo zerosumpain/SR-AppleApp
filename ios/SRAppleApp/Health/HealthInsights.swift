@@ -402,10 +402,14 @@ struct InsightsForecastGrid: View {
     var body: some View {
         LazyVGrid(columns: columns, spacing: 10) {
             ForEach(forecasts) { forecast in
+                // One element per tile, and it is the link: the tile itself
+                // must not also be a button, or VoiceOver reads each twice.
                 NavigationLink(value: HealthRoute.forecast) {
                     InsightsForecastTile(forecast: forecast)
                 }
                 .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(InsightsForecastTile.spoken(forecast))
             }
         }
         .accessibilityIdentifier("insights-forecast-grid")
@@ -478,9 +482,13 @@ struct InsightsForecastTile: View {
                 .strokeBorder(SR.accentInk.opacity(0.22), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title) forecast: \(Self.format(forecast.projected ?? forecast.now))\(forecast.unit.map { " \($0)" } ?? "") in \(forecast.horizonDays) days, \(trend.word). \(forecast.reading)")
-        .accessibilityAddTraits(.isButton)
+    }
+
+    /// "Sleep forecast: 7.28 h in 90 days, rising. Rising at +0.03 a month."
+    static func spoken(_ forecast: HubDigest.Forecast) -> String {
+        let tile = InsightsForecastTile(forecast: forecast)
+        let unit = forecast.unit.map { " \($0)" } ?? ""
+        return "\(tile.title) forecast: \(format(forecast.projected ?? forecast.now))\(unit) in \(forecast.horizonDays) days, \(tile.trend.word). \(forecast.reading)"
     }
 
     /// Two significant places for small numbers, none for large ones.

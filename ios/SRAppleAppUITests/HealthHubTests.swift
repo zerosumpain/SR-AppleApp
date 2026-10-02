@@ -93,19 +93,21 @@ final class HealthHubTests: XCTestCase {
         shoot(app, "Health — tripwires and moves")
     }
 
-    /// The forecast is a two-by-two grid on the page now, above "More".
-    @MainActor func testTheFullPicturePushes() {
+    /// The forecast is a two-by-two grid on the page: four tiles, each one
+    /// element, each opening the charts.
+    @MainActor func testTheForecastGridPushes() {
         let app = openInsights()
-        let forecast = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "forecast:")).firstMatch
-        XCTAssertTrue(reveal(app, forecast), "no forecast tile")
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "forecast:")).count, 4,
-                       "the demo's four forecasts should be four tiles")
+        let tiles = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "forecast:"))
+        XCTAssertTrue(reveal(app, tiles.firstMatch), "no forecast tile")
+        XCTAssertEqual(tiles.count, 4, "the demo's four forecasts should be four tiles")
         shoot(app, "Health — forecast grid")
-        forecast.tap()
+        tiles.firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Rising at +0.03 a month."].firstMatch.waitForExistence(timeout: 10))
         shoot(app, "Health — forecast")
-        app.navigationBars.buttons.firstMatch.tap()
+    }
 
+    @MainActor func testTheFullPicturePushes() {
+        let app = openInsights()
         let instruments = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Instruments")).firstMatch
         XCTAssertTrue(reveal(app, instruments, swipes: 14), "the full picture did not draw")
         shoot(app, "Health — the full picture")
