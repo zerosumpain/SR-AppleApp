@@ -11,6 +11,7 @@ import UserNotifications
 struct WelcomeScreen: View {
     @ObservedObject var registration: RegistrationStore
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @Environment(\.colorScheme) private var colorScheme
     @State private var enteringCode = false
 
     var body: some View {
@@ -31,7 +32,7 @@ struct WelcomeScreen: View {
                     } onCompletion: { result in
                         Task { await registration.signInWithApple(result) }
                     }
-                    .signInWithAppleButtonStyle(.black)
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
                     .frame(height: 50)
                     .clipShape(Capsule())
                     .accessibilityIdentifier("welcome-apple")

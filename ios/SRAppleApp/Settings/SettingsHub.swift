@@ -33,6 +33,7 @@ struct SettingsScreen: View {
     /// Today's optional family cards — see `TodayCards`.
     @AppStorage(TodayCards.steps) private var todaySteps = false
     @AppStorage(TodayCards.tasks) private var todayTasks = false
+    @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
     enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs, deleteAccount }
 
@@ -57,6 +58,20 @@ struct SettingsScreen: View {
                     }
                 } header: {
                     SRSectionLabel(text: "The app")
+                }
+
+                Section {
+                    Picker(selection: $appearance) {
+                        ForEach(SRAppearance.allCases) { Text($0.label).tag($0) }
+                    } label: {
+                        SRRow(title: "Appearance", subtitle: "Light, dark, or match the phone", icon: "circle.lefthalf.filled")
+                    }
+                    .pickerStyle(.menu)
+                    .tint(SR.accent)
+                    .srGlassRow()
+                    .accessibilityIdentifier("settings-appearance")
+                } header: {
+                    SRSectionLabel(text: "Appearance")
                 }
 
                 // Cards Today can carry, off until asked for. Only for

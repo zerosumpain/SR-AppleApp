@@ -77,7 +77,7 @@ struct FollowRouteScreen: View {
                 .font(SR.Text.body(15))
             Spacer()
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(SR.paper)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(SR.accent, in: RoundedRectangle(cornerRadius: 14))

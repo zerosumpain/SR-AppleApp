@@ -384,7 +384,7 @@ struct GameCountdownView<Store: GameRoomStoring>: View {
 
     var body: some View {
         ZStack {
-            SR.ink.ignoresSafeArea()
+            SR.band.ignoresSafeArea()
             VStack(spacing: 18) {
                 Text("GET READY")
                     .font(SR.Text.label(13))
@@ -393,7 +393,7 @@ struct GameCountdownView<Store: GameRoomStoring>: View {
                 TimelineView(.periodic(from: .now, by: 0.05)) { _ in
                     Text(figure)
                         .font(SR.Text.hero(150))
-                        .foregroundStyle(SR.paper)
+                        .foregroundStyle(SR.cream)
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)

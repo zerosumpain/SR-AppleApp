@@ -335,7 +335,7 @@ struct PlanRouteScreen: View {
                 HStack {
                     Spacer()
                     if planner.busy == .planning {
-                        ProgressView().tint(.white)
+                        ProgressView().tint(SR.paper)
                         Text("Planning — up to a minute").font(SR.Text.body())
                     } else {
                         Text("Plan").font(SR.Text.body())
@@ -393,7 +393,7 @@ struct PlanRouteScreen: View {
             } label: {
                 HStack {
                     Spacer()
-                    if planner.busy == .saving { ProgressView().tint(.white) }
+                    if planner.busy == .saving { ProgressView().tint(SR.paper) }
                     Text("Save this route").font(SR.Text.body())
                     Spacer()
                 }

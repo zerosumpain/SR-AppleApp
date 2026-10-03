@@ -116,7 +116,7 @@ struct SRTopBar<Trailing: View>: View {
         }
         .padding(.horizontal, SR.gutter)
         .frame(height: 52)
-        .background(SR.ink)
+        .background(SR.band)
     }
 }
 
@@ -192,7 +192,7 @@ struct SRFooterStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SR.gutter)
         .padding(.vertical, 22)
-        .background(SR.ink)
+        .background(SR.band)
         .padding(.top, 36)
     }
 }

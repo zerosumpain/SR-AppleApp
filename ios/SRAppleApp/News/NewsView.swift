@@ -277,7 +277,7 @@ struct SRToast: View {
     var body: some View {
         Text(text)
             .font(SR.body(14))
-            .foregroundStyle(SR.paper)
+            .foregroundStyle(SR.cream)
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)

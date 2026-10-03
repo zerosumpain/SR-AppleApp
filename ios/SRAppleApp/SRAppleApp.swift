@@ -334,36 +334,40 @@ import UIKit
 
     var body: some Scene {
         WindowGroup {
-            if let companion = delegate.companion, let battery = delegate.battery {
-                EntryGate(companion: companion, battery: battery)
-                    .task {
-                        battery.start()
-                        // A route walk the app was killed during becomes a
-                        // recording, then anything waiting goes up.
-                        FollowSession.recoverInterrupted()
-                        await RecordingQueue.shared.flush()
-                        if companion.paired { await companion.sync() }
-                    }
-                    .onChange(of: scenePhase) { _, phase in
-                        if phase == .active {
-                            // A reading on every foreground, so a long background
-                            // stretch is bracketed by two real samples rather
-                            // than guessed at.
-                            battery.sample()
-                            if companion.paired { Task { await companion.sync() } }
-                            Task { await SiteClient.shared.retryPendingRevocations(); await PushRegistration.shared.sync() }
-                            Task { await RecordingQueue.shared.flush() }
+            Group {
+                if let companion = delegate.companion, let battery = delegate.battery {
+                    EntryGate(companion: companion, battery: battery)
+                        .task {
+                            battery.start()
+                            // A route walk the app was killed during becomes a
+                            // recording, then anything waiting goes up.
+                            FollowSession.recoverInterrupted()
+                            await RecordingQueue.shared.flush()
+                            if companion.paired { await companion.sync() }
                         }
-                        if phase == .background {
-                            battery.sample()
-                            companion.scheduleRefresh()
-                            // A deferred outbox removal (an accepted batch,
-                            // written lazily during a flush) must not ride
-                            // into a suspend unwritten.
-                            try? companion.outbox.persistIfDirty()
+                        .onChange(of: scenePhase) { _, phase in
+                            if phase == .active {
+                                // A reading on every foreground, so a long background
+                                // stretch is bracketed by two real samples rather
+                                // than guessed at.
+                                battery.sample()
+                                if companion.paired { Task { await companion.sync() } }
+                                Task { await SiteClient.shared.retryPendingRevocations(); await PushRegistration.shared.sync() }
+                                Task { await RecordingQueue.shared.flush() }
+                            }
+                            if phase == .background {
+                                battery.sample()
+                                companion.scheduleRefresh()
+                                // A deferred outbox removal (an accepted batch,
+                                // written lazily during a flush) must not ride
+                                // into a suspend unwritten.
+                                try? companion.outbox.persistIfDirty()
+                            }
                         }
-                    }
-            } else { ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(delegate.startupError ?? "Starting…")) }
+                } else { ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(delegate.startupError ?? "Starting…")) }
+            }
+            // Light, dark or the phone's own: every screen, every sheet.
+            .srAppearanceRoot()
         }
     }
 }

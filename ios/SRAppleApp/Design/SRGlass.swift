@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Paper under glass.
 ///
@@ -37,14 +38,17 @@ extension SR {
         static let bandInset: CGFloat = SR.gutter
         /// A cream tint on glass over paper, so a panel reads as a sheet of the
         /// page lifted rather than a hole in it.
-        static let paperTint = Color(hex: 0xF6EFE3, alpha: 0.55)
+        static let paperTint = Color(light: 0xF6EFE3, dark: 0x2A2118, alpha: 0.55)
         /// The smoked slab. Ink, not black — the brown is the SR part.
         static let inkTint = Color(hex: 0x1A1008, alpha: 0.82)
         /// A grouped list row over the atmosphere: frosted cream, not opaque, so
         /// the ground shows through the sections the way it does through glass.
-        static let rowFill = Color(hex: 0xFBF6EE, alpha: 0.62)
+        static let rowFill = Color(light: 0xFBF6EE, dark: 0x251D15, alpha: 0.62)
         /// The accent, as glass wants it: saturated enough to read through.
-        static let accentTint = Color(hex: 0xC4570A, alpha: 0.85)
+        static let accentTint = Color(light: 0xC4570A, dark: 0xE8863A, alpha: 0.85)
+        /// The pre-26 fallback's highlight edge. A white rim on a dark page is
+        /// a glare line, so it dims with the ground.
+        static let rim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 1, alpha: 0.45) })
     }
 }
 
@@ -152,7 +156,7 @@ extension View {
                     shape.fill(srFallbackTint(kind))
                 }
             }
-            .overlay { shape.stroke(Color.white.opacity(kind == .ink ? 0.10 : 0.45), lineWidth: 0.75) }
+            .overlay { shape.stroke(kind == .ink ? Color.white.opacity(0.10) : SR.Glass.rim, lineWidth: 0.75) }
         }
     }
 
@@ -177,10 +181,10 @@ private func srGlassValue(_ kind: SRGlassKind, interactive: Bool) -> Glass {
 
 private func srFallbackTint(_ kind: SRGlassKind) -> Color {
     switch kind {
-    case .paper: return Color(hex: 0xF6EFE3, alpha: 0.6)
+    case .paper: return Color(light: 0xF6EFE3, dark: 0x2A2118, alpha: 0.6)
     case .ink: return Color(hex: 0x1A1008, alpha: 0.9)
     case .accent: return SR.accent
-    case .clear: return Color.white.opacity(0.2)
+    case .clear: return Color(light: 0xFFFFFF, dark: 0x000000, alpha: 0.2)
     }
 }
 

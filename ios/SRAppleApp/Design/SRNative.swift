@@ -36,16 +36,16 @@ enum SRChrome {
             installGlass()
             return
         }
-        let paper = UIColor(SR.paper)
-        let ink = UIColor(SR.ink)
-        let accent = UIColor(SR.accent)
+        let paper = SR.UI.paper
+        let ink = SR.UI.ink
+        let accent = SR.UI.accent
 
         let bar = UINavigationBarAppearance()
         bar.configureWithOpaqueBackground()
         bar.backgroundColor = paper
         // A hairline, not the system's 0.33pt grey — the app has exactly one
         // rule weight and this is it.
-        bar.shadowColor = UIColor(SR.line)
+        bar.shadowColor = SR.UI.line
         bar.titleTextAttributes = [
             .foregroundColor: ink,
             .font: scaled(SR.Face.bodyBold, 17, .headline),
@@ -81,16 +81,16 @@ enum SRChrome {
         let tabs = UITabBarAppearance()
         tabs.configureWithOpaqueBackground()
         tabs.backgroundColor = paper
-        tabs.shadowColor = UIColor(SR.line)
+        tabs.shadowColor = SR.UI.line
         for item in [tabs.stackedLayoutAppearance, tabs.inlineLayoutAppearance, tabs.compactInlineLayoutAppearance] {
             item.selected.iconColor = accent
             item.selected.titleTextAttributes = [
                 .foregroundColor: accent,
                 .font: scaled(SR.Face.monoMedium, 10, .caption2),
             ]
-            item.normal.iconColor = UIColor(SR.inkMuted)
+            item.normal.iconColor = SR.UI.inkMuted
             item.normal.titleTextAttributes = [
-                .foregroundColor: UIColor(SR.inkMuted),
+                .foregroundColor: SR.UI.inkMuted,
                 .font: scaled(SR.Face.mono, 10, .caption2),
             ]
         }
@@ -116,7 +116,7 @@ enum SRChrome {
     /// Still colour-only on the large title — a custom face there paints
     /// nothing on this OS. Tab roots put their headline in the scroll instead.
     private static func installGlass() {
-        let ink = UIColor(SR.ink)
+        let ink = SR.UI.ink
         let bar = UINavigationBarAppearance()
         bar.configureWithTransparentBackground()
         bar.titleTextAttributes = [
@@ -128,12 +128,12 @@ enum SRChrome {
         UINavigationBar.appearance().compactAppearance = bar
         UINavigationBar.appearance().scrollEdgeAppearance = bar
         UINavigationBar.appearance().compactScrollEdgeAppearance = bar
-        UINavigationBar.appearance().tintColor = UIColor(SR.accent)
+        UINavigationBar.appearance().tintColor = SR.UI.accent
 
         UITableView.appearance().backgroundColor = .clear
         UICollectionView.appearance().backgroundColor = .clear
-        UITextField.appearance().tintColor = UIColor(SR.accent)
-        UITextView.appearance().tintColor = UIColor(SR.accent)
+        UITextField.appearance().tintColor = SR.UI.accent
+        UITextView.appearance().tintColor = SR.UI.accent
     }
 
     /// A bundled face at a size that still answers the reader's text setting.
@@ -419,7 +419,7 @@ struct SRBanner: View {
             Circle().fill(tone == SR.ink ? SR.accentOnDark : SR.errorOnDark).frame(width: 7, height: 7)
             Text(text)
                 .font(SR.Text.secondary(14))
-                .foregroundStyle(SR.paper)
+                .foregroundStyle(SR.cream)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
