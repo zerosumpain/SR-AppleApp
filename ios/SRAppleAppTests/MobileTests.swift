@@ -313,7 +313,7 @@ final class ContrastTests: XCTestCase {
     }
 
     func testDarkModeBodyCopyClearsTheFloor() {
-        // The dark page is the light one inverted; the same reading tokens
+        // The dark page is the website's night theme; the same reading tokens
         // must hold AA on it, or dark mode is a regression, not a feature.
         for (name, token) in [("ink", SR.ink), ("inkSecondary", SR.inkSecondary), ("inkMuted", SR.inkMuted),
                               ("accentInk", SR.accentInk), ("error", SR.error), ("accentDeep", SR.accentDeep)] {

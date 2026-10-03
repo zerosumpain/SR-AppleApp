@@ -192,17 +192,19 @@ enum FamilyWidgetSamples {
 // the Home Screen. The extension wraps each in its container background and
 // tap URL.
 
-/// The site palette, repeated: the extension cannot see `SR`.
+/// The site palette's day values, from the shared tokens: the extension cannot
+/// see `SR`.
 enum FamilyWidgetInk {
-    static let paper = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let ink = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
-    static let muted = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.65)
-    static let ghost = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.45)
-    static let accent = Color(red: 0xC4 / 255, green: 0x57 / 255, blue: 0x0A / 255)
-    static let accentInk = Color(red: 0x0E / 255, green: 0x5B / 255, blue: 0x66 / 255)
-    static let good = Color(red: 0x55 / 255, green: 0x66 / 255, blue: 0x3A / 255)
-    static let error = Color(red: 0xCC / 255, green: 0x44 / 255, blue: 0x44 / 255)
-    static let line = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.14)
+    private typealias T = SRTokens.Colour
+    static let paper = Color(token: T.bg.light)
+    static let ink = Color(token: T.textPrimary.light)
+    static let muted = Color(token: T.textMuted.light)
+    static let ghost = Color(token: T.textGhost.light)
+    static let accent = Color(token: T.accent.light)
+    static let accentInk = Color(token: T.accentInk.light)
+    static let good = Color(token: T.good.light)
+    static let error = Color(token: T.error.light)
+    static let line = Color(token: T.line.light)
 }
 
 /// The three faces a widget uses, each scaling with the reader's text size.
