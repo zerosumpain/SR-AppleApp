@@ -127,11 +127,43 @@ final class FamilyForecastTests: XCTestCase {
         XCTAssertTrue(LeaveByReminders.plan(items, names: [:], now: gone).isEmpty)
     }
 
-    func testTodayShowsTheNextLeaveByWithinSixHours() throws {
+
+    // MARK: - Corrections
+
+    func testADismissedJourneyLeavesTheListAndItsReminder() throws {
         let up = try XCTUnwrap(try forecast().upcoming)
+        let fixes = ["ev1": JourneyCorrections.Correction(dismissed: true, destination: nil, at: Date())]
+        let applied = try XCTUnwrap(JourneyCorrections.apply(up, corrections: fixes))
+        XCTAssertEqual(applied.items.map(\.id), ["ev2"])
         let now = try XCTUnwrap(parseTimestamp("2026-09-28T13:00:00Z"))
-        XCTAssertEqual(TodayForecastCard.nextLeave(up, now: now)?.id, "ev1")
-        XCTAssertNil(TodayForecastCard.nextLeave(up, now: try XCTUnwrap(parseTimestamp("2026-09-28T06:00:00Z"))))
-        XCTAssertNil(TodayForecastCard.nextLeave(.init(available: false, items: up.items), now: now))
+        XCTAssertTrue(LeaveByReminders.plan(applied.items, names: [:], now: now).isEmpty)
+    }
+
+    func testACorrectedDestinationIsReTimedFromAppleMaps() throws {
+        let up = try XCTUnwrap(try forecast().upcoming)
+        let to = JourneyCorrections.Destination(name: "Castle Clinic", lat: 54.5, lon: -1.5, minutes: 30, mode: "vehicle")
+        let fixes = ["ev1": JourneyCorrections.Correction(dismissed: false, destination: to, at: Date())]
+        let item = try XCTUnwrap(JourneyCorrections.apply(up, corrections: fixes)?.items.first)
+        XCTAssertEqual(item.place, "Castle Clinic")
+        XCTAssertEqual(item.travel?.source, "corrected")
+        XCTAssertNil(item.issue)
+        // 30 min plus a fifth: leave 36 min before the 14:30 start.
+        XCTAssertEqual(item.leaveBy.flatMap(parseTimestamp), parseTimestamp("2026-09-28T13:54:00Z"))
+        XCTAssertEqual(ForecastWords.travelLine(item, names: [:]), "30 min by car · your destination, timed by Apple Maps")
+        // A short trip gets at least five minutes' allowance.
+        let near = JourneyCorrections.corrected(up.items[0], to: .init(name: "Next door", lat: 0, lon: 0, minutes: 4, mode: "active"))
+        XCTAssertEqual(near.leaveBy.flatMap(parseTimestamp), parseTimestamp("2026-09-28T14:21:00Z"))
+    }
+
+    func testNoCorrectionsLeaveTheListAlone() throws {
+        let up = try XCTUnwrap(try forecast().upcoming)
+        XCTAssertEqual(JourneyCorrections.apply(up, corrections: [:]), up)
+        XCTAssertNil(JourneyCorrections.apply(nil, corrections: [:]))
+    }
+
+    func testTheCountdownBeyondADaySaysDays() {
+        XCTAssertEqual(LeaveCountdown.days(26 * 3600 + 120), "1d 2h")
+        XCTAssertEqual(LeaveCountdown.spoken(42 * 60), "42 minutes")
+        XCTAssertEqual(LeaveCountdown.spoken(90 * 60), "1 hour 30 minutes")
     }
 }

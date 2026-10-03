@@ -68,6 +68,66 @@ final class CommissionUITests: XCTestCase {
         attach(app, "Daydream — impact")
     }
 
+    /// "It's wrong — say why": the reason goes to the site and comes back on
+    /// the card as the lesson kept.
+    @MainActor func testOwnerTellsANoteItIsWrongAndWhy() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-SRDemo", "-SRFreshInstall"]
+        app.launch()
+        openDaydream(app)
+        let gotIt = app.buttons["daydream-how-it-works-done"]
+        if gotIt.waitForExistence(timeout: 3) { gotIt.tap() }
+
+        let card = app.descendants(matching: .any)["daydream-note-demo-note-renewals"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        let more = card.buttons["noticed-more"]
+        XCTAssertTrue(scroll(app, to: more))
+        more.tap()
+        let wrong = app.buttons["It's wrong — say why"]
+        XCTAssertTrue(wrong.waitForExistence(timeout: 5))
+        wrong.tap()
+
+        let why = app.textViews["daydream-ruling-why"]
+        XCTAssertTrue(why.waitForExistence(timeout: 5))
+        let send = app.buttons["daydream-ruling-send"]
+        XCTAssertFalse(send.isEnabled, "A wrong needs a reason")
+        why.tap()
+        why.typeText("Two of those renew in different months")
+        XCTAssertTrue(send.isEnabled)
+        attach(app, "Daydream — it's wrong, and why")
+        send.tap()
+
+        let lesson = card.staticTexts["daydream-review-lesson"]
+        XCTAssertTrue(lesson.waitForExistence(timeout: 10))
+        XCTAssertTrue(lesson.label.contains("Two of those renew in different months"), lesson.label)
+        XCTAssertTrue(card.buttons["daydream-review-argue"].exists)
+        _ = scroll(app, to: lesson)
+        attach(app, "Daydream — lesson kept")
+    }
+
+    /// "Do it for me": one tap, no further questions, and an Undo.
+    @MainActor func testOwnerHasTheStepDoneWithOneTap() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-SRDemo", "-SRFreshInstall"]
+        app.launch()
+        openDaydream(app)
+        let gotIt = app.buttons["daydream-how-it-works-done"]
+        if gotIt.waitForExistence(timeout: 3) { gotIt.tap() }
+
+        let card = app.descendants(matching: .any)["daydream-note-demo-note-renewals"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        let doIt = card.buttons["daydream-do-it"]
+        XCTAssertTrue(scroll(app, to: doIt))
+        attach(app, "Daydream — do it for me")
+        doIt.tap()
+
+        let undo = card.buttons["daydream-act-undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.sheets.firstMatch.exists, "No further questions")
+        _ = scroll(app, to: undo)
+        attach(app, "Daydream — done for you")
+    }
+
     // MARK: - Helpers
 
     @MainActor private func openDaydream(_ app: XCUIApplication) {

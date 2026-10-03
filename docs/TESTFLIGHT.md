@@ -3,7 +3,7 @@
 The repository contains two distinct workflows:
 
 1. **Check app and API:** automatic Linux API tests and hosted-Mac iPhone simulator build/XCTest. No Apple signing secrets needed. Both workflows use the macOS 26 runner and check for the iOS 26 SDK or newer before building.
-2. **Upload to TestFlight:** manually run after configuring signing. Archives, signs and uploads to App Store Connect. Apple processing and beta review are separate from upload success.
+2. **Upload to TestFlight:** runs on every merge to `main` that changes the app, and by hand from the Actions tab, once signing is configured. Archives, signs and uploads to App Store Connect. Apple processing and beta review are separate from upload success.
 
 ## Apple account setup
 
@@ -63,7 +63,7 @@ The existing local preview is for browser tests with synthetic records. It canno
 
 ## Distribute and connect
 
-1. Run **Upload to TestFlight** from GitHub Actions once the simulator check passes.
+1. Merge a pull request whose simulator check passed; **Upload to TestFlight** runs on the merge. (Run it by hand for anything else.)
 2. Wait for App Store Connect to finish processing. Complete export-compliance and beta information as requested.
 3. Invite family as **external testers** (do not give them App Store Connect administrator access). Apple may require beta review before the build is available.
 4. Install TestFlight and the app on your iPhone.

@@ -33,7 +33,6 @@ struct SettingsScreen: View {
     /// Today's optional family cards — see `TodayCards`.
     @AppStorage(TodayCards.steps) private var todaySteps = false
     @AppStorage(TodayCards.tasks) private var todayTasks = false
-    @AppStorage(TodayCards.forecast) private var todayForecast = true
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
     enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs, deleteAccount }
@@ -75,13 +74,11 @@ struct SettingsScreen: View {
                     SRSectionLabel(text: "Appearance")
                 }
 
-                // Cards Today can carry. The boards are off until asked for;
-                // "Family · next" is on (it draws nothing on a quiet day). Only
-                // for somebody with the family boards (family + the site).
+                // Cards Today can carry, off until asked for. Only for
+                // somebody with the family boards (family + the site). The
+                // travel forecast is not one: it lives on the Family tab.
                 if access.familyBoards && site.paired {
                     Section {
-                        todayToggle("Family · next", "Who is leaving when, and anything that looks off", "clock", $todayForecast)
-                            .accessibilityIdentifier("settings-today-forecast")
                         todayToggle("Family steps", "Your place and the top three", "figure.walk", $todaySteps)
                             .accessibilityIdentifier("settings-today-steps")
                         todayToggle("Family tasks", "What's left, what's waiting, what's owed", "checklist", $todayTasks)
@@ -157,7 +154,7 @@ struct SettingsScreen: View {
             // Inline, not large. A large title renders BLANK on this OS with this
             // appearance proxy — the bar lays out at full height and paints no text.
             // Verified in CI screenshots; inline titles in the same build draw in
-            // Archivo Black correctly. A compact bar also gives a list more of the
+            // Inter Display correctly. A compact bar also gives a list more of the
             // screen, which on a phone is the thing actually being asked for.
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -745,7 +742,7 @@ struct AboutScreen: View {
             }
 
             Section {
-                Text("Archivo Black, DM Sans, DM Mono and JetBrains Mono, all under the SIL Open Font Licence. Their licences ship in the app bundle.")
+                Text("Inter Display, DM Sans, DM Mono and JetBrains Mono, all under the SIL Open Font Licence. Their licences ship in the app bundle.")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)

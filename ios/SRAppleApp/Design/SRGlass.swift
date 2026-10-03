@@ -21,7 +21,7 @@ import UIKit
 /// - **Ink survives as smoked glass.** /health's ink band becomes a dark slab
 ///   tinted `#1a1008`. The register rule still holds: anything on it asks
 ///   `SRRegister.ink` for its colour.
-/// - **The voice is SR.** Archivo Black for figures and headlines, JetBrains
+/// - **The voice is SR.** Inter Display for figures and headlines, JetBrains
 ///   Mono kickers, DM Sans reading copy, burnt orange for the one thing that
 ///   matters on a screen, the `sr.` mark in the bar.
 ///
@@ -258,7 +258,7 @@ struct SRButtonLabel: View {
 // MARK: - Headers
 
 /// A headline for a screen whose headline IS the content: a game's result, a
-/// round, a workflow's name. A mono kicker, then the title in Archivo Black.
+/// round, a workflow's name. A mono kicker, then the title in Inter Display.
 ///
 /// NOT for a tab's root. Tab roots carry no page title: the tab bar already
 /// says where you are, the bar carries the `sr.` mark (and, on Today, the

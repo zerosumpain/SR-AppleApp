@@ -5,9 +5,6 @@ import SwiftUI
 enum TodayCards {
     static let steps = "today-card-steps"
     static let tasks = "today-card-tasks"
-    /// The travel desk's next moves and flags. ON by default, unlike the two
-    /// boards: it draws nothing unless someone has a move due or looks off.
-    static let forecast = "today-card-forecast"
 }
 
 /// The family step board: your place, the race, everyone ranked.

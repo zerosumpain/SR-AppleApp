@@ -470,13 +470,13 @@ enum HealthRoute: Hashable {
     case planRoute
     case nearbyRoutes
     case offlineMaps
-    // Readiness in full, pushed from the tab's hero.
-    case readiness
     // The read, tripwires, moves and "The full picture" — the tab's fourth area.
     case insights
-    // /health's deeper sections, each pushed from "The full picture".
+    // /health's deeper sections, each pushed from Insights.
     case instruments
     case forecast
+    /// One forecast, by key, from its tile in Insights.
+    case forecastDetail(String)
     case tripwires
     case moves
     case experiments

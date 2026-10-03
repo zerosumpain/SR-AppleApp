@@ -55,7 +55,7 @@ enum SRChrome {
         // The first build of this overhaul came back with every large title
         // BLANK — the bar laid out at its full 96pt height, the trailing button
         // in the right place, and nothing drawn where the title goes. Inline
-        // titles in the same build rendered in Archivo Black perfectly, and
+        // titles in the same build rendered in Inter Display perfectly, and
         // `testEveryNamedFontIsRegistered` passed, so the face is present and
         // the appearance proxy is being honoured: it is the large-title slot
         // specifically that does not survive a custom font here.

@@ -152,7 +152,19 @@ import UIKit
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound, .badge]
+        // A family alarm with the app open: the app rings it itself, on a
+        // loop through the silent switch, instead of the push's 28 seconds.
+        let info = notification.request.content.userInfo
+        let category = info["category"] as? String ?? notification.request.content.categoryIdentifier
+        if category == FamilyAlarmStore.category, let alarm = FamilyAlarm(userInfo: info) {
+            FamilyAlarmStore.shared.receive(alarm)
+            return [.list]
+        }
+        if category == FamilyAlarmStore.cancelCategory, let id = info["alarmId"] as? String {
+            FamilyAlarmStore.shared.cancelled(id)
+            return [.banner, .list]
+        }
+        return [.banner, .list, .sound, .badge]
     }
 
     /// A tapped notification goes to the tab that owns its category.
@@ -200,6 +212,19 @@ import UIKit
         // that raised it. The router refuses a tab, the inbox or the
         // connections sheet this person may not reach, so a stale tap opens
         // Today.
+        // A family alarm, tapped from the Lock Screen: ring it in the app and
+        // put it over the Family tab, where everybody is on the map.
+        if category == FamilyAlarmStore.category || category == FamilyAlarmStore.cancelCategory {
+            let info = response.notification.request.content.userInfo
+            if category == FamilyAlarmStore.category, let alarm = FamilyAlarm(userInfo: info) {
+                FamilyAlarmStore.shared.receive(alarm)
+            } else if let id = info["alarmId"] as? String {
+                FamilyAlarmStore.shared.cancelled(id)
+            }
+            Self.pending.tab = .family
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
         if category == "connections" {
             Self.pending.openConnections = true
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)

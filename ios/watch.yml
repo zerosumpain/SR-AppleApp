@@ -28,7 +28,7 @@ targets:
       - SRAppleWatch
       - Shared
       # Two faces, not the phone's nine: figures and labels.
-      - path: SRAppleApp/Fonts/ArchivoBlack-Regular.ttf
+      - path: SRAppleApp/Fonts/InterDisplay-ExtraBold.ttf
         buildPhase: resources
       - path: SRAppleApp/Fonts/JetBrainsMono-Regular.ttf
         buildPhase: resources
@@ -77,7 +77,7 @@ targets:
       - path: SRAppleApp/Family/FamilyBoardModels.swift
       - path: SRAppleApp/Family/FamilyWidgetShared.swift
       # The headline and label faces, as on the Watch.
-      - path: SRAppleApp/Fonts/ArchivoBlack-Regular.ttf
+      - path: SRAppleApp/Fonts/InterDisplay-ExtraBold.ttf
         buildPhase: resources
       - path: SRAppleApp/Fonts/JetBrainsMono-Regular.ttf
         buildPhase: resources

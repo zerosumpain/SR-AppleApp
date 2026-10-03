@@ -98,7 +98,29 @@ struct CommissionBudget: Decodable, Hashable {
     }
 }
 struct EvidenceRead: Decodable, Hashable { let sourceRef: String; let tool: String; let args: JSONValue }
-struct EvidenceReport: Decodable, Hashable { let summary: String; let evidence: [CommissionEvidence] }
+struct EvidenceReport: Decodable, Hashable {
+    let summary: String
+    let evidence: [CommissionEvidence]
+    /// The double-check's verdict after arguing against the note. Absent on a
+    /// report written before it existed, `null` when it could not run — and a
+    /// verdict of the wrong shape costs only itself, never the report.
+    let review: CommissionReview?
+
+    init(summary: String, evidence: [CommissionEvidence], review: CommissionReview? = nil) {
+        self.summary = summary
+        self.evidence = evidence
+        self.review = review
+    }
+
+    enum CodingKeys: String, CodingKey { case summary, evidence, review }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try c.decode(String.self, forKey: .summary)
+        evidence = try c.decode([CommissionEvidence].self, forKey: .evidence)
+        review = c.lenient(CommissionReview.self, .review)
+    }
+}
 struct CommissionEvidence: Decodable, Hashable {
     let sourceRef: String
     let tool: String
@@ -110,7 +132,8 @@ struct CommissionEvidence: Decodable, Hashable {
 
     /// Whether the source answered. Anything but a read is "could not be
     /// reached" — the report says so rather than guessing.
-    var wasRead: Bool { ["read", "ok", "fresh", "retrieved"].contains(status.lowercased()) }
+    /// The site writes `available` / `unavailable`.
+    var wasRead: Bool { ["available", "read", "ok", "fresh", "retrieved"].contains(status.lowercased()) }
 }
 struct CommissionEvent: Decodable, Identifiable, Hashable {
     let id: String

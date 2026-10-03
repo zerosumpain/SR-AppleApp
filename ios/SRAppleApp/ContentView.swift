@@ -251,6 +251,8 @@ struct ContentView: View {
             if reviewDemo.active { DemoBanner() }
             tabs
         }
+        // A family member's alarm, over whichever tab is open.
+        .modifier(FamilyAlarmHost())
     }
 
     private var tabs: some View {

@@ -634,37 +634,6 @@ final class TrailSnapshotTests: XCTestCase {
         )
     }
 
-    @MainActor func testTheReadinessScreen() throws {
-        let summary: HealthSummary = try TrailSamples.decode(Self.summary)
-        snapshot(
-            List {
-                ReadinessBand(summary: summary, factors: [
-                    ReadinessFactorLine(key: "recovery", label: "Recovery", score: 68),
-                    ReadinessFactorLine(key: "sleepQuality", label: "Sleep quality", score: 81),
-                ]).srInkRow()
-                Section {
-                    ActivityTodayCard(rings: ActivityRingsStore.demo).srBareRow()
-                } header: {
-                    SRSectionLabel(text: "Activity · today", trailing: "From this iPhone")
-                }
-                Section {
-                    SRTileGrid {
-                        ForEach(summary.figures) { FigureTrendTile(figure: $0) }
-                    }
-                    .srBareRow()
-                } header: {
-                    SRSectionLabel(text: "Last 7 days", trailing: "Tap for more")
-                }
-            }
-            .listStyle(.insetGrouped)
-            .srPaper()
-            .navigationTitle("Readiness")
-            .navigationBarTitleDisplayMode(.inline),
-            name: "Readiness — band, rings, fortnight",
-            height: 1400
-        )
-    }
-
     static let summary = """
     {
       "generatedAt": "2026-09-23T06:00:00.000Z",

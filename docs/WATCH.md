@@ -155,7 +155,7 @@ The plan, as written before it was built:
   there was considered and turned down for that reason.
 - **Design.** `SRRegister.ink`: cream type on ink. watchOS is always dark,
   the phone is light-locked, and the ink register exists for exactly this. Bundle
-  two faces only: JetBrains Mono for labels, Archivo Black for figures.
+  two faces only: JetBrains Mono for labels, Inter Display for figures.
 
 ### Build and CI changes
 

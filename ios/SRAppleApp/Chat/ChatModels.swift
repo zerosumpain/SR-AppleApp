@@ -175,6 +175,11 @@ struct ChatMessage: Decodable, Identifiable, Hashable {
     var artifacts: [ChatArtifact]?
     /// The files and research the turn cited.
     var sources: [ChatSource]?
+    /// The turn's desk page — what the site's right-hand panel showed for this
+    /// answer — for the drawer. Absent on an older server and on user turns.
+    /// `PanelPage` never throws, so a page this build cannot read costs the
+    /// drawer that page and never costs the transcript.
+    var panel: PanelPage?
 
     var isUser: Bool { role == "user" }
 

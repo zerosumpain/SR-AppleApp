@@ -14,10 +14,14 @@ struct DaydreamNoteCard: View {
     @ObservedObject private var feedback = NoticedFeedback.shared
     @ObservedObject private var commissions = CommissionStore.shared
     @ObservedObject private var store = DaydreamStore.shared
+    @ObservedObject private var rulings = DaydreamRulings.shared
+    @ObservedObject private var actions = DaydreamActions.shared
     @Environment(\.openURL) private var openURL
     @State private var expanded = false
     /// "Change" reopens the choices over a verdict already given.
     @State private var changing = false
+    /// The ruling sheet, while open: "It's wrong" or "It was right".
+    @State private var ruling: DaydreamOwnerRuling?
 
     var body: some View {
         SRCard {
@@ -28,11 +32,45 @@ struct DaydreamNoteCard: View {
                 if let next = note.next { nextStep(next) }
                 if !note.sources.isEmpty { sources }
                 if let status = commissionStatus { commissionRow(status) }
+                if let act = actions.act(for: note), [.done, .undone, .sent].contains(act.status) {
+                    DaydreamActBanner(act: act, busy: actions.isBusy(note)) { run($0) }
+                }
+                if let message = actions.message[note.id] {
+                    Text(message)
+                        .font(SR.Text.secondary(14))
+                        .foregroundStyle(SR.warn)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("daydream-act-message")
+                }
+                if let review = rulings.review(for: note) {
+                    DaydreamReviewBanner(review: review) { startRuling($0) }
+                }
                 decision
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("daydream-note-\(note.id)")
+        .sheet(item: $ruling) { ruling in
+            DaydreamRulingSheet(note: note, ruling: ruling)
+        }
+        .confirmationDialog(
+            "Which calendar should “Do it for me” use?",
+            isPresented: Binding(
+                get: { actions.choosing?.noteId == note.id },
+                set: { if !$0, actions.choosing?.noteId == note.id { actions.choosing = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            ForEach(actions.choosing?.calendars ?? [], id: \.self) { name in
+                Button(name) {
+                    let note = self.note
+                    Task { await actions.choose(name, thenDo: note) }
+                }
+            }
+            Button("Cancel", role: .cancel) { actions.choosing = nil }
+        } message: {
+            Text("It asks once, then puts every “Do it for me” entry there.")
+        }
     }
 
     // MARK: - What it is
@@ -213,9 +251,14 @@ struct DaydreamNoteCard: View {
     @ViewBuilder
     private var decision: some View {
         let current = feedback.verdict(for: note)
+        let ruled = rulings.review(for: note).flatMap { $0.byOwner ? $0 : nil }
         VStack(alignment: .leading, spacing: 8) {
             if let current, !changing {
                 answered(current)
+            } else if let status = actions.act(for: note)?.status, status == .done || status == .sent, !changing {
+                answeredDone
+            } else if let ruled, !changing {
+                answered(ruled)
             } else {
                 choices(current)
             }
@@ -246,7 +289,7 @@ struct DaydreamNoteCard: View {
             if canDoubleCheck {
                 choice(
                     icon: "magnifyingglass", title: "Double-check it",
-                    detail: "Re-read its sources and report back. Asks your OK first.",
+                    detail: "Re-read its sources, then try to prove it wrong. Asks your OK first.",
                     on: false, id: "daydream-double-check"
                 ) {
                     SRHaptic.tap()
@@ -254,6 +297,14 @@ struct DaydreamNoteCard: View {
                     Task { await commissions.prepare(thoughtId: id) }
                 }
                 .disabled(commissions.busy)
+            }
+            if let act = actions.act(for: note), act.canDo {
+                choice(
+                    icon: "arrow.right.circle", title: actions.isBusy(note) ? "Doing it…" : "Do it for me",
+                    detail: act.status == .undone ? "Put it back in your diary." : act.label,
+                    on: false, id: "daydream-do-it"
+                ) { run("do") }
+                .disabled(actions.isBusy(note))
             }
             choice(
                 icon: "hand.thumbsdown", title: "Not for me", detail: "Fewer like this.",
@@ -307,6 +358,13 @@ struct DaydreamNoteCard: View {
 
     private var moreMenu: some View {
         Menu {
+            if rulings.review(for: note)?.verdict != .wrong {
+                Button {
+                    startRuling(.wrong)
+                } label: {
+                    Label("It's wrong — say why", systemImage: "xmark.seal")
+                }
+            }
             Button(role: .destructive) {
                 send(.never)
             } label: {
@@ -347,7 +405,47 @@ struct DaydreamNoteCard: View {
         }
     }
 
+    /// Done for you, standing in for a rating.
+    private var answeredDone: some View {
+        HStack(spacing: 10) {
+            SRGlassChip(text: "Done for you", icon: "checkmark.circle", tone: SR.good)
+                .accessibilityIdentifier("daydream-verdict")
+            Spacer(minLength: 6)
+        }
+    }
+
+    private func run(_ op: String) {
+        SRHaptic.tap()
+        let note = self.note
+        Task { await actions.run(op, for: note) }
+    }
+
+    /// Your ruling on the claim, standing in for a rating.
+    private func answered(_ review: DaydreamReview) -> some View {
+        HStack(spacing: 10) {
+            SRGlassChip(text: review.verdict == .wrong ? "You said it's wrong" : "You said it's right",
+                        icon: review.verdict.icon, tone: review.verdict.tone)
+                .accessibilityIdentifier("daydream-verdict")
+            Spacer(minLength: 6)
+            Button {
+                SRHaptic.tap()
+                withAnimation(.easeInOut(duration: 0.2)) { changing = true }
+            } label: {
+                SRButtonLabel(title: "Change")
+            }
+            .srButton()
+            .controlSize(.small)
+            .accessibilityLabel("Change your answer")
+            .accessibilityIdentifier("daydream-change")
+        }
+    }
+
     // MARK: - Helpers
+
+    private func startRuling(_ ruling: DaydreamOwnerRuling) {
+        SRHaptic.tap()
+        self.ruling = ruling
+    }
 
     /// The stage the dots show: the site's, unless something done on this
     /// phone has moved the note on since.
@@ -454,7 +552,8 @@ enum DaydreamCommissionStatus {
     }
 }
 
-/// Chips that wrap onto as many rows as they need.
+/// Chips that wrap onto as many rows as they need. Also the Family tab's
+/// place piles (`FamilyPlaceStacks`).
 struct DaydreamWrap: Layout {
     var spacing: CGFloat = 6
 

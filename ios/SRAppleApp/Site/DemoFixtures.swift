@@ -201,6 +201,8 @@ enum SRDemoFixtures {
             return CommissionDemoFixtures.reply(method: method, query: query, body: body)
         case ("POST", "api/native/daydream/feedback"):
             return #"{"ok":true}"#
+        case ("POST", "api/native/daydream/act"):
+            return daydreamAct(body)
         case ("GET", "api/native/health/summary"):
             return healthSummary(clock)
         case ("GET", "api/native/health/hub"):
@@ -869,6 +871,7 @@ enum SRDemoFixtures {
           {"id": "m1", "role": "user", "content": "How did week 6 go? Plan attached.", "createdAt": \#(s(clock.iso(minutesAgo: 52))), "source": "web", "toolSteps": [],
            "attachments": [{"id": "att-1", "filename": "week-6-plan.pdf", "kind": "document", "mimeType": "application/pdf", "sizeBytes": 184320}]},
           {"id": "m2", "role": "assistant", "content": "## Week 6, in one line\n\nYou ran **42.1 km** across five sessions, the most since the block started, and recovery held at **68%** on average.\n\n- Long run: 16.1 km at 5:55 /km, heart-rate drift 4.2%\n- Intervals: 6 x 800 m, every rep inside target\n- Easy runs stayed easy, averaging 139 bpm\n\n> One flag: HRV dipped on Thursday after the hill session. Worth an extra easy day before the next one.\n\nThe query behind the weekly totals, if you want to rerun it:\n\n```sql\nSELECT date_trunc('week', start_date) AS week,\n       round(sum(distance_m) / 1000.0, 1) AS km\nFROM activities\nWHERE activity_type = 'run'\nGROUP BY 1\nORDER BY 1 DESC\nLIMIT 6;\n```\n\nWant me to draft week 7 around an 18 km long run?", "createdAt": \#(s(clock.iso(minutesAgo: 51))), "source": "web",
+           "panel": \#(healthDeskPage),
            "toolSteps": [
              {"tool": "health_activities", "status": "ok", "summary": "Read 42 runs since 1 August"},
              {"tool": "health_summary", "status": "ok", "summary": "Readiness, HRV and sleep for 14 days"},
@@ -889,6 +892,7 @@ enum SRDemoFixtures {
            "attachments": []},
           {"id": "m3", "role": "user", "content": "Yes, but keep Tuesday free.", "createdAt": \#(s(clock.iso(minutesAgo: 40))), "source": "web", "toolSteps": [], "attachments": []},
           {"id": "m4", "role": "assistant", "content": "Done. Week 7, with Tuesday off:\n\n1. **Mon** easy 6 km\n2. **Wed** 5 x 1 km at threshold\n3. **Thu** easy 8 km\n4. **Sat** long run, 18 km, last 3 at marathon pace\n5. **Sun** recovery spin, 45 minutes\n\nThat is 44 km of running, a 5% step up. I saved it to `plans/week-7.md` so it shows on the site too.", "createdAt": \#(s(clock.iso(minutesAgo: 38))), "source": "web",
+           "panel": \#(planDeskPage),
            "toolSteps": [{"tool": "drive_write", "status": "ok", "summary": "Saved plans/week-7.md"}],
            "artifacts": [
              {"type": "table", "caption": "Week 7",
@@ -900,6 +904,96 @@ enum SRDemoFixtures {
         ]
         """#
     }
+
+    /// The desk page the site sent with the week-6 answer: what the drawer
+    /// shows for it. Every figure is synthetic.
+    static let healthDeskPage = #"""
+    {"version": 1, "producer": "model",
+     "head": {"kicker": "This turn", "context": ["health", "training"], "title": "Week 6, at a glance",
+              "standfirst": "Read from /health for this answer: the week against the five before it."},
+     "quiet": false,
+     "sections": [
+       {"id": "week", "label": "This week", "blocks": [
+         {"id": "h-fig", "type": "figures", "span": 12, "items": [
+           {"label": "Distance", "value": "42.1", "unit": "km", "delta": "▲ 6% vs W5", "direction": "up", "spark": [31.2, 34.8, 36.1, 28.4, 39.7, 42.1]},
+           {"label": "Recovery", "value": "68", "unit": "%", "delta": "▲ 4 avg", "direction": "up", "spark": [61, 63, 60, 66, 64, 68]},
+           {"label": "HRV", "value": "64", "unit": "ms", "delta": "+5 vs 7d", "direction": "up", "spark": [57, 59, 58, 55, 60, 61, 59, 62, 58, 63, 61, 65, 63, 64]},
+           {"label": "Resting HR", "value": "52", "unit": "bpm", "delta": "−2 vs 7d", "direction": "down", "spark": [56, 55, 55, 56, 54, 54, 53, 54, 53, 53, 52, 53, 52, 52]}
+         ]}
+       ]},
+       {"id": "sleep", "label": "Sleep", "blocks": [
+         {"id": "h-sleep", "type": "series", "span": 12, "title": "Sleep, last 14 nights", "note": "hours", "zero": false, "unit": "h",
+          "source": "from health_summary",
+          "series": [{"key": "sleep", "label": "Asleep", "points": [
+            {"x": "18", "y": 6.8}, {"x": "19", "y": 7.1}, {"x": "20", "y": 6.5}, {"x": "21", "y": 7.6}, {"x": "22", "y": 7.0},
+            {"x": "23", "y": 6.9}, {"x": "24", "y": 7.3}, {"x": "25", "y": 7.8}, {"x": "26", "y": 6.6}, {"x": "27", "y": 7.2},
+            {"x": "28", "y": 7.0}, {"x": "29", "y": 7.5}, {"x": "30", "y": 7.1}, {"x": "1", "y": 7.4}]},
+            {"key": "need", "label": "Need", "points": [
+            {"x": "18", "y": 7.5}, {"x": "19", "y": 7.5}, {"x": "20", "y": 7.5}, {"x": "21", "y": 7.5}, {"x": "22", "y": 7.5},
+            {"x": "23", "y": 7.5}, {"x": "24", "y": 7.5}, {"x": "25", "y": 7.5}, {"x": "26", "y": 7.5}, {"x": "27", "y": 7.5},
+            {"x": "28", "y": 7.5}, {"x": "29", "y": 7.5}, {"x": "30", "y": 7.5}, {"x": "1", "y": 7.5}]}],
+          "foot": "Thursday's dip follows the hill session. Every other night sits inside a 6.5 to 7.8 hour band."}
+       ]},
+       {"id": "readiness", "label": "Readiness", "blocks": [
+         {"id": "h-ready", "type": "bars", "span": 6, "title": "Readiness, by part", "note": "72 · Primed",
+          "rows": [
+            {"id": "recovery", "label": "Recovery", "value": 68, "display": "68"},
+            {"id": "sleep", "label": "Sleep quality", "value": 81, "display": "81"},
+            {"id": "hrv", "label": "HRV balance", "value": 74, "display": "74"},
+            {"id": "load", "label": "Training load", "value": 58, "display": "58", "highlight": true}
+          ],
+          "foot": "Load is the part holding the score down: the week was the biggest of the block.",
+          "source": "from health_summary"},
+         {"id": "h-kv", "type": "kv", "span": 6, "title": "The week in numbers",
+          "items": [
+            {"label": "Sessions", "value": "5"},
+            {"label": "Time running", "value": "4h 28m"},
+            {"label": "Climb", "value": "412 m"},
+            {"label": "Long run", "value": "16.1 km at 5:55 /km"},
+            {"label": "HR drift", "value": "4.2%", "tone": "good"}
+          ]},
+         {"id": "h-act", "type": "actions", "span": 12, "items": [
+            {"id": "draft", "label": "Draft week 7", "kind": "ask", "ask": {"label": "Draft week 7", "detail": "Draft week 7 around an 18 km long run, and keep Tuesday free."}},
+            {"id": "open", "label": "Open health", "kind": "link", "href": "/health"}
+         ]}
+       ]}
+     ]}
+    """#
+
+    /// The desk page for the week-7 answer: the plan as rows, and what was
+    /// read for it.
+    static let planDeskPage = #"""
+    {"version": 1, "producer": "turn",
+     "head": {"kicker": "This turn", "context": ["training", "drive"], "title": "Week 7, Tuesday off",
+              "standfirst": "44 km, a 5% step up on week 6. Saved to plans/week-7.md."},
+     "quiet": false,
+     "sections": [
+       {"id": "plan", "label": "The week", "blocks": [
+         {"id": "p-rows", "type": "rows", "numbered": true, "rows": [
+           {"id": "mon", "title": "Monday, easy", "sub": "Conversational, under 140 bpm.", "meta": "6 km"},
+           {"id": "wed", "title": "Wednesday, 5 x 1 km threshold", "sub": "Two minutes jogged between reps.", "meta": "9 km"},
+           {"id": "thu", "title": "Thursday, easy", "meta": "8 km"},
+           {"id": "sat", "title": "Saturday, long run", "sub": "The last 3 km at marathon pace.", "meta": "18 km", "tone": "accent"},
+           {"id": "sun", "title": "Sunday, recovery spin", "meta": "45 min"}
+         ]},
+         {"id": "p-load", "type": "table", "title": "Load check", "note": "km", "columns": ["Week", "Distance", "Change"], "pick": 2,
+          "rows": [["W5", 39.7, "+40%"], ["W6", 42.1, "+6%"], ["W7", 44, "+5%"]],
+          "foot": "Under the 10% a week the block was planned around."}
+       ]},
+       {"id": "read", "label": "Read for this", "blocks": [
+         {"id": "p-src", "type": "rows", "rows": [
+           {"id": "taper", "title": "Marathon taper, what the studies say", "sub": "Cutting volume by 40 to 60 per cent over two weeks while holding intensity preserved fitness.", "meta": "example.org", "href": "https://example.org/taper", "external": true},
+           {"id": "plan6", "title": "week-6-plan.pdf", "sub": "Long run 16 km, last 4 at goal pace.", "meta": "file"},
+           {"id": "w7", "title": "plans/week-7.md", "sub": "Written by this turn.", "meta": "drive", "href": "/drive"}
+         ]},
+         {"id": "p-ran", "type": "timeline", "title": "What ran", "events": [
+           {"id": "e1", "when": "07:12", "what": "Read the week-6 plan"},
+           {"id": "e2", "when": "07:13", "what": "Checked load against the block", "sub": "W5 to W7"},
+           {"id": "e3", "when": "07:14", "what": "Saved plans/week-7.md", "hot": true}
+         ]}
+       ]}
+     ]}
+    """#
 
     static func whatsappMessages(_ clock: DemoClock) -> String {
         #"""
