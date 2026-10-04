@@ -166,6 +166,62 @@ struct HubDigest: Decodable {
     let plan: Plan?
     let experiments: [Experiment]
     let verdict: Verdict?
+    /// Overnight vitals, the Watch beside the WHOOP strap. Optional: servers
+    /// before 2026-10-04 do not send it, and a section that fails on the
+    /// server arrives as null — neither may cost the rest of the digest.
+    let vitals: Vitals?
+
+    struct Vitals: Decodable, Hashable {
+        /// One device's reading. `display` is already a deviation for
+        /// temperature ("+0.31"); the phone prints it as given.
+        struct Reading: Decodable, Hashable {
+            let display: String
+            let unit: String?
+            /// "vs 51 baseline", "vs its own baseline", "first readings".
+            let baseline: String
+            /// YYYY-MM-DD when older than yesterday; nil when fresh.
+            let asOf: String?
+            let series: [Double]
+
+            var displayWithUnit: String {
+                guard let unit, !unit.isEmpty else { return display }
+                return unit == "%" ? display + unit : "\(display) \(unit)"
+            }
+        }
+
+        struct Row: Decodable, Hashable, Identifiable {
+            let key: String
+            let label: String
+            /// Whose reading single-number surfaces take: "apple", "whoop", or
+            /// nil where the two are never substituted (temperature).
+            let primary: String?
+            let apple: Reading?
+            let whoop: Reading?
+            /// "Usually level ± 2 bpm over 28 nights"; nil until there is history.
+            let agreement: String?
+            /// Set when last night sits outside the usual gap.
+            let disagree: String?
+            let tone: HubTone
+            var id: String { key }
+        }
+
+        let note: String
+        let rows: [Row]
+
+        private enum CodingKeys: String, CodingKey { case note, rows }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            note = (try? c.decode(String.self, forKey: .note)) ?? ""
+            // One malformed row costs that row, not the section.
+            rows = c.lossy(Row.self, .rows)
+        }
+
+        init(note: String, rows: [Row]) {
+            self.note = note
+            self.rows = rows
+        }
+    }
 }
 
 /// The deep read, made after the hero has drawn.
