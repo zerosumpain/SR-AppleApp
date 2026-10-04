@@ -270,13 +270,17 @@ enum SleepFormat {
         return "\(minutes / 60)h\(String(format: "%02d", minutes % 60))m"
     }
 
-    /// The stage's colour in the bar. Each also has its word in the legend.
+    /// The stage's colour in the bar — the website's nights strip, so a night
+    /// reads the same on both: deep the accent, light (the Watch's core) a
+    /// brown, REM the reading colour (cream on the dark ground), awake grey.
+    /// Deep and REM were two oranges that could not be told apart in dark
+    /// mode (2026-10-05). Each also has its word in the legend.
     static func color(_ key: String) -> Color {
         switch key {
-        case "deep": return SR.accentDeep
-        case "rem": return SR.accent
-        case "light": return SR.accent.opacity(0.45)
-        default: return SR.inkGhost
+        case "deep": return SR.accent
+        case "light": return SR.accent.opacity(0.55)
+        case "rem": return SR.ink.opacity(0.85)
+        default: return SR.ink.opacity(0.25)
         }
     }
 }

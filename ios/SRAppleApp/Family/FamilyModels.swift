@@ -266,6 +266,42 @@ extension FamilyPerson {
         return head.lowercased() == "home" ? "Home" : head
     }
 
+    /// Placed at a place on the family cards: here now, or — when the site
+    /// has stopped hearing from them ("unknown") — wherever it last saw them.
+    /// A phone lying still at home sends nothing, and on opening the app that
+    /// read as "not seen" when the answer was plainly "at home, a while ago".
+    /// How long ago is the circle's edge (`Freshness`), not a separate row.
+    /// Somebody not sharing ("off"), or never seen, is not placed.
+    var placed: Bool {
+        status == "home" || status == "out" || (status == "unknown" && placeName != nil)
+    }
+
+    /// How recently the site heard from them, for the edge of their circle.
+    enum Freshness: Equatable {
+        /// Within the hour.
+        case fresh
+        /// One to two hours.
+        case aging
+        /// Two hours or more.
+        case stale
+        /// No time to go by.
+        case unknown
+    }
+
+    func freshness(now: Date = Date()) -> Freshness {
+        guard let raw = lastSeenAt, let seen = Self.isoDate(raw) else { return .unknown }
+        let age = now.timeIntervalSince(seen)
+        if age < 3600 { return .fresh }
+        if age < 7200 { return .aging }
+        return .stale
+    }
+
+    private static func isoDate(_ raw: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+    }
+
     /// The second half of the line, as a sentence: "Seen 6m ago".
     var seenLine: String? {
         let parts = line.components(separatedBy: " · ")
@@ -291,14 +327,15 @@ extension HouseholdView {
     ///
     /// You first, then home, then the bigger groups.
     func places(radius: CLLocationDistance = 150) -> [FamilyPlace] {
-        let present = people.filter { $0.status == "home" || $0.status == "out" }
+        let present = people.filter(\.placed)
         var groups: [FamilyPlace] = []
         for person in present {
             let name = person.placeName ?? "Out"
             if let index = groups.firstIndex(where: { $0.name.lowercased() == name.lowercased() }) {
                 groups[index].people.append(person)
             } else {
-                groups.append(FamilyPlace(name: name, isHome: person.status == "home", people: [person]))
+                // "Last at Home" is still home: placeName says "Home" for both.
+                groups.append(FamilyPlace(name: name, isHome: name == "Home", people: [person]))
             }
         }
 
@@ -351,9 +388,12 @@ extension HouseholdView {
 
     /// Whoever is left out of `places`, in words: "Kit was last at The
     /// Reservoir, 2h ago.", "Pat isn't sharing their location."
+    /// Everyone `places` leaves out: not sharing, or never seen anywhere.
+    var absent: [FamilyPerson] { people.filter { !$0.placed } }
+
     var absentLines: [String] {
         var lines: [String] = []
-        for person in people where person.status == "unknown" {
+        for person in people where person.status == "unknown" && !person.placed {
             if let place = person.placeName, let seen = person.seenLine {
                 let when: String = seen.prefix(1).lowercased() + String(seen.dropFirst())
                 lines.append("\(person.name) was last at \(place), \(when).")

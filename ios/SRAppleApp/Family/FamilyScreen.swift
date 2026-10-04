@@ -316,7 +316,7 @@ struct FamilyPlaceStacks: View {
                  icon: $0.isHome ? "house.fill" : $0.isMoving ? "arrow.triangle.turn.up.right.circle.fill" : "mappin.circle.fill",
                  people: $0.people)
         }
-        let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
+        let absent = view.absent
         if !absent.isEmpty { all.append(Pile(id: "absent", title: "Not seen", icon: "questionmark.circle", people: absent)) }
         return all
     }

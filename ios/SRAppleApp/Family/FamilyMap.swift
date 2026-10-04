@@ -88,7 +88,7 @@ struct TodayFamilyCard: View {
         if let view = store.view, !view.people.isEmpty {
             let groups = view.places()
             let initials = view.initials
-            let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
+            let absent = view.absent
             VStack(alignment: .leading, spacing: 10) {
                 SRSectionLabel(text: "Family tracking", prominent: true)
                 VStack(alignment: .leading, spacing: 0) {
@@ -109,6 +109,13 @@ struct TodayFamilyCard: View {
                     }
                 }
                 .srGlassCard(.paper)
+                // A slight edge in the site's orange: the one card on Today
+                // that is about people, set apart from the doors below it.
+                .overlay(
+                    RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                        .strokeBorder(SR.accent.opacity(0.7), lineWidth: 1.5)
+                        .allowsHitTesting(false)
+                )
                 // Any row opens the tab. The circles say who; the only words
                 // are where (John asked for the card that spare, 2026-10-05) —
                 // who is doing what, how fast and how long ago are on Family.
@@ -189,7 +196,7 @@ struct TodayFamilyCard: View {
         return HStack(spacing: -12) {
             ForEach(Array(shown.enumerated()), id: \.element.id) { index, person in
                 circle(initials[person.subject] ?? person.initial, ghost: ghost,
-                       moving: person.moving != nil, low: lowBattery(person))
+                       freshness: person.freshness(), low: lowBattery(person))
                     .zIndex(Double(shown.count - index))
             }
             if extra > 0 {
@@ -199,7 +206,20 @@ struct TodayFamilyCard: View {
         .accessibilityHidden(true)
     }
 
-    private func circle(_ text: String, ghost: Bool, moving: Bool, low: Bool) -> some View {
+    /// The edge says how recently the site heard from them: green within the
+    /// hour, amber one to two hours, red two hours or more. Somebody placed at
+    /// their LAST known spot (`FamilyPerson.placed`) reads as where they were,
+    /// with the edge saying how long ago.
+    static func edge(_ freshness: FamilyPerson.Freshness) -> Color {
+        switch freshness {
+        case .fresh: return SR.good
+        case .aging: return SR.warn
+        case .stale: return SR.error
+        case .unknown: return SR.surface
+        }
+    }
+
+    private func circle(_ text: String, ghost: Bool, freshness: FamilyPerson.Freshness, low: Bool) -> some View {
         Text(text)
             .font(SR.Text.title(text.count > 2 ? 13 : 14))
             .tracking(-0.3)
@@ -214,7 +234,7 @@ struct TodayFamilyCard: View {
                 } else {
                     Circle()
                         .fill(SR.ink)
-                        .overlay(Circle().strokeBorder(moving ? SR.accent : SR.surface, lineWidth: 2.5))
+                        .overlay(Circle().strokeBorder(Self.edge(freshness), lineWidth: 3))
                 }
             }
             .overlay(alignment: .bottomTrailing) {

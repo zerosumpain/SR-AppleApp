@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The four squares under the family: Ask and Health, then Daydream and Games.
+/// The four doors under the family — Ask and Readiness, then Daydream and
+/// Play — each one unit tall and two across, two to a row.
 ///
 /// Squares, not rows, because each is a door rather than a reading — one tap
 /// and you are where the thing is. Which of them a person gets follows what
@@ -36,9 +37,9 @@ struct TodayTileGrid<Tile: View>: View {
     let tiles: [TodayTile]
     @ViewBuilder let tile: (TodayTile) -> Tile
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// About square on a phone: a 390pt screen less the gutters and the gap
-    /// leaves tiles ~169pt wide.
-    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 164
+    /// Half the width: a 390pt screen less the gutters and the gap leaves
+    /// tiles ~169pt wide, so one unit down to two across is ~82pt.
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 82
 
     var body: some View {
         let folded = typeSize.isAccessibilitySize
@@ -52,7 +53,7 @@ struct TodayTileGrid<Tile: View>: View {
                         tile(kind)
                             .frame(maxWidth: .infinity)
                             .frame(height: folded ? nil : side)
-                            .frame(minHeight: folded ? 120 : nil)
+                            .frame(minHeight: folded ? 72 : nil)
                     }
                     // A lone tile keeps its half, not the whole row.
                     if !folded && row.count == 1 { Color.clear.frame(maxWidth: .infinity) }
@@ -62,46 +63,29 @@ struct TodayTileGrid<Tile: View>: View {
     }
 }
 
-/// A paper tile: something to look at top-left, a chevron top-right, and a
-/// kicker, a title and one line at the foot.
+/// A paper tile, one unit tall and two across: the mark, the name, a
+/// chevron. Nothing else — the counts ride on the mark's badge, and the
+/// reasons are one tap away (John asked for them this spare, 2026-10-05).
 struct TodayTileCard<Visual: View>: View {
-    let kicker: String
     let title: String
-    let subline: String?
     @ViewBuilder let visual: () -> Visual
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                visual()
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(SR.inkGhost)
-                    .accessibilityHidden(true)
-            }
-            Spacer(minLength: 8)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(kicker.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.2)
-                    .foregroundStyle(SR.inkMuted)
-                    .lineLimit(1)
-                Text(title)
-                    .font(SR.Text.title(18))
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                if let subline {
-                    Text(subline)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkSecondary)
-                        .lineLimit(1)
-                }
-            }
+        HStack(spacing: 12) {
+            visual()
+            Text(title)
+                .font(SR.Text.title(17))
+                .foregroundStyle(SR.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SR.inkGhost)
+                .accessibilityHidden(true)
         }
-        .padding(SR.cardPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, SR.cardPadding - 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .srGlassCard(.paper, interactive: true)
         .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
     }
@@ -110,21 +94,17 @@ struct TodayTileCard<Visual: View>: View {
 /// The one filled control on Today: a new thread with the keyboard up.
 struct TodayAskTile: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                disc("bubble.left")
-                Spacer(minLength: 4)
-                disc("mic")
-            }
-            Spacer(minLength: 8)
-            Text("Ask jkai\nanything")
-                .font(SR.Text.title(22))
+        HStack(spacing: 10) {
+            disc("bubble.left")
+            Text("Ask jkai")
+                .font(SR.Text.title(17))
                 .foregroundStyle(SR.paper)
-                .lineLimit(3)
+                .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .multilineTextAlignment(.leading)
+            Spacer(minLength: 4)
+            disc("mic")
         }
-        .padding(SR.cardPadding)
+        .padding(.horizontal, SR.cardPadding - 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Deeper than the accent so the cream words hold 5:1 on it.
         .background(SR.accentDeep, in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
@@ -133,9 +113,9 @@ struct TodayAskTile: View {
 
     private func disc(_ symbol: String) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 18, weight: .semibold))
+            .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(SR.paper)
-            .frame(width: 44, height: 44)
+            .frame(width: 36, height: 36)
             .background(SR.paper.opacity(0.18), in: Circle())
             .accessibilityHidden(true)
     }
@@ -153,12 +133,12 @@ struct TodayDaydreamTile: View {
         // just the ones on this phone), moved by answers given here.
         let waiting = store.toDecide(feedback: feedback, commissions: commissions)
         let newest = store.notes.first { store.bucket(for: $0, feedback: feedback, commissions: commissions) == .decide }
-        let title = waiting == 0 ? "All caught up" : "\(waiting) to decide"
-        TodayTileCard(kicker: "Daydream", title: title, subline: (newest ?? store.notes.first)?.title) {
+        let state = waiting == 0 ? "all caught up" : "\(waiting) to decide"
+        TodayTileCard(title: "Daydream") {
             TodayTileGlyph(symbol: "sparkles", tone: SR.accentInk, count: waiting)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Daydream, \(title)")
+        .accessibilityLabel("Daydream, \(state)" + ((newest ?? store.notes.first).map { ". \($0.title)" } ?? ""))
         .accessibilityAddTraits(.isButton)
         // Once a launch: the detailed read is what knows the true count.
         .task { if !store.loaded { await store.load() } }
@@ -171,11 +151,11 @@ struct TodayGamesTile: View {
 
     var body: some View {
         let (title, subline) = lines
-        TodayTileCard(kicker: "Games", title: title, subline: subline) {
+        TodayTileCard(title: "Play") {
             TodayTileGlyph(symbol: "gamecontroller.fill", tone: SR.accent, count: games.invites.count)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Games, \(title)")
+        .accessibilityLabel("Play, \(title)" + (subline.map { ". \($0)" } ?? ""))
         .accessibilityAddTraits(.isButton)
         .task { if games.lobby == nil { await games.load() } }
     }
@@ -202,9 +182,9 @@ struct TodayTileGlyph: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 20, weight: .semibold))
+            .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(tone)
-            .frame(width: 44, height: 44)
+            .frame(width: 38, height: 38)
             .background(tone.opacity(0.14), in: Circle())
             .overlay(alignment: .topTrailing) {
                 if count > 0 { TodayCountBadge(count: count, fill: tone).offset(x: 6, y: -4) }
