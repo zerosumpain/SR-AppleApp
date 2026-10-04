@@ -572,6 +572,14 @@ enum Landgrab {
         return "Week of \(dayMonth(date))"
     }
 
+    /// A week's label inside a sentence: "this week", "last week", "in the
+    /// week of 14 Sep".
+    static func phrase(_ label: String) -> String {
+        if label == "This week" || label == "Last week" { return label.lowercased() }
+        guard let first = label.first else { return label }
+        return "in the " + first.lowercased() + label.dropFirst()
+    }
+
     /// "28 Sep – 4 Oct".
     static func weekRange(start: String, end: String) -> String? {
         guard let from = day(start) else { return nil }
@@ -745,11 +753,12 @@ enum Landgrab {
     /// What the map shows, for VoiceOver: "312 hexes changed hands this week,
     /// in 4 changes. Katie won the most, 120."
     static func mapSummary(_ changes: LandgrabChanges, weekLabel: String, name: (String?) -> String) -> String {
-        guard !changes.hexes.isEmpty else { return "Map. No ground changed hands \(weekLabel.lowercased())." }
+        let when = phrase(weekLabel)
+        guard !changes.hexes.isEmpty else { return "Map. No ground changed hands \(when)." }
         var byPerson: [String: Int] = [:]
         for hex in changes.hexes { if let owner = hex.owner { byPerson[owner, default: 0] += 1 } }
         let count = changes.changes.count
-        var text = "Map. \(hexes(changes.hexes.count)) changed hands \(weekLabel.lowercased()), in \(count == 1 ? "1 change" : "\(count) changes")."
+        var text = "Map. \(hexes(changes.hexes.count)) changed hands \(when), in \(count == 1 ? "1 change" : "\(count) changes")."
         if let top = byPerson.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }) {
             text += " \(name(top.key)) won the most, \(figure(top.value))."
         }
