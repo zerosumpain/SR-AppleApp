@@ -288,6 +288,11 @@ enum SRDemoFixtures {
         if joined == "api/native/games" || joined.hasPrefix("api/native/games/") {
             return gamesRoute(method: method, parts: parts, body: body, clock: clock)
         }
+        // Landgrab's weekly board and its map — `Family/LandgrabDemoFixtures.swift`.
+        // Before the family route: its week is a query, which that route is not given.
+        if joined == "api/native/family/landgrab" || joined.hasPrefix("api/native/family/landgrab/") {
+            return landgrabRoute(method: method, parts: parts, query: query, clock: clock)
+        }
         // The family step board and task list — `Family/FamilyBoardDemoFixtures.swift`.
         if joined.hasPrefix("api/native/family/") {
             return familyRoute(method: method, parts: parts, body: body, clock: clock)

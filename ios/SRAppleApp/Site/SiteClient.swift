@@ -459,6 +459,7 @@ final class SiteClient {
         FamilyWidgetBridge.clear()
         FamilyStepsStore.shared.reset()
         FamilyTasksStore.shared.reset()
+        LandgrabStore.shared.reset()
         Task {
             await JourneyLive.shared.endAll()
             await retryPendingRevocations()

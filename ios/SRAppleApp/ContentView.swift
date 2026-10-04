@@ -277,6 +277,10 @@ struct ContentView: View {
                         .srConnectionsBanner(connections) { router.openConnections() }
                         // Steps and Tasks, for a member with no More to hold them.
                         .navigationDestination(for: FamilyPage.self) { familyPage($0) }
+                        // Landgrab's map, from the Steps page. On the stack's
+                        // root, like every destination here: one declared on
+                        // the pushed Steps page did nothing on a phone.
+                        .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
                 }
                 .tabItem { SRTabIcon.label("Family", "person.2.wave.2") }
                 .tag(Router.Tab.family)
@@ -340,6 +344,8 @@ struct ContentView: View {
                             }
                         }
                         .navigationDestination(for: FamilyPage.self) { familyPage($0) }
+                        // Landgrab's map: from its own card here and from Steps.
+                        .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
                         .placeDestinations()
                 }
                 .tabItem { SRTabIcon.label("More", "square.grid.3x3.square") }
@@ -450,6 +456,7 @@ struct ContentView: View {
             FamilyStepsStore.shared.reset()
             FamilyTasksStore.shared.reset()
             FamilyForecastStore.shared.reset()
+            LandgrabStore.shared.reset()
         }
         .onChange(of: access.offer) { _, _ in
             Task { await reconcileSite() }

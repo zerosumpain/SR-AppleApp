@@ -75,6 +75,7 @@ final class ReviewDemo: ObservableObject {
         // Shared stores that outlive `ContentView`: drop whatever they read.
         FamilyStepsStore.shared.reset()
         FamilyTasksStore.shared.reset()
+        LandgrabStore.shared.reset()
         UIApplication.shared.shortcutItems = AccessPolicy.quickActions(for: AccessStore.shared.current).map { $0.item }
         active = Self.isActive
     }

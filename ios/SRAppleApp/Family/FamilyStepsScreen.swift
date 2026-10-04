@@ -15,6 +15,7 @@ enum TodayCards {
 /// when it is ahead of the board's, and says so ("live").
 struct FamilyStepsScreen: View {
     @ObservedObject private var store = FamilyStepsStore.shared
+    @ObservedObject private var landgrab = LandgrabStore.shared
     @AppStorage(TodayCards.steps) private var onToday = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -46,6 +47,11 @@ struct FamilyStepsScreen: View {
                     ProgressView().tint(SR.accent).frame(maxWidth: .infinity).padding(.top, 80)
                 }
 
+                // Under the ranking. It reads its own endpoint and draws
+                // nothing until it has a board, so it can never hold up or
+                // break the steps above it.
+                LandgrabSection()
+
                 FamilyShowOnToday(isOn: $onToday, what: "your place and the top three")
             }
             .padding(.horizontal, SR.gutter)
@@ -57,7 +63,13 @@ struct FamilyStepsScreen: View {
         .navigationTitle("Steps")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
-        .srRefreshable { await store.load() }
+        .srRefreshable {
+            // Not awaited: the pull ends when the step board is back.
+            Task { await LandgrabStore.shared.load() }
+            await store.load()
+        }
+        // Its own task, so it runs beside the step board's, never after it.
+        .task { await landgrab.load() }
         .task {
             await store.load()
             while !Task.isCancelled {
@@ -69,6 +81,7 @@ struct FamilyStepsScreen: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await store.load() }
+            Task { await landgrab.load() }
         }
     }
 

@@ -22,6 +22,7 @@ struct MoreScreen: View {
     @ObservedObject private var commissions = CommissionStore.shared
     @ObservedObject private var steps = FamilyStepsStore.shared
     @ObservedObject private var tasks = FamilyTasksStore.shared
+    @ObservedObject private var landgrab = LandgrabStore.shared
     @ObservedObject private var access = AccessStore.shared
     @EnvironmentObject private var router: Router
 
@@ -58,6 +59,7 @@ struct MoreScreen: View {
             if access.familyBoards {
                 if steps.board == nil { await steps.load() }
                 if tasks.board == nil { await tasks.load() }
+                if landgrab.board == nil { await landgrab.load() }
             }
             if games.lobby == nil { await games.load() }
         }
@@ -65,6 +67,7 @@ struct MoreScreen: View {
             if access.familyBoards {
                 await steps.load()
                 await tasks.load()
+                await landgrab.load()
             }
             await games.load()
         }
@@ -111,7 +114,7 @@ struct MoreScreen: View {
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, steps, tasks, settings
+        case daydream, steps, tasks, landgrab, settings
         case place(Router.Tab)
     }
 
@@ -122,6 +125,9 @@ struct MoreScreen: View {
         // The family's step board and task list: pages, not tabs, for
         // everyone with the family and the site credential.
         if access.familyBoards { all += [.steps, .tasks] }
+        // Landgrab, once its board has somebody on it — hidden, like the
+        // section on Steps, when the site says no or has nothing.
+        if access.familyBoards && landgrab.visible { all.append(.landgrab) }
         all += places.map(Item.place)
         // Settings last, a tile like the rest.
         all.append(.settings)
@@ -155,6 +161,23 @@ struct MoreScreen: View {
             .accessibilityIdentifier("more-daydream")
         case .steps: familyCard(.steps)
         case .tasks: familyCard(.tasks)
+        case .landgrab:
+            Button {
+                SRHaptic.tap()
+                if let week = landgrab.board.flatMap(Landgrab.currentWeek) {
+                    router.more.append(LandgrabMapRef(week: week.start))
+                }
+            } label: {
+                MoreCard(
+                    icon: "hexagon.fill",
+                    fill: SR.accent,
+                    title: "Landgrab",
+                    blurb: "Ground the family won and lost this week, and the outings that took it.",
+                    status: Landgrab.moreStatus(landgrab.board)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("more-landgrab")
         case .place(let place):
             Button {
                 SRHaptic.tap()
