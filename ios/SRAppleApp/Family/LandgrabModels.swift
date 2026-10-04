@@ -629,7 +629,7 @@ enum Landgrab {
     /// "1 hex", "18 hexes".
     static func hexes(_ n: Int) -> String { n == 1 ? "1 hex" : "\(figure(n)) hexes" }
 
-    /// The row, said aloud: "1st, Katie, won 41 hexes, lost 3, net plus 38."
+    /// The row, said aloud: "1st, Lee, won 41 hexes, lost 3, net plus 38."
     static func spoken(_ person: LandgrabPerson, tied: Bool = false) -> String {
         let place = FamilySteps.ordinal(person.rank)
         let who = person.me ? "you" : person.name
@@ -647,8 +647,8 @@ enum Landgrab {
         people.contains { $0.id != person.id && $0.rank == person.rank }
     }
 
-    /// "Last week: Katie won most ground." / "Last week: you won most ground."
-    /// / "Last week: Katie and Sam won the same ground." Nil when nobody won
+    /// "Last week: Lee won most ground." / "Last week: you won most ground."
+    /// / "Last week: Lee and Sam won the same ground." Nil when nobody won
     /// any, or there was no last week.
     static func lastWeekLine(_ board: LandgrabBoard) -> String? {
         guard let week = previousWeek(board) else { return nil }
@@ -660,7 +660,7 @@ enum Landgrab {
         return "Last week: \(list(names)) won the same ground."
     }
 
-    /// "Katie", "Katie and Sam", "Katie, Sam and Pat".
+    /// "Lee", "Lee and Sam", "Lee, Sam and Pat".
     static func list(_ names: [String]) -> String {
         switch names.count {
         case 0: return ""
@@ -671,7 +671,7 @@ enum Landgrab {
 
     // MARK: Changes
 
-    /// "Katie's walk", "John's ride", "Your run", "Kit's journey"; nil for the
+    /// "Lee's walk", "John's ride", "Your run", "Kit's journey"; nil for the
     /// ground no outing explains (`unattributedLabel`).
     static func activityLabel(_ change: LandgrabChange, name: String?, me: Bool) -> String {
         guard let activity = change.activity else { return unattributedLabel }
@@ -728,14 +728,14 @@ enum Landgrab {
         return line
     }
 
-    /// "Katie's walk · Sat 09:12 · 3.4 km · won 18 hexes, 9 from John".
+    /// "Lee's walk · Sat 09:12 · 3.4 km · won 18 hexes, 9 from John".
     static func changeLine(_ change: LandgrabChange, label: String, name: (String?) -> String) -> String {
         [shortTime(change.activity?.startedAt ?? change.at), distance(change.activity?.distanceM), wonLine(change, name: name)]
             .compactMap { $0 }
             .reduce(label) { "\($0) · \($1)" }
     }
 
-    /// The whole row for VoiceOver: "Katie's walk, Saturday 09:12, 3.4
+    /// The whole row for VoiceOver: "Lee's walk, Saturday 09:12, 3.4
     /// kilometres, closed a loop. Won 18 hexes: 9 from John, 6 nobody held."
     static func spokenChange(_ change: LandgrabChange, label: String, name: (String?) -> String) -> String {
         var head = [label]
@@ -751,7 +751,7 @@ enum Landgrab {
     }
 
     /// What the map shows, for VoiceOver: "312 hexes changed hands this week,
-    /// in 4 changes. Katie won the most, 120."
+    /// in 4 changes. Lee won the most, 120."
     static func mapSummary(_ changes: LandgrabChanges, weekLabel: String, name: (String?) -> String) -> String {
         let when = phrase(weekLabel)
         guard !changes.hexes.isEmpty else { return "Map. No ground changed hands \(when)." }

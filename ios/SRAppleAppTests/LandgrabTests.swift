@@ -16,11 +16,11 @@ final class LandgrabTests: XCTestCase {
       "weeks": [
         { "start": "2026-09-28", "end": "2026-10-04", "current": true,
           "people": [
-            { "id": "f_k", "name": "Katie", "me": false, "won": 41, "taken": 12, "lost": 3, "net": 38, "held": 211, "rank": 1, "colour": "#c2410c" },
+            { "id": "f_l", "name": "Lee", "me": false, "won": 41, "taken": 12, "lost": 3, "net": 38, "held": 211, "rank": 1, "colour": "#c2410c" },
             { "id": "f_j", "name": "John", "me": true, "won": 9, "taken": 9, "lost": 12, "net": -3, "held": 140, "rank": 2, "colour": "#1d4ed8" },
-            { "id": "f_r", "name": "Rory", "won": null, "colour": "not a colour", "somethingNew": [1, 2] } ] },
+            { "id": "f_m", "name": "Mo", "won": null, "colour": "not a colour", "somethingNew": [1, 2] } ] },
         { "start": "2026-09-21", "end": "2026-09-27", "current": false,
-          "people": [ { "id": "f_k", "name": "Katie", "won": 10, "lost": 0, "net": 10 },
+          "people": [ { "id": "f_l", "name": "Lee", "won": 10, "lost": 0, "net": 10 },
                       { "id": "f_j", "name": "John", "me": true, "won": 22, "lost": 1, "net": 21 } ] },
         { "end": "2026-09-20", "people": [] },
         "not a week" ] }
@@ -29,15 +29,15 @@ final class LandgrabTests: XCTestCase {
     private let changesJSON = #"""
     { "week": { "start": "2026-09-28", "end": "2026-10-04", "current": true },
       "bounds": { "minLat": 40.775, "minLon": -73.975, "maxLat": 40.79, "maxLon": -73.955 },
-      "people": [ { "id": "f_k", "name": "Katie", "colour": "#c2410c" }, { "id": "f_j", "name": "John", "colour": null } ],
+      "people": [ { "id": "f_l", "name": "Lee", "colour": "#c2410c" }, { "id": "f_j", "name": "John", "colour": null } ],
       "hexes": [
-        { "id": 0, "polygon": [[40.7800,-73.9660],[40.7802,-73.9655],[40.7806,-73.9655],[40.7808,-73.9660],[40.7806,-73.9665],[40.7802,-73.9665]], "owner": "f_k", "previous": "f_j" },
-        { "id": 1, "polygon": [[40.7810,-73.9660],[40.7812,-73.9655],[40.7816,-73.9655],[40.7818,-73.9660],[40.7816,-73.9665],[40.7812,-73.9665]], "owner": "f_k", "previous": null },
+        { "id": 0, "polygon": [[40.7800,-73.9660],[40.7802,-73.9655],[40.7806,-73.9655],[40.7808,-73.9660],[40.7806,-73.9665],[40.7802,-73.9665]], "owner": "f_l", "previous": "f_j" },
+        { "id": 1, "polygon": [[40.7810,-73.9660],[40.7812,-73.9655],[40.7816,-73.9655],[40.7818,-73.9660],[40.7816,-73.9665],[40.7812,-73.9665]], "owner": "f_l", "previous": null },
         { "id": 2, "polygon": [[40.7820,-73.9660],[91,0],[40.7826,-73.9655],[40.7828,-73.9660]], "owner": "f_j" },
         { "id": 3, "polygon": [[40.7,-73.9]], "owner": "f_j" },
         { "polygon": [] } ],
       "changes": [
-        { "id": "workout:abc", "personId": "f_k", "at": "2026-10-03T08:12:00Z", "won": 2, "taken": 1,
+        { "id": "workout:abc", "personId": "f_l", "at": "2026-10-03T08:12:00Z", "won": 2, "taken": 1,
           "from": [ { "id": "f_j", "hexes": 1 }, { "id": null, "hexes": 1 } ], "hexIds": [0, 1, 99],
           "activity": { "kind": "workout", "type": "walk", "startedAt": "2026-10-03T08:12:00Z", "endedAt": null,
                         "distanceM": 3412.4, "durationS": 2400, "loop": true,
@@ -54,7 +54,7 @@ final class LandgrabTests: XCTestCase {
         try JSONDecoder().decode(LandgrabChanges.self, from: Data(changesJSON.utf8))
     }
 
-    private let names = ["f_k": "Katie", "f_j": "John"]
+    private let names = ["f_l": "Lee", "f_j": "John"]
     private var namer: (String?) -> String { { [names] in $0.flatMap { names[$0] } ?? "someone" } }
 
     func testTheWeeklyBoardDecodesAsTheSpecSendsIt() throws {
@@ -71,11 +71,11 @@ final class LandgrabTests: XCTestCase {
     }
 
     func testMissingNullAndOddFieldsCostOnlyThemselves() throws {
-        let rory = try board().weeks[0].people[2]
-        XCTAssertEqual(rory.won, 0)
-        XCTAssertEqual(rory.net, 0)
-        XCTAssertFalse(rory.me)
-        XCTAssertNil(LandgrabColour.parse(rory.colour))
+        let mo = try board().weeks[0].people[2]
+        XCTAssertEqual(mo.won, 0)
+        XCTAssertEqual(mo.net, 0)
+        XCTAssertFalse(mo.me)
+        XCTAssertNil(LandgrabColour.parse(mo.colour))
 
         // A missing net is worked out, not taken as nought.
         let derived = try JSONDecoder().decode(LandgrabPerson.self, from: Data(#"{"id":"x","won":5,"lost":2}"#.utf8))
@@ -107,7 +107,7 @@ final class LandgrabTests: XCTestCase {
         XCTAssertNil(changes.hexes[1].previous)
 
         let walk = changes.changes[0]
-        XCTAssertEqual(walk.personId, "f_k")
+        XCTAssertEqual(walk.personId, "f_l")
         XCTAssertEqual(walk.activity?.typeValue, .walk)
         XCTAssertEqual(walk.activity?.loop, true)
         XCTAssertEqual(walk.activity?.trace.count, 4, "the bad trace point is dropped")
@@ -183,13 +183,13 @@ final class LandgrabTests: XCTestCase {
         let tie = LandgrabBoard(weeks: [
             LandgrabWeek(start: "2026-09-28", end: "2026-10-04", current: true, people: []),
             LandgrabWeek(start: "2026-09-21", end: "2026-09-27", people: [
-                LandgrabPerson(id: "a", name: "Katie", won: 5), LandgrabPerson(id: "b", name: "Sam", won: 5),
+                LandgrabPerson(id: "a", name: "Lee", won: 5), LandgrabPerson(id: "b", name: "Sam", won: 5),
             ]),
         ])
-        XCTAssertEqual(Landgrab.lastWeekLine(tie), "Last week: Katie and Sam won the same ground.")
+        XCTAssertEqual(Landgrab.lastWeekLine(tie), "Last week: Lee and Sam won the same ground.")
         let idle = LandgrabBoard(weeks: [
             LandgrabWeek(start: "2026-09-28", end: "2026-10-04", current: true, people: []),
-            LandgrabWeek(start: "2026-09-21", end: "2026-09-27", people: [LandgrabPerson(id: "a", name: "Katie")]),
+            LandgrabWeek(start: "2026-09-21", end: "2026-09-27", people: [LandgrabPerson(id: "a", name: "Lee")]),
         ])
         XCTAssertNil(Landgrab.lastWeekLine(idle))
         XCTAssertNil(Landgrab.lastWeekLine(LandgrabBoard(weeks: [tie.weeks[0]])))
@@ -228,7 +228,7 @@ final class LandgrabTests: XCTestCase {
 
     func testActivityLabels() throws {
         let changes = try changes()
-        XCTAssertEqual(Landgrab.activityLabel(changes.changes[0], name: "Katie", me: false), "Katie's walk")
+        XCTAssertEqual(Landgrab.activityLabel(changes.changes[0], name: "Lee", me: false), "Lee's walk")
         XCTAssertEqual(Landgrab.activityLabel(changes.changes[0], name: "John", me: true), "Your walk")
         XCTAssertEqual(Landgrab.activityLabel(changes.changes[1], name: "John", me: false), "Ground that changed hands")
         XCTAssertEqual(Landgrab.activityLabel(changes.changes[2], name: "John", me: false), "John's journey")
@@ -241,10 +241,10 @@ final class LandgrabTests: XCTestCase {
         XCTAssertEqual(Landgrab.shortTime("2026-10-03T08:12:00Z"), "Sat 09:12", "London, BST")
         XCTAssertEqual(Landgrab.shortTime("2026-10-03T08:12:00.250Z"), "Sat 09:12")
         XCTAssertEqual(Landgrab.spokenTime("2026-12-05T08:12:00Z"), "Saturday 08:12", "London, GMT")
-        XCTAssertEqual(Landgrab.changeLine(walk, label: "Katie's walk", name: namer),
-                       "Katie's walk · Sat 09:12 · 3.4 km · won 2 hexes, 1 from John")
-        XCTAssertEqual(Landgrab.spokenChange(walk, label: "Katie's walk", name: namer),
-                       "Katie's walk, Saturday 09:12, 3.4 kilometres, closed a loop. Won 2 hexes: 1 from John, 1 nobody held.")
+        XCTAssertEqual(Landgrab.changeLine(walk, label: "Lee's walk", name: namer),
+                       "Lee's walk · Sat 09:12 · 3.4 km · won 2 hexes, 1 from John")
+        XCTAssertEqual(Landgrab.spokenChange(walk, label: "Lee's walk", name: namer),
+                       "Lee's walk, Saturday 09:12, 3.4 kilometres, closed a loop. Won 2 hexes: 1 from John, 1 nobody held.")
     }
 
     func testTheListIsNewestFirstWithUnexplainedGroundLast() throws {
@@ -253,7 +253,7 @@ final class LandgrabTests: XCTestCase {
 
     func testTheMapSummary() throws {
         XCTAssertEqual(Landgrab.mapSummary(try changes(), weekLabel: "This week", name: namer),
-                       "Map. 3 hexes changed hands this week, in 3 changes. Katie won the most, 2.")
+                       "Map. 3 hexes changed hands this week, in 3 changes. Lee won the most, 2.")
         let quiet = LandgrabChanges(week: LandgrabWeekRange(start: "2026-09-14", end: "2026-09-20"), people: [], hexes: [], changes: [])
         XCTAssertEqual(Landgrab.mapSummary(quiet, weekLabel: "Week of 14 Sep", name: namer),
                        "Map. No ground changed hands in the week of 14 Sep.")
