@@ -186,7 +186,9 @@ final class ShowcaseTests: XCTestCase {
         if scroll(app, to: run) {
             run.tap()
             settle(app, seconds: 2)
-            app.swipeDown()
+            // Scroll back up by dragging the row, not the screen: a swipe that
+            // lands on the map pans it away from the camera the app just fitted.
+            run.swipeDown()
             settle(app, on: byId(app, "landgrab-show-all"))
             attach(app, "Showcase — Landgrab map, Sam's run selected")
             let all = byId(app, "landgrab-show-all")
