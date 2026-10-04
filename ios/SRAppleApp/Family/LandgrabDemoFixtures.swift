@@ -287,9 +287,18 @@ enum LandgrabDemo {
         } else {
             bounds = "null"
         }
+        // Where the map opens, as the site sends it: the middle of the park's
+        // ground and a radius that holds it (the real one is two miles).
+        let focus: String
+        if let minLat = corners.map(\.0).min(), let maxLat = corners.map(\.0).max(),
+           let minLon = corners.map(\.1).min(), let maxLon = corners.map(\.1).max() {
+            focus = "{\"lat\":\(F.coord((minLat + maxLat) / 2)),\"lon\":\(F.coord((minLon + maxLon) / 2)),\"radiusM\":1600}"
+        } else {
+            focus = "null"
+        }
         let peopleJSON = people.map { "{\"id\":\(F.s($0.id)),\"name\":\(F.s($0.name)),\"colour\":\(F.s($0.colour))}" }
         return "{\"week\":{\"start\":\(F.s(week)),\"end\":\(F.s(sunday(week))),\"current\":\(F.b(current))},"
-            + "\"bounds\":\(bounds),\"people\":[\(peopleJSON.joined(separator: ","))],"
+            + "\"bounds\":\(bounds),\"focus\":\(focus),\"people\":[\(peopleJSON.joined(separator: ","))],"
             + "\"hexes\":[\(hexJSON.joined(separator: ","))],\"changes\":[\(changeJSON.joined(separator: ","))],\"truncated\":false}"
     }
 

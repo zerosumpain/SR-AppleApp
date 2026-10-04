@@ -286,7 +286,9 @@ struct LandgrabMapScreen: View {
                     ForEach(layer.hexes) { hex in
                         MapPolygon(coordinates: hex.coordinates)
                             .foregroundStyle(hex.colour.opacity(fillOpacity(hex.id)))
-                            .stroke(hex.colour.opacity(strokeOpacity(hex.id)), lineWidth: 0.75)
+                            // A pale rim on every hex: captured ground has to
+                            // stand off the map, light or dark, at a glance.
+                            .stroke(Color.white.opacity(strokeOpacity(hex.id)), lineWidth: strokeWidth(hex.id))
                     }
                     if trace.count > 1 {
                         // A pale casing under the line, so it reads over any
@@ -310,12 +312,13 @@ struct LandgrabMapScreen: View {
                         clearSelection(animated: true)
                         fitWeek(animated: true)
                     } label: {
-                        Label("Show all", systemImage: "arrow.up.left.and.arrow.down.right")
+                        Label(store.shown?.layer.homeRegion == nil ? "Show all" : "Home area",
+                              systemImage: store.shown?.layer.homeRegion == nil ? "arrow.up.left.and.arrow.down.right" : "house")
                             .font(SR.Text.label(13))
                     }
                     .srButton(.regular)
                     .padding(10)
-                    .accessibilityHint("Shows the whole week on the map")
+                    .accessibilityHint("Shows the home area's changes on the map")
                     .accessibilityIdentifier("landgrab-show-all")
                 }
             }
@@ -338,13 +341,18 @@ struct LandgrabMapScreen: View {
     }
 
     private func fillOpacity(_ id: Int) -> Double {
-        guard selected != nil else { return 0.45 }
-        return selectedHexes.contains(id) ? 0.9 : 0.12
+        guard selected != nil else { return 0.8 }
+        return selectedHexes.contains(id) ? 0.95 : 0.3
     }
 
     private func strokeOpacity(_ id: Int) -> Double {
         guard selected != nil else { return 0.85 }
-        return selectedHexes.contains(id) ? 1 : 0.2
+        return selectedHexes.contains(id) ? 1 : 0.3
+    }
+
+    private func strokeWidth(_ id: Int) -> CGFloat {
+        guard selected != nil else { return 1.5 }
+        return selectedHexes.contains(id) ? 2.5 : 1
     }
 
     /// Who won ground on the map, by colour — the map's key.
@@ -434,7 +442,7 @@ struct LandgrabMapScreen: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Landgrab.spokenChange(change, label: label, name: namer))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityHint(isSelected ? "Shows the whole week again" : "Shows it on the map")
+        .accessibilityHint(isSelected ? "Shows the map again" : "Shows it on the map")
         .accessibilityIdentifier("landgrab-change-\(change.id)")
     }
 
@@ -469,8 +477,9 @@ struct LandgrabMapScreen: View {
         selectedHexes = []
     }
 
+    /// Home ground when the site sent a focus, else the whole week.
     private func fitWeek(animated: Bool) {
-        guard let region = store.shown?.layer.weekRegion else { return }
+        guard let layer = store.shown?.layer, let region = layer.homeRegion ?? layer.weekRegion else { return }
         if animated {
             withAnimation(.easeInOut(duration: 0.6)) { camera = .region(region) }
         } else {
