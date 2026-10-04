@@ -72,7 +72,7 @@ struct FamilyPin: View {
 /// Each row is a place — "Home", "School", "Bethesda Terrace" — led by the
 /// initials of whoever is there, their circles overlapping so a crowd at home
 /// reads as one cluster at a glance. Initials are unique across the household
-/// (`HouseholdView.initials`: JK, KK, JeK), so the circles say who without a
+/// (`HouseholdView.initials`: Jo, Ka, Je), so the circles say who without a
 /// name beside them. Anybody not seen lately or not sharing is the last row,
 /// in dashed circles. The Family tab keeps the map, one tap on any row away.
 /// Draws nothing until there is somebody to show.

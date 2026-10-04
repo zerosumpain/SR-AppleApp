@@ -137,6 +137,21 @@ import UIKit
         )
     }
 
+    /// A "msg family" reply from a notification's button. Said on a local
+    /// notification only when it did not land.
+    static func replyToFamily(_ messageId: String, _ body: String) async {
+        guard let reason = await FamilyMessagesStore.post(reply: body, to: messageId, asSelf: true) else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Your reply was not sent"
+        content.body = "Open msg family to answer it. (\(reason))"
+        content.sound = .default
+        content.threadIdentifier = AlertActions.familyMessageCategory
+        content.userInfo = ["category": AlertActions.familyMessageCategory, "messageId": messageId]
+        try? await UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "msg-failed-\(messageId)", content: content, trigger: nil)
+        )
+    }
+
     /// Show a notification even while the app is open — AND keep it.
     ///
     /// The default is to swallow it, which here would mean the one moment the
@@ -163,6 +178,10 @@ import UIKit
         if category == FamilyAlarmStore.cancelCategory, let id = info["alarmId"] as? String {
             FamilyAlarmStore.shared.cancelled(id)
             return [.banner, .list]
+        }
+        // A family message or a reply while msg family may be on screen.
+        if FamilyPage.from(category: category, userInfo: info) == .messages {
+            Task { await FamilyMessagesStore.shared.load() }
         }
         return [.banner, .list, .sound, .badge]
     }
@@ -195,6 +214,9 @@ import UIKit
             return
         case .answer(let gate):
             await Self.answer(gate)
+            return
+        case .familyReply(let messageId, let body):
+            await Self.replyToFamily(messageId, body)
             return
         case .read(let id):
             await AlertStore.markReadFromNotification(id)

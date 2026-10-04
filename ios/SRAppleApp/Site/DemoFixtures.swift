@@ -293,6 +293,10 @@ enum SRDemoFixtures {
         if joined == "api/native/family/landgrab" || joined.hasPrefix("api/native/family/landgrab/") {
             return landgrabRoute(method: method, parts: parts, query: query, clock: clock)
         }
+        // msg family — `Family/FamilyMessagesDemoFixtures.swift`.
+        if joined == "api/native/family/messages" || joined.hasPrefix("api/native/family/messages/") {
+            return familyMessagesRoute(method: method, parts: parts, body: body, clock: clock)
+        }
         // The family step board and task list — `Family/FamilyBoardDemoFixtures.swift`.
         if joined.hasPrefix("api/native/family/") {
             return familyRoute(method: method, parts: parts, body: body, clock: clock)

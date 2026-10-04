@@ -17,6 +17,8 @@ struct MoreScreen: View {
     /// What sits in More for this person, in bar order.
     let places: [Router.Tab]
     @ObservedObject var games: GamesStore
+    /// Sync now lives here (and in Settings), off Today.
+    @ObservedObject var companion: Companion
     @ObservedObject private var daydream = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
     @ObservedObject private var commissions = CommissionStore.shared
@@ -95,6 +97,13 @@ struct MoreScreen: View {
                     blurb: "Jobs for the family, with a reward when a parent confirms them.",
                     status: tasks.summary.flatMap { taskStatus($0) }
                 )
+            case .messages:
+                MoreCard(
+                    icon: "bubble.left.and.text.bubble.right",
+                    fill: SR.accent,
+                    title: "msg family",
+                    blurb: "One line to everyone's phone, and their replies."
+                )
             }
         }
         .buttonStyle(.plain)
@@ -114,7 +123,7 @@ struct MoreScreen: View {
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, steps, tasks, landgrab, settings
+        case daydream, steps, tasks, landgrab, sync, settings
         case place(Router.Tab)
     }
 
@@ -129,8 +138,8 @@ struct MoreScreen: View {
         // section on Steps, when the site says no or has nothing.
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
         all += places.map(Item.place)
-        // Settings last, a tile like the rest.
-        all.append(.settings)
+        // Sync now and Settings last, tiles like the rest.
+        all += [.sync, .settings]
         return all
     }
 
@@ -187,6 +196,22 @@ struct MoreScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("more-\(place.rawValue)")
+        case .sync:
+            Button {
+                SRHaptic.tap()
+                Task { await companion.sync() }
+            } label: {
+                MoreCard(
+                    icon: "arrow.triangle.2.circlepath",
+                    fill: SR.good,
+                    title: companion.busy ? "Syncing…" : "Sync now",
+                    blurb: companion.message,
+                    status: companion.lastUpload.map { "Last upload \($0.formatted(date: .omitted, time: .shortened))" }
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(companion.busy)
+            .accessibilityIdentifier("more-sync")
         case .settings:
             Button {
                 SRHaptic.tap()

@@ -36,7 +36,8 @@ final class AlertActionsTests: XCTestCase {
         let actions = AlertActions.categories.flatMap(\.actions)
         XCTAssertEqual(
             Set(actions.map(\.identifier)),
-            [AlertActions.read, AlertActions.clear, AlertActions.approve, AlertActions.reject, AlertActions.reply]
+            Set([AlertActions.read, AlertActions.clear, AlertActions.approve, AlertActions.reject, AlertActions.reply,
+                 AlertActions.familyReply] + AlertActions.familyReactions.map(\.id))
         )
         for action in actions {
             XCTAssertFalse(action.options.contains(.foreground), action.identifier)
@@ -195,5 +196,50 @@ final class AlertActionsTests: XCTestCase {
         watcher.cancel()
 
         XCTAssertEqual(defaults.stringArray(forKey: AlertStore.clearedKey), ["a1"])
+    }
+
+    // MARK: - msg family
+
+    func testAFamilyMessageEmojiButtonRepliesWithThatEmoji() {
+        let outcome = AlertActions.outcome(
+            action: "sr.msg.up",
+            categoryIdentifier: AlertActions.familyMessageCategory,
+            userInfo: ["category": "family-msg", "messageId": "m1"]
+        )
+        XCTAssertEqual(outcome, .familyReply(messageId: "m1", body: "👍"))
+    }
+
+    func testAFamilyMessageTextReplyIsTrimmedAndAnEmptyOneIsIgnored() {
+        let info: [AnyHashable: Any] = ["category": "family-msg", "messageId": "m1"]
+        XCTAssertEqual(
+            AlertActions.outcome(action: AlertActions.familyReply, categoryIdentifier: "family-msg", userInfo: info, text: "  On my way "),
+            .familyReply(messageId: "m1", body: "On my way")
+        )
+        XCTAssertEqual(
+            AlertActions.outcome(action: AlertActions.familyReply, categoryIdentifier: "family-msg", userInfo: info, text: "  "),
+            .ignore
+        )
+        XCTAssertEqual(
+            AlertActions.outcome(action: "sr.msg.love", categoryIdentifier: "family-msg", userInfo: ["category": "family-msg"]),
+            .ignore
+        )
+    }
+
+    func testTextRepliesToTheFamilyNeedAnUnlockedPhone() throws {
+        let category = try XCTUnwrap(AlertActions.categories.first { $0.identifier == AlertActions.familyMessageCategory })
+        let reply = try XCTUnwrap(category.actions.first { $0.identifier == AlertActions.familyReply })
+        XCTAssertTrue(reply.options.contains(.authenticationRequired))
+        XCTAssertTrue(reply is UNTextInputNotificationAction)
+    }
+
+    func testTappingAFamilyMessageOpensMsgFamily() {
+        let outcome = AlertActions.outcome(
+            action: UNNotificationDefaultActionIdentifier,
+            categoryIdentifier: "family-msg",
+            userInfo: ["category": "family-msg", "messageId": "m1"]
+        )
+        XCTAssertEqual(outcome, .open(category: "family-msg"))
+        XCTAssertEqual(FamilyPage.from(category: "family-msg", userInfo: [:]), .messages)
+        XCTAssertEqual(FamilyPage.from(category: "family-msg-reply", userInfo: [:]), .messages)
     }
 }

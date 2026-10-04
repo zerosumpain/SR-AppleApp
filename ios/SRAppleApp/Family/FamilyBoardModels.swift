@@ -15,11 +15,11 @@ import Foundation
 
 // MARK: - Where a notification, a widget or a link goes
 
-/// The two family pages. `sr://family/steps` and `sr://family/tasks` open them
-/// — from a push (`userInfo.url`, or the category), a Home Screen widget, or
-/// any link.
+/// The family pages. `sr://family/steps`, `sr://family/tasks` and
+/// `sr://family/messages` open them — from a push (`userInfo.url`, or the
+/// category), a Home Screen widget, or any link.
 enum FamilyPage: String, Hashable, CaseIterable {
-    case steps, tasks
+    case steps, tasks, messages
 
     var url: URL { URL(string: "sr://family/\(rawValue)")! }
 
@@ -39,6 +39,8 @@ enum FamilyPage: String, Hashable, CaseIterable {
         switch category {
         case "family-steps", "steps": return .steps
         case "family-tasks", "tasks": return .tasks
+        // "msg family": a message, or a reply to mine.
+        case "family-msg", "family-msg-reply": return .messages
         case "family":
             return (userInfo["page"] as? String).flatMap { FamilyPage(rawValue: $0) }
         default: return nil

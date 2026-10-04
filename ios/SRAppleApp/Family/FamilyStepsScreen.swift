@@ -237,63 +237,60 @@ struct FamilyShowOnToday: View {
     }
 }
 
-/// Today's step card: your place and the top three. One tap to the board.
+/// Today's step card: the top three, in order — nothing else. The title sits
+/// above the card like Family tracking's, and your own place rides on its
+/// right; one tap opens the board.
 struct TodayStepsCard: View {
     @ObservedObject private var store = FamilyStepsStore.shared
     let open: () -> Void
 
     var body: some View {
-        Button {
-            SRHaptic.tap()
-            open()
-        } label: {
-            SRCard(interactive: true) {
-                VStack(alignment: .leading, spacing: 10) {
-                    SRSectionLabel(text: "Family steps", trailing: store.shown.flatMap(FamilySteps.place), prominent: true)
+        VStack(alignment: .leading, spacing: 10) {
+            SRSectionLabel(text: "Family steps", trailing: store.shown.flatMap(FamilySteps.place), prominent: true)
+            Button {
+                SRHaptic.tap()
+                open()
+            } label: {
+                VStack(alignment: .leading, spacing: 0) {
                     if let board = store.shown, !board.people.isEmpty {
-                        if let mine = board.mine {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(FamilySteps.ordinal(mine.rank))
-                                    .font(SR.Text.display(30))
-                                    .foregroundStyle(mine.rank == 1 ? SR.accent : SR.ink)
-                                Text("\(FamilySteps.figure(mine.steps)) steps")
+                        let top = FamilySteps.top(board, 3)
+                        ForEach(Array(top.enumerated()), id: \.element.id) { index, person in
+                            if index > 0 { Rectangle().fill(SR.divider).frame(height: 1) }
+                            HStack(spacing: 10) {
+                                Text("\(person.rank)")
+                                    .font(SR.Text.label())
+                                    .foregroundStyle(SR.inkMuted)
+                                    .frame(width: 18, alignment: .leading)
+                                Text(person.me ? "You" : person.name)
+                                    .font(SR.Text.bodyMedium(15))
+                                    .foregroundStyle(person.me ? SR.accentDeep : SR.ink)
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                                Text(FamilySteps.figure(person.steps))
                                     .font(SR.Text.mono(14))
-                                    .foregroundStyle(SR.inkSecondary)
-                                if mine.live {
-                                    Text("LIVE").font(SR.Text.mono()).foregroundStyle(SR.good)
-                                }
+                                    .foregroundStyle(SR.ink)
+                                    .monospacedDigit()
                             }
-                        }
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(FamilySteps.top(board, 3)) { person in
-                                HStack(spacing: 8) {
-                                    Text("\(person.rank)")
-                                        .font(SR.Text.label())
-                                        .foregroundStyle(SR.inkMuted)
-                                        .frame(width: 18, alignment: .leading)
-                                    Text(person.me ? "You" : person.name)
-                                        .font(SR.Text.bodyMedium(15))
-                                        .foregroundStyle(person.me ? SR.accentDeep : SR.ink)
-                                    Spacer(minLength: 8)
-                                    Text(FamilySteps.figure(person.steps))
-                                        .font(SR.Text.mono(14))
-                                        .foregroundStyle(SR.ink)
-                                        .monospacedDigit()
-                                }
-                            }
+                            .padding(.vertical, 9)
                         }
                     } else {
                         Text(store.loaded ? (store.message ?? "No steps on the board yet today.") : "Reading the board…")
                             .font(SR.Text.secondary())
                             .foregroundStyle(SR.inkMuted)
+                            .padding(.vertical, 9)
                     }
                 }
+                .padding(.horizontal, SR.cardPadding)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .srGlassCard(.paper, interactive: true)
+                .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
             }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Opens the step board")
+            .accessibilityIdentifier("today-steps")
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens the step board")
-        .accessibilityIdentifier("today-steps")
     }
 }
