@@ -214,6 +214,28 @@ struct LandgrabWeekRange: Decodable, Equatable, Hashable {
     }
 }
 
+/// Where the map opens: a point and a radius the site chooses (the family's
+/// home ground), so one far-off trip does not zoom the week out to a county.
+/// The site sends it; this repository is public and never names the place.
+struct LandgrabFocus: Decodable, Equatable, Hashable {
+    var lat: Double
+    var lon: Double
+    var radiusM: Double
+
+    init(lat: Double, lon: Double, radiusM: Double) {
+        self.lat = lat; self.lon = lon; self.radiusM = radiusM
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        guard let lat = c.double("lat"), let lon = c.double("lon"), let radius = c.double("radiusM"),
+              LandgrabPoint.valid(lat: lat, lon: lon), radius >= 100, radius <= 50_000 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "bad focus"))
+        }
+        self.lat = lat; self.lon = lon; self.radiusM = radius
+    }
+}
+
 struct LandgrabBounds: Decodable, Equatable, Hashable {
     var minLat: Double
     var minLon: Double
@@ -379,15 +401,17 @@ struct LandgrabChange: Decodable, Equatable, Hashable, Identifiable {
 struct LandgrabChanges: Decodable, Equatable {
     var week: LandgrabWeekRange
     var bounds: LandgrabBounds?
+    /// Where the map opens; nil → fit the week.
+    var focus: LandgrabFocus?
     var people: [LandgrabMapPerson]
     var hexes: [LandgrabHex]
     var changes: [LandgrabChange]
     /// Over the site's 4,000-hex cap: the largest changes were kept.
     var truncated: Bool
 
-    init(week: LandgrabWeekRange, bounds: LandgrabBounds? = nil, people: [LandgrabMapPerson],
-         hexes: [LandgrabHex], changes: [LandgrabChange], truncated: Bool = false) {
-        self.week = week; self.bounds = bounds; self.people = people
+    init(week: LandgrabWeekRange, bounds: LandgrabBounds? = nil, focus: LandgrabFocus? = nil,
+         people: [LandgrabMapPerson], hexes: [LandgrabHex], changes: [LandgrabChange], truncated: Bool = false) {
+        self.week = week; self.bounds = bounds; self.focus = focus; self.people = people
         self.hexes = hexes; self.changes = changes; self.truncated = truncated
     }
 
@@ -396,6 +420,7 @@ struct LandgrabChanges: Decodable, Equatable {
         week = (try? c.decodeIfPresent(LandgrabWeekRange.self, forKey: LandgrabKey("week")))
             ?? LandgrabWeekRange(start: "", end: "")
         bounds = (try? c.decodeIfPresent(LandgrabBounds.self, forKey: LandgrabKey("bounds"))) ?? nil
+        focus = (try? c.decodeIfPresent(LandgrabFocus.self, forKey: LandgrabKey("focus"))) ?? nil
         people = c.list(LandgrabMapPerson.self, "people")
         hexes = c.list(LandgrabHex.self, "hexes")
         truncated = c.bool("truncated") ?? false
@@ -817,6 +842,19 @@ struct LandgrabRegion: Equatable {
 
     /// Every point inside, with a margin (`pad` × the extent) and never
     /// tighter than `minSpan` — one hex fills the screen otherwise.
+    /// A circle of `focus.radiusM` around its point: the span is the
+    /// diameter, in degrees, narrower in longitude away from the equator.
+    static func around(_ focus: LandgrabFocus) -> LandgrabRegion {
+        let metresPerDegree = 111_320.0
+        let diameter = focus.radiusM * 2
+        let lonScale = max(0.01, cos(focus.lat * .pi / 180))
+        return LandgrabRegion(
+            centreLat: focus.lat, centreLon: focus.lon,
+            latSpan: diameter / metresPerDegree,
+            lonSpan: min(360, diameter / (metresPerDegree * lonScale))
+        )
+    }
+
     static func fitting(_ points: [LandgrabPoint], pad: Double = 1.3, minSpan: Double = 0.004) -> LandgrabRegion? {
         guard let first = points.first else { return nil }
         var minLat = first.lat, maxLat = first.lat, minLon = first.lon, maxLon = first.lon
@@ -851,6 +889,9 @@ struct LandgrabMapPlan: Equatable {
     let traces: [String: [LandgrabPoint]]
     /// The whole week.
     let weekRegion: LandgrabRegion?
+    /// Where the map opens, when the site sent a focus: home, not the week's
+    /// full extent.
+    let homeRegion: LandgrabRegion?
     /// Change id → the region that fits its hexes and its trace.
     let changeRegions: [String: LandgrabRegion]
 
@@ -879,5 +920,6 @@ struct LandgrabMapPlan: Equatable {
         self.changeRegions = regions
         let all = changes.hexes.flatMap(\.polygon)
         weekRegion = LandgrabRegion.fitting(all.isEmpty ? (changes.bounds?.points ?? []) : all)
+        homeRegion = changes.focus.map(LandgrabRegion.around)
     }
 }

@@ -127,6 +127,22 @@ final class LandgrabTests: XCTestCase {
 
     // MARK: - Visibility
 
+    func testTheMapOpensOnTheSitesFocusWhenItSendsOne() throws {
+        let json = #"{"week":{"start":"2026-09-28","end":"2026-10-04","current":true},"focus":{"lat":40.78,"lon":-73.97,"radiusM":3219},"people":[],"hexes":[],"changes":[]}"#
+        let changes = try JSONDecoder().decode(LandgrabChanges.self, from: Data(json.utf8))
+        let focus = try XCTUnwrap(changes.focus)
+        XCTAssertEqual(focus.radiusM, 3219)
+        let region = try XCTUnwrap(LandgrabMapPlan(changes).homeRegion)
+        XCTAssertEqual(region.centreLat, 40.78, accuracy: 1e-9)
+        // Two miles across each way: ~0.058° of latitude, wider in longitude.
+        XCTAssertEqual(region.latSpan, 6438.0 / 111_320, accuracy: 1e-6)
+        XCTAssertGreaterThan(region.lonSpan, region.latSpan)
+        // An odd focus costs the focus, never the map.
+        let bad = #"{"week":{"start":"2026-09-28","end":"2026-10-04"},"focus":{"lat":95,"lon":0,"radiusM":10},"people":[],"hexes":[],"changes":[]}"#
+        XCTAssertNil(try JSONDecoder().decode(LandgrabChanges.self, from: Data(bad.utf8)).focus)
+        XCTAssertNil(LandgrabMapPlan(try JSONDecoder().decode(LandgrabChanges.self, from: Data(bad.utf8))).homeRegion)
+    }
+
     func testTheMoreCardSaysYourPlaceOrWhoLeads() {
         XCTAssertNil(Landgrab.moreStatus(nil))
         XCTAssertNil(Landgrab.moreStatus(LandgrabBoard(weeks: [])))

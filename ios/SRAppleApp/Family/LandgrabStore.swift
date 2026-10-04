@@ -66,6 +66,7 @@ struct LandgrabMapLayer {
     let hexesByChange: [String: Set<Int>]
     let traces: [String: [CLLocationCoordinate2D]]
     let weekRegion: MKCoordinateRegion?
+    let homeRegion: MKCoordinateRegion?
     let changeRegions: [String: MKCoordinateRegion]
 
     init(_ plan: LandgrabMapPlan) {
@@ -73,6 +74,7 @@ struct LandgrabMapLayer {
         hexesByChange = plan.hexesByChange
         traces = plan.traces.mapValues { $0.map(Self.coordinate) }
         weekRegion = plan.weekRegion.map(Self.region)
+        homeRegion = plan.homeRegion.map(Self.region)
         changeRegions = plan.changeRegions.mapValues(Self.region)
     }
 
