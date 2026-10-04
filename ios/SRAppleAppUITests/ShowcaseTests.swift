@@ -30,6 +30,17 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Today, scrolled")
     }
 
+    /// Overnight: the Watch beside the strap, as a door on Today.
+    @MainActor func testShowcaseTodayOvernight() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let tile = byId(app, "today-overnight")
+        settle(app, on: tile)
+        guard scroll(app, to: tile) else { return soft(false, "no Overnight tile on Today") }
+        settle(app)
+        attach(app, "Showcase — Today, overnight")
+    }
+
     /// Daydream: the tile on Today, then the page in More it opens.
     @MainActor func testShowcaseTodayNoticed() {
         let app = launch()

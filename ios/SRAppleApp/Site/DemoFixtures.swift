@@ -443,6 +443,19 @@ enum SRDemoFixtures {
 
     // MARK: - Today
 
+    /// The Overnight tile, read from the same digest the Health tab's demo
+    /// shows (`healthHub`'s `vitals`), so the two screens tell one story.
+    static var todayOvernight: String {
+        guard
+            let data = healthHub.data(using: .utf8),
+            let hub = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let vitals = hub["vitals"] as? [String: Any],
+            let headline = vitals["headline"] as? String
+        else { return "null" }
+        let brief = (vitals["brief"] as? String).map { s($0) } ?? "null"
+        return "{\"headline\": \(s(headline)), \"brief\": \(brief), \"tone\": \(s(vitals["tone"] as? String ?? "none"))}"
+    }
+
     static func today(_ clock: DemoClock) -> String {
         let alerts = demoAlerts(clock).prefix(3).map { alert in
             """
@@ -465,6 +478,7 @@ enum SRDemoFixtures {
             "figures": \(list(figures.map { figureJSON($0, withSeries: false) })),
             "generatedAt": \(s(clock.iso(minutesAgo: 12)))
           },
+          "overnight": \(todayOvernight),
           "alerts": {"pending": 0, "unread": 3, "latest": \(list(alerts))},
           "news": {"updatedAt": \(s(clock.iso(minutesAgo: 6))), "unseen": 5, "stories": \(list(stories))},
           "lastThread": {"id": \(s(thread.id)), "title": \(s(thread.title)), "updatedAt": \(s(clock.iso(minutesAgo: thread.minutesAgo)))},
@@ -2566,6 +2580,9 @@ extension SRDemoFixtures {
     "reviewOn": "2026-09-24"
   },
   "vitals": {
+    "headline": "SpO₂ apart last night",
+    "brief": "SpO₂ 96.1 · 92.6%",
+    "tone": "watch",
     "note": "Each device is read against its own history and the two are never averaged. Temperature is shown as a change from each device's own baseline: wrist and skin sit about 2.6 °C apart.",
     "rows": [
       {
