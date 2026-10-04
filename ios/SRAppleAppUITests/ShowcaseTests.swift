@@ -170,12 +170,14 @@ final class ShowcaseTests: XCTestCase {
         settle(app, on: byId(app, "steps-hero"), seconds: 2)
         let section = byId(app, "landgrab-section")
         soft(scroll(app, to: section), "no Landgrab section under the step board")
+        // Bring the whole board above the tab bar: its last row is the link.
+        let open = byId(app, "landgrab-see-changes")
+        let reached = scroll(app, to: open)
         soft(byId(app, "landgrab-row-f_sam").exists, "no Landgrab row for Sam")
         soft(byId(app, "landgrab-last-week").exists, "no last-week line")
         attach(app, "Showcase — Steps, Landgrab this week")
 
-        let open = byId(app, "landgrab-see-changes")
-        guard scroll(app, to: open) else { return soft(false, "no 'See what changed' row") }
+        guard reached else { return soft(false, "no 'See what changed' row") }
         open.tap()
         settle(app, on: byId(app, "landgrab-map"), seconds: 3)
         attach(app, "Showcase — Landgrab map, the week")

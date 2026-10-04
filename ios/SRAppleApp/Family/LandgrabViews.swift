@@ -76,6 +76,7 @@ struct LandgrabSection: View {
                     .accessibilityIdentifier("landgrab-last-week")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("landgrab-section")
     }
 }
@@ -212,6 +213,7 @@ struct LandgrabMapScreen: View {
             .padding(.top, 8)
             .padding(.bottom, 28)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("landgrab-map-screen")
         .srGround(.vital)
         .navigationTitle("Landgrab")
