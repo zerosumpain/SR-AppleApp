@@ -160,6 +160,61 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Steps, scrolled")
     }
 
+    /// Landgrab under the step board: this week's ground by person, then the
+    /// map of what changed hands — the whole week, one outing selected (its
+    /// hexes lit, its trace drawn), and a quiet week from the picker.
+    @MainActor func testShowcaseFamilyLandgrab() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        openTab(app, "Steps")
+        settle(app, on: byId(app, "steps-hero"), seconds: 2)
+        let section = byId(app, "landgrab-section")
+        soft(scroll(app, to: section), "no Landgrab section under the step board")
+        soft(byId(app, "landgrab-row-f_sam").exists, "no Landgrab row for Sam")
+        soft(byId(app, "landgrab-last-week").exists, "no last-week line")
+        attach(app, "Showcase — Steps, Landgrab this week")
+
+        let open = byId(app, "landgrab-see-changes")
+        guard scroll(app, to: open) else { return soft(false, "no 'See what changed' row") }
+        open.tap()
+        settle(app, on: byId(app, "landgrab-map"), seconds: 3)
+        attach(app, "Showcase — Landgrab map, the week")
+
+        let run = byId(app, "landgrab-change-workout:demo-sam-run")
+        if scroll(app, to: run) {
+            run.tap()
+            settle(app, seconds: 2)
+            app.swipeDown()
+            settle(app, on: byId(app, "landgrab-show-all"))
+            attach(app, "Showcase — Landgrab map, Sam's run selected")
+            let all = byId(app, "landgrab-show-all")
+            if all.exists { all.tap() }
+        } else {
+            soft(false, "no change row for Sam's run")
+        }
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Landgrab map, what changed")
+
+        app.swipeDown()
+        let picker = byId(app, "landgrab-week-picker")
+        if picker.waitForExistence(timeout: 5) {
+            picker.tap()
+            // The third week back is the demo's quiet one.
+            let quiet = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Week of")).element(boundBy: 0)
+            if quiet.waitForExistence(timeout: 5) {
+                quiet.tap()
+                settle(app, on: byId(app, "landgrab-quiet"), seconds: 2)
+                attach(app, "Showcase — Landgrab map, a quiet week")
+            } else {
+                soft(false, "no earlier week in the picker")
+            }
+        } else {
+            soft(false, "no week picker")
+        }
+    }
+
     /// The task list: Open (waiting for a parent, to do), Completed, Owed,
     /// and the add sheet with a reward.
     @MainActor func testShowcaseFamilyTasks() {
