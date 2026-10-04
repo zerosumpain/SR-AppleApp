@@ -151,8 +151,39 @@ final class FamilyTests: XCTestCase {
 
     func testTheDemoHouseholdGroupsYouFirstThenHome() {
         let view = SRDemoFixtures.householdView(now: Date()).view
-        XCTAssertEqual(view?.places().map(\.name), ["Bethesda Terrace", "Home", "School"])
-        XCTAssertEqual(view?.absentLines, ["Kit was last at The Reservoir, 2h ago.", "Pat isn't sharing their location."])
+        // Kit has not been heard from for two hours: placed where last seen,
+        // the circle's edge saying how long ago, not left out as "unknown".
+        XCTAssertEqual(view?.places().map(\.name), ["Bethesda Terrace", "Home", "School", "The Reservoir"])
+        XCTAssertEqual(view?.absent.map(\.name), ["Pat"])
+        XCTAssertEqual(view?.absentLines, ["Pat isn't sharing their location."])
+    }
+
+    func testAStillPhoneAtHomeIsHomeNotUnseen() throws {
+        // A phone lying still sends nothing, and the site calls that unknown.
+        let me = try at("Alex", "Last at home · 3h ago", status: "unknown", isSelf: true)
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [me])
+        XCTAssertEqual(view.places().map(\.name), ["Home"])
+        XCTAssertEqual(view.places().first?.isHome, true)
+        XCTAssertTrue(view.absent.isEmpty)
+    }
+
+    func testNobodyIsPlacedWithoutAPlace() throws {
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [
+            try at("Kit", "Not seen lately.", status: "unknown"),
+            try at("Pat", "Not sharing their location.", status: "off"),
+        ])
+        XCTAssertTrue(view.places().isEmpty)
+        XCTAssertEqual(view.absent.map(\.name), ["Kit", "Pat"])
+    }
+
+    func testTheEdgeSaysHowLongAgo() throws {
+        let seen = ISO8601DateFormatter().date(from: "2026-09-27T08:10:00Z")!
+        let p = try at("Sam", "At School · seen 6m ago")
+        XCTAssertEqual(p.freshness(now: seen.addingTimeInterval(59 * 60)), .fresh)
+        XCTAssertEqual(p.freshness(now: seen.addingTimeInterval(61 * 60)), .aging)
+        XCTAssertEqual(p.freshness(now: seen.addingTimeInterval(2 * 3600)), .stale)
+        let never = try person(#"{"subject":"pat","name":"Pat","self":false,"status":"off","line":"Not sharing their location.","batteryPct":null,"lastSeenAt":null,"position":null,"today":null}"#)
+        XCTAssertEqual(never.freshness(now: seen), .unknown)
     }
 
     func testTwoPeopleAtOneSavedPlaceAreOneGroup() throws {

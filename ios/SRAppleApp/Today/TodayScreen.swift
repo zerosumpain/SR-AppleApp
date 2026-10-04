@@ -447,33 +447,26 @@ struct TodayScreen: View {
         .accessibilityIdentifier("today-ask")
     }
 
-    /// The three rings — Move, Recovery, Readiness — and the verdict. One tap
-    /// into the Health tab, which has the reasoning behind the numbers.
+    /// The three rings — Move, Recovery, Readiness — and the score. One tap
+    /// into the Health tab, which has the reasoning behind the numbers. The
+    /// verdict and the ring figures are spoken, not printed: the tile is one
+    /// line now.
     private var healthTile: some View {
         let health = store.payload?.health
         let vitals = TodayVital.make(health: health, move: move.reading)
         let readiness = vitals.first { $0.key == "readiness" }
-        let others = vitals.filter { $0.key != "readiness" }
-        // "Primed · Move 76%": the verdict, then as much as fits.
-        var parts: [String] = []
-        if let caption = readiness?.caption { parts.append(caption) }
-        parts += others.map { "\($0.label) \($0.value)" }
-        let subline = (health?.isMock ?? false) ? "Demonstration figures" : parts.joined(separator: " · ")
         return Button {
             SRHaptic.tap()
             router.show(.health)
         } label: {
-            TodayTileCard(
-                kicker: "Health",
-                title: readiness.map { "Readiness \($0.value)" } ?? "Readiness",
-                subline: subline
-            ) {
-                TodayRings(vitals: vitals).frame(width: 68, height: 68)
+            TodayTileCard(title: readiness.map { "Readiness \($0.value)" } ?? "Readiness") {
+                TodayRings(vitals: vitals).frame(width: 42, height: 42)
             }
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Health. " + vitals.map(\.spoken).joined(separator: ". "))
+        .accessibilityLabel("Health. " + vitals.map(\.spoken).joined(separator: ". ")
+            + ((health?.isMock ?? false) ? ". Demonstration figures" : ""))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens Health")
         .accessibilityIdentifier("today-health")
