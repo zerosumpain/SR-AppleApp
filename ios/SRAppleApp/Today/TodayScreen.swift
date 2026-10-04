@@ -11,6 +11,26 @@ struct TodayHealth: Decodable {
     let generatedAt: String
 }
 
+/// The Watch beside the WHOOP strap, overnight, in a few words — SR-Health's
+/// read (`HubDigest.vitals.headline` / `brief`), carried by Today so the
+/// first screen stays one request. The Health tab has the whole section.
+struct TodayOvernight: Decodable, Hashable {
+    /// "Watch and strap agree", "SpO₂ apart last night".
+    let headline: String
+    /// One pair, Watch then WHOOP: "RHR 47 · 46 bpm". Nil when there is no pair.
+    let brief: String?
+    let tone: HubTone
+}
+
+/// A block that may be malformed without costing the payload around it: a
+/// value that does not decode reads as nil, as a missing key does.
+struct Forgiving<Value: Decodable>: Decodable {
+    let value: Value?
+    init(from decoder: Decoder) {
+        value = try? Value(from: decoder)
+    }
+}
+
 struct TodayAlerts: Decodable {
     let pending: Int
     let unread: Int
@@ -72,6 +92,10 @@ struct TodayThread: Decodable, Hashable {
 struct TodayPayload: Decodable {
     let generatedAt: String
     let health: TodayHealth?
+    /// Overnight vitals, Watch beside strap. Absent on a server before
+    /// 2026-10-05; a malformed block costs only the tile (`Forgiving`).
+    private let overnightBlock: Forgiving<TodayOvernight>?
+    var overnight: TodayOvernight? { overnightBlock?.value }
     let alerts: TodayAlerts?
     let news: TodayNews?
     let lastThread: TodayThread?
@@ -82,6 +106,17 @@ struct TodayPayload: Decodable {
     /// loop — the synthesised decoder reads a missing key as nil, and
     /// `DaydreamFeed` never throws, so a malformed block costs only the card.
     let daydream: DaydreamFeed?
+
+    private enum CodingKeys: String, CodingKey {
+        case generatedAt
+        case health
+        case overnightBlock = "overnight"
+        case alerts
+        case news
+        case lastThread
+        case connections
+        case daydream
+    }
 }
 
 /// The first screen's data, in one request.
@@ -207,7 +242,11 @@ struct TodayScreen: View {
                     companionCard
                 } else {
                     // Four doors, two by two: Ask and Health, Daydream and Games.
-                    TodayTileGrid(tiles: TodayTile.kinds(access: access.current, sitePaired: site.paired)) { kind in
+                    TodayTileGrid(tiles: TodayTile.kinds(
+                        access: access.current,
+                        sitePaired: site.paired,
+                        overnight: store.payload?.overnight != nil
+                    )) { kind in
                         tile(kind)
                     }
                     if access.current.news, let news = store.payload?.news, let story = news.stories.first {
@@ -428,6 +467,7 @@ struct TodayScreen: View {
         switch kind {
         case .ask: askTile
         case .health: healthTile
+        case .overnight: overnightTile
         case .daydream: daydreamTile
         case .games: gamesTile
         }
@@ -476,6 +516,30 @@ struct TodayScreen: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens Health")
         .accessibilityIdentifier("today-health")
+    }
+
+    /// The Watch and the strap, overnight: the server's one-line read and one
+    /// pair. One tap into the Health tab, where the whole section is.
+    @ViewBuilder private var overnightTile: some View {
+        if let overnight = store.payload?.overnight {
+            Button {
+                SRHaptic.tap()
+                router.show(.health)
+            } label: {
+                TodayTileCard(kicker: "Overnight", title: overnight.headline, subline: overnight.brief) {
+                    TodayOvernightMark(tone: overnight.tone)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                "Overnight, Watch and WHOOP. \(overnight.headline)"
+                + (overnight.brief.map { ". \($0), Watch then WHOOP" } ?? "")
+            )
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Opens Health")
+            .accessibilityIdentifier("today-overnight")
+        }
     }
 
     /// Its own view, watching the notes: a rating or a re-read redraws the

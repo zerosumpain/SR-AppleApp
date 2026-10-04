@@ -142,7 +142,10 @@ final class ChatComposerTests: XCTestCase {
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["desk-close"])
         let composer = app.descendants(matching: .any)["chat-composer"].firstMatch
         expectation(for: NSPredicate(format: "value CONTAINS[c] %@", "Draft week 7"), evaluatedWith: composer)
-        waitForExpectations(timeout: 5)
+        // 15, not 5: on the CI simulator the drawer's close and the composer's
+        // fill landed just past five seconds (recorded 2026-10-04) — the
+        // outcome was right, the clock was tight.
+        waitForExpectations(timeout: 15)
         XCTAssertTrue(app.buttons["chat-send"].waitForExistence(timeout: 3), "a prefilled composer offers Send")
         shoot(app, "Chat — desk ask prefilled")
     }

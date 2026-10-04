@@ -206,19 +206,28 @@ struct HubDigest: Decodable {
         }
 
         let note: String
+        /// The section in a few words ("Watch and strap agree") — the Today
+        /// tile's title. Nil from servers before 2026-10-05.
+        let headline: String?
+        /// One pair, Watch then WHOOP: "RHR 47 · 46 bpm".
+        let brief: String?
         let rows: [Row]
 
-        private enum CodingKeys: String, CodingKey { case note, rows }
+        private enum CodingKeys: String, CodingKey { case note, headline, brief, rows }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             note = (try? c.decode(String.self, forKey: .note)) ?? ""
+            headline = try? c.decodeIfPresent(String.self, forKey: .headline)
+            brief = try? c.decodeIfPresent(String.self, forKey: .brief)
             // One malformed row costs that row, not the section.
             rows = c.lossy(Row.self, .rows)
         }
 
-        init(note: String, rows: [Row]) {
+        init(note: String, headline: String? = nil, brief: String? = nil, rows: [Row]) {
             self.note = note
+            self.headline = headline
+            self.brief = brief
             self.rows = rows
         }
     }
