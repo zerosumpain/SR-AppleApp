@@ -188,8 +188,8 @@ struct TodayFamilyCard: View {
 
     // MARK: The cluster
 
-    /// Overlapping circles, the first on top. A ring in the accent for anyone
-    /// on the move, a red dot for a low battery, dashed for someone absent.
+    /// Overlapping circles, the first on top. The edge says how recently each
+    /// was seen (`edge`), a red dot is a low battery, dashed is someone absent.
     private func stack(_ people: [FamilyPerson], initials: [String: String], ghost: Bool = false) -> some View {
         let shown = Array(people.prefix(Self.stackLimit))
         let extra = people.count - shown.count
@@ -200,7 +200,7 @@ struct TodayFamilyCard: View {
                     .zIndex(Double(shown.count - index))
             }
             if extra > 0 {
-                circle("+\(extra)", ghost: ghost, moving: false, low: false)
+                circle("+\(extra)", ghost: ghost, freshness: .unknown, low: false)
             }
         }
         .accessibilityHidden(true)
