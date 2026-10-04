@@ -236,6 +236,30 @@ final class SiteURLTests: XCTestCase {
         XCTAssertTrue(hub.tripwires.contains(where: \.live), "the fixture should exercise the live-tripwire rows")
     }
 
+    func testTheDigestCarriesBothDevicesOvernight() throws {
+        let hub = try JSONDecoder().decode(HubDigest.self, from: Data(SRDemoFixtures.healthHub.utf8))
+        let vitals = try XCTUnwrap(hub.vitals)
+        XCTAssertEqual(vitals.rows.map(\.key), ["rhr", "breathing", "spo2", "temperature"])
+        let temperature = try XCTUnwrap(vitals.rows.first { $0.key == "temperature" })
+        XCTAssertNil(temperature.primary, "wrist and skin are never substituted for each other")
+        XCTAssertTrue(temperature.whoop?.display.hasPrefix("+") == true || temperature.whoop?.display.hasPrefix("−") == true,
+                      "temperature arrives as a signed change from the device's own baseline")
+        XCTAssertNotNil(vitals.rows.first { $0.key == "spo2" }?.disagree, "the fixture should exercise the apart state")
+    }
+
+    func testADigestFromBeforeVitalsStillDecodes() throws {
+        // Servers before 2026-10-04 send no `vitals`; a bad row costs only itself.
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(SRDemoFixtures.healthHub.utf8)) as? [String: Any])
+        json.removeValue(forKey: "vitals")
+        let old = try JSONDecoder().decode(HubDigest.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(old.vitals)
+
+        json["vitals"] = ["note": "n", "rows": [["key": "rhr"], ["key": "spo2", "label": "Blood oxygen", "primary": NSNull(),
+                          "apple": NSNull(), "whoop": NSNull(), "agreement": NSNull(), "disagree": NSNull(), "tone": "none"]]]
+        let partial = try JSONDecoder().decode(HubDigest.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(partial.vitals?.rows.map(\.key), ["spo2"])
+    }
+
     @MainActor func testTheDemoHeartDayHasAGapAndASleep() {
         let day = SRDemoFixtures.heartTimeline(now: Date())
         XCTAssertGreaterThan(day.points.count, 80)

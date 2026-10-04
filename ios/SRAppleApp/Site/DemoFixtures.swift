@@ -1581,28 +1581,32 @@ extension SRDemoFixtures {
       "reading": "Rising at +0.03 a month.",
       "history": [
         {
-          "date": "2026-08-28",
+          "date": "2026-08-27",
           "value": 7.51
         },
         {
-          "date": "2026-08-29",
+          "date": "2026-08-28",
           "value": 7.21
         },
         {
-          "date": "2026-08-30",
+          "date": "2026-08-29",
           "value": 7.18
         },
         {
-          "date": "2026-08-31",
+          "date": "2026-08-30",
           "value": 7.2
         },
         {
-          "date": "2026-09-01",
+          "date": "2026-08-31",
           "value": 7.17
         },
         {
-          "date": "2026-09-02",
+          "date": "2026-09-01",
           "value": 7.14
+        },
+        {
+          "date": "2026-09-02",
+          "value": 6.89
         },
         {
           "date": "2026-09-03",
@@ -1610,71 +1614,71 @@ extension SRDemoFixtures {
         },
         {
           "date": "2026-09-04",
-          "value": 6.89
-        },
-        {
-          "date": "2026-09-05",
           "value": 7.1
         },
         {
-          "date": "2026-09-06",
+          "date": "2026-09-05",
           "value": 7.23
         },
         {
-          "date": "2026-09-07",
+          "date": "2026-09-06",
           "value": 7.22
         },
         {
-          "date": "2026-09-08",
+          "date": "2026-09-07",
           "value": 7.31
         },
         {
-          "date": "2026-09-09",
+          "date": "2026-09-08",
           "value": 7.36
         },
         {
-          "date": "2026-09-10",
+          "date": "2026-09-09",
           "value": 7.4
         },
         {
-          "date": "2026-09-11",
+          "date": "2026-09-10",
           "value": 7.3
         },
         {
-          "date": "2026-09-12",
+          "date": "2026-09-11",
           "value": 7.12
         },
         {
-          "date": "2026-09-13",
+          "date": "2026-09-12",
           "value": 6.93
         },
         {
-          "date": "2026-09-14",
+          "date": "2026-09-13",
           "value": 6.89
         },
         {
-          "date": "2026-09-15",
+          "date": "2026-09-14",
           "value": 6.92
         },
         {
-          "date": "2026-09-16",
+          "date": "2026-09-15",
           "value": 6.85
         },
         {
-          "date": "2026-09-17",
+          "date": "2026-09-16",
           "value": 6.81
         },
         {
-          "date": "2026-09-18",
+          "date": "2026-09-17",
           "value": 6.89
         },
         {
-          "date": "2026-09-19",
+          "date": "2026-09-18",
           "value": 6.98
         },
         {
-          "date": "2026-09-20",
+          "date": "2026-09-19",
           "value": 7.19
+        },
+        {
+          "date": "2026-09-20",
+          "value": 7.45
         },
         {
           "date": "2026-09-21",
@@ -1682,98 +1686,94 @@ extension SRDemoFixtures {
         },
         {
           "date": "2026-09-22",
-          "value": 7.45
-        },
-        {
-          "date": "2026-09-23",
           "value": 7.54
         },
         {
-          "date": "2026-09-24",
+          "date": "2026-09-23",
           "value": 7.45
         }
       ],
       "cone": [
         {
-          "date": "2026-09-24",
+          "date": "2026-09-23",
           "value": 7.179,
           "low": 7.179,
           "high": 7.179
         },
         {
-          "date": "2026-10-01",
+          "date": "2026-09-30",
           "value": 7.187,
           "low": 6.542,
           "high": 7.832
         },
         {
-          "date": "2026-10-08",
+          "date": "2026-10-07",
           "value": 7.195,
           "low": 6.282,
           "high": 8.108
         },
         {
-          "date": "2026-10-15",
+          "date": "2026-10-14",
           "value": 7.203,
           "low": 6.085,
           "high": 8.321
         },
         {
-          "date": "2026-10-22",
+          "date": "2026-10-21",
           "value": 7.211,
           "low": 5.92,
           "high": 8.502
         },
         {
-          "date": "2026-10-29",
+          "date": "2026-10-28",
           "value": 7.219,
           "low": 5.776,
           "high": 8.662
         },
         {
-          "date": "2026-11-05",
+          "date": "2026-11-04",
           "value": 7.226,
           "low": 5.645,
           "high": 8.807
         },
         {
-          "date": "2026-11-12",
+          "date": "2026-11-11",
           "value": 7.234,
           "low": 5.527,
           "high": 8.941
         },
         {
-          "date": "2026-11-19",
+          "date": "2026-11-18",
           "value": 7.242,
           "low": 5.417,
           "high": 9.067
         },
         {
-          "date": "2026-11-26",
+          "date": "2026-11-25",
           "value": 7.25,
           "low": 5.314,
           "high": 9.186
         },
         {
-          "date": "2026-12-03",
+          "date": "2026-12-02",
           "value": 7.258,
           "low": 5.217,
           "high": 9.299
         },
         {
-          "date": "2026-12-10",
+          "date": "2026-12-09",
           "value": 7.266,
           "low": 5.126,
           "high": 9.406
         },
         {
-          "date": "2026-12-17",
+          "date": "2026-12-16",
           "value": 7.274,
           "low": 5.039,
           "high": 9.509
         },
         {
-          "date": "2026-12-23",
+          "date": "2026-12-22",
           "value": 7.281,
           "low": 4.967,
           "high": 9.595
@@ -2460,6 +2460,24 @@ extension SRDemoFixtures {
       "trigger": "gap < 3% & improving",
       "now": "2 gettable",
       "meaning": "The only positive tripwire here — a record is genuinely gettable rather than a fantasy. Closest is Woodland descent, 0.7% off it."
+    },
+    {
+      "key": "illness-watch",
+      "state": "close",
+      "signal": "Illness watch",
+      "window": "last night vs own baselines",
+      "trigger": "temperature + one more sign",
+      "now": "2 signs",
+      "meaning": "resting HR +3 bpm, HRV 36% down. One sign on its own is usually the room, a drink or a late meal; watch tonight."
+    },
+    {
+      "key": "device-agreement",
+      "state": "close",
+      "signal": "Watch vs strap",
+      "window": "paired nights, own usual gap",
+      "trigger": "3 nights apart",
+      "now": "1 night apart",
+      "meaning": "SpO₂ 1 night outside the usual gap. One night is usually fit or a charge; three is a fault."
     }
   ],
   "segments": {
@@ -2546,6 +2564,331 @@ extension SRDemoFixtures {
     ],
     "quote": "Go to bed at the same time. Then put one long, dull walk in the diary every week.",
     "reviewOn": "2026-09-24"
+  },
+  "vitals": {
+    "note": "Each device is read against its own history and the two are never averaged. Temperature is shown as a change from each device's own baseline: wrist and skin sit about 2.6 °C apart.",
+    "rows": [
+      {
+        "key": "rhr",
+        "label": "Resting HR",
+        "primary": "whoop",
+        "apple": {
+          "display": "52",
+          "unit": "bpm",
+          "baseline": "vs 51 baseline",
+          "asOf": null,
+          "series": [
+            52,
+            49,
+            51,
+            51,
+            49,
+            50,
+            50,
+            53,
+            50,
+            51,
+            49,
+            49,
+            52,
+            52,
+            53,
+            49,
+            51,
+            51,
+            49,
+            53,
+            52,
+            50,
+            50,
+            51,
+            49,
+            52,
+            50,
+            52
+          ]
+        },
+        "whoop": {
+          "display": "52",
+          "unit": "bpm",
+          "baseline": "vs 52 baseline",
+          "asOf": null,
+          "series": [
+            51,
+            53,
+            52,
+            52,
+            50,
+            50,
+            50,
+            51,
+            53,
+            51,
+            52,
+            52,
+            52,
+            52,
+            50,
+            51,
+            51,
+            52,
+            50,
+            52,
+            53,
+            50,
+            52,
+            53,
+            53,
+            53,
+            51,
+            52
+          ]
+        },
+        "agreement": "Usually WHOOP +1 ± 2 bpm over 28 nights",
+        "disagree": null,
+        "tone": "none"
+      },
+      {
+        "key": "breathing",
+        "label": "Breathing rate",
+        "primary": "whoop",
+        "apple": {
+          "display": "15.4",
+          "unit": "breaths/min",
+          "baseline": "vs 15.4 baseline",
+          "asOf": null,
+          "series": [
+            15.2,
+            15.2,
+            15.5,
+            15.4,
+            15.4,
+            15.4,
+            15.5,
+            15.6,
+            15.4,
+            15.5,
+            15.6,
+            15.2,
+            15.2,
+            15.5,
+            15.5,
+            15.4,
+            15.6,
+            15.5,
+            15.2,
+            15.6,
+            15.5,
+            15.3,
+            15.6,
+            15.6,
+            15.4,
+            15.4,
+            15.5,
+            15.4
+          ]
+        },
+        "whoop": {
+          "display": "15.4",
+          "unit": "breaths/min",
+          "baseline": "vs 15.2 baseline",
+          "asOf": null,
+          "series": [
+            15.3,
+            15.2,
+            15,
+            15.3,
+            15.4,
+            15.3,
+            15.4,
+            15.4,
+            15.2,
+            15.1,
+            15.4,
+            15.1,
+            15.4,
+            15.2,
+            15.1,
+            15,
+            15.3,
+            15.4,
+            15.2,
+            15.1,
+            15.2,
+            15.2,
+            15.3,
+            15.4,
+            15.2,
+            15,
+            15.4,
+            15.4
+          ]
+        },
+        "agreement": "Usually WHOOP −0.2 ± 0.2 breaths/min over 28 nights",
+        "disagree": null,
+        "tone": "none"
+      },
+      {
+        "key": "spo2",
+        "label": "Blood oxygen",
+        "primary": "whoop",
+        "apple": {
+          "display": "96.1",
+          "unit": "%",
+          "baseline": "vs 96.5 baseline",
+          "asOf": null,
+          "series": [
+            97,
+            96.7,
+            95.9,
+            96.9,
+            96.1,
+            96,
+            96.6,
+            96.7,
+            97,
+            96.5,
+            96.5,
+            96.9,
+            96,
+            96,
+            96.4,
+            96.8,
+            96.9,
+            95.8,
+            96.9,
+            96.2,
+            97,
+            96.9,
+            96.7,
+            96.7,
+            96.1,
+            96.6,
+            96.7,
+            96.1
+          ]
+        },
+        "whoop": {
+          "display": "92.6",
+          "unit": "%",
+          "baseline": "vs 96.1 baseline",
+          "asOf": null,
+          "series": [
+            95.7,
+            96.1,
+            95.7,
+            96.7,
+            96.4,
+            96.1,
+            95.8,
+            95.6,
+            96.1,
+            95.8,
+            96.8,
+            96.2,
+            96.1,
+            96.7,
+            95.6,
+            95.9,
+            96,
+            96.1,
+            95.7,
+            96.2,
+            95.8,
+            96,
+            96.7,
+            96.3,
+            96.2,
+            95.7,
+            95.8,
+            92.6
+          ]
+        },
+        "agreement": "Usually WHOOP −0.4 ± 0.6% over 28 nights",
+        "disagree": "WHOOP −3.5% from the Watch last night — outside the usual gap.",
+        "tone": "watch"
+      },
+      {
+        "key": "temperature",
+        "label": "Temperature",
+        "primary": null,
+        "apple": {
+          "display": "+0.07",
+          "unit": "°C",
+          "baseline": "vs its own baseline",
+          "asOf": null,
+          "series": [
+            -0.027,
+            -0.007,
+            -0.017,
+            -0.027,
+            -0.057,
+            -0.077,
+            -0.097,
+            0.003,
+            0.063,
+            0.063,
+            0.043,
+            0.073,
+            -0.067,
+            -0.057,
+            0.053,
+            -0.017,
+            -0.007,
+            0.073,
+            -0.087,
+            0.083,
+            0.013,
+            -0.007,
+            0.083,
+            -0.027,
+            -0.087,
+            0.093,
+            0.023,
+            0.073
+          ]
+        },
+        "whoop": {
+          "display": "+0.16",
+          "unit": "°C",
+          "baseline": "vs its own baseline",
+          "asOf": null,
+          "series": [
+            -0.072,
+            -0.062,
+            -0.142,
+            0.138,
+            -0.032,
+            -0.082,
+            0.018,
+            0.118,
+            0.148,
+            -0.002,
+            -0.102,
+            0.048,
+            -0.092,
+            0.058,
+            0.068,
+            -0.142,
+            0.098,
+            0.008,
+            -0.012,
+            -0.142,
+            0.018,
+            0.118,
+            0.058,
+            -0.102,
+            0.068,
+            -0.072,
+            0.098,
+            0.158
+          ]
+        },
+        "agreement": null,
+        "disagree": null,
+        "tone": "none"
+      }
+    ]
   }
 }
 """#
