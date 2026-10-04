@@ -90,6 +90,7 @@ struct TodayFamilyCard: View {
             let initials = view.initials
             let absent = view.people.filter { $0.status == "unknown" || $0.status == "off" }
             VStack(alignment: .leading, spacing: 10) {
+                SRSectionLabel(text: "Family tracking", prominent: true)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(groups.enumerated()), id: \.element.id) { index, place in
                         if index > 0 { divider }
@@ -97,7 +98,7 @@ struct TodayFamilyCard: View {
                             SRHaptic.tap()
                             open()
                         } label: {
-                            placeRow(place, initials: initials, everyone: groups.count == 1 && absent.isEmpty)
+                            placeRow(place, initials: initials)
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("today-family-\(place.name.lowercased())")
@@ -108,8 +109,9 @@ struct TodayFamilyCard: View {
                     }
                 }
                 .srGlassCard(.paper)
-                // The card is its own way in: no "Family · Map" heading over
-                // it — the circles say who, and any row opens the tab.
+                // Any row opens the tab. The circles say who; the only words
+                // are where (John asked for the card that spare, 2026-10-05) —
+                // who is doing what, how fast and how long ago are on Family.
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("today-family")
             }
@@ -122,7 +124,7 @@ struct TodayFamilyCard: View {
 
     // MARK: Rows
 
-    private func placeRow(_ place: FamilyPlace, initials: [String: String], everyone: Bool) -> some View {
+    private func placeRow(_ place: FamilyPlace, initials: [String: String]) -> some View {
         HStack(spacing: 14) {
             stack(place.people, initials: initials)
             VStack(alignment: .leading, spacing: 2) {
@@ -134,22 +136,14 @@ struct TodayFamilyCard: View {
                             .accessibilityHidden(true)
                     }
                     // DM Sans, not Inter Display: the place is a label for
-                    // the circles, and the circles are the headline.
+                    // the circles, and the circles are the headline. One
+                    // line, so a row never changes height as names resolve —
+                    // a card that grows under the thumb moves every card
+                    // below it, and a tap on one of those then misses.
                     Text(place.name)
                         .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
-                        .lineLimit(2)
-                }
-                HStack(spacing: 6) {
-                    Text(subline(place, initials: initials, everyone: everyone))
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    ForEach(place.people.filter(lowBattery)) { person in
-                        Text("\(initials[person.subject] ?? person.initial) \(person.batteryPct ?? 0)%")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.error)
-                    }
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
@@ -170,19 +164,19 @@ struct TodayFamilyCard: View {
     private func absentRow(_ people: [FamilyPerson], lines: [String], initials: [String: String]) -> some View {
         HStack(alignment: .center, spacing: 14) {
             stack(people, initials: initials, ghost: true)
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(lines, id: \.self) { line in
-                    Text(line)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            // Where they are is not known, so that is the place.
+            Text("Unknown")
+                .font(SR.Text.title())
+                .foregroundStyle(SR.inkMuted)
+                .lineLimit(1)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, SR.cardPadding)
         .padding(.vertical, 11)
-        .accessibilityElement(children: .combine)
+        // The full sentences ("Kit was last at The Reservoir, 2h ago") stay
+        // for VoiceOver, where they cost no room on the card.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(lines.joined(separator: " "))
     }
 
     // MARK: The cluster
@@ -242,18 +236,6 @@ struct TodayFamilyCard: View {
 
     /// "You · walking · 5 km/h", "KK and JeK · seen 4m ago", "Everyone ·
     /// seen 2m ago" — who, then the freshest thing known about them.
-    private func subline(_ place: FamilyPlace, initials: [String: String], everyone: Bool) -> String {
-        let names = place.people.map { $0.isSelf ? "You" : (initials[$0.subject] ?? $0.initial) }
-        let who: String
-        if everyone && place.people.count > 1 {
-            who = "Everyone"
-        } else if names.count <= 1 {
-            who = names.first ?? ""
-        } else {
-            who = names.dropLast().joined(separator: ", ") + " and " + (names.last ?? "")
-        }
-        return "\(who) · \(state(place))"
-    }
 
     /// "walking · 5 km/h" (near a street, once the phone has a name) for a
     /// group with somebody moving, else "seen 4m ago" from the site's line.

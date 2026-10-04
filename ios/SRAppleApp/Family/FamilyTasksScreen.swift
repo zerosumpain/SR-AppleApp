@@ -551,18 +551,29 @@ struct FamilyTaskSheet: View {
 }
 
 /// Today's task card: what is left, what is waiting, what is owed.
+///
+/// Drawn only while something is outstanding. An empty list is not news, and a
+/// card saying "nothing to do" on the first screen is a card to scroll past.
+/// Nothing is drawn while the list is still loading either, so a clear list
+/// never flashes up and disappears.
 struct TodayTasksCard: View {
     @ObservedObject private var store = FamilyTasksStore.shared
     let open: () -> Void
 
     var body: some View {
+        if store.summary?.outstanding == true {
+            card
+        }
+    }
+
+    private var card: some View {
         Button {
             SRHaptic.tap()
             open()
         } label: {
             SRCard(interactive: true) {
                 VStack(alignment: .leading, spacing: 12) {
-                    SRSectionLabel(text: "Family tasks", trailing: store.summary?.owedLine)
+                    SRSectionLabel(text: "Family tasks", trailing: store.summary?.owedLine, prominent: true)
                     if let summary = store.summary {
                         HStack(alignment: .firstTextBaseline, spacing: 22) {
                             figure("\(summary.toDo)", "to do")

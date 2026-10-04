@@ -249,7 +249,7 @@ struct TodayStepsCard: View {
         } label: {
             SRCard(interactive: true) {
                 VStack(alignment: .leading, spacing: 10) {
-                    SRSectionLabel(text: "Family steps", trailing: store.shown.flatMap(FamilySteps.place))
+                    SRSectionLabel(text: "Family steps", trailing: store.shown.flatMap(FamilySteps.place), prominent: true)
                     if let board = store.shown, !board.people.isEmpty {
                         if let mine = board.mine {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {

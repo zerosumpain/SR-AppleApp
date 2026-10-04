@@ -132,10 +132,6 @@ final class CommissionUITests: XCTestCase {
 
     @MainActor private func openDaydream(_ app: XCUIApplication) {
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
-        // Let Today's payload land first: the banners, the family rows and the
-        // Overnight tile all arrive with it and move the grid. Scrolling before
-        // that chased a tile that then slid under the pinned banners.
-        _ = app.descendants(matching: .any)["today-overnight"].firstMatch.waitForExistence(timeout: 10)
         let tile = app.descendants(matching: .any)["today-daydream"].firstMatch
         XCTAssertTrue(tile.waitForExistence(timeout: 15), "no Daydream tile on Today")
         // No isHittable gate: the row it sits in falls between the pinned

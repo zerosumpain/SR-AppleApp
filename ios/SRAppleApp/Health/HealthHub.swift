@@ -170,6 +170,59 @@ struct HubDigest: Decodable {
     /// before 2026-10-04 do not send it, and a section that fails on the
     /// server arrives as null — neither may cost the rest of the digest.
     let vitals: Vitals?
+    /// The night's sleep — WHOOP's last staged night beside the Watch's, and
+    /// the week from both. Optional: servers before 2026-10-05 do not send it.
+    let sleep: Sleep?
+
+    struct Sleep: Decodable, Hashable {
+        struct Stage: Decodable, Hashable, Identifiable {
+            let key: String
+            let label: String
+            let minutes: Double
+            let display: String
+            var id: String { key }
+        }
+
+        struct LastNight: Decodable, Hashable {
+            /// YYYY-MM-DD, the day the night ended on.
+            let date: String
+            /// WHOOP asleep: "7h12m".
+            let asleep: String
+            /// WHOOP sleep performance, 0–100.
+            let score: Double?
+            let stages: [Stage]
+            /// "9 disturbances", "5 sleep cycles".
+            let detail: [String]
+            /// The Watch's asleep for the same night.
+            let watch: String?
+        }
+
+        struct Night: Decodable, Hashable, Identifiable {
+            let date: String
+            /// Hours asleep, each device's own staging.
+            let whoop: Double?
+            let watch: Double?
+            let score: Double?
+            var id: String { date }
+        }
+
+        let lastNight: LastNight?
+        let nights: [Night]
+        let note: String
+
+        private enum CodingKeys: String, CodingKey { case lastNight, nights, note }
+
+        /// Never throws: a block that is not what this phone expects costs
+        /// the sleep screen its section, not the rest of the digest.
+        init(from decoder: Decoder) throws {
+            guard let c = try? decoder.container(keyedBy: CodingKeys.self) else {
+                lastNight = nil; nights = []; note = ""; return
+            }
+            lastNight = try? c.decodeIfPresent(LastNight.self, forKey: .lastNight)
+            nights = c.lossy(Night.self, .nights)
+            note = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? ""
+        }
+    }
 
     struct Vitals: Decodable, Hashable {
         /// One device's reading. `display` is already a deviation for

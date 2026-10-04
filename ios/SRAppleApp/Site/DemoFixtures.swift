@@ -443,19 +443,6 @@ enum SRDemoFixtures {
 
     // MARK: - Today
 
-    /// The Overnight tile, read from the same digest the Health tab's demo
-    /// shows (`healthHub`'s `vitals`), so the two screens tell one story.
-    static var todayOvernight: String {
-        guard
-            let data = healthHub.data(using: .utf8),
-            let hub = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let vitals = hub["vitals"] as? [String: Any],
-            let headline = vitals["headline"] as? String
-        else { return "null" }
-        let brief = (vitals["brief"] as? String).map { s($0) } ?? "null"
-        return "{\"headline\": \(s(headline)), \"brief\": \(brief), \"tone\": \(s(vitals["tone"] as? String ?? "none"))}"
-    }
-
     static func today(_ clock: DemoClock) -> String {
         let alerts = demoAlerts(clock).prefix(3).map { alert in
             """
@@ -478,7 +465,6 @@ enum SRDemoFixtures {
             "figures": \(list(figures.map { figureJSON($0, withSeries: false) })),
             "generatedAt": \(s(clock.iso(minutesAgo: 12)))
           },
-          "overnight": \(todayOvernight),
           "alerts": {"pending": 0, "unread": 3, "latest": \(list(alerts))},
           "news": {"updatedAt": \(s(clock.iso(minutesAgo: 6))), "unseen": 5, "stories": \(list(stories))},
           "lastThread": {"id": \(s(thread.id)), "title": \(s(thread.title)), "updatedAt": \(s(clock.iso(minutesAgo: thread.minutesAgo)))},
@@ -2580,7 +2566,7 @@ extension SRDemoFixtures {
     "reviewOn": "2026-09-24"
   },
   "vitals": {
-    "headline": "SpO₂ apart last night",
+    "headline": "SpO₂ apart",
     "brief": "SpO₂ 96.1 · 92.6%",
     "tone": "watch",
     "note": "Each device is read against its own history and the two are never averaged. Temperature is shown as a change from each device's own baseline: wrist and skin sit about 2.6 °C apart.",
@@ -2906,6 +2892,89 @@ extension SRDemoFixtures {
         "tone": "none"
       }
     ]
+  },
+  "sleep": {
+    "lastNight": {
+      "date": "2026-09-23",
+      "asleep": "5h36m",
+      "score": 78,
+      "stages": [
+        {
+          "key": "deep",
+          "label": "Deep",
+          "minutes": 71,
+          "display": "1h11m"
+        },
+        {
+          "key": "rem",
+          "label": "REM",
+          "minutes": 77,
+          "display": "1h17m"
+        },
+        {
+          "key": "light",
+          "label": "Light",
+          "minutes": 188,
+          "display": "3h08m"
+        },
+        {
+          "key": "awake",
+          "label": "Awake",
+          "minutes": 40,
+          "display": "40m"
+        }
+      ],
+      "detail": [
+        "7 disturbances",
+        "4 sleep cycles"
+      ],
+      "watch": "5h27m"
+    },
+    "nights": [
+      {
+        "date": "2026-09-17",
+        "whoop": 7.08,
+        "watch": 6.93,
+        "score": 74
+      },
+      {
+        "date": "2026-09-18",
+        "whoop": 7.17,
+        "watch": 7.02,
+        "score": 81
+      },
+      {
+        "date": "2026-09-19",
+        "whoop": 8.12,
+        "watch": 7.97,
+        "score": 88
+      },
+      {
+        "date": "2026-09-20",
+        "whoop": 8.83,
+        "watch": null,
+        "score": 76
+      },
+      {
+        "date": "2026-09-21",
+        "whoop": 7.73,
+        "watch": 7.58,
+        "score": 83
+      },
+      {
+        "date": "2026-09-22",
+        "whoop": 7.58,
+        "watch": 7.43,
+        "score": 90
+      },
+      {
+        "date": "2026-09-23",
+        "whoop": 5.6,
+        "watch": 5.45,
+        "score": 78
+      }
+    ],
+    "note": "WHOOP asleep is deep + light + REM, the Watch's is deep + core + REM: each stages the night its own way, so the two sit side by side and are never added."
   }
 }
 """#

@@ -671,6 +671,10 @@ struct FamilyTasksSummary: Codable, Equatable {
     var owedOther: Int
     var next: [Line]
 
+    /// Anything left on the list: open, or done and waiting for a parent.
+    /// What is owed is a debt, not a task, so it does not count.
+    var outstanding: Bool { toDo > 0 || awaiting > 0 }
+
     static func make(_ board: FamilyTasksBoard, now: Date = Date(), calendar: Calendar = .current, limit: Int = 3) -> FamilyTasksSummary {
         let toDo = FamilyTaskRules.toDo(board)
         // Mine first, then anyone's, then other people's; soonest deadline

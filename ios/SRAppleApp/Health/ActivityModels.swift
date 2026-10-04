@@ -472,6 +472,8 @@ enum HealthRoute: Hashable {
     case offlineMaps
     // The read, tripwires, moves and "The full picture" — the tab's fourth area.
     case insights
+    // Overnight vitals, the Watch beside the WHOOP strap — the fifth area.
+    case sleep
     // /health's deeper sections, each pushed from Insights.
     case instruments
     case forecast

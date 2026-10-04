@@ -296,6 +296,9 @@ extension SR {
         /// The mono eyebrow. Never below the 12pt floor before scaling.
         static func label(_ size: CGFloat = 12) -> Font { .custom(Face.monoMedium, size: max(size, labelFloor), relativeTo: .caption) }
         static func mono(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor), relativeTo: .caption) }
+        /// A section's title where it heads a card on its own, as on Today:
+        /// the mono eyebrow, a step larger and bold.
+        static func sectionTitle(_ size: CGFloat = 15) -> Font { .custom(Face.monoBold, size: size, relativeTo: .subheadline) }
         /// DM Mono at the reading weight: the top bar's path, a thread's source.
         static func brand(_ size: CGFloat = 15) -> Font { .custom(Face.brand, size: size, relativeTo: .headline) }
         /// The `sr` of the mark itself: DM Mono MEDIUM. The regular cut read

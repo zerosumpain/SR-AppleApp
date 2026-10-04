@@ -45,11 +45,11 @@ final class HealthHubTests: XCTestCase {
         return element.exists && element.isHittable
     }
 
-    /// The tab itself: the hero, the four areas two by two, and this iPhone's
-    /// heart rate under them.
+    /// The tab itself: the hero, the five areas, and this iPhone's heart rate
+    /// under them.
     @MainActor func testTheAreasAndTheHeartRateDraw() {
         let app = openHealth()
-        for id in ["health-all-activities", "health-segments", "health-routes", "health-insights"] {
+        for id in ["health-all-activities", "health-segments", "health-routes", "health-insights", "health-sleep"] {
             let tile = app.buttons[id]
             XCTAssertTrue(reveal(app, tile), "no \(id) tile on the tab")
         }
@@ -58,6 +58,21 @@ final class HealthHubTests: XCTestCase {
         let chart = app.descendants(matching: .any)["Heart rate over the last 24 hours"].firstMatch
         XCTAssertTrue(reveal(app, chart), "the heart-rate chart did not draw")
         shoot(app, "Health — heart rate")
+    }
+
+    /// Sleep analytics: last night, the week from both devices, the overnight
+    /// vitals and /health's sleep reads, one push off the tab.
+    @MainActor func testSleepAnalyticsOpensWithTheNight() {
+        let app = openHealth()
+        let tile = app.buttons["health-sleep"]
+        XCTAssertTrue(reveal(app, tile), "no Sleep analytics tile on the tab")
+        tile.tap()
+        XCTAssertTrue(app.navigationBars["Sleep analytics"].waitForExistence(timeout: 10), "Sleep analytics did not open")
+        XCTAssertTrue(app.descendants(matching: .any)["sleep-last-night"].firstMatch.waitForExistence(timeout: 10), "no last night")
+        shoot(app, "Health — sleep analytics")
+        XCTAssertTrue(reveal(app, app.descendants(matching: .any)["sleep-week"].firstMatch), "no week of nights")
+        XCTAssertTrue(reveal(app, app.descendants(matching: .any)["health-vital-rhr"].firstMatch), "no overnight vitals")
+        shoot(app, "Health — sleep analytics, vitals")
     }
 
     /// The compact hero is the readiness answer, not a door to a second

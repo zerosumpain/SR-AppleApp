@@ -24,42 +24,6 @@ final class TodayTilesTests: XCTestCase {
         XCTAssertEqual(TodayTile.kinds(access: AppAccess(family: true), sitePaired: true), [.health])
     }
 
-    func testOvernightFollowsHealthOnceTheServerHasARead() {
-        XCTAssertEqual(TodayTile.kinds(access: .everything, sitePaired: true, overnight: true),
-                       [.ask, .health, .overnight, .daydream, .games])
-        // No read yet: no door to nothing on the first screen.
-        XCTAssertFalse(TodayTile.kinds(access: .everything, sitePaired: true, overnight: false).contains(.overnight))
-        // The owner's /health, over the site credential.
-        XCTAssertFalse(TodayTile.kinds(access: .everything, sitePaired: false, overnight: true).contains(.overnight))
-        let member = AppAccess(chat: true, family: true, games: true)
-        XCTAssertFalse(TodayTile.kinds(access: member, sitePaired: true, overnight: true).contains(.overnight))
-    }
-
-    // MARK: - The overnight read
-
-    private func today(_ json: String) throws -> TodayPayload {
-        try JSONDecoder().decode(TodayPayload.self, from: Data(json.utf8))
-    }
-
-    func testTodayCarriesTheOvernightRead() throws {
-        let payload = try today(#"{"generatedAt": "x", "overnight": {"headline": "SpO₂ apart last night", "brief": "SpO₂ 96.1 · 92.6%", "tone": "watch"}}"#)
-        XCTAssertEqual(payload.overnight, TodayOvernight(headline: "SpO₂ apart last night", brief: "SpO₂ 96.1 · 92.6%", tone: .watch))
-    }
-
-    func testAnOlderOrBrokenOvernightCostsOnlyTheTile() throws {
-        XCTAssertNil(try today(#"{"generatedAt": "x"}"#).overnight)
-        XCTAssertNil(try today(#"{"generatedAt": "x", "overnight": null}"#).overnight)
-        let broken = try today(#"{"generatedAt": "x", "overnight": "soon", "daydream": {"notes": []}}"#)
-        XCTAssertNil(broken.overnight)
-        XCTAssertNotNil(broken.daydream, "the rest of Today still decodes")
-    }
-
-    func testTheDemoTodayAndHealthTellOneStory() throws {
-        let payload = try today(SRDemoFixtures.today(SRDemoFixtures.DemoClock(now: Date())))
-        let hub = try JSONDecoder().decode(HubDigest.self, from: Data(SRDemoFixtures.healthHub.utf8))
-        XCTAssertEqual(payload.overnight?.headline, hub.vitals?.headline)
-    }
-
     // MARK: - The urgent banner
 
     private func alert(_ id: String, severity: String = "alert", read: Bool = false) -> SiteAlert {
