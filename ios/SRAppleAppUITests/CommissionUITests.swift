@@ -137,7 +137,11 @@ final class CommissionUITests: XCTestCase {
         // that chased a tile that then slid under the pinned banners.
         _ = app.descendants(matching: .any)["today-overnight"].firstMatch.waitForExistence(timeout: 10)
         let tile = app.descendants(matching: .any)["today-daydream"].firstMatch
-        XCTAssertTrue(scroll(app, to: tile), "no Daydream tile on Today")
+        XCTAssertTrue(tile.waitForExistence(timeout: 15), "no Daydream tile on Today")
+        // No isHittable gate: the row it sits in falls between the pinned
+        // banners and the tab bar, and a full swipe steps right over it. The
+        // tap scrolls the tile into view itself, and the assertion that
+        // matters is the one below — that the Daydream page opened.
         tile.tap()
         XCTAssertTrue(app.descendants(matching: .any)["daydream-screen"].firstMatch.waitForExistence(timeout: 15))
     }
