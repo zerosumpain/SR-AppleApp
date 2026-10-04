@@ -611,6 +611,19 @@ enum Landgrab {
         return out
     }
 
+    /// The More card's status: your place and net this week ("2nd · +38"),
+    /// or who leads when you are not on the board ("Sam leads, +100"). Nil
+    /// with nobody on it.
+    static func moreStatus(_ board: LandgrabBoard?) -> String? {
+        guard let board, let week = currentWeek(board) else { return nil }
+        let people = ranked(week.people)
+        if let mine = people.first(where: { $0.me }) {
+            return "\(FamilySteps.ordinal(mine.rank)) · \(signed(mine.net))"
+        }
+        guard let leader = people.first else { return nil }
+        return "\(leader.name) leads, \(signed(leader.net))"
+    }
+
     /// 1,234 — grouped the British way whatever the phone's region.
     static func figure(_ n: Int) -> String {
         let format = NumberFormatter()

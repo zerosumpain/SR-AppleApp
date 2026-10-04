@@ -127,6 +127,21 @@ final class LandgrabTests: XCTestCase {
 
     // MARK: - Visibility
 
+    func testTheMoreCardSaysYourPlaceOrWhoLeads() {
+        XCTAssertNil(Landgrab.moreStatus(nil))
+        XCTAssertNil(Landgrab.moreStatus(LandgrabBoard(weeks: [])))
+        let people = [
+            LandgrabPerson(id: "a", name: "Sam", won: 124, lost: 24, net: 100),
+            LandgrabPerson(id: "b", name: "Robin", won: 31, lost: 41, net: -10),
+        ]
+        let week = LandgrabWeek(start: "2026-09-28", end: "2026-10-04", current: true, people: people)
+        XCTAssertEqual(Landgrab.moreStatus(LandgrabBoard(weeks: [week])), "Sam leads, +100")
+        var mine = people
+        mine[1].me = true
+        let myWeek = LandgrabWeek(start: "2026-09-28", end: "2026-10-04", current: true, people: mine)
+        XCTAssertEqual(Landgrab.moreStatus(LandgrabBoard(weeks: [myWeek])), "2nd · −10")
+    }
+
     func testTheSectionHidesWithNoBoardOrNobodyOnIt() throws {
         XCTAssertTrue(Landgrab.shows(try board()))
         XCTAssertFalse(Landgrab.shows(nil))

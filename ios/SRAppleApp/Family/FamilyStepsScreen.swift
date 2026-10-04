@@ -68,7 +68,6 @@ struct FamilyStepsScreen: View {
             Task { await LandgrabStore.shared.load() }
             await store.load()
         }
-        .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
         // Its own task, so it runs beside the step board's, never after it.
         .task { await landgrab.load() }
         .task {
