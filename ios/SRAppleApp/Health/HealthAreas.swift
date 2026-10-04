@@ -21,8 +21,8 @@ import SwiftUI
 
 // MARK: - The four areas
 
-/// The four ways off the Health tab, two by two under the ink hero:
-/// Activities, Segments, Routes, Insights.
+/// The ways off the Health tab, two by two under the ink hero: Activities,
+/// Segments, Routes, Insights, then Sleep analytics.
 ///
 /// The tab used to stack the read, the tripwires, the moves, recent
 /// activities and "The full picture" under the hero — nine sections a thumb
@@ -64,7 +64,22 @@ struct HealthAreasGrid: View {
                 identifier: "health-insights",
                 flagged: liveTripwires > 0
             )
+            HealthAreaTile(
+                title: "Sleep analytics",
+                icon: "moon.stars",
+                detail: sleepLine,
+                route: .sleep,
+                identifier: "health-sleep",
+                flagged: hub?.vitals?.rows.contains { $0.disagree != nil } ?? false
+            )
         }
+    }
+
+    /// Last night's sleep, then the server's own read of the overnight pairs
+    /// ("Devices agree", "SpO₂ apart") — the phone does not judge them itself.
+    private var sleepLine: String {
+        let parts = [hub?.sleep?.lastNight.map { "\($0.asleep) last night" }, hub?.vitals?.headline].compactMap { $0 }
+        return parts.isEmpty ? "Last night, Watch and WHOOP" : parts.joined(separator: " · ")
     }
 
     private var activitiesLine: String {
@@ -136,6 +151,9 @@ struct HealthAreaTile: View {
                         .font(SR.Text.display(19))
                         .foregroundStyle(SR.ink)
                         .lineLimit(1)
+                        // "Sleep analytics" is the longest name and the tile
+                        // is half a phone wide; a touch smaller beats an ellipsis.
+                        .minimumScaleFactor(0.85)
                     // Two lines reserved, so the four tiles stand the same
                     // height whatever each has to say.
                     Text(detail)

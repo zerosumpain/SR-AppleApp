@@ -13,9 +13,11 @@ import MapKit
 /// 2. four areas, two by two — Activities, Segments, Routes and Insights —
 ///    each one push away (`HealthAreasGrid`). Insights holds the read, what
 ///    the loop noticed, tripwires, moves and "The full picture";
-/// 3. overnight vitals, the Watch beside the WHOOP strap (`OvernightVitalsSection`);
-/// 4. heart rate over the last day, from this iPhone;
-/// 5. the family.
+/// 3. heart rate over the last day, from this iPhone;
+/// 4. the family.
+///
+/// Overnight vitals (the Watch beside the WHOOP strap) are their own area,
+/// Sleep analytics, rather than a section here.
 ///
 /// Everything /health concludes is on the phone — but the tab says where it
 /// lives, rather than stacking nine sections a thumb has to scroll past to
@@ -70,11 +72,6 @@ struct HealthScreen: View {
                     )
                     .srBareRow()
                 }
-                // The Watch and the strap, overnight, side by side — the hub's
-                // section, so it fills in when the deep read answers.
-                if let vitals = hub.hub?.vitals, !vitals.rows.isEmpty {
-                    OvernightVitalsSection(vitals: vitals)
-                }
             }
             heartSection
             family
@@ -120,6 +117,7 @@ struct HealthScreen: View {
             case .nearbyRoutes: NearbyRoutesScreen()
             case .offlineMaps: OfflineMapsScreen()
             case .insights: HealthInsightsScreen(hub: hub, noticed: noticed)
+            case .sleep: SleepAnalyticsScreen(hub: hub)
             case .instruments: if let h = hub.hub { InstrumentsScreen(hub: h) }
             case .forecast: if let h = hub.hub { ForecastScreen(hub: h) }
             case .forecastDetail(let key): if let h = hub.hub { ForecastScreen(hub: h, focus: key) }

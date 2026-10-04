@@ -247,6 +247,26 @@ final class SiteURLTests: XCTestCase {
         XCTAssertNotNil(vitals.rows.first { $0.key == "spo2" }?.disagree, "the fixture should exercise the apart state")
     }
 
+    func testTheDigestCarriesTheNight() throws {
+        let hub = try JSONDecoder().decode(HubDigest.self, from: Data(SRDemoFixtures.healthHub.utf8))
+        let sleep = try XCTUnwrap(hub.sleep)
+        let night = try XCTUnwrap(sleep.lastNight)
+        XCTAssertEqual(night.stages.map(\.key), ["deep", "rem", "light", "awake"])
+        XCTAssertNotNil(night.watch)
+        XCTAssertEqual(sleep.nights.count, 7)
+        XCTAssertTrue(sleep.nights.contains { $0.watch == nil }, "the fixture should exercise a night the Watch missed")
+    }
+
+    func testABadSleepBlockCostsOnlyItself() throws {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(SRDemoFixtures.healthHub.utf8)) as? [String: Any])
+        json["sleep"] = "soon"
+        let hub = try JSONDecoder().decode(HubDigest.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(hub.sleep?.lastNight)
+        XCTAssertEqual(hub.instruments.count, 8, "the rest of the digest still decodes")
+        json.removeValue(forKey: "sleep")
+        XCTAssertNil(try JSONDecoder().decode(HubDigest.self, from: JSONSerialization.data(withJSONObject: json)).sleep)
+    }
+
     func testADigestFromBeforeVitalsStillDecodes() throws {
         // Servers before 2026-10-04 send no `vitals`; a bad row costs only itself.
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(SRDemoFixtures.healthHub.utf8)) as? [String: Any])

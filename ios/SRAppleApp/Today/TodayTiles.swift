@@ -1,27 +1,23 @@
 import SwiftUI
 
-/// The squares under the family: Ask and Health, Overnight and Daydream, then
-/// Games.
+/// The four squares under the family: Ask and Health, then Daydream and Games.
 ///
 /// Squares, not rows, because each is a door rather than a reading — one tap
 /// and you are where the thing is. Which of them a person gets follows what
 /// they may use; the grid fills left to right, so a member with only Health
 /// and Games still gets a tidy pair.
 enum TodayTile: String, CaseIterable, Identifiable {
-    case ask, health, overnight, daydream, games
+    case ask, health, daydream, games
 
     var id: String { rawValue }
 
     /// In reading order. Ask needs chat over the site credential; Daydream is
     /// the owner's loop; Health is everyone's (the Move ring is this phone's).
-    /// Overnight is the owner's /health, and only once the server has a read —
-    /// a door to nothing would be the first thing on the first screen.
-    static func kinds(access: AppAccess, sitePaired: Bool, overnight: Bool = false) -> [TodayTile] {
+    static func kinds(access: AppAccess, sitePaired: Bool) -> [TodayTile] {
         allCases.filter { tile in
             switch tile {
             case .ask: return access.chat && sitePaired
             case .health: return true
-            case .overnight: return access.owner && sitePaired && overnight
             case .daydream: return access.owner && sitePaired
             case .games: return AccessPolicy.allows(.games, access)
             }
@@ -108,22 +104,6 @@ struct TodayTileCard<Visual: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .srGlassCard(.paper, interactive: true)
         .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-    }
-}
-
-/// The Overnight tile's mark: a moon while the Watch and the strap agree, a
-/// raised mark in the watch colour when a reading is apart. The words beside
-/// it say which; the mark only says which kind of tile this is.
-struct TodayOvernightMark: View {
-    let tone: HubTone
-
-    var body: some View {
-        Image(systemName: tone == .watch ? "exclamationmark" : "moon.stars")
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(tone == .watch ? tone.color : SR.inkSecondary)
-            .frame(width: 44, height: 44)
-            .background((tone == .watch ? tone.color : SR.inkSecondary).opacity(0.14), in: Circle())
-            .accessibilityHidden(true)
     }
 }
 

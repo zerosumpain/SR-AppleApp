@@ -284,6 +284,15 @@ final class FamilyBoardTests: XCTestCase {
         XCTAssertEqual(summary.owedLine, "£15 + 1 treat owed")
     }
 
+    func testTodayShowsTheTaskCardOnlyWhileSomethingIsOutstanding() throws {
+        var summary = FamilyTasksSummary.make(try board())
+        XCTAssertTrue(summary.outstanding)
+        summary.toDo = 0
+        XCTAssertTrue(summary.outstanding, "done and waiting for a parent is still outstanding")
+        summary.awaiting = 0
+        XCTAssertFalse(summary.outstanding, "money owed is a debt, not a task")
+    }
+
     // MARK: - Where a tap goes
 
     func testFamilyLinks() {

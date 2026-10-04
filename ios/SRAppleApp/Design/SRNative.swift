@@ -198,13 +198,17 @@ struct SRCard<Content: View>: View {
 struct SRSectionLabel: View {
     let text: String
     var trailing: String? = nil
+    /// Larger, bold and in the reading colour (cream on the dark ground):
+    /// Today's section titles, which head their cards rather than sit quietly
+    /// over a list.
+    var prominent = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(text.uppercased())
-                .font(SR.Text.label())
-                .tracking(1.4)
-                .foregroundStyle(SR.inkMuted)
+                .font(prominent ? SR.Text.sectionTitle() : SR.Text.label())
+                .tracking(prominent ? 1.2 : 1.4)
+                .foregroundStyle(prominent ? SR.ink : SR.inkMuted)
             Spacer(minLength: 8)
             if let trailing {
                 Text(trailing.uppercased())
