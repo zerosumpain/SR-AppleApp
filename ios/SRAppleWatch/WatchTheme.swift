@@ -4,13 +4,16 @@ import SwiftUI
 /// always dark, and the site's ink band is the part of its palette made for
 /// that. Two faces only — Inter Display for figures, JetBrains Mono for labels.
 enum WatchInk {
-    static let ground = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
-    static let cream = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let creamSoft = cream.opacity(0.7)
-    static let creamFaint = cream.opacity(0.45)
-    static let accent = Color(red: 0xE8 / 255, green: 0x86 / 255, blue: 0x3A / 255)
-    static let good = Color(red: 0x8A / 255, green: 0x9A / 255, blue: 0x5B / 255)
-    static let warn = Color(red: 0xB0 / 255, green: 0x89 / 255, blue: 0x2A / 255)
+    // From the shared tokens (`Shared/SRTokens.swift`): the band's day values,
+    // which is what the phone's ink band shows too.
+    static let ground = Color(token: SRTokens.Colour.chromeBg.light)
+    static let cream = Color(token: SRTokens.Colour.chromeInk.light)
+    static let creamSoft = Color(token: SRTokens.Colour.onInk70.light)
+    static let creamFaint = Color(token: SRTokens.Colour.onInk45.light)
+    static let accent = Color(token: SRTokens.Colour.accentOnDark.light)
+    static let good = Color(token: SRTokens.Colour.goodOnDark.light)
+    static let warn = Color(token: SRTokens.Colour.warn.light)
+    /// The app's error-on-ink, which has no site token.
     static let bad = Color(red: 0xE0 / 255, green: 0x8B / 255, blue: 0x8B / 255)
 
     /// Scaled with the wearer's text size, like every face in the phone app.

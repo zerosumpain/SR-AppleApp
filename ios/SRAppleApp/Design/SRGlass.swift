@@ -45,7 +45,7 @@ extension SR {
         /// the ground shows through the sections the way it does through glass.
         static let rowFill = Color(light: 0xFBF6EE, dark: 0x251D15, alpha: 0.62)
         /// The accent, as glass wants it: saturated enough to read through.
-        static let accentTint = Color(light: 0xC4570A, dark: 0xE8863A, alpha: 0.85)
+        static let accentTint = Color(light: SRTokens.Colour.accent.light.hex, dark: SRTokens.Colour.accent.dark.hex, alpha: 0.85)
         /// The pre-26 fallback's highlight edge. A white rim on a dark page is
         /// a glare line, so it dims with the ground.
         static let rim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 1, alpha: 0.45) })

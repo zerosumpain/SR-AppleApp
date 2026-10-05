@@ -76,6 +76,9 @@ targets:
       # with the app that fills them.
       - path: SRAppleApp/Family/FamilyBoardModels.swift
       - path: SRAppleApp/Family/FamilyWidgetShared.swift
+      # The shared design tokens, which the extension's palettes are built from.
+      - path: Shared/SRTokens.swift
+      - path: Shared/SRTokenColours.swift
       # The headline and label faces, as on the Watch.
       - path: SRAppleApp/Fonts/InterDisplay-ExtraBold.ttf
         buildPhase: resources

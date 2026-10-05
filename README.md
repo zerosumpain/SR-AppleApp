@@ -369,9 +369,13 @@ ink band, component cards). The rules every screen follows:
 - **The mark is `SRMark`:** `sr` in DM Mono Medium with a drawn accent dot and
   halo, 26pt in the bar, 20pt on the ink top bar. Never a typed full stop.
 
-The app is light-locked. That is not an omission: the site has no dark mode, and
-the simulator in CI is booted in **dark** appearance on purpose so a regression
-shows up as a screenshot.
+Colours, type sizes, tracking and spacing come from the shared design tokens:
+`ios/Shared/SRTokens.swift` is generated in SR-Infra (`design/tokens.json`) from
+the same source as the website's `sr-tokens.css`, and copied here unedited.
+`Theme.swift` and the Watch, widget and Live Activity palettes are built from it.
+A dark phone gets the website's night theme (Settings → Appearance can pin
+either), and the ink band stays dark in both. The simulator in CI is booted in
+**dark** appearance on purpose, so a regression shows up as a screenshot.
 
 Fonts are the four OFL families, instanced to static cuts and bundled under
 `ios/SRAppleApp/Fonts/` with their licences. `Font.custom` fails silently on a

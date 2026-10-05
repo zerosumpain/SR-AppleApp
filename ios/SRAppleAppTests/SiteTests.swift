@@ -125,8 +125,8 @@ final class SiteTests: XCTestCase {
         XCTAssertNotEqual(SRRegister.paper.background, SRRegister.ink.background)
     }
 
-    /// Spot-check the palette against `src/app.css`. These are copied values,
-    /// and a copied value is one that can drift.
+    /// Spot-check the palette against the shared tokens the website's
+    /// `sr-tokens.css` is built from.
     func testPaletteMatchesTheSiteTokens() {
         XCTAssertEqual(UIColor(SR.paper).hexString, "EDE4D4")   // --bg
         XCTAssertEqual(UIColor(SR.ink).hexString, "1A1008")     // --text-primary
@@ -136,6 +136,20 @@ final class SiteTests: XCTestCase {
         XCTAssertEqual(UIColor(SR.good).hexString, "55663A")         // --good
         XCTAssertEqual(UIColor(SR.goodOnDark).hexString, "8A9A5B")   // --good-on-dark
         XCTAssertEqual(UIColor(SR.surface).hexString, "E8DECE")      // --surface-elevated
+    }
+
+    /// A dark phone gets the website's night theme, not a palette of its own.
+    func testDarkModeUsesTheSiteNightValues() {
+        XCTAssertEqual(UIColor(SR.paper).darkHexString, "14100C")   // --bg
+        XCTAssertEqual(UIColor(SR.ink).darkHexString, "ECE3D6")     // --text-primary
+        XCTAssertEqual(UIColor(SR.accent).darkHexString, "E07B2A")  // --accent
+        XCTAssertEqual(UIColor(SR.accentInk).darkHexString, "3FA3B0") // --accent-ink
+        XCTAssertEqual(UIColor(SR.surface).darkHexString, "1E1913")   // --surface-elevated
+        XCTAssertEqual(UIColor(SR.warn).darkHexString, "D4AB4A")      // --warn
+        XCTAssertEqual(UIColor(SR.error).darkHexString, "E06A6A")     // --error
+        XCTAssertEqual(UIColor(SR.band).darkHexString, "0B0806")      // --chrome-bg
+        // The band stays darker than the page in both modes.
+        XCTAssertEqual(UIColor(SR.band).hexString, "1A1008")
     }
 
     // MARK: - Relative time
@@ -153,9 +167,12 @@ final class SiteTests: XCTestCase {
 }
 
 private extension UIColor {
-    var hexString: String {
+    var hexString: String { hex(in: .light) }
+    var darkHexString: String { hex(in: .dark) }
+
+    func hex(in style: UIUserInterfaceStyle) -> String {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
         return String(format: "%02X%02X%02X", Int(round(r * 255)), Int(round(g * 255)), Int(round(b * 255)))
     }
 }

@@ -19,18 +19,20 @@ struct SRLiveBundle: WidgetBundle {
     }
 }
 
-// The site palette (`Theme.swift`), repeated: an extension cannot see the app.
+// The site palette's day values, from the shared tokens (`Shared/SRTokens.swift`):
+// an extension cannot see the app's `SR`.
 private enum Ink {
-    static let paper = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let ink = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
-    static let muted = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.65)
-    static let accent = Color(red: 0xC4 / 255, green: 0x57 / 255, blue: 0x0A / 255)
-    static let accentOnDark = Color(red: 0xE8 / 255, green: 0x86 / 255, blue: 0x3A / 255)
-    static let cream = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let creamMuted = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255).opacity(0.7)
-    static let good = Color(red: 0x55 / 255, green: 0x66 / 255, blue: 0x3A / 255)
-    static let goodOnDark = Color(red: 0x8A / 255, green: 0x9A / 255, blue: 0x5B / 255)
-    static let line = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.18)
+    private typealias T = SRTokens.Colour
+    static let paper = Color(token: T.bg.light)
+    static let ink = Color(token: T.textPrimary.light)
+    static let muted = Color(token: T.textMuted.light)
+    static let accent = Color(token: T.accent.light)
+    static let accentOnDark = Color(token: T.accentOnDark.light)
+    static let cream = Color(token: T.chromeInk.light)
+    static let creamMuted = Color(token: T.onInk70.light)
+    static let good = Color(token: T.good.light)
+    static let goodOnDark = Color(token: T.goodOnDark.light)
+    static let line = Color(token: T.cardBorder.light)
 }
 
 private extension Font {
