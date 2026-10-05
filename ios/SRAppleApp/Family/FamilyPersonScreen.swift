@@ -284,6 +284,7 @@ struct FamilyPersonForecast: View {
                                 .foregroundStyle(SR.inkMuted)
                         }
                     }
+                    .forecastCorrection(next, name: forecast.names[subject] ?? subject.capitalized)
                     .accessibilityIdentifier("family-person-next")
                 }
                 if !routines.isEmpty {

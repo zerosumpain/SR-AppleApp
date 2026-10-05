@@ -27,6 +27,16 @@ struct MoreScreen: View {
     @ObservedObject private var landgrab = LandgrabStore.shared
     @ObservedObject private var access = AccessStore.shared
     @EnvironmentObject private var router: Router
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// A 2×2 tile: half the width (~169pt on a 390pt phone) and a little
+    /// taller, so the mark, the name, two lines and a status chip fit
+    /// unclipped. Games and News are 1×2 — Today's tile height (~82pt).
+    @ScaledMetric(relativeTo: .body) private var square: CGFloat = 190
+    @ScaledMetric(relativeTo: .body) private var short: CGFloat = 82
+
+    /// Games and News, as short doors at the top of More for whoever has
+    /// them — whether or not they also have a tab (John, 2026-10-05).
+    private var shortcuts: [Router.Tab] { [Router.Tab.games, .news].filter { access.allows($0) } }
 
     var body: some View {
         ScrollView {
@@ -34,17 +44,28 @@ struct MoreScreen: View {
             // and a lazy stack whose last child (Settings) is measured at a
             // different height than it was estimated at loops at the bottom.
             VStack(alignment: .leading, spacing: SR.sectionGap) {
-                if places.contains(.games) { waiting }
+                if access.allows(.games) { waiting }
 
-                // Two by two: every place a tile of the same size, so the
-                // page reads as a set of doors rather than a list to scroll.
+                // Every tile the same size, so the page reads as a set of
+                // doors rather than a list to scroll: Games and News short
+                // (1×2), everything else square (2×2), two to a row. One
+                // column at the accessibility text sizes, where a square
+                // would clip its own words.
+                let folded = typeSize.isAccessibilitySize
                 VStack(spacing: SR.cardGap) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    if !shortcuts.isEmpty {
+                        HStack(spacing: SR.cardGap) {
+                            ForEach(shortcuts, id: \.self) { shortcut($0) }
+                            if shortcuts.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+                        }
+                        .frame(height: folded ? nil : short)
+                    }
+                    ForEach(Array(rows(folded: folded).enumerated()), id: \.offset) { _, row in
                         HStack(alignment: .top, spacing: SR.cardGap) {
                             ForEach(row, id: \.self) { tile($0) }
-                            if row.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+                            if row.count == 1 && !folded { Color.clear.frame(maxWidth: .infinity) }
                         }
-                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(height: folded ? nil : square)
                     }
                 }
             }
@@ -137,7 +158,8 @@ struct MoreScreen: View {
         // Landgrab, once its board has somebody on it — hidden, like the
         // section on Steps, when the site says no or has nothing.
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
-        all += places.map(Item.place)
+        // Games and News are the short doors above the grid, not squares.
+        all += places.filter { $0 != .games && $0 != .news }.map(Item.place)
         // Sync now and Settings last, tiles like the rest.
         all += [.sync, .settings]
         return all
@@ -146,8 +168,28 @@ struct MoreScreen: View {
     /// Pairs, for the grid. A plain stack of rows rather than a lazy grid: a
     /// lazy container whose last child is measured at a different height than
     /// it was estimated at loops at the bottom.
-    private var rows: [[Item]] {
-        stride(from: 0, to: items.count, by: 2).map { Array(items[$0..<min($0 + 2, items.count)]) }
+    private func rows(folded: Bool) -> [[Item]] {
+        if folded { return items.map { [$0] } }
+        return stride(from: 0, to: items.count, by: 2).map { Array(items[$0..<min($0 + 2, items.count)]) }
+    }
+
+    /// Games or News, one unit tall and two across, as Today's tiles are.
+    private func shortcut(_ place: Router.Tab) -> some View {
+        Button {
+            SRHaptic.tap()
+            router.show(place)
+        } label: {
+            TodayTileCard(title: place == .games ? "Games" : "News") {
+                TodayTileGlyph(
+                    symbol: place == .games ? "gamecontroller.fill" : "newspaper.fill",
+                    tone: place == .games ? SR.accent : SR.accentInk,
+                    count: place == .games ? games.invites.count : 0
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("more-\(place.rawValue)")
     }
 
     @ViewBuilder
@@ -355,7 +397,7 @@ struct MoreCard<Extra: View>: View {
                 Text(blurb)
                     .font(SR.Text.secondary(13))
                     .foregroundStyle(SR.inkSecondary)
-                    .lineLimit(4)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 extra()

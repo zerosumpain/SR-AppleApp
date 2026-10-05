@@ -178,6 +178,18 @@ final class FamilyMessagesStore: ObservableObject {
 
     /// Oldest first, the way a conversation reads.
     var thread: [FamilyMessage] { (feed?.messages ?? []).reversed() }
+
+    /// The newest message or reply, for the thread list's row.
+    private var newest: (who: String, body: String, at: String)? {
+        let lines = (feed?.messages ?? []).flatMap { m in
+            [(who: m.mine ? "You" : m.fromName, body: m.body, at: m.at)]
+                + m.replies.map { (who: $0.mine ? "You" : $0.fromName, body: $0.body, at: $0.at) }
+        }
+        return lines.max { (parseTimestamp($0.at) ?? .distantPast) < (parseTimestamp($1.at) ?? .distantPast) }
+    }
+    var lastActivityISO: String? { newest?.at }
+    var lastActivity: Date? { newest.flatMap { parseTimestamp($0.at) } }
+    var latestLine: String? { newest.map { "\($0.who): \($0.body)" } }
     var reactions: [String] { feed?.reactions ?? FamilyMessages.reactions }
 
     func load() async {

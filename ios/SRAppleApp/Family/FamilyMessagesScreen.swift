@@ -18,7 +18,7 @@ struct FamilyMessagesScreen: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
+                LazyVStack(alignment: .leading, spacing: 8) {
                     if store.thread.isEmpty {
                         if store.loaded {
                             SREmpty(
@@ -72,37 +72,39 @@ struct FamilyMessagesScreen: View {
 
     // MARK: - A message
 
+    /// One message, as short as it reads: name and time on one line, the
+    /// words, then the answers in a line of chips. No row of buttons under
+    /// each — a long press on the message is where an emoji or a reply is
+    /// picked (John, 2026-10-05).
     private func card(_ message: FamilyMessage) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(message.mine ? "You" : message.fromName)
-                    .font(SR.Text.title())
-                    .foregroundStyle(SR.ink)
-                Spacer()
+                    .font(SR.Text.bodyMedium(14))
+                    .foregroundStyle(message.mine ? SR.accentDeep : SR.ink)
                 Text(FamilyMessages.when(message.at))
                     .font(SR.Text.label())
                     .foregroundStyle(SR.inkMuted)
+                Spacer(minLength: 0)
+                if message.mine && message.recipients > 0 {
+                    Text("to \(message.recipients)")
+                        .font(SR.Text.label())
+                        .foregroundStyle(SR.inkMuted)
+                }
             }
             Text(message.body)
-                .font(SR.Text.body())
+                .font(SR.Text.body(15))
                 .foregroundStyle(SR.ink)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            if message.mine && message.recipients > 0 {
-                Text(message.recipients == 1 ? "Sent to 1 person" : "Sent to \(message.recipients) people")
-                    .font(SR.Text.label())
-                    .foregroundStyle(SR.inkMuted)
-            }
 
             let tally = message.tally
             if !tally.isEmpty {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     ForEach(tally) { t in
                         Text(t.count > 1 ? "\(t.emoji) \(t.count)" : t.emoji)
-                            .font(SR.Text.secondary())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
+                            .font(SR.Text.secondary(13))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
                             .background(Capsule().fill(t.mine ? SR.accent.opacity(0.22) : SR.ink.opacity(0.06)))
                             .accessibilityLabel("\(t.emoji) from \(t.names.joined(separator: ", "))")
                     }
@@ -110,61 +112,53 @@ struct FamilyMessagesScreen: View {
             }
 
             ForEach(message.textReplies) { reply in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(reply.mine ? "You" : reply.fromName)
-                        .font(SR.Text.bodyMedium(14))
-                        .foregroundStyle(SR.ink)
-                    Text(reply.body)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 10)
-                .overlay(alignment: .leading) { Rectangle().fill(SR.accent.opacity(0.5)).frame(width: 2) }
+                (Text(reply.mine ? "You " : "\(reply.fromName) ").font(SR.Text.bodyMedium(13)).foregroundColor(SR.ink)
+                    + Text(reply.body).font(SR.Text.secondary(13)).foregroundColor(SR.inkSecondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 8)
+                    .overlay(alignment: .leading) { Rectangle().fill(SR.accent.opacity(0.5)).frame(width: 2) }
             }
-
-            if !message.mine { answerRow(message) }
         }
-        .padding(14)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .srGlassCard(.paper)
+        .opacity(store.busy == message.id ? 0.5 : 1)
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        .contextMenu { answers(message) }
         .accessibilityIdentifier("family-message-\(message.id)")
+        .accessibilityHint(message.mine ? "" : "Touch and hold to answer with an emoji or a reply.")
     }
 
-    /// The quick replies and Reply. Somebody's own message is not answered.
-    private func answerRow(_ message: FamilyMessage) -> some View {
-        HStack(spacing: 4) {
-            ForEach(store.reactions, id: \.self) { emoji in
-                Button {
-                    SRHaptic.tap()
-                    Task { await store.reply(to: message.id, emoji) }
-                } label: {
-                    Text(emoji)
-                        .font(.system(size: 20))
-                        .frame(minWidth: 36, minHeight: 36)
-                        .contentShape(Rectangle())
+    /// The long press: the quick emoji, three to a row, then Reply and Copy.
+    @ViewBuilder
+    private func answers(_ message: FamilyMessage) -> some View {
+        if !message.mine {
+            let reactions = store.reactions
+            ForEach(Array(stride(from: 0, to: reactions.count, by: 3)), id: \.self) { start in
+                ControlGroup {
+                    ForEach(reactions[start..<min(start + 3, reactions.count)], id: \.self) { emoji in
+                        Button(emoji) {
+                            SRHaptic.tap()
+                            Task { await store.reply(to: message.id, emoji) }
+                        }
+                        .accessibilityLabel("Reply \(emoji)")
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Reply \(emoji)")
+                .controlGroupStyle(.compactMenu)
             }
-            Spacer(minLength: 4)
             Button {
-                SRHaptic.tap()
                 replyDraft = ""
                 replying = message
             } label: {
-                Image(systemName: "arrowshape.turn.up.left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(SR.accentDeep)
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Reply with text")
         }
-        .disabled(store.busy != nil)
-        .opacity(store.busy == message.id ? 0.5 : 1)
+        Button {
+            UIPasteboard.general.string = message.body
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
     }
 
     // MARK: - Composer

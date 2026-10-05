@@ -60,4 +60,21 @@ final class FamilyMessagesTests: XCTestCase {
         let alex = try XCTUnwrap(after.messages.first { $0.id == "demo-msg-2" })
         XCTAssertTrue(alex.tally.contains { $0.emoji == "❤️" && $0.mine })
     }
+
+    // MARK: - One list with jkai's threads
+
+    private func thread(_ id: String, updated: String?) -> Conversation {
+        Conversation(id: id, title: id, source: "web", pinned: false, messageCount: 2, modelProvider: nil,
+                     modelId: nil, preview: nil, createdAt: updated, updatedAt: updated)
+    }
+
+    func testTheFamilyChatSitsAmongThreadsByWhenItLastMoved() {
+        let threads = [thread("a", updated: "2026-10-05T12:00:00Z"), thread("b", updated: "2026-10-05T09:00:00Z")]
+        let at = ISO8601DateFormatter().date(from: "2026-10-05T10:00:00Z")
+        XCTAssertEqual(FamilyThreadPlacement.merge(threads, family: at).map(\.id), ["thread-a", "family", "thread-b"])
+        // Never moved: last. No family chat at all: not there.
+        XCTAssertEqual(FamilyThreadPlacement.merge(threads, family: .distantPast).map(\.id), ["thread-a", "thread-b", "family"])
+        XCTAssertEqual(FamilyThreadPlacement.merge(threads, family: nil).map(\.id), ["thread-a", "thread-b"])
+        XCTAssertEqual(FamilyThreadPlacement.merge([], family: .distantPast).map(\.id), ["family"])
+    }
 }
