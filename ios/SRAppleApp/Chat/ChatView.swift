@@ -17,6 +17,7 @@ struct ThreadListScreen: View {
     @StateObject private var store = ThreadListStore()
     @EnvironmentObject private var router: Router
     @ObservedObject private var access = AccessStore.shared
+    @ObservedObject private var family = FamilyMessagesStore.shared
     @State private var renaming: Conversation?
     @State private var renameDraft = ""
     @State private var deleting: Conversation?
@@ -78,8 +79,17 @@ struct ThreadListScreen: View {
                 let today = groups.first { $0.id == "today" }
                 let earlier = groups.filter { $0.id != "today" }
                 Section {
-                    if let today {
-                        ForEach(today.threads) { conversation in listed(conversation) }
+                    // jkai's threads and the family's chat in one list, by
+                    // when each last moved (John, 2026-10-05). The family
+                    // chat is always here, even on a quiet day.
+                    let merged = FamilyThreadPlacement.merge(today?.threads ?? [], family: familyAt)
+                    if !merged.isEmpty {
+                        ForEach(merged) { item in
+                            switch item {
+                            case .thread(let conversation): listed(conversation)
+                            case .family: familyRow
+                            }
+                        }
                     } else if !store.conversations.isEmpty {
                         Text("Nothing yet today.")
                             .font(SR.Text.secondary())
@@ -88,6 +98,9 @@ struct ThreadListScreen: View {
                     }
                 } header: {
                     SRSectionLabel(text: "Today", trailing: today.map { "\($0.threads.count)" })
+                }
+                .task {
+                    if access.familyBoards && !family.loaded { await family.load() }
                 }
                 if !earlier.isEmpty {
                     Section {
@@ -239,6 +252,26 @@ struct ThreadListScreen: View {
     /// A row that pages the list on: infinite scroll rather than an "Older
     /// threads" button. A button at the end of a list is a control you have to
     /// find; the list simply continuing is what every other iPhone list does.
+    /// When the family chat last moved, or the distant past when it never
+    /// has; nil when this person has no family chat at all.
+    private var familyAt: Date? {
+        guard access.familyBoards else { return nil }
+        return family.lastActivity ?? .distantPast
+    }
+
+    /// The family's chat, as a thread among threads.
+    private var familyRow: some View {
+        Button {
+            SRHaptic.tap()
+            router.chat.append(FamilyPage.messages)
+        } label: {
+            FamilyThreadRow(latest: family.latestLine, at: family.lastActivityISO)
+        }
+        .buttonStyle(.plain)
+        .srGlassRow()
+        .accessibilityIdentifier("thread-family")
+    }
+
     private func listed(_ conversation: Conversation) -> some View {
         row(conversation)
             .onAppear {
@@ -331,6 +364,70 @@ struct ThreadRow: View {
         }
         .padding(.vertical, 6)
         .frame(minHeight: SR.tapTarget, alignment: .leading)
+    }
+}
+
+/// The family's chat in the thread list: the people glyph, "Family", and its
+/// latest line — "Karen: Dinner at 7?".
+struct FamilyThreadRow: View {
+    let latest: String?
+    let at: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "person.2.wave.2")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SR.accentDeep)
+                .frame(width: 34, height: 34)
+                .background(SR.accentDeep.opacity(0.12), in: Circle())
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Text("Family")
+                        .font(SR.Text.title())
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    if let at {
+                        Text(shortAgo(at))
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.inkMuted)
+                    }
+                }
+                Text(latest ?? "msg family — one line to everyone's phone")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(minHeight: SR.tapTarget, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+/// Where the family chat sits among today's jkai threads: by when each last
+/// moved, newest first. PURE.
+enum FamilyThreadPlacement {
+    enum Item: Identifiable {
+        case thread(Conversation)
+        case family
+        var id: String {
+            switch self {
+            case .thread(let c): return "thread-\(c.id)"
+            case .family: return "family"
+            }
+        }
+    }
+
+    /// `threads` newest first, as the list gives them; `family` nil when
+    /// this person has no family chat.
+    static func merge(_ threads: [Conversation], family: Date?) -> [Item] {
+        guard let family else { return threads.map(Item.thread) }
+        let at = threads.firstIndex { (($0.updatedAt).flatMap(parseTimestamp) ?? .distantPast) < family } ?? threads.count
+        var items = threads.map(Item.thread)
+        items.insert(.family, at: at)
+        return items
     }
 }
 

@@ -24,6 +24,9 @@ extension SRDemoFixtures {
             return SRDemoSession.shared.tasksJSON(clock: clock)
         case ("GET", 1, "forecast"):
             return familyForecast(clock)
+        // "That's wrong" on a next move: taken, and kept off by the store.
+        case ("POST", 2, "forecast") where rest[1] == "feedback":
+            return #"{"id":"demo-correction"}"#
         case ("POST", 1, "tasks"):
             return SRDemoSession.shared.createTask(body: body, clock: clock)
         case ("PATCH", 2, "tasks"):

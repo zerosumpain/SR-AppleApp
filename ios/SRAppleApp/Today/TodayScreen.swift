@@ -211,9 +211,7 @@ struct TodayScreen: View {
                     TodayTileGrid(tiles: TodayTile.kinds(access: access.current, sitePaired: site.paired)) { kind in
                         tile(kind)
                     }
-                    if access.current.news, let news = store.payload?.news, let story = news.stories.first {
-                        newsCard(news, story: story)
-                    }
+                    // No top story here: News is a door in More (John, 2026-10-05).
                 }
                 // Sync now and its status moved to More (and stay in
                 // Settings): a maintenance control, not a first-screen one.
@@ -498,50 +496,4 @@ struct TodayScreen: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("today-games")
     }
-
-    /// The wire's top story, not a list: the News tab has the rest, and "5
-    /// new" beside the heading is the way there.
-    private func newsCard(_ news: TodayNews, story: TodayNews.Story) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                SRSectionLabel(text: "On the wire", prominent: true)
-                if news.unseen > 0 {
-                    Button {
-                        SRHaptic.tap()
-                        router.show(.news)
-                    } label: {
-                        Text("\(news.unseen) new")
-                            .font(SR.Text.bodyMedium(15))
-                            .foregroundStyle(SR.accentInk)
-                            .padding(.vertical, 6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(news.unseen) new stories")
-                }
-            }
-            .padding(.horizontal, 4)
-            Button {
-                SRHaptic.tap()
-                router.show(.news)
-            } label: {
-                SRCard(interactive: true) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(story.sourceLabel.uppercased())
-                            .font(SR.Text.label())
-                            .tracking(1)
-                            .foregroundStyle(SR.inkMuted)
-                        Text(story.title)
-                            .font(SR.Text.display(20))
-                            .foregroundStyle(SR.ink)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("today-news")
-        }
-    }
-
 }

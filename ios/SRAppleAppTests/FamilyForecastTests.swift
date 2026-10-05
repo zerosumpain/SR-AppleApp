@@ -167,3 +167,21 @@ final class FamilyForecastTests: XCTestCase {
         XCTAssertEqual(LeaveCountdown.spoken(90 * 60), "1 hour 30 minutes")
     }
 }
+
+/// "That's wrong" on a next move: each move has one key, routine or journey.
+final class ForecastCorrectionTests: XCTestCase {
+    func testAMoveKnowsWhichOneItIs() throws {
+        let json = #"""
+        [{"subject":"katie","kind":"routine","routineId":"katie:home:station:active:weekday","from":"Home","to":"Station",
+          "leaveAt":"2026-10-05T07:00:00Z","arriveFrom":"2026-10-05T07:10:00Z","arriveTo":"2026-10-05T07:15:00Z",
+          "days":6,"of":8,"dayType":"weekday","confidence":"emerging"},
+         {"subject":"katie","kind":"arriving","from":"Home","to":"Station","leaveAt":"2026-10-05T07:20:00Z",
+          "arriveFrom":"2026-10-05T07:30:00Z","arriveTo":"2026-10-05T07:35:00Z","days":4,"of":4,"dayType":null,"confidence":"emerging"}]
+        """#
+        let moves = try JSONDecoder().decode([FamilyForecast.NextMove].self, from: Data(json.utf8))
+        XCTAssertEqual(moves[0].routineId, "katie:home:station:active:weekday")
+        XCTAssertEqual(moves[0].correctionKey, "routine:katie:katie:home:station:active:weekday")
+        XCTAssertNil(moves[1].routineId)
+        XCTAssertEqual(moves[1].correctionKey, "arriving:katie:2026-10-05T07:20:00Z")
+    }
+}

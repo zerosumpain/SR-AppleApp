@@ -14,7 +14,8 @@ struct FamilyForecast: Decodable, Equatable {
     let generatedAt: String
     let days: Int
     let routines: [Routine]
-    let next: [NextMove]
+    /// `var`: a move somebody says is wrong comes off at once (`correct`).
+    var next: [NextMove]
     let watch: [WatchItem]
     let people: [Person]
     /// The owner's next two days with leave-by times — null on anyone else's
@@ -96,6 +97,8 @@ struct FamilyForecast: Decodable, Equatable {
     struct NextMove: Decodable, Equatable {
         let subject: String
         let kind: String
+        /// The routine it came from (`kind: "routine"`); null for a live journey.
+        var routineId: String? = nil
         let from: String
         let to: String
         let leaveAt: String
@@ -105,6 +108,12 @@ struct FamilyForecast: Decodable, Equatable {
         let of: Int
         let dayType: String?
         let confidence: String
+
+        /// Which move this is, for "that's wrong": the routine, or the
+        /// journey by when it left.
+        var correctionKey: String {
+            kind == "routine" ? "routine:\(subject):\(routineId ?? to)" : "arriving:\(subject):\(leaveAt)"
+        }
     }
 
     /// Something different from the person's own routine: `overdue`,
@@ -216,7 +225,12 @@ final class FamilyForecastStore: ObservableObject {
 
     @Published private(set) var forecast: FamilyForecast?
     @Published private(set) var loading = false
+    /// Said after a correction landed, for a moment, under the moves.
+    @Published var thanks: String?
     private var lastLoad: Date?
+    /// Moves called wrong this session: kept off even if a read races the
+    /// site's own (which leaves them out for the day anyway).
+    private var corrected: Set<String> = []
 
     /// Only where the site will answer: family, with the site credential — the
     /// same rule as the step board (`AccessPolicy.familyBoards`).
@@ -228,7 +242,8 @@ final class FamilyForecastStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            let fetched: FamilyForecast = try await SiteClient.shared.send("api/native/family/forecast")
+            var fetched: FamilyForecast = try await SiteClient.shared.send("api/native/family/forecast")
+            fetched.next.removeAll { corrected.contains($0.correctionKey) }
             forecast = fetched
             lastLoad = Date()
             // Only this phone's own view: "View as" is somebody else's seat,
@@ -245,10 +260,41 @@ final class FamilyForecastStore: ObservableObject {
         }
     }
 
+    /// "That's wrong" — a long press on a next move ("Katie isn't going to
+    /// the station"). The site takes it off for today and counts the day
+    /// against the routine, so the forecast learns. Nil when it landed;
+    /// otherwise why not.
+    func correct(_ move: FamilyForecast.NextMove, note: String? = nil) async -> String? {
+        var body: [String: String] = ["subject": move.subject, "kind": move.kind]
+        if move.kind == "routine" { body["routineId"] = move.routineId ?? "" } else { body["departedAt"] = move.leaveAt }
+        if let note = note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty { body["note"] = String(note.prefix(280)) }
+        do {
+            let data = try JSONEncoder().encode(body)
+            let _: EmptyReply = try await SiteClient.shared.send("api/native/family/forecast/feedback", method: "POST", body: data)
+        } catch SiteError.status(let code, _) where code == 404 {
+            // Already gone from the site's forecast: take it off here too.
+        } catch {
+            SRHaptic.bad()
+            return FamilyTasksStore.sentence(for: error)
+        }
+        SRHaptic.ok()
+        corrected.insert(move.correctionKey)
+        forecast?.next.removeAll { $0.correctionKey == move.correctionKey }
+        let name = forecast?.names[move.subject] ?? move.subject.capitalized
+        thanks = "Noted — \(name) isn't heading to \(move.to). The forecast learns from that."
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            self?.thanks = nil
+        }
+        return nil
+    }
+
     /// "View as" changed: the forecast was somebody else's.
     func reset() {
         forecast = nil
         lastLoad = nil
+        corrected = []
+        thanks = nil
     }
 }
 
@@ -260,6 +306,7 @@ final class FamilyForecastStore: ObservableObject {
 struct FamilyMovesCard: View {
     let moves: [FamilyForecast.NextMove]
     let names: [String: String]
+    @ObservedObject private var store = FamilyForecastStore.shared
 
     var body: some View {
         let sorted = moves.sorted { (parseTimestamp($0.leaveAt) ?? .distantFuture) < (parseTimestamp($1.leaveAt) ?? .distantFuture) }
@@ -290,13 +337,75 @@ struct FamilyMovesCard: View {
                     }
                     .padding(.horizontal, SR.cardPadding)
                     .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                    // A long press says the guess is wrong, so it learns.
+                    .forecastCorrection(move, name: names[move.subject] ?? move.subject.capitalized)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("family-next-\(move.subject)")
                 }
             }
             .srGlassCard(.paper)
+            if let thanks = store.thanks {
+                Text(thanks)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
+                    .padding(.horizontal, 4)
+                    .transition(.opacity)
+            }
         }
+        .animation(.snappy, value: store.thanks)
         .accessibilityIdentifier("family-moves")
+    }
+}
+
+/// The long press on a next move: "Not going to <place>", straight away or
+/// with a note ("off sick", "dropped the class"). See
+/// `FamilyForecastStore.correct`.
+struct ForecastCorrectionMenu: ViewModifier {
+    let move: FamilyForecast.NextMove
+    let name: String
+    @State private var noting = false
+    @State private var note = ""
+    @State private var failed: String?
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button(role: .destructive) { send(nil) } label: {
+                    Label("\(name) isn't going to \(move.to)", systemImage: "hand.thumbsdown")
+                }
+                Button {
+                    note = ""
+                    noting = true
+                } label: {
+                    Label("Wrong — add a note…", systemImage: "text.bubble")
+                }
+            }
+            .alert("Why is it wrong?", isPresented: $noting) {
+                TextField("e.g. off sick today", text: $note)
+                Button("Send") { send(note) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The forecast said \(name) is heading to \(move.to). Your note is kept with the correction.")
+            }
+            .alert("Not sent", isPresented: Binding(get: { failed != nil }, set: { if !$0 { failed = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(failed ?? "")
+            }
+            .accessibilityAction(named: "Say this is wrong") { send(nil) }
+    }
+
+    private func send(_ note: String?) {
+        Task {
+            if let reason = await FamilyForecastStore.shared.correct(move, note: note) { failed = reason }
+        }
+    }
+}
+
+extension View {
+    func forecastCorrection(_ move: FamilyForecast.NextMove, name: String) -> some View {
+        modifier(ForecastCorrectionMenu(move: move, name: name))
     }
 }
 
