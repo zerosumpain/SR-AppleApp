@@ -35,6 +35,8 @@ extension SRDemoFixtures {
         var review: String? = nil
         /// "Do it for me", as the detailed wire sends it (raw JSON).
         var act: String? = nil
+        /// "Take it further", as the detailed wire sends it (raw JSON).
+        var follow: String? = nil
     }
 
     static let demoNotes: [DemoNote] = [
@@ -60,7 +62,15 @@ extension SRDemoFixtures {
             next: "Add a 20-minute auto-off to the hallway light.",
             sources: ["Home — history · hallway ceiling", "Home sensors · light"],
             stage: "result",
-            bucket: "done"
+            bucket: "done",
+            follow: #"""
+            {"bookingUrl": null, "offers": [
+              {"kind": "promote", "state": "offer", "label": "Put it on the build backlog", "cost": "No model call. It waits in the backlog as “Proposed” until you accept it."},
+              {"kind": "watch", "state": "offer", "label": "Watch for this instead", "cost": "Setting it up is a few model calls, once. Then it checks on a schedule (every 6 hours unless you say otherwise)."},
+              {"kind": "home", "state": "drafted", "label": "Choose what to refresh", "cost": "No model call. Asks Home Assistant to refresh the devices you pick."}],
+             "watchDraft": "Tell me when this needs attention: the hallway light is on after midnight.",
+             "home": {"found": [{"id": "light.hallway_ceiling", "name": "Hallway ceiling (Hall)"}, {"id": "binary_sensor.hall_motion", "name": "Hall motion (Hall)"}], "refreshed": [], "refreshedAt": null}}
+            """#
         ),
         DemoNote(
             id: "demo-note-subscriptions",
@@ -111,7 +121,13 @@ extension SRDemoFixtures {
             bucket: "done",
             commissionId: CommissionDemoFixtures.completedId,
             commissionState: "completed",
-            review: #"{"verdict": "holds", "by": "check", "reasoning": "It holds: four of the last ten easy runs went above 140 bpm after 25 minutes, on different days.", "lesson": null}"#
+            review: #"{"verdict": "holds", "by": "check", "reasoning": "It holds: four of the last ten easy runs went above 140 bpm after 25 minutes, on different days.", "lesson": null}"#,
+            follow: #"""
+            {"bookingUrl": "https://example.org/run-club", "offers": [
+              {"kind": "research", "state": "done", "label": "Research started", "cost": "A brief research run.", "href": "/research/demo-research"},
+              {"kind": "message", "state": "drafted", "label": "Message drafted", "cost": "One short model call to draft it. Nothing is sent — you send it yourself."}],
+             "message": {"text": "Hello, does the Thursday easy-pace group still meet at 7? I'd like to join next week. Thanks, John", "subject": "Thursday easy run", "whatsapp": "https://wa.me/?text=Hello", "mailto": null, "email": null, "draft": null}}
+            """#
         ),
     ]
 
@@ -127,7 +143,7 @@ extension SRDemoFixtures {
     static func detailedNoteJSON(_ note: DemoNote, clock: DemoClock) -> String {
         let summary = SRDemoFixtures.summary(of: note.body)
         return """
-        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState)), "review": \(note.review ?? "null"), "act": \(note.act ?? "null")}
+        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState)), "review": \(note.review ?? "null"), "act": \(note.act ?? "null"), "follow": \(note.follow ?? "null")}
         """
     }
 
@@ -142,6 +158,17 @@ extension SRDemoFixtures {
             return #"{"ok": true}"#
         default:
             return #"{"ok": true, "status": "done", "label": "Added “Renewals: insurance, breakdown, domain” to your Home calendar on Mon 9 Nov", "calendar": "Home"}"#
+        }
+    }
+
+    /// `POST api/native/daydream/follow` — SYNTHETIC: the demo starts no run,
+    /// writes no backlog and messages no one.
+    static func daydreamFollow(_ body: Data?) -> String {
+        let request = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        switch request["op"] as? String {
+        case "research": return #"{"ok": true, "message": "Research started — a brief run, back in a few minutes.", "href": "/research/demo-research"}"#
+        case "watch": return #"{"ok": true, "message": "Watching — it checks every 6 hours.", "href": "/jkai/daydreams/watches"}"#
+        default: return #"{"ok": true, "message": "Done."}"#
         }
     }
 

@@ -215,6 +215,11 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
     /// "Do it for me" — what it would do, or did. `nil` when the step is not
     /// something it can carry out itself, and from an older server.
     let act: DaydreamAct?
+    /// "Take it further" — research, the backlog, a prototype, a watch, a
+    /// message, a Home Assistant refresh. `nil` from an older server.
+    let follow: DaydreamFollow?
+    /// Older notes on the same subject this one replaced.
+    let replaces: [DaydreamReplaced]
     /// Whether this copy came from the detailed read. A plain copy (Today's
     /// block) must not overwrite what a detailed one knows — see `merged`.
     let detailed: Bool
@@ -224,7 +229,8 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
          summary: String? = nil, next: String? = nil, sources: [String] = [],
          stage: DaydreamStage? = nil, bucket: DaydreamBucket? = nil, checkable: Bool? = nil,
          commissionId: String? = nil, commissionState: String? = nil, review: DaydreamReview? = nil,
-         act: DaydreamAct? = nil, detailed: Bool = false) {
+         act: DaydreamAct? = nil, follow: DaydreamFollow? = nil, replaces: [DaydreamReplaced] = [],
+         detailed: Bool = false) {
         self.id = id
         self.outcome = outcome
         self.channel = channel
@@ -247,12 +253,15 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
         self.commissionState = commissionState
         self.review = review
         self.act = act
+        self.follow = follow
+        self.replaces = replaces
         self.detailed = detailed
     }
 
     enum CodingKeys: String, CodingKey {
         case id, outcome, channel, title, body, createdAt, url, feedback
         case summary, next, sources, stage, bucket, checkable, commissionId, commissionState, review, act
+        case follow, replaces
     }
 
     /// An id and a title are the note; without either there is nothing to show
@@ -297,6 +306,9 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
             // A ruling of the wrong shape costs the ruling, never the note.
             review: c.lenient(DaydreamReview.self, .review),
             act: c.lenient(DaydreamAct.self, .act),
+            // Follow-ups of the wrong shape cost the follow-ups, never the note.
+            follow: c.lenient(DaydreamFollow.self, .follow),
+            replaces: c.lossy(DaydreamReplaced.self, .replaces),
             detailed: detailed
         )
     }
@@ -352,7 +364,7 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
             stage: nil, bucket: DaydreamNote.derivedBucket(feedback: verdict, commissionState: commissionState,
                                                            ruled: review?.byOwner == true),
             checkable: checkable, commissionId: commissionId, commissionState: commissionState, review: review,
-            act: act, detailed: true
+            act: act, follow: follow, replaces: replaces, detailed: true
         )
     }
 }

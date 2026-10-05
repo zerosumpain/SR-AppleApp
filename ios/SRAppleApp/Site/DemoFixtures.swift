@@ -203,6 +203,8 @@ enum SRDemoFixtures {
             return #"{"ok":true}"#
         case ("POST", "api/native/daydream/act"):
             return daydreamAct(body)
+        case ("POST", "api/native/daydream/follow"):
+            return daydreamFollow(body)
         case ("GET", "api/native/health/summary"):
             return healthSummary(clock)
         case ("GET", "api/native/health/hub"):

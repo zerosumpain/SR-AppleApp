@@ -29,6 +29,7 @@ struct DaydreamNoteCard: View {
                 kicker
                 title
                 if !note.summary.isEmpty { summary }
+                if !note.replaces.isEmpty { replacesLine }
                 if let next = note.next { nextStep(next) }
                 if !note.sources.isEmpty { sources }
                 if let status = commissionStatus { commissionRow(status) }
@@ -46,6 +47,9 @@ struct DaydreamNoteCard: View {
                     DaydreamReviewBanner(review: review) { startRuling($0) }
                 }
                 decision
+                if let follow = note.follow, !follow.isEmpty {
+                    DaydreamFollowSection(note: note, follow: follow)
+                }
             }
         }
         .accessibilityElement(children: .contain)
@@ -123,6 +127,15 @@ struct DaydreamNoteCard: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityHint("Opens the note on the website")
         .accessibilityIdentifier("noticed-title")
+    }
+
+    /// "Replaces 2 earlier notes on the same subject: …" — one card per subject.
+    private var replacesLine: some View {
+        Text("Replaces \(note.replaces.count == 1 ? "an earlier note" : "\(note.replaces.count) earlier notes") on the same subject: \(note.replaces.map(\.title).joined(separator: "; "))")
+            .font(SR.Text.secondary(13))
+            .foregroundStyle(SR.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("daydream-replaces")
     }
 
     private var summary: some View {
