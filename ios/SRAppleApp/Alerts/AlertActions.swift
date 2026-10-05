@@ -63,6 +63,16 @@ enum AlertActions {
     static let reject = "sr.gate.reject"
     static let reply = "sr.gate.reply"
 
+    /// "msg family": a family member's message (SR-Main pushes it with this
+    /// category and its `messageId`). Answered from the banner or the wrist
+    /// with an emoji or a line, in the background — POST …/messages/:id/replies.
+    static let familyMessageCategory = "family-msg"
+    /// The emoji buttons, by action id. Four, so all of them fit on a wrist.
+    static let familyReactions: [(id: String, emoji: String)] = [
+        ("sr.msg.up", "👍"), ("sr.msg.down", "👎"), ("sr.msg.love", "❤️"), ("sr.msg.laugh", "😂"),
+    ]
+    static let familyReply = "sr.msg.reply"
+
     static var categories: Set<UNNotificationCategory> {
         [
             UNNotificationCategory(
@@ -99,6 +109,19 @@ enum AlertActions {
                 options: []
             ),
             UNNotificationCategory(
+                identifier: familyMessageCategory,
+                // An emoji is harmless from a locked phone; a line of text in
+                // somebody's name is not, so Reply asks for the passcode.
+                actions: familyReactions.map { UNNotificationAction(identifier: $0.id, title: $0.emoji, options: []) } + [
+                    UNTextInputNotificationAction(
+                        identifier: familyReply, title: "Reply", options: [.authenticationRequired],
+                        textInputButtonTitle: "Send", textInputPlaceholder: "Reply to the family"
+                    ),
+                ],
+                intentIdentifiers: [],
+                options: []
+            ),
+            UNNotificationCategory(
                 identifier: clarifyCategory,
                 actions: [
                     UNTextInputNotificationAction(
@@ -128,6 +151,8 @@ enum AlertActions {
         case clear(id: String)
         /// Answer a stalled chat turn.
         case answer(GateAnswer)
+        /// Reply to a family message with an emoji or a line of text.
+        case familyReply(messageId: String, body: String)
         /// A button pressed on a notification that carries no id. Every alert
         /// this app raises has one, so this is a guard, and it must not open
         /// the app: the button promised to stay in the background.
@@ -145,7 +170,15 @@ enum AlertActions {
     static func outcome(action: String, categoryIdentifier: String, userInfo: [AnyHashable: Any], text: String? = nil) -> Outcome {
         let category = userInfo["category"] as? String ?? categoryIdentifier
         let id = userInfo["id"] as? String
+        if let reaction = familyReactions.first(where: { $0.id == action }) {
+            guard let messageId = userInfo["messageId"] as? String, !messageId.isEmpty else { return .ignore }
+            return .familyReply(messageId: messageId, body: reaction.emoji)
+        }
         switch action {
+        case familyReply:
+            let body = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let messageId = userInfo["messageId"] as? String, !messageId.isEmpty, !body.isEmpty else { return .ignore }
+            return .familyReply(messageId: messageId, body: body)
         case approve, reject, reply:
             guard let answer = GateAnswer(action: action, userInfo: userInfo, text: text) else { return .ignore }
             return .answer(answer)

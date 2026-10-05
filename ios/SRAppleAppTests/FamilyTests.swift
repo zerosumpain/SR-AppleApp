@@ -16,7 +16,7 @@ final class FamilyTests: XCTestCase {
     func testAPersonDecodesWithSelfRenamed() throws {
         let p = try person(#"{"subject":"sam","name":"Sam","self":true,"status":"out","line":"At School · seen 3m ago","batteryPct":64,"lastSeenAt":"2026-09-26T09:00:00Z","position":{"lat":40.77,"lon":-73.97,"at":"2026-09-26T09:00:00Z"},"today":{"firstOut":"08:12","minutesOut":125,"distanceKm":4.26,"stops":["Home","School"],"trail":[[40.77,-73.97,1790000000]]}}"#)
         XCTAssertTrue(p.isSelf)
-        XCTAssertEqual(p.initial, "S")
+        XCTAssertEqual(p.initial, "Sa")
         XCTAssertEqual(p.position?.coordinate.latitude, 40.77)
         XCTAssertEqual(p.today?.stops, ["Home", "School"])
     }
@@ -235,16 +235,29 @@ final class FamilyTests: XCTestCase {
             try at("Finn Kelly", "At School · seen 6m ago"),
         ])
         let initials = view.initials
-        XCTAssertEqual(initials["john kelly"], "JK", "you keep the plain form")
-        XCTAssertEqual(initials["karen kelly"], "KK")
-        XCTAssertEqual(initials["jennifer kelly"], "JeK")
-        XCTAssertEqual(initials["finn kelly"], "FK")
+        // Two letters of the first name: Jo, Ka, Je, Fi.
+        XCTAssertEqual(initials["john kelly"], "Jo")
+        XCTAssertEqual(initials["karen kelly"], "Ka")
+        XCTAssertEqual(initials["jennifer kelly"], "Je")
+        XCTAssertEqual(initials["finn kelly"], "Fi")
     }
 
-    func testOneWordNamesAreOneLetterAndTheDemoIsUnique() {
+    func testTwoNamesThatStartAlikeStillReadDifferently() throws {
+        let view = HouseholdView(generatedAt: "", viewer: "owner", people: [
+            try at("John Kelly", "At home · seen 2m ago", status: "home", isSelf: true),
+            try at("Joan Kelly", "At home · seen 3m ago", status: "home"),
+            try at("Jonah Kelly", "At home · seen 4m ago", status: "home"),
+        ])
+        let initials = view.initials
+        XCTAssertEqual(initials["john kelly"], "Jo", "you keep the plain form")
+        XCTAssertEqual(initials["joan kelly"], "JK")
+        XCTAssertEqual(initials["jonah kelly"], "Jon")
+    }
+
+    func testOneWordNamesAreTwoLettersAndTheDemoIsUnique() {
         let view = SRDemoFixtures.householdView(now: Date()).view
         let initials = view?.initials ?? [:]
-        XCTAssertEqual(initials["alex"], "A")
+        XCTAssertEqual(initials["alex"], "Al")
         XCTAssertEqual(Set(initials.values).count, initials.count, "every person reads differently")
     }
 

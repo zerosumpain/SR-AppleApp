@@ -16,6 +16,7 @@ import PhotosUI
 struct ThreadListScreen: View {
     @StateObject private var store = ThreadListStore()
     @EnvironmentObject private var router: Router
+    @ObservedObject private var access = AccessStore.shared
     @State private var renaming: Conversation?
     @State private var renameDraft = ""
     @State private var deleting: Conversation?
@@ -25,20 +26,38 @@ struct ThreadListScreen: View {
 
     var body: some View {
         List {
-            // The way in, as big as the thing it starts: a filled, full-width
-            // button above everything, not a pencil in the corner of the bar.
+            // The ways in, as big as the things they start: filled buttons
+            // above everything, not a pencil in the corner of the bar. "jkai"
+            // starts a thread; "msg family" opens the family's messages, for
+            // everyone with the family boards.
             if store.query.isEmpty {
-                Button {
-                    SRHaptic.tap()
-                    startThread()
-                } label: {
-                    SRButtonLabel(title: "New chat", icon: "square.and.pencil", fill: true)
-                        .padding(.vertical, 8)
+                HStack(spacing: 10) {
+                    Button {
+                        SRHaptic.tap()
+                        startThread()
+                    } label: {
+                        SRButtonLabel(title: "jkai", icon: "square.and.pencil", fill: true)
+                            .padding(.vertical, 8)
+                    }
+                    .srButton(.prominent)
+                    .controlSize(.large)
+                    .accessibilityLabel("New thread")
+                    .accessibilityIdentifier("thread-new")
+
+                    if access.familyBoards {
+                        Button {
+                            SRHaptic.tap()
+                            router.chat.append(FamilyPage.messages)
+                        } label: {
+                            SRButtonLabel(title: "msg family", icon: "person.2.wave.2", fill: true)
+                                .padding(.vertical, 8)
+                        }
+                        .srButton(.regular)
+                        .controlSize(.large)
+                        .accessibilityLabel("Message the family")
+                        .accessibilityIdentifier("thread-msg-family")
+                    }
                 }
-                .srButton(.prominent)
-                .controlSize(.large)
-                .accessibilityLabel("New thread")
-                .accessibilityIdentifier("thread-new")
                 .srBareRow()
             }
 

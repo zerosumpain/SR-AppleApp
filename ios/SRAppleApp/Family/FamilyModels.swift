@@ -126,7 +126,9 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
         var id: String { date }
     }
 
-    var initial: String { String(name.prefix(1)).uppercased() }
+    /// The first two letters of the first name, "Jo" for John — what every
+    /// family circle says. `HouseholdView.initials` makes a household's unique.
+    var initial: String { HouseholdView.twoLetters(name) }
     var sharing: Bool { status != "off" }
 
     /// "Sam is walking" — the first half of the moving line. The place is the
@@ -414,39 +416,49 @@ extension HouseholdView {
 // MARK: - Initials that tell people apart
 
 extension HouseholdView {
-    /// Each person's initials, unique across the household. PURE.
+    /// "John Kelly" → "Jo", "Fi" → "Fi", "al" → "Al": the first two letters of
+    /// the first name, the first capitalised.
+    static func twoLetters(_ name: String) -> String {
+        let first = name.split(whereSeparator: { $0 == " " || $0 == "-" }).first.map(String.init) ?? name
+        let head = String(first.prefix(2))
+        guard !head.isEmpty else { return "?" }
+        return head.prefix(1).uppercased() + head.dropFirst().lowercased()
+    }
+
+    /// Each person's circle, unique across the household. PURE.
     ///
-    /// First letter of the first name and of the surname — "John Kelly" is JK,
-    /// "Karen Kelly" KK. A family shares a surname, so two first names with the
-    /// same letter collide, and the later one takes more of its first name
-    /// until it is unique: "Jennifer Kelly" becomes JeK. You keep the plain
-    /// form, then the site's order decides, so the same household always
-    /// reads the same. A one-word name is its first letter ("Alex" → A).
+    /// Two letters of the first name — Jo, Ka, Ro, Je, Fi (John asked for
+    /// exactly that, 2026-10-05). Two names that start alike fall back to the
+    /// first letter and the surname's ("JK"), then to more of the first name,
+    /// until the circle is unique. You keep the plain form, then the site's
+    /// order decides, so the same household always reads the same.
     var initials: [String: String] {
         func words(_ name: String) -> [String] {
             name.split(whereSeparator: { $0 == " " || $0 == "-" }).map(String.init)
         }
-        func code(_ name: String, letters: Int) -> String {
+        func candidates(_ name: String) -> [String] {
             let w = words(name)
-            guard let first = w.first else { return "?" }
-            let head = String(first.prefix(letters))
-            let lead: String = head.prefix(1).uppercased() + head.dropFirst().lowercased()
-            let tail: String = w.count > 1 ? (w.last?.prefix(1).uppercased() ?? "") : ""
-            return lead + tail
+            guard let first = w.first else { return ["?"] }
+            var out = [Self.twoLetters(name)]
+            if w.count > 1, let surname = w.last?.prefix(1) {
+                out.append(first.prefix(1).uppercased() + surname.uppercased())
+            }
+            if first.count > 2 {
+                for n in 3...first.count {
+                    let head = String(first.prefix(n))
+                    out.append(head.prefix(1).uppercased() + head.dropFirst().lowercased())
+                }
+            }
+            return out
         }
         let ordered = people.filter { $0.isSelf } + people.filter { !$0.isSelf }
         var taken: Set<String> = []
         var out: [String: String] = [:]
         for person in ordered {
-            let most = max(1, words(person.name).first?.count ?? 1)
-            var letters = 1
-            var candidate = code(person.name, letters: letters)
-            while taken.contains(candidate) && letters < most {
-                letters += 1
-                candidate = code(person.name, letters: letters)
-            }
-            taken.insert(candidate)
-            out[person.subject] = candidate
+            let options = candidates(person.name)
+            let pick = options.first { !taken.contains($0) } ?? options[0]
+            taken.insert(pick)
+            out[person.subject] = pick
         }
         return out
     }

@@ -77,6 +77,12 @@ final class Router: ObservableObject {
         guard access.familyBoards else { show(.today); return }
         var path = NavigationPath()
         path.append(page)
+        // "msg family" lives beside jkai in Chat, for whoever has Chat.
+        if page == .messages, access.allows(.chat) {
+            chat = path
+            tab = .chat
+            return
+        }
         if access.allows(.more) {
             more = path
             tab = .more
@@ -302,6 +308,8 @@ struct ContentView: View {
                 NavigationStack(path: $router.chat) {
                     paired(what: "your threads") { ThreadListScreen() }
                         .srConnectionsBanner(connections) { router.openConnections() }
+                        // "msg family", beside a new jkai thread.
+                        .navigationDestination(for: FamilyPage.self) { familyPage($0) }
                 }
                 .tabItem { SRTabIcon.label("Chat", "bubble.left.and.bubble.right") }
                 .tag(Router.Tab.chat)
@@ -335,7 +343,7 @@ struct ContentView: View {
             // has a tab bar — neither was true of iOS's own More.
             if access.allows(.more) {
                 NavigationStack(path: $router.more) {
-                    MoreScreen(places: access.inMore, games: games)
+                    MoreScreen(places: access.inMore, games: games, companion: companion)
                         .srConnectionsBanner(connections) { router.openConnections() }
                         .navigationDestination(for: Router.Tab.self) { place($0) }
                         .navigationDestination(for: Router.MorePage.self) { page in
@@ -550,6 +558,7 @@ struct ContentView: View {
         switch page {
         case .steps: FamilyStepsScreen()
         case .tasks: FamilyTasksScreen()
+        case .messages: FamilyMessagesScreen()
         }
     }
 

@@ -91,21 +91,21 @@ struct TodayTileCard<Visual: View>: View {
     }
 }
 
-/// The one filled control on Today: a new thread with the keyboard up.
+/// The one filled control on Today: jkai and the family's messages, behind
+/// one door. The chat mark and the words, centred — no microphone (John
+/// asked for it this plain, 2026-10-05).
 struct TodayAskTile: View {
     var body: some View {
         HStack(spacing: 10) {
             disc("bubble.left")
-            Text("Ask jkai")
+            Text("JkAi & Msgs")
                 .font(SR.Text.title(17))
                 .foregroundStyle(SR.paper)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-            Spacer(minLength: 4)
-            disc("mic")
         }
         .padding(.horizontal, SR.cardPadding - 2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         // Deeper than the accent so the cream words hold 5:1 on it.
         .background(SR.accentDeep, in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))

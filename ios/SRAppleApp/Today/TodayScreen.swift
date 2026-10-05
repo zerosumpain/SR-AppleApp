@@ -214,9 +214,9 @@ struct TodayScreen: View {
                     if access.current.news, let news = store.payload?.news, let story = news.stories.first {
                         newsCard(news, story: story)
                     }
-                    syncAction
                 }
-                syncFooter
+                // Sync now and its status moved to More (and stay in
+                // Settings): a maintenance control, not a first-screen one.
             }
             .padding(.horizontal, SR.gutter)
             .padding(.top, 4)
@@ -434,16 +434,17 @@ struct TodayScreen: View {
         }
     }
 
-    /// A new thread with the keyboard up. The one filled control on Today.
+    /// Chat: a new jkai thread or "msg family", both from its list. The one
+    /// filled control on Today.
     private var askTile: some View {
         Button {
             SRHaptic.tap()
-            router.ask("")
+            router.show(.chat)
         } label: {
             TodayAskTile()
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Ask jkai")
+        .accessibilityLabel("JkAi and messages")
         .accessibilityIdentifier("today-ask")
     }
 
@@ -543,34 +544,4 @@ struct TodayScreen: View {
         }
     }
 
-    /// Sync now, as a quiet glass button at the foot of the page.
-    private var syncAction: some View {
-        Button {
-            SRHaptic.tap()
-            Task { await companion.sync() }
-        } label: {
-            SRButtonLabel(title: companion.busy ? "Syncing…" : "Sync now", icon: "arrow.triangle.2.circlepath", fill: true)
-        }
-        .srButton(.regular)
-        .controlSize(.large)
-        .disabled(companion.busy)
-        .accessibilityIdentifier("today-sync")
-    }
-
-    private var syncFooter: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(companion.message)
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("sync-status")
-            if let last = companion.lastUpload {
-                Text("Last upload \(last.formatted(date: .omitted, time: .shortened))")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 4)
-    }
 }

@@ -173,6 +173,7 @@ final class SRDemoSession: @unchecked Sendable {
         turns = 0
         tasks = nil
         newTasks = 0
+        FamilyMessagesDemo.shared.reset()
     }
 
     // MARK: Chat

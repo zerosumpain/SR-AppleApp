@@ -71,6 +71,16 @@ struct FamilyScreen: View {
                         .accessibilityIdentifier("family-open-tasks")
                 }
             }
+            // msg family lives in Chat; somebody without Chat reaches it here.
+            if access.familyBoards && !access.allows(.chat) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { SRHaptic.tap(); router.openFamilyPage(.messages) } label: {
+                        Image(systemName: "bubble.left.and.text.bubble.right")
+                    }
+                    .accessibilityLabel("msg family")
+                    .accessibilityIdentifier("family-open-messages")
+                }
+            }
         }
         .navigationDestination(for: FamilyPersonRoute.self) { route in
             FamilyPersonScreen(store: store, subject: route.subject)
