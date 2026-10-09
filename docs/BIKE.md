@@ -7,9 +7,10 @@ this project retired. So everything the app learns about the bike comes from
 the Bluetooth link the Avinox Ride app makes.
 
 **Option A (built):** the app checks whether the bike is connected to the phone
-and marks each location fix taken while it is (`bike: true`). The pilot counts
-those fixes per journey (`bikeFixes` on `/api/apple/journeys`), so /health can
-call that journey a ride rather than a drive. The app never connects to the
+and marks each location fix taken while it is (`bike: true`). The pilot sends
+the marked stretches of each journey (`bikeSpans` on `/api/apple/journeys`), and
+/health files that time as a "Captured e-bike ride" (`mtb`) rather than a
+drive. The app never connects to the
 bike, reads from it or writes to it. See `BikePresence.swift`.
 
 **Option C (not built):** read the bike's own live data (battery, assist mode,

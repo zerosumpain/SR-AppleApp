@@ -21,6 +21,20 @@ const RETENTION_DAYS = 30;
  * the newest points are the ones kept if it is ever hit.
  */
 const TRACK_LIMIT = 20000;
+/**
+ * Runs of consecutive bike-marked fixes in [first, last], as
+ * `[firstEpoch, lastEpoch]`. A lone marked fix is a span of one instant.
+ */
+function bikeSpansOf(points, onBike, first, last) {
+  const spans = [];
+  for (let i = first; i <= last; i++) {
+    if (!onBike[i]) continue;
+    const span = spans.at(-1);
+    if (span && onBike[i - 1] && i - 1 >= first) span[1] = points[i][2];
+    else spans.push([points[i][2], points[i][2]]);
+  }
+  return spans;
+}
 const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
 const iso = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value));
 const bounded = (x, lo, hi) => typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi;
@@ -268,10 +282,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const journeys = activitiesOf(points).filter(a => a.kind === 'journey').map(a => ({
           from: a.from, to: a.to, seconds: a.seconds, metres: a.metres, fixes: a.fixes,
           points: points.slice(a.first, a.last + 1),
-          // How many of those fixes were taken with the e-bike connected.
-          // A count, not a verdict: whether that makes the journey a ride is
-          // /health's call, like every other question of what a journey was.
-          bikeFixes: onBike.slice(a.first, a.last + 1).filter(Boolean).length,
+          // When the e-bike was connected: `[firstEpoch, lastEpoch]` of each
+          // run of consecutive marked fixes. Spans, not a verdict: /health
+          // splits a journey into walks, rides and wheels, and needs to know
+          // WHICH stretch was on the bike, not just how much.
+          bikeSpans: bikeSpansOf(points, onBike, a.first, a.last),
           heartRate: beats.filter(([t]) => t >= a.from && t <= a.to),
         }));
         // The phone's own record of the workouts, which reaches this server
