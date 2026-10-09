@@ -27,6 +27,7 @@ struct SettingsScreen: View {
     /// Where alerts go and the website's pairing are the owner's; everything
     /// this phone collects is everyone's.
     @ObservedObject private var access = AccessStore.shared
+    @ObservedObject private var bikePresence = BikePresence.shared
 
     @Environment(\.dismiss) private var dismiss
     @State private var path = NavigationPath()
@@ -35,7 +36,7 @@ struct SettingsScreen: View {
     @AppStorage(TodayCards.tasks) private var todayTasks = false
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
-    enum Route: Hashable { case notifications, connections, health, location, log, about, viewAs, deleteAccount }
+    enum Route: Hashable { case notifications, connections, health, location, bike, log, about, viewAs, deleteAccount }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -104,6 +105,7 @@ struct SettingsScreen: View {
                 Section {
                     link(.health, "Apple Health", "\(outbox.state.healthEnabled.count) of \(HealthCatalogue.groupOrder.count) categories", "heart.text.square")
                     link(.location, "Location & battery", draft, "location")
+                    link(.bike, "Bike", bikePresence.bike?.name ?? "Mark rides on your e-bike", "bicycle")
                     link(.log, "Gate history", "When GPS slept, and why", "list.bullet.rectangle")
                 } header: {
                     SRSectionLabel(text: "What it collects")
@@ -169,6 +171,7 @@ struct SettingsScreen: View {
                 case .connections: ConnectionsScreen(companion: companion, site: site, connections: connections)
                 case .health: AppleHealthScreen(outbox: outbox, companion: companion, location: location)
                 case .location: LocationSettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
+                case .bike: BikeScreen(bike: bikePresence)
                 case .log: ActivityLogScreen(outbox: outbox)
                 case .about: AboutScreen()
                 case .viewAs:

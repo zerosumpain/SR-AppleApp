@@ -773,6 +773,7 @@ test('the service lane reads only the configured owner\'s journeys, and nothing 
   assert.equal(journey.from, start);
   assert.equal(journey.points.length, 41);
   assert.ok(journey.points.every(p => p[0] === 0), 'another user\'s fixes leaked into the owner\'s journey');
+  assert.equal(journey.bikeFixes, 0, 'a walk with no bike connected counted bike fixes');
   assert.deepEqual(journey.heartRate, [[start + 300, 101]]);
   assert.deepEqual(ok.body.workouts.map(w => w.activity), ['Walking']);
   assert.equal(ok.body.retentionDays, 30);
@@ -786,6 +787,32 @@ test('the service lane reads only the configured owner\'s journeys, and nothing 
   // The token opens nothing but this one endpoint.
   assert.equal((await get('track')).status, 401);
   assert.equal((await get('health')).status, 401);
+});
+
+test('a fix taken with the e-bike connected is accepted, and its journey counts it', async t => {
+  const serviceToken = 'service-token-for-tests';
+  const { request } = await fixture(t, { serviceToken });
+  const sync = locations => request('sync', { method: 'POST', body: batch([], locations) });
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+
+  // A twenty-minute ride at 6 m/s: the bike connected for the middle half.
+  const start = Math.floor(Date.now() / 1000) - 3600;
+  const ride = Array.from({ length: 41 }, (_, i) => {
+    const r = { id: `ride-${i}`, recorded: new Date((start + i * 30) * 1000).toISOString(), latitude: 51 + i * 0.0016, longitude: 0, accuracy: 5, speed: 6, moving: true };
+    return i >= 10 && i < 30 ? { ...r, bike: true } : r;
+  });
+  assert.equal((await sync(ride)).status, 200);
+  // Only `true` is a statement; anything else is a malformed fix.
+  for (const bike of [false, 'yes', 1]) {
+    const response = await sync([{ ...ride[0], id: `bad-${bike}`, bike }]);
+    assert.equal(response.status, 400, `bike: ${JSON.stringify(bike)} was accepted`);
+  }
+
+  const { body } = await request('journeys', { user: null, headers: { Authorization: `Bearer ${serviceToken}` } });
+  assert.equal(body.journeys.length, 1);
+  assert.equal(body.journeys[0].bikeFixes, 20);
+  // The fixes themselves keep their six places.
+  assert.ok(body.journeys[0].points.every(p => p.length === 6));
 });
 
 test('the service lane does not exist until it is configured', async t => {

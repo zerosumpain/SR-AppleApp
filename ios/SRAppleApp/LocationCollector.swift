@@ -569,7 +569,8 @@ import UIKit
                                                accuracy: location.horizontalAccuracy,
                                                speed: max(0, location.speed),
                                                moving: location.speed >= settings.movingSpeed || state.lastMovedAt != before,
-                                               battery: Self.batteryPercent()))
+                                               battery: Self.batteryPercent(),
+                                               bike: BikePresence.shared.connectedNow()))
             reference = location
         }
         // Not written through on every fix: the state file is the whole
@@ -727,7 +728,8 @@ import UIKit
                                    accuracy: location.horizontalAccuracy,
                                    speed: max(0, location.speed),
                                    moving: moving,
-                                   battery: Self.batteryPercent())
+                                   battery: Self.batteryPercent(),
+                                   bike: BikePresence.shared.connectedNow())
         do {
             try outbox.change {
                 $0.batches.append(UploadBatch(locations: [point]))

@@ -97,9 +97,14 @@ const healthRecord = validateHealthRecord;
 function locationRecord(r) {
   // `battery` (whole percent) is optional: a phone older than the Family tab
   // does not send it, and a simulator cannot read it at all.
-  exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving', 'battery']);
+  // `bike` is optional and only ever `true`: the phone sends it when the
+  // owner's e-bike was connected to it over Bluetooth at the moment of the fix,
+  // and leaves it out otherwise — so a phone with no bike set up sends exactly
+  // what it sent before.
+  exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving', 'battery', 'bike']);
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   if (r.battery !== undefined && r.battery !== null && !(Number.isInteger(r.battery) && bounded(r.battery, 0, 100))) fail(400, 'Invalid location');
+  if (r.bike !== undefined && r.bike !== null && r.bike !== true) fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
 /** How long an alert is kept, whether or not it was ever acknowledged. */
@@ -250,6 +255,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const fromISO = new Date(from * 1000).toISOString(), toISO = new Date(to * 1000).toISOString();
         const rows = db.prepare(`SELECT payload FROM locations WHERE user_id=? AND recorded>=? AND recorded<? ORDER BY recorded LIMIT ${TRACK_LIMIT + 1}`).all(ownerId, fromISO, toISO);
         const points = rows.slice(0, TRACK_LIMIT).map(r => fixOf(r.payload));
+        // Kept beside the fixes rather than in them: the six-number tuple is
+        // read by /health, SR-Main and the map, and none of them needs to learn
+        // a seventh place for a fact only this lane reports.
+        const onBike = rows.slice(0, TRACK_LIMIT).map(r => JSON.parse(r.payload).bike === true);
         const beats = db.prepare("SELECT payload FROM health WHERE user_id=? AND kind='heart_rate' AND start>=? AND start<? ORDER BY start").all(ownerId, fromISO, toISO)
           .map(r => JSON.parse(r.payload)).map(h => [Math.round(Date.parse(h.start) / 1000), h.value]);
         // The same journeys the map draws — `activitiesOf` is the one definition
@@ -259,6 +268,10 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const journeys = activitiesOf(points).filter(a => a.kind === 'journey').map(a => ({
           from: a.from, to: a.to, seconds: a.seconds, metres: a.metres, fixes: a.fixes,
           points: points.slice(a.first, a.last + 1),
+          // How many of those fixes were taken with the e-bike connected.
+          // A count, not a verdict: whether that makes the journey a ride is
+          // /health's call, like every other question of what a journey was.
+          bikeFixes: onBike.slice(a.first, a.last + 1).filter(Boolean).length,
           heartRate: beats.filter(([t]) => t >= a.from && t <= a.to),
         }));
         // The phone's own record of the workouts, which reaches this server
