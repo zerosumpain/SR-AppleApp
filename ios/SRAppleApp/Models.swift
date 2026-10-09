@@ -45,6 +45,9 @@ struct LocationRecord: Codable, Identifiable {
     /// (an Optional is `decodeIfPresent` in the synthesised decoder), and a
     /// device that cannot read its battery — the simulator — sends none.
     var battery: Int? = nil
+    /// `true` when the owner's e-bike was connected to this phone at the fix;
+    /// otherwise absent, never `false` — see `BikePresence.connectedNow`.
+    var bike: Bool? = nil
 }
 struct UploadBatch: Codable, Identifiable {
     var id = UUID()

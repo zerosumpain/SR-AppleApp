@@ -38,6 +38,9 @@ import UIKit
         // the background, and this must already be listening to report its
         // update token.
         JourneyLive.shared.start()
+        // Before the first fix of a background relaunch, so a ride that woke
+        // the app is marked from its start. A no-op until a bike is set up.
+        BikePresence.shared.resume()
         // Listening before any scene exists: a message from the Watch can wake
         // the app in the background, and must find a session to arrive at.
         WatchBridge.shared.start(companion: companion)
