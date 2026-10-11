@@ -477,6 +477,7 @@ final class SiteClient {
         FamilyWidgetBridge.clear()
         FamilyStepsStore.shared.reset()
         FamilyTasksStore.shared.reset()
+        FamilyBacklogStore.shared.reset()
         LandgrabStore.shared.reset()
         Task {
             await JourneyLive.shared.endAll()

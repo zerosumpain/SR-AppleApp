@@ -19,7 +19,7 @@ import Foundation
 /// `sr://family/messages` open them — from a push (`userInfo.url`, or the
 /// category), a Home Screen widget, or any link.
 enum FamilyPage: String, Hashable, CaseIterable {
-    case steps, tasks, messages
+    case steps, tasks, messages, backlog
 
     var url: URL { URL(string: "sr://family/\(rawValue)")! }
 
@@ -41,6 +41,7 @@ enum FamilyPage: String, Hashable, CaseIterable {
         case "family-tasks", "tasks": return .tasks
         // "msg family": a message, or a reply to mine.
         case "family-msg", "family-msg-reply": return .messages
+        case "family-backlog", "backlog": return .backlog
         case "family":
             return (userInfo["page"] as? String).flatMap { FamilyPage(rawValue: $0) }
         default: return nil

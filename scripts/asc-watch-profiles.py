@@ -229,6 +229,8 @@ def main() -> int:
         ("widget", bundle + ".watchkitapp.complications", False, True, False),
         # The iPhone's Live Activity extension (the family journey).
         ("live", bundle + ".live", False, False, True),
+        # The share extension ("Share → SR" onto the family backlog).
+        ("share", bundle + ".share", False, False, True),
     ]
     temp = Path(env["RUNNER_TEMP"])
     try:
@@ -256,6 +258,7 @@ def main() -> int:
         out.write(f"WATCH_PROFILE_PATH={written['watch']}\n")
         out.write(f"WIDGET_PROFILE_PATH={written['widget']}\n")
         out.write(f"LIVE_PROFILE_PATH={written['live']}\n")
+        out.write(f"SHARE_PROFILE_PATH={written['share']}\n")
     return 0
 
 

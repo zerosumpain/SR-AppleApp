@@ -1,7 +1,7 @@
-# The Watch app and its complications, and the iPhone's Live Activity
-# extension, added to the iPhone app by `project.yml`. See docs/WATCH.md for
-# what each Watch target is and why it holds no credential of its own. All
-# three are signed with profiles CI mints through the App Store Connect API
+# The Watch app and its complications, and the iPhone's Live Activity and
+# share extensions, added to the iPhone app by `project.yml`. See docs/WATCH.md
+# for what each Watch target is and why it holds no credential of its own. All
+# of them are signed with profiles CI mints through the App Store Connect API
 # (scripts/asc-watch-profiles.py), which is why they travel together.
 targets:
   SRAppleApp:
@@ -17,6 +17,11 @@ targets:
       # The family journey on the Lock Screen and in the Dynamic Island. An
       # app extension embeds in PlugIns/, the default for its type.
       - target: SRAppleLive
+        embed: true
+        codeSign: true
+      # "Share → SR": links, videos and ideas onto the family backlog.
+      # Another app extension, embedded in PlugIns/ like the one above.
+      - target: SRAppleShare
         embed: true
         codeSign: true
 
@@ -95,5 +100,28 @@ targets:
         # widgets. Not an App Group: every profile already allows
         # `<TEAM>.*` Keychain groups, so this needs no portal change.
         CODE_SIGN_ENTITLEMENTS: SRAppleLive/SRAppleLive.entitlements
+        TARGETED_DEVICE_FAMILY: '1'
+        SKIP_INSTALL: YES
+
+  SRAppleShare:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: '17.0'
+    sources:
+      - SRAppleShare
+      # The backlog's wire shapes and the share path, shared with the app's
+      # Backlog page, and the Keychain shelf holding the site credential the
+      # app leaves there for the family widgets. Nothing else of the app's.
+      - path: SRAppleApp/Family/FamilyBacklogShared.swift
+      - path: SRAppleApp/Family/FamilyBoardModels.swift
+      - path: SRAppleApp/Family/FamilyWidgetShared.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID).share
+        PROVISIONING_PROFILE_SPECIFIER: $(SR_SHARE_PROFILE)
+        INFOPLIST_FILE: SRAppleShare/Info.plist
+        # The same Keychain ACCESS group as the widgets: every profile already
+        # allows `<TEAM>.*` groups, so this needs no portal change.
+        CODE_SIGN_ENTITLEMENTS: SRAppleShare/SRAppleShare.entitlements
         TARGETED_DEVICE_FAMILY: '1'
         SKIP_INSTALL: YES
