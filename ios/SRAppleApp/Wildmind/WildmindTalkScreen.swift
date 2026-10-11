@@ -41,29 +41,17 @@ struct WildmindTalkScreen: View {
     private var companionName: String { valley.answer?.snapshot?.companion?.name ?? "Wren" }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    thread(proxy)
-                    Color.clear
-                        .frame(height: 1)
-                        .id(Self.foot)
-                }
-                .padding(.horizontal, SR.gutter)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-            }
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .accessibilityIdentifier("wildmind-talk-screen")
-            .onChange(of: store.footTick) { _, _ in
-                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.foot, anchor: .bottom) }
-            }
-            .onChange(of: composerFocused) { _, focused in
-                if focused { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.foot, anchor: .bottom) } }
-            }
+        // The chips are a row of their own above the thread, not a top
+        // safe-area inset: as an inset, with the keyboard up, they were laid
+        // a third of the way down the page over the words.
+        VStack(spacing: 0) {
+            filters
+            Rectangle()
+                .fill(SR.line)
+                .frame(height: 0.5)
+                .accessibilityHidden(true)
+            talk
         }
-        .safeAreaInset(edge: .top, spacing: 0) { filters }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if viewingAs { viewingAsNote } else { composer }
         }
@@ -90,6 +78,32 @@ struct WildmindTalkScreen: View {
             }
             try? await Task.sleep(for: .seconds(1))
             settled = true
+        }
+    }
+
+    /// The thread, oldest at the top, pulled down to refresh.
+    private var talk: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    thread(proxy)
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.foot)
+                }
+                .padding(.horizontal, SR.gutter)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+            }
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
+            .accessibilityIdentifier("wildmind-talk-screen")
+            .onChange(of: store.footTick) { _, _ in
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.foot, anchor: .bottom) }
+            }
+            .onChange(of: composerFocused) { _, focused in
+                if focused { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.foot, anchor: .bottom) } }
+            }
         }
         .srRefreshable { await store.refreshAll() }
     }
@@ -126,18 +140,6 @@ struct WildmindTalkScreen: View {
             .padding(.vertical, 6)
         }
         .scrollClipDisabled()
-        // Its own height and no more: a horizontal scroll view offered the
-        // whole inset grows to fill it, and the chips floated mid-thread.
-        .fixedSize(horizontal: false, vertical: true)
-        // The thread scrolls up beneath the chips, so they sit on a fade of
-        // the page's own paper rather than over the words.
-        .background {
-            LinearGradient(stops: [.init(color: SR.paper, location: 0.55),
-                                   .init(color: SR.paper.opacity(0), location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea(edges: .top)
-                .accessibilityHidden(true)
-        }
     }
 
     private func whoLabel(_ who: WildmindTalkFilter.Who) -> String {
