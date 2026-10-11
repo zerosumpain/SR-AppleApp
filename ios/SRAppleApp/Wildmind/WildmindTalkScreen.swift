@@ -126,6 +126,18 @@ struct WildmindTalkScreen: View {
             .padding(.vertical, 6)
         }
         .scrollClipDisabled()
+        // Its own height and no more: a horizontal scroll view offered the
+        // whole inset grows to fill it, and the chips floated mid-thread.
+        .fixedSize(horizontal: false, vertical: true)
+        // The thread scrolls up beneath the chips, so they sit on a fade of
+        // the page's own paper rather than over the words.
+        .background {
+            LinearGradient(stops: [.init(color: SR.paper, location: 0.55),
+                                   .init(color: SR.paper.opacity(0), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .top)
+                .accessibilityHidden(true)
+        }
     }
 
     private func whoLabel(_ who: WildmindTalkFilter.Who) -> String {
