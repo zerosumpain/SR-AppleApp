@@ -5,6 +5,10 @@ import Foundation
 // read or do together. Wire shapes and the share path are in
 // FamilyBacklogShared.swift, which the share extension compiles too.
 
+extension TodayCards {
+    static let backlog = "today-card-backlog"
+}
+
 /// The page's filter chips.
 enum FamilyBacklogShelf: String, CaseIterable, Identifiable {
     case all = "All", watch = "Watch", read = "Read", ideas = "Ideas", done = "Done"
@@ -62,6 +66,31 @@ enum FamilyBacklogRules {
         let mine = forMe(board)
         if mine > 0 { return "\(mine) for you" }
         return board.items.isEmpty ? nil : "\(board.items.count) on the list"
+    }
+
+    /// Tonight's pick: a video if there is one, else anything on the list;
+    /// never the one just shown while there is another to show.
+    static func pick(_ board: FamilyBacklogBoard, avoiding last: String? = nil) -> FamilyBacklogItem? {
+        let videos = board.items.filter { $0.kind == "video" }
+        let pool = videos.isEmpty ? board.items : videos
+        let fresh = pool.count > 1 ? pool.filter { $0.id != last } : pool
+        return fresh.randomElement()
+    }
+
+    /// The emoji this person chose on an item, if any.
+    static func myReaction(_ item: FamilyBacklogItem, _ board: FamilyBacklogBoard) -> String? {
+        item.reactions?.first { $0.by.contains(board.me.id) }?.emoji
+    }
+
+    /// Who chose an emoji, by name, for its accessibility label.
+    static func names(_ reaction: FamilyBacklogReaction, _ board: FamilyBacklogBoard) -> String {
+        reaction.by.map { id in id == board.me.id ? "you" : board.people.first { $0.id == id }?.name ?? "someone" }
+            .joined(separator: ", ")
+    }
+
+    /// Today's card: what is for you, then how many are waiting.
+    static func todayLine(_ board: FamilyBacklogBoard) -> (forYou: Int, waiting: Int, newest: [FamilyBacklogItem]) {
+        (forMe(board), board.items.count, Array(board.items.prefix(2)))
     }
 
     static func symbol(_ item: FamilyBacklogItem) -> String {
@@ -132,11 +161,44 @@ final class FamilyBacklogStore: ObservableObject {
             if action == .delete { SRHaptic.tap() } else { SRHaptic.ok() }
             message = nil
             await load()
+            // It is on the task list now; the list should say so when opened.
+            if action == .toTask { await FamilyTasksStore.shared.load() }
             return true
         } catch {
             SRHaptic.bad()
             message = Self.sentence(for: error)
             await load()
+            return false
+        }
+    }
+
+    /// An emoji on an item — the same one again takes it back.
+    func react(_ emoji: String, on item: FamilyBacklogItem) async {
+        guard busy == nil, let board else { return }
+        busy = item.id
+        defer { busy = nil }
+        let mine = FamilyBacklogRules.myReaction(item, board)
+        let body: [String: String?] = ["emoji": mine == emoji ? nil : emoji]
+        do {
+            try await SiteClient.shared.post("api/native/family/backlog/\(item.id)/reaction", body: try JSONEncoder().encode(body))
+            SRHaptic.tap()
+            await load()
+        } catch {
+            SRHaptic.bad()
+            message = Self.sentence(for: error)
+        }
+    }
+
+    /// The evening round-up, on or off. False when the site refused.
+    @discardableResult
+    func setDigest(_ on: Bool) async -> Bool {
+        do {
+            try await SiteClient.shared.call("api/native/family/backlog/digest", method: "PUT", body: try JSONEncoder().encode(["on": on]))
+            board?.digest = on
+            message = nil
+            return true
+        } catch {
+            message = Self.sentence(for: error)
             return false
         }
     }

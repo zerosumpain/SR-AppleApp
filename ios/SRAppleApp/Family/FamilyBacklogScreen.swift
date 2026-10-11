@@ -6,12 +6,16 @@ import SwiftUI
 ///
 /// Reached from More ("Backlog") and, for a member with no More, from the
 /// Family tab's toolbar. Things arrive through "Share → SR" in any app, or +.
+/// The dice picks one for tonight; a long press answers with an emoji or
+/// turns an idea into a family task.
 struct FamilyBacklogScreen: View {
     @ObservedObject private var store = FamilyBacklogStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @AppStorage(TodayCards.backlog) private var onToday = false
     @State private var showing: FamilyBacklogShelf = .all
     @State private var adding = false
+    @State private var picked: FamilyBacklogItem?
 
     var body: some View {
         List {
@@ -56,6 +60,15 @@ struct FamilyBacklogScreen: View {
                 }
                 .listRowBackground(Color.clear)
             }
+
+            if let board = store.board {
+                Section {
+                    digestSwitch(board)
+                    FamilyShowOnToday(isOn: $onToday, what: "what's been shared for you and how much is waiting")
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
@@ -65,6 +78,18 @@ struct FamilyBacklogScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { SRBarMark() }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    guard let board = store.board else { return }
+                    SRHaptic.tap()
+                    picked = FamilyBacklogRules.pick(board)
+                } label: {
+                    Image(systemName: "dice")
+                }
+                .disabled(store.board?.items.isEmpty ?? true)
+                .accessibilityLabel("Pick one for tonight")
+                .accessibilityIdentifier("backlog-pick")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     SRHaptic.tap()
@@ -85,6 +110,15 @@ struct FamilyBacklogScreen: View {
         }
         .overlay(alignment: .bottom) {
             if let message = store.message, store.board != nil { SRBanner(text: message, tone: SR.error) }
+        }
+        .sheet(item: $picked) { item in
+            FamilyBacklogPickSheet(item: item, board: store.board) {
+                guard let board = store.board else { return }
+                picked = FamilyBacklogRules.pick(board, avoiding: item.id)
+            } done: {
+                picked = nil
+                Task { await store.act(.done, on: item) }
+            }
         }
         .sheet(isPresented: $adding) {
             FamilyBacklogAddSheet(people: store.board?.people ?? [], me: store.board?.me) { share in
@@ -127,6 +161,20 @@ struct FamilyBacklogScreen: View {
             }
         }
         .contextMenu {
+            if !board.quickReactions.isEmpty {
+                let mine = FamilyBacklogRules.myReaction(item, board)
+                let quick = board.quickReactions
+                ForEach(Array(stride(from: 0, to: quick.count, by: 3)), id: \.self) { start in
+                    ControlGroup {
+                        ForEach(quick[start..<min(start + 3, quick.count)], id: \.self) { emoji in
+                            Button(mine == emoji ? "\(emoji) ✓" : emoji) {
+                                Task { await store.react(emoji, on: item) }
+                            }
+                        }
+                    }
+                    .controlGroupStyle(.compactMenu)
+                }
+            }
             if let link {
                 Button { openURL(link) } label: { Label("Open", systemImage: "arrow.up.right.square") }
                 ShareLink(item: link) { Label("Share", systemImage: "square.and.arrow.up") }
@@ -135,6 +183,7 @@ struct FamilyBacklogScreen: View {
             if item.status == "new" {
                 Button { act(.done, item) } label: { Label(item.kind == "video" ? "Watched" : "Done", systemImage: "checkmark") }
                 Button { act(.dismiss, item) } label: { Label("Not for us", systemImage: "hand.thumbsdown") }
+                Button { act(.toTask, item) } label: { Label("Make it a task", systemImage: "checklist") }
             } else {
                 Button { act(.reopen, item) } label: { Label("Back on the list", systemImage: "arrow.uturn.backward") }
             }
@@ -146,6 +195,117 @@ struct FamilyBacklogScreen: View {
 
     private func act(_ action: FamilyBacklogAction, _ item: FamilyBacklogItem) {
         Task { await store.act(action, on: item) }
+    }
+
+    /// The evening round-up: off unless this person turns it on. The switch
+    /// moves at once and goes back if the site says no.
+    private func digestSwitch(_ board: FamilyBacklogBoard) -> some View {
+        Toggle(isOn: Binding(
+            get: { board.digest },
+            set: { on in Task { await store.setDigest(on) } }
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Evening round-up")
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                Text("At 7pm, what the family added that day — nothing on a quiet day. Things shared for you always come straight away.")
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .tint(SR.accent)
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.vertical, 12)
+        .srGlassCard(.paper)
+        .accessibilityIdentifier("backlog-digest")
+    }
+}
+
+/// "Pick one for tonight": one thing, big, with Open, Watched and Another.
+struct FamilyBacklogPickSheet: View {
+    let item: FamilyBacklogItem
+    let board: FamilyBacklogBoard?
+    let another: () -> Void
+    let done: () -> Void
+
+    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                picture
+                Text(FamilyBacklogText.title(item))
+                    .font(SR.Text.bodyMedium(20))
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let note = item.note, !note.isEmpty {
+                    Text(note)
+                        .font(SR.Text.secondary(15))
+                        .foregroundStyle(SR.inkSecondary)
+                }
+                if let board {
+                    Text(FamilyBacklogRules.byline(item, board))
+                        .font(SR.Text.label())
+                        .foregroundStyle(SR.inkMuted)
+                }
+                Spacer(minLength: 0)
+                if let raw = item.url, let link = URL(string: raw) {
+                    Button {
+                        SRHaptic.tap()
+                        openURL(link)
+                    } label: {
+                        Label("Open", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("backlog-pick-open")
+                }
+                HStack {
+                    Button("Pick another") { SRHaptic.tap(); another() }
+                        .accessibilityIdentifier("backlog-pick-another")
+                    Spacer()
+                    Button(item.kind == "video" ? "Watched" : "Done") { done() }
+                }
+                .font(SR.Text.bodyMedium(15))
+            }
+            .padding(20)
+            .srPaper()
+            .navigationTitle("Tonight")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+            }
+        }
+        .tint(SR.accent)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .accessibilityIdentifier("backlog-pick-sheet")
+    }
+
+    @ViewBuilder
+    private var picture: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let glyph = Image(systemName: FamilyBacklogRules.symbol(item))
+            .font(.system(size: 40, weight: .medium))
+            .foregroundStyle(SR.accentInk)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .background(shape.fill(SR.ink.opacity(0.06)))
+        if let raw = item.thumbnailUrl, let url = URL(string: raw) {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().aspectRatio(16 / 9, contentMode: .fill)
+                        .frame(maxWidth: .infinity).clipShape(shape)
+                } else {
+                    glyph
+                }
+            }
+            .accessibilityHidden(true)
+        } else {
+            glyph.accessibilityHidden(true)
+        }
     }
 }
 
@@ -181,6 +341,18 @@ struct FamilyBacklogRow: View {
                 Text(FamilyBacklogRules.byline(item, board))
                     .font(SR.Text.label())
                     .foregroundStyle(item.forId == board.me.id && item.status == "new" ? SR.accentDeep : SR.inkMuted)
+                if let reactions = item.reactions, !reactions.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(reactions, id: \.emoji) { r in
+                            Text(r.by.count > 1 ? "\(r.emoji) \(r.by.count)" : r.emoji)
+                                .font(SR.Text.secondary(13))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(r.by.contains(board.me.id) ? SR.accent.opacity(0.22) : SR.ink.opacity(0.06)))
+                                .accessibilityLabel("\(r.emoji) from \(FamilyBacklogRules.names(r, board))")
+                        }
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
@@ -296,5 +468,55 @@ struct FamilyBacklogAddSheet: View {
             .onAppear { focused = true }
         }
         .presentationDragIndicator(.visible)
+    }
+}
+
+/// Today's backlog card: what was shared for you, how much is waiting, and
+/// the newest two. Drawn only when there is something on the list — an empty
+/// backlog is not news — and not while it is still loading.
+struct TodayBacklogCard: View {
+    @ObservedObject private var store = FamilyBacklogStore.shared
+    let open: () -> Void
+
+    var body: some View {
+        if let board = store.board, !board.items.isEmpty {
+            card(board)
+        }
+    }
+
+    private func card(_ board: FamilyBacklogBoard) -> some View {
+        let line = FamilyBacklogRules.todayLine(board)
+        return Button {
+            SRHaptic.tap()
+            open()
+        } label: {
+            SRCard(interactive: true) {
+                VStack(alignment: .leading, spacing: 12) {
+                    SRSectionLabel(text: "Family backlog", trailing: line.forYou > 0 ? "\(line.forYou) for you" : nil, prominent: true)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(line.newest) { item in
+                            HStack(spacing: 8) {
+                                Image(systemName: FamilyBacklogRules.symbol(item))
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(item.forId == board.me.id ? SR.accent : SR.inkMuted)
+                                    .accessibilityHidden(true)
+                                Text(FamilyBacklogText.title(item))
+                                    .font(SR.Text.bodyMedium(15))
+                                    .foregroundStyle(SR.ink)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    Text(line.waiting == 1 ? "1 thing on the list" : "\(line.waiting) things on the list")
+                        .font(SR.Text.label())
+                        .foregroundStyle(SR.inkMuted)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens the backlog")
+        .accessibilityIdentifier("today-backlog")
     }
 }

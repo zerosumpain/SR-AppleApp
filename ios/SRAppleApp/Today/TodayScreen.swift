@@ -164,6 +164,7 @@ struct TodayScreen: View {
     /// person turned it on (Settings → Today, or the page's own switch).
     @AppStorage(TodayCards.steps) private var showSteps = false
     @AppStorage(TodayCards.tasks) private var showTasks = false
+    @AppStorage(TodayCards.backlog) private var showBacklog = false
 
     /// How often the numbers are re-read while Today is on screen. Readiness
     /// and recovery move when a sync lands on the site; five minutes is often
@@ -195,6 +196,9 @@ struct TodayScreen: View {
                     }
                     if showTasks {
                         TodayTasksCard { router.openFamilyPage(.tasks) }
+                    }
+                    if showBacklog {
+                        TodayBacklogCard { router.openFamilyPage(.backlog) }
                     }
                 }
 
@@ -354,6 +358,7 @@ struct TodayScreen: View {
         guard access.familyBoards else { return }
         if showSteps { await FamilyStepsStore.shared.load() }
         if showTasks { await FamilyTasksStore.shared.load() }
+        if showBacklog { await FamilyBacklogStore.shared.load() }
         // No card, but still read: every read reschedules this phone's
         // leave-by reminders.
         await FamilyForecastStore.shared.load()

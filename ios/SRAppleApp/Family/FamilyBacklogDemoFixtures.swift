@@ -16,8 +16,12 @@ extension SRDemoFixtures {
             return FamilyBacklogDemo.shared.board(clock)
         case ("POST", 4):
             return FamilyBacklogDemo.shared.add(body, clock: clock)
+        case ("PUT", 5) where parts[4] == "digest":
+            return FamilyBacklogDemo.shared.digest(body)
         case ("PATCH", 5):
             return FamilyBacklogDemo.shared.act(on: parts[4], body: body, clock: clock)
+        case ("POST", 6) where parts[5] == "reaction":
+            return FamilyBacklogDemo.shared.react(on: parts[4], body: body)
         default:
             return nil
         }
@@ -31,12 +35,17 @@ final class FamilyBacklogDemo: @unchecked Sendable {
     private var added: [FamilyBacklogItem] = []
     /// id → status ("deleted" removes it), for seeded and added items alike.
     private var moved: [String: String] = [:]
+    /// item id → Sam's emoji this session.
+    private var mine: [String: String] = [:]
+    private var digestOn = false
     private var count = 0
 
     func reset() {
         lock.lock(); defer { lock.unlock() }
         added = []
         moved = [:]
+        mine = [:]
+        digestOn = false
         count = 0
     }
 
@@ -50,8 +59,12 @@ final class FamilyBacklogDemo: @unchecked Sendable {
         return [
             item("demo-bl-1", "video", "tiktok", "How to make a paper plane that flies 30 metres", site: "TikTok",
                  url: "https://www.tiktok.com/@example/video/1", by: "f_kit", ago: 35, for: "f_sam"),
-            item("demo-bl-2", "video", "youtube", "The deepest hole we have ever dug", site: "YouTube",
-                 url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", by: "f_alex", ago: 300, note: "Film night?"),
+            {
+                var i = item("demo-bl-2", "video", "youtube", "The deepest hole we have ever dug", site: "YouTube",
+                             url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", by: "f_alex", ago: 300, note: "Film night?")
+                i.reactions = [FamilyBacklogReaction(emoji: "👍", by: ["f_robin", "f_kit"])]
+                return i
+            }(),
             item("demo-bl-3", "idea", nil, "Go to the coast and find fossils", site: nil, url: nil,
                  by: "f_robin", ago: 1_500),
             item("demo-bl-4", "page", "web", "Ten walks with a tea shop at the end", site: "example.com",
@@ -71,9 +84,15 @@ final class FamilyBacklogDemo: @unchecked Sendable {
     func board(_ clock: SRDemoFixtures.DemoClock) -> String? {
         lock.lock(); defer { lock.unlock() }
         let all = (added + seeded(clock) + finished(clock)).compactMap { item -> FamilyBacklogItem? in
+            var item = item
+            if let emoji = mine[item.id] {
+                var list = (item.reactions ?? []).map { r in FamilyBacklogReaction(emoji: r.emoji, by: r.by.filter { $0 != "f_sam" }) }
+                if let i = list.firstIndex(where: { $0.emoji == emoji }) { list[i].by.append("f_sam") } else { list.append(.init(emoji: emoji, by: ["f_sam"])) }
+                item.reactions = list.filter { !$0.by.isEmpty }
+            }
             guard let status = moved[item.id] else { return item }
             if status == "deleted" { return nil }
-            var item = item
+            if status == "done", moved[item.id + ":task"] != nil { item.taskId = "demo-task-from-\(item.id)" }
             item.status = status
             if status == "new" { item.doneById = nil; item.doneAt = nil } else if item.doneById == nil {
                 item.doneById = "f_sam"; item.doneAt = clock.iso(minutesAgo: 0)
@@ -87,7 +106,9 @@ final class FamilyBacklogDemo: @unchecked Sendable {
                 .init(id: "f_robin", name: "Robin"), .init(id: "f_kit", name: "Kit"),
             ],
             items: all.filter { $0.status == "new" },
-            finished: all.filter { $0.status != "new" }
+            finished: all.filter { $0.status != "new" },
+            quickReactions: FamilyMessages.reactions,
+            digest: digestOn
         )
         return encode(board)
     }
@@ -118,8 +139,26 @@ final class FamilyBacklogDemo: @unchecked Sendable {
         case .dismiss: moved[id] = "dismissed"
         case .reopen: moved[id] = "new"
         case .delete: moved[id] = "deleted"
+        case .toTask:
+            moved[id] = "done"
+            moved[id + ":task"] = "yes"
         }
         return "{}"
+    }
+
+    func react(on id: String, body: Data?) -> String? {
+        guard let body, let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        mine[id] = object["emoji"] as? String
+        return "{}"
+    }
+
+    func digest(_ body: Data?) -> String? {
+        guard let body, let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let on = object["on"] as? Bool else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        digestOn = on
+        return on ? #"{"digest":true}"# : #"{"digest":false}"#
     }
 
     private func encode<T: Encodable>(_ value: T) -> String? {

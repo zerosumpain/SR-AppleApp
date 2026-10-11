@@ -33,6 +33,16 @@ struct FamilyBacklogItem: Codable, Equatable, Identifiable {
     var doneById: String?
     var doneAt: String?
     var createdAt: String
+    /// The family task an idea became. Optional on the wire: an older site
+    /// does not send it, and synthesised Codable never uses a default.
+    var taskId: String?
+    /// Each emoji with who chose it (ids). Optional for the same reason.
+    var reactions: [FamilyBacklogReaction]?
+}
+
+struct FamilyBacklogReaction: Codable, Equatable, Hashable {
+    var emoji: String
+    var by: [String]
 }
 
 struct FamilyBacklogBoard: Codable, Equatable {
@@ -42,12 +52,18 @@ struct FamilyBacklogBoard: Codable, Equatable {
     var items: [FamilyBacklogItem]
     /// Done or not for us, in the last 30 days.
     var finished: [FamilyBacklogItem]
+    /// The emoji anyone may answer with — msg family's quick set.
+    var quickReactions: [String]
+    /// Whether this person gets the evening round-up.
+    var digest: Bool
 
-    init(me: FamilyTaskMe, people: [FamilyTaskPerson], items: [FamilyBacklogItem], finished: [FamilyBacklogItem]) {
+    init(me: FamilyTaskMe, people: [FamilyTaskPerson], items: [FamilyBacklogItem], finished: [FamilyBacklogItem],
+         quickReactions: [String] = [], digest: Bool = false) {
         self.me = me; self.people = people; self.items = items; self.finished = finished
+        self.quickReactions = quickReactions; self.digest = digest
     }
 
-    private enum CodingKeys: String, CodingKey { case me, people, items, finished }
+    private enum CodingKeys: String, CodingKey { case me, people, items, finished, quickReactions, digest }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -55,6 +71,8 @@ struct FamilyBacklogBoard: Codable, Equatable {
         people = (try? c.decodeIfPresent([FamilyTaskPerson].self, forKey: .people)) ?? []
         items = (try? c.decodeIfPresent([FamilyBacklogItem].self, forKey: .items)) ?? []
         finished = (try? c.decodeIfPresent([FamilyBacklogItem].self, forKey: .finished)) ?? []
+        quickReactions = (try? c.decodeIfPresent([String].self, forKey: .quickReactions)) ?? []
+        digest = (try? c.decodeIfPresent(Bool.self, forKey: .digest)) ?? false
     }
 }
 
@@ -75,6 +93,7 @@ struct FamilyBacklogAdded: Decodable {
 /// `PATCH /api/native/family/backlog/[id]` — `{ action }`.
 enum FamilyBacklogAction: String, CaseIterable {
     case done, dismiss, reopen, delete
+    case toTask = "to_task"
 }
 
 /// Words and choices both the page and the share sheet use.

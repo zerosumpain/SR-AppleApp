@@ -34,6 +34,7 @@ struct SettingsScreen: View {
     /// Today's optional family cards — see `TodayCards`.
     @AppStorage(TodayCards.steps) private var todaySteps = false
     @AppStorage(TodayCards.tasks) private var todayTasks = false
+    @AppStorage(TodayCards.backlog) private var todayBacklog = false
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
     enum Route: Hashable { case notifications, connections, health, location, bike, log, about, viewAs, deleteAccount }
@@ -84,6 +85,8 @@ struct SettingsScreen: View {
                             .accessibilityIdentifier("settings-today-steps")
                         todayToggle("Family tasks", "What's left, what's waiting, what's owed", "checklist", $todayTasks)
                             .accessibilityIdentifier("settings-today-tasks")
+                        todayToggle("Family backlog", "What's been shared for you, and how much is waiting", "tray.full", $todayBacklog)
+                            .accessibilityIdentifier("settings-today-backlog")
                         #if DEBUG
                         // The widgets, drawn in the app: a UI test cannot reach
                         // the Home Screen, so this is how CI photographs them.

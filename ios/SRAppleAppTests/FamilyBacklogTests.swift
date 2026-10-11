@@ -101,6 +101,47 @@ final class FamilyBacklogTests: XCTestCase {
         XCTAssertEqual(object["note"] as? String, "n")
     }
 
+    func testAnOlderSiteWithoutReactionsStillDecodes() throws {
+        let b = try board()
+        XCTAssertNil(b.items[0].reactions)
+        XCTAssertNil(b.items[0].taskId)
+        XCTAssertFalse(b.digest)
+        XCTAssertTrue(b.quickReactions.isEmpty)
+    }
+
+    func testReadsReactionsTheRoundUpAndTheTask() throws {
+        let json = #"""
+        { "me": { "id": "f_me", "parent": false }, "people": [], "quickReactions": ["👍", "❤️"], "digest": true,
+          "items": [ { "id": "b1", "kind": "idea", "title": "Coast", "addedById": "f_p", "status": "new",
+                       "createdAt": "2026-10-11T12:00:00Z", "taskId": null,
+                       "reactions": [ { "emoji": "👍", "by": ["f_p", "f_me"] } ] } ],
+          "finished": [ { "id": "b2", "kind": "idea", "title": "Whitby", "addedById": "f_p", "status": "done",
+                          "createdAt": "2026-10-10T12:00:00Z", "taskId": "t9", "reactions": [] } ] }
+        """#
+        let b = try JSONDecoder().decode(FamilyBacklogBoard.self, from: Data(json.utf8))
+        XCTAssertTrue(b.digest)
+        XCTAssertEqual(b.quickReactions, ["👍", "❤️"])
+        XCTAssertEqual(FamilyBacklogRules.myReaction(b.items[0], b), "👍")
+        XCTAssertEqual(b.finished[0].taskId, "t9")
+    }
+
+    func testPickPrefersVideosAndNeverRepeatsWhileThereIsAChoice() throws {
+        let b = try board()
+        for _ in 0..<20 { XCTAssertEqual(FamilyBacklogRules.pick(b)?.kind, "video") }
+        var noVideos = b
+        noVideos.items = b.items.filter { $0.kind != "video" }
+        for _ in 0..<20 {
+            let last = FamilyBacklogRules.pick(noVideos)?.id
+            XCTAssertNotEqual(FamilyBacklogRules.pick(noVideos, avoiding: last)?.id, last)
+        }
+        noVideos.items = []
+        XCTAssertNil(FamilyBacklogRules.pick(noVideos))
+    }
+
+    func testTheTaskActionIsWhatTheSiteReads() {
+        XCTAssertEqual(FamilyBacklogAction.toTask.rawValue, "to_task")
+    }
+
     func testTheBacklogHasALink() {
         XCTAssertEqual(FamilyPage.from(url: URL(string: "sr://family/backlog")!), .backlog)
         XCTAssertEqual(FamilyPage.from(category: "family-backlog", userInfo: [:]), .backlog)
