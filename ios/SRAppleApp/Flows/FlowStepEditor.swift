@@ -265,7 +265,7 @@ struct FlowStepEditor: View {
             .frame(minHeight: mono ? 140 : 90)
             .scrollContentBackground(.hidden)
             .padding(6)
-            .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
     }
 
     /// Which earlier steps a template can draw on.
@@ -376,7 +376,7 @@ struct FlowStepEditor: View {
         .frame(minHeight: 120)
         .scrollContentBackground(.hidden)
         .padding(6)
-        .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
     }
 
     /// The whole config as JSON — the escape hatch for anything the form
@@ -404,7 +404,7 @@ struct FlowStepEditor: View {
             .frame(minHeight: 180)
             .scrollContentBackground(.hidden)
             .padding(6)
-            .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
             .accessibilityIdentifier("flow-step-raw")
             if let rawError {
                 Text(rawError).font(SR.Text.secondary(13)).foregroundStyle(SR.error)

@@ -160,8 +160,8 @@ struct HealthScreen: View {
                 // to fill it, and the onboarding test is right that an empty tab
                 // must still say that.
                 Text("Connect the companion to upload from Apple Health, and your heart rate appears here as a day's line.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia())
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .srGlassRow()
                     .padding(.vertical, 10)
@@ -169,8 +169,8 @@ struct HealthScreen: View {
                 HeartRateCard(timeline: timeline).srBareRow()
             } else if heart.failed {
                 Text("Heart rate did not load. Pull to try again.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia())
+                    .foregroundStyle(SR.inkSecondary)
                     .srGlassRow()
             } else {
                 HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
@@ -180,8 +180,10 @@ struct HealthScreen: View {
         } header: {
             SRSectionLabel(text: "Last 24 hours", trailing: uploadLine)
         } footer: {
+            // An aside, not a label: the notes look writes these in the
+            // margin's hand.
             Text("From this iPhone via Apple Health. Only you can see it. Not a live feed: it moves when the phone syncs.")
-                .font(SR.Text.mono())
+                .font(SR.Text.marginalia(15))
                 .foregroundStyle(SR.inkMuted)
                 .padding(.vertical, 4)
         }
@@ -204,7 +206,7 @@ struct HealthScreen: View {
                 SRSectionLabel(text: "Family")
             } footer: {
                 Text("Family members see a location you chose to share, and nothing else.")
-                    .font(SR.Text.mono())
+                    .font(SR.Text.marginalia(15))
                     .foregroundStyle(SR.inkMuted)
                     .padding(.vertical, 4)
             }
@@ -266,14 +268,17 @@ struct FigureTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // A label over a reading: the petrol pen, as `SRStatTile`.
             Text(figure.label.uppercased())
-                .font(SR.Text.label())
-                .tracking(1.2)
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
+                .foregroundStyle(SR.accentInk)
                 .lineLimit(1)
 
             Text(figure.displayWithUnit)
                 .font(SR.Text.figure(30))
+                .tracking(-30 * 0.03)
+                .monospacedDigit()
                 .foregroundStyle(SR.ink)
                 // See SRTileGrid: the grid folds at accessibility sizes rather
                 // than the figure shrinking back to where it started.
@@ -294,7 +299,7 @@ struct FigureTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(SR.cardPadding)
         .frame(minHeight: 104, alignment: .topLeading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .srGlassCard(.paper)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(figure.label): \(figure.displayWithUnit)"
@@ -313,6 +318,11 @@ struct FigureTile: View {
 }
 
 /// One figure, thirty days of it.
+///
+/// The page of a notebook given to one number: the reading double-underlined
+/// in orange, as the site underlines a total, its unit beside its feet in the
+/// writing orange, and the month of it drawn on graph paper. A figure with no
+/// reading gets no underline — a Fraunces dash, and words for VoiceOver.
 struct FigureDetail: View {
     let figure: HealthFigure
 
@@ -320,9 +330,7 @@ struct FigureDetail: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(figure.displayWithUnit)
-                        .font(SR.Text.hero(48))
-                        .foregroundStyle(SR.ink)
+                    headline
                     Text(figure.caption)
                         .font(SR.Text.mono())
                         .tracking(1.1)
@@ -339,15 +347,17 @@ struct FigureDetail: View {
                         SRSectionLabel(text: "Last \(series.count) days", trailing: range(series))
                         SRSparkline(values: series)
                             .frame(height: 120)
+                            .padding(12)
+                            .srGraphPaper()
                     }
                 } else {
                     Text("No history for this figure yet.")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
+                        .font(SR.Text.marginalia())
+                        .foregroundStyle(SR.inkSecondary)
                 }
 
                 Text("Measured and derived on the website. The phone shows what /health computed; it does not recompute anything.")
-                    .font(SR.Text.mono())
+                    .font(SR.Text.marginalia(15))
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -358,6 +368,39 @@ struct FigureDetail: View {
         .srPaper()
         .navigationTitle(figure.label)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// The reading and its unit apart (`inkValue`), so the underline runs
+    /// under the number alone.
+    private var headline: some View {
+        let reading = figure.inkValue
+        return HStack(alignment: .firstTextBaseline, spacing: 10) {
+            if figure.measured {
+                Text(reading.value)
+                    .font(SR.Text.hero(48))
+                    .tracking(-48 * 0.03)
+                    .monospacedDigit()
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .srInkUnderline(lineWidth: 2.6)
+            } else {
+                Text("\u{2014}")
+                    .font(SR.Text.serif(40))
+                    .foregroundStyle(SR.inkMuted)
+            }
+            if let unit = reading.unit {
+                Text(unit.uppercased())
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
+                    .foregroundStyle(SR.Notes.pen)
+            }
+        }
+        // Room for the underline, which hangs under the figure's feet as an
+        // overlay and does not take layout of its own.
+        .padding(.bottom, 12)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(figure.measured ? figure.displayWithUnit : "\(figure.label), no reading yet")
     }
 
     private func range(_ series: [Double]) -> String {

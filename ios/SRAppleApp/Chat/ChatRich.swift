@@ -178,24 +178,27 @@ struct ChatChartView: View {
             case .label: Chart(points) { p in plot(p, x: PlottableValue.value(x.title, p.label)) }
             }
         }
-        // Accent first, then ink: never accent against `--good`, which is the
-        // pair colour-blind readers cannot separate. By position in the data,
-        // so the first series is always the accent.
+        // The notes' two pens first, orange then petrol, then ink: never
+        // orange against `--good`, which is the pair colour-blind readers
+        // cannot separate. By position in the data, so the first series is
+        // always the orange.
         .chartForegroundStyleScale(mapping: { (name: String) -> Color in
-            let palette = [SR.accent, SR.ink, SR.inkMuted, SR.accentInk]
+            let palette = [SR.accent, SR.accentInk, SR.ink, SR.inkMuted]
             let index = seriesOrder.firstIndex(of: name) ?? 0
             return palette[index % palette.count]
         })
         .chartLegend(color == nil ? .hidden : .visible)
+        // Grid lines in the page's petrol feint, so a chart is ruled like
+        // the paper it sits on.
         .chartXAxis {
             AxisMarks { _ in
-                AxisGridLine().foregroundStyle(SR.line)
+                AxisGridLine().foregroundStyle(SR.Notes.rule)
                 AxisValueLabel().font(SR.mono(11)).foregroundStyle(SR.inkMuted)
             }
         }
         .chartYAxis {
             AxisMarks(position: .leading) { _ in
-                AxisGridLine().foregroundStyle(SR.line)
+                AxisGridLine().foregroundStyle(SR.Notes.rule)
                 AxisValueLabel().font(SR.mono(11)).foregroundStyle(SR.inkMuted)
             }
         }
@@ -248,10 +251,10 @@ struct ArtifactCard: View {
                 ChatTableView(columns: columns, rows: Array(rows.prefix(5)))
                 if rows.count > 5 || totalRows > rows.count {
                     Button { expanded = true } label: {
-                        Text("All \(totalRows) rows")
-                            .font(SR.Text.label())
-                            .tracking(1)
-                            .foregroundStyle(SR.accent)
+                        Text("All \(totalRows) rows".uppercased())
+                            .font(SR.Text.kicker())
+                            .tracking(SR.Notes.kickerTracking)
+                            .foregroundStyle(SR.Notes.pen)
                     }
                     .buttonStyle(.plain)
                     .sheet(isPresented: $expanded) {
@@ -259,8 +262,8 @@ struct ArtifactCard: View {
                             ChatTableView(columns: columns, rows: rows)
                             if totalRows > rows.count {
                                 Text("The first \(rows.count) of \(totalRows) rows. The rest are on the web.")
-                                    .font(SR.Text.secondary())
-                                    .foregroundStyle(SR.inkMuted)
+                                    .font(SR.Text.marginalia(15))
+                                    .foregroundStyle(SR.inkSecondary)
                             }
                         }
                     }
@@ -275,8 +278,8 @@ struct ArtifactCard: View {
                             .font(SR.Text.bodyMedium(15))
                             .foregroundStyle(SR.ink)
                         Text(kind == "diagram" ? "Diagrams draw on the web." : "Too detailed to redraw here.")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia(15))
+                            .foregroundStyle(SR.inkSecondary)
                     }
                     Spacer(minLength: 0)
                     Link(destination: SiteClient.shared.webURL("jkai")) {
@@ -288,14 +291,15 @@ struct ArtifactCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .srGlassCard(.paper)
     }
 
+    /// A figure's caption, as the blog captions one: Fraunces italic.
     @ViewBuilder
     private func captionLine(_ caption: String?) -> some View {
         if let caption, !caption.isEmpty {
             Text(caption)
-                .font(SR.Text.bodyMedium(14))
+                .font(SR.Text.marginalia(15))
                 .foregroundStyle(SR.inkSecondary)
         }
     }
@@ -311,15 +315,17 @@ struct ChatTableView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
+                    // The blog's ledger: mono caps petrol headers over a
+                    // petrol rule.
                     ForEach(columns, id: \.key) { column in
                         Text(column.label.uppercased())
-                            .font(SR.Text.label(11))
-                            .tracking(1)
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.kicker())
+                            .tracking(SR.Notes.kickerTracking)
+                            .foregroundStyle(SR.accentInk)
                             .gridColumnAlignment(alignment(column))
                     }
                 }
-                Divider().overlay(SR.line)
+                Divider().overlay(SR.accentInk.opacity(0.6))
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                     GridRow {
                         ForEach(columns, id: \.key) { column in
@@ -381,12 +387,12 @@ struct SourcesLine: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "text.book.closed").font(.system(size: 11))
-                Text(sources.count == 1 ? "1 source" : "\(sources.count) sources")
-                    .font(SR.Text.label())
-                    .tracking(1)
+                Text((sources.count == 1 ? "1 source" : "\(sources.count) sources").uppercased())
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
             }
-            .foregroundStyle(SR.accent)
+            .foregroundStyle(SR.Notes.pen)
             .frame(minHeight: 32)
         }
         .buttonStyle(.plain)
@@ -416,9 +422,10 @@ private struct SourceRow: View {
             HStack(spacing: 7) {
                 Image(systemName: source.kind == "research" ? "globe" : "doc.text")
                     .font(.system(size: 12))
-                    .foregroundStyle(SR.accent)
+                    .foregroundStyle(SR.Notes.pen)
                 Text(source.title)
-                    .font(SR.Text.title(15))
+                    .font(SR.Text.display(16))
+                    .tracking(-16 * 0.02)
                     .foregroundStyle(SR.ink)
                     .lineLimit(2)
             }
@@ -426,8 +433,9 @@ private struct SourceRow: View {
                 Text(domain).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
             }
             if !source.passage.isEmpty {
+                // The passage it leaned on, set as an excerpt.
                 Text(source.passage)
-                    .font(SR.Text.secondary())
+                    .font(SR.Text.serif(15))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -458,9 +466,9 @@ struct FoldedSteps: View {
                 HStack(spacing: 6) {
                     Image(systemName: open ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .bold))
-                    Text(label)
-                        .font(SR.Text.label())
-                        .tracking(1)
+                    Text(label.uppercased())
+                        .font(SR.Text.kicker())
+                        .tracking(SR.Notes.kickerTracking)
                     if steps.contains(where: \.failed) {
                         Image(systemName: "exclamationmark.circle")
                             .font(.system(size: 11))
@@ -518,10 +526,14 @@ struct StarterPrompts: View {
                             .font(.system(size: 14))
                             .foregroundStyle(SR.accent)
                             .frame(width: 22)
+                        // A contents page of things to ask: the label, a dotted
+                        // leader, the arrow.
                         Text(prompt.label)
                             .font(SR.Text.body())
                             .foregroundStyle(SR.ink)
-                        Spacer()
+                            .layoutPriority(1)
+                        SRDottedLeader()
+                            .frame(minWidth: 12)
                         Image(systemName: "arrow.up.right")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(SR.inkMuted)

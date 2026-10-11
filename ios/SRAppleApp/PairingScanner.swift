@@ -30,23 +30,40 @@ struct PairingScanner: View {
 
     var body: some View {
         NavigationStack {
+            // On the notebook's ruled page, in its type: the instruction in
+            // the reading face, the waiting state as the app's empty page,
+            // and the fallback as a note in the margin's hand.
             VStack(spacing: 18) {
                 Text("Scan the pairing QR code at strangeramblings.com/welcome. Open it on your iPad or computer.")
-                    .padding(.horizontal)
+                    .font(SR.Text.body(16))
+                    .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, SR.gutter)
+                    .padding(.top, 12)
                 if ready {
                     CameraScanner(onScan: { value in onScan(value); dismiss() }, onError: { error in
                         ready = false; message = error
                     })
                 } else {
-                    ContentUnavailableView("QR scanner", systemImage: "qrcode.viewfinder", description: Text(message))
-                    if cameraDenied {
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                        }
-                    }
-                    Text("You can also paste a pairing code on the previous screen.").font(.callout).padding()
+                    SREmpty(
+                        title: "QR scanner",
+                        icon: "qrcode.viewfinder",
+                        message: message,
+                        actionLabel: cameraDenied ? "Open Settings" : nil,
+                        action: cameraDenied ? openSettings : nil
+                    )
+                    Text("You can also paste a pairing code on the previous screen.")
+                        .font(SR.Text.marginalia(16))
+                        .foregroundStyle(SR.inkSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, SR.gutter)
+                    Spacer(minLength: 0)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .srPaper()
             .navigationTitle("Pair by QR code").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .task {
@@ -62,6 +79,14 @@ struct PairingScanner: View {
                 ready = true
             }
         }
+    }
+}
+
+extension PairingScanner {
+    /// Declared `-> Void` rather than written inline as `SREmpty`'s action, so
+    /// the optional closure is typed plainly (see `FlowsScreen.openNew`).
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
     }
 }
 

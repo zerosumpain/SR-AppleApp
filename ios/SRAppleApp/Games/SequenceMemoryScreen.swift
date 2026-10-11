@@ -329,7 +329,7 @@ struct SequencePlayers: View {
             SRSectionLabel(text: "Players", trailing: "\(alive.count) in")
             VStack(spacing: 0) {
                 ForEach(Array(seated.enumerated()), id: \.element.id) { index, player in
-                    if index > 0 { Divider().overlay(SR.divider) }
+                    if index > 0 { GameLedgerRule() }
                     HStack(spacing: 12) {
                         GameInitial(name: player.name, filled: player.alive, tone: SR.accentInk, side: 30)
                         VStack(alignment: .leading, spacing: 2) {
@@ -372,7 +372,7 @@ struct SequencePlayers: View {
     @ViewBuilder
     private func status(_ player: GamePlayer) -> some View {
         if !player.alive {
-            SRGlassChip(text: "Out", tone: SR.inkMuted)
+            SRGlassChip(text: "Out", tone: SR.inkMuted, tilt: 0)
         } else if showAnswered, round.answeredIds.contains(player.id) {
             Label("Sent", systemImage: "checkmark.circle.fill")
                 .font(SR.Text.label())
@@ -382,7 +382,7 @@ struct SequencePlayers: View {
                 .font(SR.Text.label())
                 .foregroundStyle(SR.inkSecondary)
         } else {
-            SRGlassChip(text: "In", tone: SR.good)
+            SRGlassChip(text: "In", tone: SR.good, tilt: 0)
         }
     }
 }
@@ -413,7 +413,7 @@ struct SequenceResult: View {
 
                 VStack(spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, player in
-                        if index > 0 { Divider().overlay(SR.divider) }
+                        if index > 0 { GameLedgerRule() }
                         let survived = round.survivorIds?.contains(player.id) == true
                         HStack(spacing: 12) {
                             Image(systemName: survived ? "checkmark.circle.fill" : "xmark.circle")

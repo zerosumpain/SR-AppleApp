@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import SwiftUI
+import UIKit
 
 // What the family widgets and the app share, and the widgets' faces.
 //
@@ -192,17 +193,45 @@ enum FamilyWidgetSamples {
 // the Home Screen. The extension wraps each in its container background and
 // tap URL.
 
-/// The site palette, repeated: the extension cannot see `SR`.
+/// The notebook's palette, repeated: the extension cannot see `SR`.
+///
+/// Day and night, as the app is since the notes look (2026-10-11): a widget
+/// is an index card of the notebook on the Home Screen — card stock with ink
+/// on it by day, the night theme's dark card with cream ink by night — so it
+/// sits beside the app's own pages in either mode instead of being a cream
+/// tile on a dark Home Screen. Each value is the app's token of the same name
+/// (`SR.Notes.card`, `SR.ink`, `SR.Notes.pen`, …), resolved per appearance
+/// by a dynamic `UIColor`, which a widget's environment resolves like any
+/// other view's.
 enum FamilyWidgetInk {
-    static let paper = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let ink = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
-    static let muted = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.65)
-    static let ghost = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.45)
-    static let accent = Color(red: 0xC4 / 255, green: 0x57 / 255, blue: 0x0A / 255)
-    static let accentInk = Color(red: 0x0E / 255, green: 0x5B / 255, blue: 0x66 / 255)
-    static let good = Color(red: 0x55 / 255, green: 0x66 / 255, blue: 0x3A / 255)
-    static let error = Color(red: 0xCC / 255, green: 0x44 / 255, blue: 0x44 / 255)
-    static let line = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.14)
+    /// Card stock: the widget's ground (`containerBackground`).
+    static let paper = tone(0xF3EBDD, dark: 0x1E1913)
+    static let ink = tone(0x1A1008, dark: 0xECE3D6)
+    static let muted = tone(0x1A1008, 0.65, dark: 0xECE3D6, 0.62)
+    static let ghost = tone(0x1A1008, 0.45, dark: 0xECE3D6, 0.40)
+    static let accent = tone(0xC4570A, dark: 0xE07B2A)
+    /// The writing orange: kickers and small orange words.
+    static let pen = tone(0xA84808, dark: 0xE07B2A)
+    static let accentInk = tone(0x0E5B66, dark: 0x3FA3B0)
+    static let good = tone(0x55663A, dark: 0x8A9A5B)
+    static let error = tone(0xCC4444, dark: 0xE08B8B)
+    static let line = tone(0x1A1008, 0.16, dark: 0xECE3D6, 0.20)
+
+    /// The tracking of a 10pt kicker: the site's 0.14em.
+    static let kickerTracking: CGFloat = 1.4
+
+    private static func tone(_ light: UInt32, _ lightAlpha: CGFloat = 1, dark: UInt32, _ darkAlpha: CGFloat = 1) -> Color {
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? rgb(dark, darkAlpha) : rgb(light, lightAlpha)
+        })
+    }
+
+    private static func rgb(_ hex: UInt32, _ alpha: CGFloat) -> UIColor {
+        UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: alpha)
+    }
 }
 
 /// The three faces a widget uses, each scaling with the reader's text size.
@@ -257,8 +286,8 @@ struct FamilyStepsWidgetView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(kicker(board))
                 .font(FamilyWidgetFont.label(10))
-                .tracking(1)
-                .foregroundStyle(FamilyWidgetInk.muted)
+                .tracking(FamilyWidgetInk.kickerTracking)
+                .foregroundStyle(FamilyWidgetInk.pen)
             place(board, mine)
             Text(FamilySteps.figure(mine.steps))
                 .font(FamilyWidgetFont.figure(17))
@@ -317,8 +346,8 @@ struct FamilyStepsWidgetView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("STEPS")
                 .font(FamilyWidgetFont.label(10))
-                .tracking(1)
-                .foregroundStyle(FamilyWidgetInk.muted)
+                .tracking(FamilyWidgetInk.kickerTracking)
+                .foregroundStyle(FamilyWidgetInk.pen)
             Text("Open SR to see today's board.")
                 .font(FamilyWidgetFont.name(13))
                 .foregroundStyle(size == .rectangular ? Color.primary : FamilyWidgetInk.ink)
@@ -343,8 +372,8 @@ struct FamilyTasksWidgetView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("TASKS")
                     .font(FamilyWidgetFont.label(10))
-                    .tracking(1)
-                    .foregroundStyle(FamilyWidgetInk.muted)
+                    .tracking(FamilyWidgetInk.kickerTracking)
+                    .foregroundStyle(FamilyWidgetInk.pen)
                 Text("Open SR to see the family's tasks.")
                     .font(FamilyWidgetFont.name(13))
                     .foregroundStyle(size == .rectangular ? Color.primary : FamilyWidgetInk.ink)
@@ -363,8 +392,8 @@ struct FamilyTasksWidgetView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("TASKS")
                 .font(FamilyWidgetFont.label(10))
-                .tracking(1)
-                .foregroundStyle(FamilyWidgetInk.muted)
+                .tracking(FamilyWidgetInk.kickerTracking)
+                .foregroundStyle(FamilyWidgetInk.pen)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(s.toDo)")
                     .font(FamilyWidgetFont.display(30))

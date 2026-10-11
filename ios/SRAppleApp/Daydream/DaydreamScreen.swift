@@ -55,7 +55,7 @@ struct DaydreamScreen: View {
 
                 if let error = commissions.error {
                     Text(error)
-                        .font(SR.Text.secondary())
+                        .font(SR.Text.marginalia(15))
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 4)
@@ -88,32 +88,28 @@ struct DaydreamScreen: View {
 
     // MARK: - Header
 
+    /// The site's Daydream page heading, as a page of the notes: the kicker,
+    /// the line it is headed with, and the strap in the margin's hand. "How it
+    /// works" sits in the kicker's corner once the card has been folded away.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("DAYDREAM")
-                    .font(SR.Text.label())
-                    .tracking(1.4)
-                    .foregroundStyle(SR.inkMuted)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 8)
-                if seenHowItWorks && !reopenedHowItWorks {
-                    Button {
-                        SRHaptic.tap()
-                        withAnimation(.easeInOut(duration: 0.25)) { reopenedHowItWorks = true }
-                    } label: {
-                        Label("How it works", systemImage: "questionmark.circle")
-                            .font(SR.Text.label())
-                            .foregroundStyle(SR.accentInk)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("daydream-how-it-works-open")
+        SRPageHeader(
+            kicker: "Daydream",
+            title: "It thinks while nobody\u{2019}s watching",
+            strap: "What jkai spotted in your days, and your call on each."
+        )
+        .overlay(alignment: .topTrailing) {
+            if seenHowItWorks && !reopenedHowItWorks {
+                Button {
+                    SRHaptic.tap()
+                    withAnimation(.easeInOut(duration: 0.25)) { reopenedHowItWorks = true }
+                } label: {
+                    Label("How it works", systemImage: "questionmark.circle")
+                        .font(SR.Text.label())
+                        .foregroundStyle(SR.accentInk)
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("daydream-how-it-works-open")
             }
-            Text("What jkai spotted in your days, and your call on each.")
-                .font(SR.Text.secondary())
-                .foregroundStyle(SR.inkSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 4)
         .padding(.bottom, 2)
@@ -139,7 +135,7 @@ struct DaydreamScreen: View {
             empty
         } else {
             ForEach(notes) { note in
-                DaydreamNoteCard(note: note)
+                DaydreamNoteCard(note: note, pinned: note.id == notes.first?.id)
                     .transition(.opacity)
             }
             if !others.isEmpty {
@@ -236,9 +232,9 @@ struct DaydreamHowItWorks: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("HOW IT WORKS")
-                        .font(SR.Text.label())
-                        .tracking(SR.kickerTracking)
-                        .foregroundStyle(SR.accent)
+                        .font(SR.Text.kicker())
+                        .tracking(SR.Notes.kickerTracking)
+                        .foregroundStyle(SR.Notes.pen)
                     Text("One process, four steps")
                         .font(SR.Text.display(20))
                         .foregroundStyle(SR.ink)
@@ -256,7 +252,7 @@ struct DaydreamHowItWorks: View {
                                 .font(SR.Text.bodyMedium(16))
                                 .foregroundStyle(SR.ink)
                             Text(stage.explanation)
-                                .font(SR.Text.secondary())
+                                .font(SR.Text.marginalia(15))
                                 .foregroundStyle(SR.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -285,6 +281,11 @@ struct DaydreamHowItWorks: View {
 /// under each. A step is also a way to its list. Counts other than Spotted
 /// come from the site; an older server sends none, and they are left off
 /// rather than shown as a guess.
+///
+/// Each count is kept twice, as the site's Daydream page keeps it: the figure,
+/// and under it the tally in five-bar gates, so a glance at the strip says
+/// where the pile is before the digits are read. The step being shown is
+/// ringed in petrol.
 struct DaydreamPipelineStrip: View {
     let spotted: Int
     let counts: DaydreamPipeline?
@@ -303,7 +304,7 @@ struct DaydreamPipelineStrip: View {
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .srGlassCard(.paper)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("daydream-pipeline")
     }
@@ -319,7 +320,7 @@ struct DaydreamPipelineStrip: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: "%02ld", stage.number))
                     .font(SR.Text.mono())
-                    .foregroundStyle(on ? SR.accent : SR.inkMuted)
+                    .foregroundStyle(on ? SR.Notes.pen : SR.inkMuted)
                 Text(stage.label.uppercased())
                     .font(SR.Text.label())
                     .tracking(0.6)
@@ -329,16 +330,27 @@ struct DaydreamPipelineStrip: View {
                 if let number {
                     Text("\(number)")
                         .font(SR.Text.figure(22))
+                        .tracking(-22 * 0.03)
                         .foregroundStyle(on ? SR.accentInk : SR.ink)
                         .monospacedDigit()
+                        .srInkRing(tone: SR.accentInk, seed: 31 + stage.number, pad: 7,
+                                   lineWidth: 1.8, visible: on)
+                        .padding(.leading, 6)
+                        .padding(.vertical, 2)
+                    if number > 0 {
+                        SRTally(count: number, height: 14, tone: on ? SR.accentInk : SR.inkSecondary,
+                                seed: 7 + stage.number, maxWidth: 60, lineWidth: 1.3)
+                    }
                 }
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Without counts (an older server) the ring has nothing to go round,
+            // so the chosen step keeps a petrol wash instead.
             .background(
-                RoundedRectangle(cornerRadius: SR.Glass.innerRadius - 4, style: .continuous)
-                    .fill(on ? SR.accentInk.opacity(0.10) : Color.clear)
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(on && number == nil ? SR.accentInk.opacity(0.10) : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -397,11 +409,12 @@ struct DaydreamCommissionRow: View {
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(commission.label.uppercased())
-                            .font(SR.Text.label())
-                            .tracking(1)
+                            .font(SR.Text.kicker())
+                            .tracking(SR.Notes.kickerTracking)
                             .foregroundStyle(DaydreamCommissionStatus.tone(for: commission.state))
                         Text(commission.spec.title)
-                            .font(SR.Text.bodyMedium(16))
+                            .font(SR.Text.display(17))
+                            .tracking(-17 * 0.02)
                             .foregroundStyle(SR.ink)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)

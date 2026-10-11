@@ -20,14 +20,12 @@ struct WatchTodayPage: View {
                     ring(label: "RECOV", fraction: snapshot.recovery?.fraction,
                          value: snapshot.recovery?.display ?? "—", tint: WatchInk.good)
                     ring(label: "READY", fraction: snapshot.readiness?.fraction,
-                         value: snapshot.readiness?.display ?? "—", tint: WatchInk.warn)
+                         value: snapshot.readiness?.display ?? "—", tint: WatchInk.ochre)
                 }
 
                 if let readiness = snapshot.readiness {
-                    Text(readiness.label.uppercased())
-                        .font(WatchInk.label())
-                        .foregroundStyle(WatchInk.accent)
-                        .lineLimit(1)
+                    // The day's word, as the site's kicker names a page.
+                    WatchKicker(text: readiness.label)
                 }
 
                 if move.needsPermission {
@@ -39,16 +37,15 @@ struct WatchTodayPage: View {
 
                 ForEach(snapshot.figures) { figure in
                     HStack(alignment: .firstTextBaseline) {
-                        Text(figure.label.uppercased())
-                            .font(WatchInk.label())
-                            .foregroundStyle(WatchInk.creamFaint)
-                            .lineLimit(1)
+                        // A reading's label in petrol and its unit in the
+                        // orange that writes, the site's figure-and-unit row.
+                        WatchKicker(text: figure.label, tone: WatchInk.petrol, size: 11)
                         Spacer(minLength: 4)
                         Text(figure.display)
                             .font(WatchInk.figure(15))
                             .foregroundStyle(WatchInk.cream)
                         if let unit = figure.unit {
-                            Text(unit).font(WatchInk.mono(11)).foregroundStyle(WatchInk.creamFaint)
+                            WatchKicker(text: unit, size: 11)
                         }
                     }
                     .accessibilityElement(children: .combine)
@@ -80,7 +77,8 @@ struct WatchTodayPage: View {
             WatchRing(fraction: fraction, value: value, tint: tint)
                 .frame(width: 44, height: 44)
             Text(label)
-                .font(WatchInk.label(10))
+                .font(WatchInk.kicker(10))
+                .tracking(1.4)
                 .foregroundStyle(WatchInk.creamFaint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -119,7 +117,7 @@ struct WatchAlertsPage: View {
                     Circle().fill(WatchInk.severity(alert.severity)).frame(width: 6, height: 6).padding(.top, 5)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(alert.title)
-                            .font(.system(.footnote))
+                            .font(WatchInk.body())
                             .foregroundStyle(WatchInk.cream)
                             .lineLimit(3)
                         Text(watchAgo(alert.createdAt))
@@ -154,7 +152,7 @@ struct WatchFlowsPage: View {
             } label: {
                 HStack {
                     Text(flow.title)
-                        .font(.system(.footnote))
+                        .font(WatchInk.body())
                         .foregroundStyle(WatchInk.cream)
                         .lineLimit(2)
                     Spacer(minLength: 4)
@@ -225,7 +223,7 @@ struct WatchStatusPage: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(WatchInk.label(10)).foregroundStyle(WatchInk.creamFaint)
+            WatchKicker(text: label, tone: WatchInk.petrol, size: 11)
             Text(value).font(WatchInk.mono(14)).foregroundStyle(WatchInk.cream)
         }
         .accessibilityElement(children: .combine)

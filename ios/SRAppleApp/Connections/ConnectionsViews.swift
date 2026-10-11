@@ -47,18 +47,19 @@ struct ConnectionsBanner: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.subheadline.weight(.semibold))
+                    .font(SR.Text.bodyMedium(14))
                     .foregroundStyle(SR.error)
                     .accessibilityHidden(true)
+                // The kicker's recipe, in the red pen: this one is a warning.
                 Text(kicker.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.4)
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
                     .foregroundStyle(SR.error)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { withAnimation(.snappy) { store.dismiss() } } label: {
                     Image(systemName: "xmark")
-                        .font(.subheadline.weight(.semibold))
+                        .font(SR.Text.bodyMedium(14))
                         .foregroundStyle(SR.inkMuted)
                         .frame(minWidth: 32, minHeight: 32)
                         .contentShape(Rectangle())
@@ -86,9 +87,11 @@ struct ConnectionsBanner: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .srGlassCard(.paper, radius: 22)
+        // An index card with a red edge, cut at the card's corner (the
+        // surface clamps the radius; the edge must match it).
+        .srGlassCard(.paper)
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
                 .strokeBorder(SR.error.opacity(0.55), lineWidth: 1)
         }
         .padding(.horizontal, 12)
@@ -126,7 +129,7 @@ struct ConnectionsBanner: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
+                    .font(SR.Text.bodyMedium(13))
                     .foregroundStyle(SR.inkGhost)
                     .accessibilityHidden(true)
             }
@@ -296,8 +299,9 @@ struct ConnectionsFootnote: View {
                 Text("Checked \(checkedAt.formatted(.relative(presentation: .named))).")
             }
         }
-        .font(SR.Text.mono())
-        .foregroundStyle(SR.inkMuted)
+        // An aside under the list, in the margin's hand.
+        .font(SR.Text.marginalia(15))
+        .foregroundStyle(SR.inkSecondary)
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)
     }
@@ -327,8 +331,8 @@ struct SiteConnectionsSection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Accounts the website signs in to for you. Separate from the two pairings below, which are this iPhone's own.")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if !store.items.isEmpty { ConnectionsFootnote(checkedAt: store.checkedAt) }
             }

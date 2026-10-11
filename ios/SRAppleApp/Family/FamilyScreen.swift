@@ -168,11 +168,12 @@ struct FamilyScreen: View {
             if let freshness = store.freshness {
                 Text(freshness).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
             }
+            // An aside about the page, not a reading: written in the margin.
             Text(view.viewer == "owner"
                  ? "You see everyone's day. Family see where everyone is and their own day."
                  : "You see where everyone is. Only your own day and route are shown to you.")
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.marginalia(15))
+                .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 4)
@@ -245,7 +246,9 @@ struct FamilyMapExpandButton: View {
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(SR.ink)
                 .frame(width: 40, height: 40)
-                .srGlass(.paper, in: Circle(), interactive: true)
+                // Glass, not card: it floats over the map, and the notebook
+                // keeps the system's glass for controls laid over content.
+                .srGlass(.clear, in: Circle(), interactive: true)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -277,7 +280,7 @@ struct FamilyFullMap: View {
                     Spacer()
                     FamilyTracksButton(on: $tracks)
                         .frame(width: 44, height: 44)
-                        .srGlass(.paper, in: Circle(), interactive: true)
+                        .srGlass(.clear, in: Circle(), interactive: true)
                 }
                 Spacer()
                 HStack {
@@ -365,7 +368,14 @@ struct FamilyPlaceStacks: View {
                     // A long place name truncates rather than pushing its
                     // pile wider than the row.
                     .frame(maxWidth: 140, alignment: .leading)
+                // How many are there: the count in gates, and the number
+                // beside it, because the marks are decoration and the figure
+                // carries the meaning (an 11pt tally is not read at a
+                // glance). The pile's button says the names aloud.
                 if !single {
+                    SRTally(count: pile.people.count, height: 11, tone: SR.inkSecondary,
+                            seed: seedFor(pile.id), maxWidth: 46, lineWidth: 1.3)
+                        .padding(.leading, 2)
                     Text("\(pile.people.count)")
                         .font(SR.Text.mono())
                         .foregroundStyle(SR.inkMuted)
@@ -394,10 +404,15 @@ struct FamilyPlaceStacks: View {
                         }
                     }
                     .padding(3)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(SR.accentInk, lineWidth: open == pile.id ? 2 : 0)
-                    )
+                    // The open pile is boxed in the petrol pen, by hand.
+                    .overlay {
+                        if open == pile.id {
+                            SRInkBox(seed: seedFor(pile.id), amp: 0.8)
+                                .stroke(SR.accentInk, style: .ink(1.8))
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
@@ -418,8 +433,8 @@ struct FamilyPlaceStacks: View {
     private func chooser(_ pile: Pile) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("\(pile.title.uppercased()) · CHOOSE ONE")
-                .font(SR.Text.label(11))
-                .tracking(1.1)
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
                 .foregroundStyle(SR.accentInk)
             DaydreamWrap(spacing: 8) {
                 ForEach(pile.people) { person in
@@ -436,8 +451,10 @@ struct FamilyPlaceStacks: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(SR.accentInk.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(SR.accentInk.opacity(0.25), lineWidth: 1))
+        // The cards laid out on the desk below their pile: the desk's own
+        // shade, so the index cards on it read as cards.
+        .background(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(SR.Notes.desk))
+        .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.accentInk.opacity(0.3), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("family-chooser")
     }
@@ -483,17 +500,19 @@ struct FamilyPersonTile: View {
             if let pct = person.batteryPct {
                 FamilyBattery(pct: pct)
             } else {
-                Text("—").font(SR.monoMedium(13)).foregroundStyle(SR.inkGhost)
+                // No reading is not an empty battery: the Fraunces dash.
+                Text("\u{2014}").font(SR.Text.serif(14)).foregroundStyle(SR.inkMuted)
             }
         }
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        // Opaque, edged and lifted: overlapped, a translucent card would
-        // show the one beneath through it.
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(SR.surface))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
-        .shadow(color: SR.ink.opacity(0.14), radius: 4, x: 2, y: 1)
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // An index card: opaque card stock, cut square, edged in the ink
+        // line. Still lifted a little — these are dealt over one another in
+        // a pile, and a card with no shadow would merge with the one under it.
+        .background(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(SR.Notes.card))
+        .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
+        .shadow(color: Color(hex: SR.Fixed.ink, alpha: 0.16), radius: 3, x: 2, y: 1)
+        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(person.name). \(FamilyWords.line(person, places: places))\(person.batteryPct.map { ". Battery \($0) percent" } ?? "")")
         .accessibilityHint(isLink ? "Shows their day and week" : "")

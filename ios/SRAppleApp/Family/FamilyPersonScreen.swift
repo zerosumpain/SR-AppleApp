@@ -42,7 +42,8 @@ struct FamilyPersonScreen: View {
                         if person.today?.trail.isEmpty == false {
                             FamilyTracksButton(on: $showTracks)
                                 .frame(width: 40, height: 40)
-                                .srGlass(.paper, in: Circle(), interactive: true)
+                                // Floating over the map: glass, not card.
+                                .srGlass(.clear, in: Circle(), interactive: true)
                                 .padding(10)
                         }
                     }
@@ -59,8 +60,8 @@ struct FamilyPersonScreen: View {
                         if let days = person.days, !days.isEmpty { week(days) }
                     } else if person.sharing {
                         Text("Their day — when they went out, how far, where — is theirs and the family admins' to see.")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia(16))
+                            .foregroundStyle(SR.inkSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 4)
                     }
@@ -92,9 +93,15 @@ struct FamilyPersonScreen: View {
                     FamilyPin(person: person, emphasised: true)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text(person.name).font(SR.Text.display(22)).foregroundStyle(SR.ink)
+                            Text(person.name)
+                                .font(SR.Text.display(22))
+                                .tracking(-22 * 0.02)
+                                .foregroundStyle(SR.ink)
                             if person.isSelf {
-                                Text("YOU").font(SR.Text.label()).tracking(1.2).foregroundStyle(SR.accent)
+                                Text("YOU")
+                                    .font(SR.Text.kicker())
+                                    .tracking(SR.Notes.kickerTracking)
+                                    .foregroundStyle(SR.Notes.pen)
                             }
                         }
                         Text(FamilyWords.line(person, places: places))
@@ -116,8 +123,8 @@ struct FamilyPersonScreen: View {
                 }
                 if let seen = person.lastSeenAt, !shortAgo(seen).isEmpty {
                     Text("LAST FIX \(shortAgo(seen).uppercased()) AGO")
-                        .font(SR.Text.mono())
-                        .tracking(1)
+                        .font(SR.Text.kicker())
+                        .tracking(SR.Notes.kickerTracking)
                         .foregroundStyle(SR.inkMuted)
                 }
             }
@@ -135,7 +142,7 @@ struct FamilyPersonScreen: View {
             SRCard {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 8) {
-                        figure(today.firstOut ?? "—", "First out")
+                        figure(today.firstOut, "First out", missing: "not out yet")
                         figure(today.timeOut, "Time out")
                         figure(today.distance, "Moved")
                     }
@@ -216,7 +223,9 @@ struct FamilyPersonScreen: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// A stop on the day's line: a dot, joined to the next by a rule.
+    /// A stop on the day's line: a dot, joined to the next by a rule. The
+    /// last stop — where they are now — is the orange one; a hashed pencil
+    /// colour per place would mean nothing and fight the map's pin colours.
     private func stopRow(_ stop: String, first: Bool, last: Bool) -> some View {
         HStack(alignment: .center, spacing: 12) {
             ZStack {
@@ -237,10 +246,30 @@ struct FamilyPersonScreen: View {
         }
     }
 
-    private func figure(_ value: String, _ label: String) -> some View {
+    /// A reading and its petrol label under it. A missing reading is the
+    /// Fraunces em dash in muted ink, and VoiceOver hears `missing`, never 0.
+    private func figure(_ value: String?, _ label: String, missing: String = "no reading yet") -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(SR.Text.figure(20)).foregroundStyle(SR.ink).lineLimit(1).minimumScaleFactor(0.7)
-            Text(label.uppercased()).font(SR.Text.label()).tracking(1.1).foregroundStyle(SR.inkMuted).lineLimit(1)
+            if let value {
+                Text(value)
+                    .font(SR.Text.figure(20))
+                    .tracking(-20 * 0.03)
+                    .monospacedDigit()
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            } else {
+                Text("\u{2014}")
+                    .font(SR.Text.serif(18))
+                    .foregroundStyle(SR.inkMuted)
+                    .accessibilityLabel(missing)
+            }
+            Text(label.uppercased())
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
+                .foregroundStyle(SR.accentInk)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -272,7 +301,7 @@ struct FamilyPersonForecast: View {
                     SRCard(accented: true) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(next.kind == "arriving" ? "ON THE WAY" : "NEXT")
-                                .font(SR.Text.label()).tracking(1.3).foregroundStyle(SR.accent)
+                                .font(SR.Text.kicker()).tracking(SR.Notes.kickerTracking).foregroundStyle(SR.Notes.pen)
                             Text(ForecastWords.nextLine(next))
                                 .font(SR.Text.title())
                                 .foregroundStyle(SR.ink)
@@ -300,8 +329,8 @@ struct FamilyPersonForecast: View {
                     .accessibilityIdentifier("family-person-routines")
                     if let coverage = forecast.coverage(for: subject) {
                         Text("Learned from their own trips · \(Int((coverage * 100).rounded()))% of the \(forecast.days) days observed.")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia(15))
+                            .foregroundStyle(SR.inkSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 4)
                     }
@@ -316,7 +345,7 @@ struct FamilyPersonForecast: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("\(r.from) → \(r.to)").font(SR.Text.title()).foregroundStyle(SR.ink)
                 Spacer(minLength: 8)
-                Text(time.headline).font(SR.Text.display(18)).foregroundStyle(SR.ink)
+                Text(time.headline).font(SR.Text.figure(18)).tracking(-18 * 0.03).monospacedDigit().foregroundStyle(SR.ink)
             }
             Text(ForecastWords.routineWhen(r)).font(SR.Text.secondary()).foregroundStyle(SR.inkSecondary)
             Text(time.detail).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)

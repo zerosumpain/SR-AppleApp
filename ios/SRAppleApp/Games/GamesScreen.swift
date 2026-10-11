@@ -21,8 +21,8 @@ struct GamesScreen: View {
                     // sentence about delivery. No push certificate: an invite
                     // rings only a phone with the app open.
                     Text("Invites reach phones with the app open.")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
+                        .font(SR.Text.marginalia(16))
+                        .foregroundStyle(SR.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("games-delivery-note")
                 }
@@ -223,7 +223,7 @@ struct GameRoomRow: View {
                         .foregroundStyle(SR.inkMuted)
                 }
                 Spacer(minLength: 8)
-                SRGlassChip(text: phaseLabel, tone: SR.accentInk)
+                SRGlassChip(text: phaseLabel, tone: SR.accentInk, tilt: 0)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(SR.inkGhost)
@@ -252,11 +252,13 @@ struct GameCard: View {
     var body: some View {
         SRCard(interactive: true) {
             HStack(alignment: .top, spacing: 14) {
+                // The game's pen, not a filled disc: its icon written plain
+                // in its colour. No loop — the shelf is every game, and a
+                // loop is kept for the one figure that matters.
                 Image(systemName: kind.icon)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(SR.paper)
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(fill)
                     .frame(width: 48, height: 48)
-                    .background(Circle().fill(fill))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind.title)
@@ -267,9 +269,9 @@ struct GameCard: View {
                         .foregroundStyle(SR.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("NEW GAME")
-                        .font(SR.Text.label())
-                        .tracking(1.2)
-                        .foregroundStyle(SR.accent)
+                        .font(SR.Text.kicker())
+                        .tracking(SR.Notes.kickerTracking)
+                        .foregroundStyle(SR.Notes.pen)
                         .padding(.top, 4)
                 }
                 Spacer(minLength: 0)
@@ -372,8 +374,8 @@ struct NewGameSheet: View {
                         SRSectionLabel(text: "Players", trailing: invited.isEmpty ? "Solo" : "\(invited.count + 1)")
                         if players.isEmpty {
                             Text("Nobody else in the family can play yet, so this is a solo game.")
-                                .font(SR.Text.secondary())
-                                .foregroundStyle(SR.inkMuted)
+                                .font(SR.Text.marginalia(15))
+                                .foregroundStyle(SR.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         } else {
                             ForEach(players) { person in
@@ -388,8 +390,8 @@ struct NewGameSheet: View {
                                 }
                             }
                             Text("Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkMuted)
+                                .font(SR.Text.marginalia(15))
+                                .foregroundStyle(SR.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -571,10 +573,9 @@ struct NewGameSheet: View {
     private func segments(title: String, options: [(value: Int, label: String)], selected: Binding<Int>,
                           id: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title.uppercased())
-                .font(SR.Text.label())
-                .tracking(SR.kickerTracking)
-                .foregroundStyle(SR.inkSecondary)
+            // A label over a control, in the petrol pen: a kicker names a
+            // section, a label names the thing under it.
+            SRNoteLabel(text: title)
             Picker(title, selection: selected) {
                 ForEach(options.indices, id: \.self) { index in
                     Text(options[index].label).tag(options[index].value)
@@ -609,8 +610,8 @@ struct NewGameSheet: View {
                     .accessibilityHint("Optional. Leave blank and jkai picks.")
                     .accessibilityIdentifier("games-quiz-topic")
                 Text("Anything: the solar system, 90s pop, dinosaurs. Leave it blank for a surprise.")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -657,7 +658,17 @@ struct NewGameSheet: View {
             .padding(.horizontal, SR.cardPadding)
             .padding(.vertical, SR.rowPadding)
             .frame(maxWidth: .infinity, minHeight: SR.tapTarget, alignment: .leading)
-            .srGlassCard(selected ? .paper : .clear, radius: SR.Glass.innerRadius + 4, interactive: true)
+            // Every choice is a card on the page; the chosen one is boxed
+            // round in orange ink, the way a choice is marked on paper.
+            .srGlassCard(.paper)
+            .overlay {
+                if selected {
+                    SRInkBox(seed: seedFor(title), amp: 0.8, inset: 1.5)
+                        .stroke(SR.accent, style: .ink(1.6))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -347,8 +347,8 @@ struct FamilyMovesCard: View {
             .srGlassCard(.paper)
             if let thanks = store.thanks {
                 Text(thanks)
-                    .font(SR.Text.secondary(13))
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
                     .padding(.horizontal, 4)
                     .transition(.opacity)
             }
@@ -505,9 +505,10 @@ struct FamilyUpcomingCard: View {
         }
     }
 
+    /// What the card says instead of rows: an aside, in the margin's hand.
     private func note(_ text: String) -> some View {
         Text(text)
-            .font(SR.Text.secondary())
+            .font(SR.Text.marginalia(16))
             .foregroundStyle(SR.inkSecondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(SR.cardPadding)
@@ -536,7 +537,7 @@ struct FamilyUpcomingCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let issue = item.issue {
-                    Text(issue.text).font(SR.Text.mono()).foregroundStyle(SR.accent)
+                    Text(issue.text).font(SR.Text.mono()).foregroundStyle(SR.Notes.pen)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

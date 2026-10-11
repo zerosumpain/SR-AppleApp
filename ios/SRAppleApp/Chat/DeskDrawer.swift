@@ -21,6 +21,8 @@ struct DeskDrawer<Content: View>: View {
             let width = min(geo.size.width * 0.88, 420)
             ZStack(alignment: .trailing) {
                 if isOpen {
+                    // The scrim stays plain shade in both modes: it is the room
+                    // dimming behind the drawer, not part of the paper.
                     Color.black.opacity(0.28)
                         .ignoresSafeArea()
                         .contentShape(Rectangle())
@@ -33,7 +35,9 @@ struct DeskDrawer<Content: View>: View {
                     content
                         .frame(width: width)
                         .frame(maxHeight: .infinity, alignment: .top)
-                        .background(SR.surface.ignoresSafeArea(edges: .bottom))
+                        // The desk itself, the darker board the notebook lies
+                        // on, so the blocks read as index cards laid on it.
+                        .background(SR.Notes.desk.ignoresSafeArea(edges: .bottom))
                         .overlay(alignment: .leading) {
                             Rectangle().fill(SR.line).frame(width: 0.75).ignoresSafeArea(edges: .bottom)
                         }
@@ -115,9 +119,9 @@ struct DeskView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             if !section.label.isEmpty {
                                 Text(section.label.uppercased())
-                                    .font(SR.Text.label(12))
-                                    .tracking(1.6)
-                                    .foregroundStyle(SR.inkMuted)
+                                    .font(SR.Text.kicker())
+                                    .tracking(SR.Notes.kickerTracking)
+                                    .foregroundStyle(SR.Notes.pen)
                                     .accessibilityAddTraits(.isHeader)
                             }
                             ForEach(section.blocks) { block in
@@ -160,16 +164,19 @@ struct DeskView: View {
                 .accessibilityLabel("Close desk")
                 .accessibilityIdentifier("desk-close")
             }
+            // Sentence case, as the site's notes pages set a heading on
+            // paper: the desk is a page, not the ink cover's masthead.
             if !page.head.title.isEmpty {
-                Text(page.head.title.uppercased())
+                Text(page.head.title)
                     .font(SR.Text.display(22))
+                    .tracking(-22 * 0.02)
                     .foregroundStyle(SR.ink)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
             }
             if let standfirst = page.head.standfirst, !standfirst.isEmpty {
                 Text(standfirst)
-                    .font(SR.Text.secondary(15))
+                    .font(SR.Text.marginalia(16))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -182,12 +189,12 @@ struct DeskView: View {
     private var kicker: some View {
         let words = page.head.context.filter { !$0.isEmpty }
         let lead = Text((page.head.kicker.isEmpty ? "Desk" : page.head.kicker).uppercased())
-            .foregroundStyle(SR.accent)
+            .foregroundStyle(SR.Notes.pen)
         let rest = Text(words.isEmpty ? "" : " · " + words.joined(separator: " · ").uppercased())
             .foregroundStyle(SR.inkMuted)
         return (lead + rest)
-            .font(SR.Text.label(12))
-            .tracking(1.4)
+            .font(SR.Text.kicker())
+            .tracking(SR.Notes.kickerTracking)
             .lineLimit(2)
     }
 
@@ -236,15 +243,14 @@ struct DeskView: View {
         HStack(spacing: 8) {
             Image(systemName: "pause.circle").font(.system(size: 12))
             Text("Quiet turn · desk held")
-                .font(SR.Text.label(12))
-                .tracking(0.6)
+                .font(SR.Text.marginalia(15))
             Spacer(minLength: 0)
         }
         .foregroundStyle(SR.inkMuted)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
                 .strokeBorder(SR.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         )
         .accessibilityLabel("Quiet turn. The desk is holding an earlier page.")

@@ -25,7 +25,7 @@ struct OvernightVitalsSection: View {
         } footer: {
             if !vitals.note.isEmpty {
                 Text(vitals.note)
-                    .font(SR.Text.mono())
+                    .font(SR.Text.marginalia(15))
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 4)
@@ -40,18 +40,14 @@ struct VitalPairCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(row.label.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.2)
-                    .foregroundStyle(SR.inkMuted)
+            HStack(alignment: .center) {
+                SRNoteLabel(text: row.label)
                 Spacer(minLength: 8)
                 if row.disagree != nil {
-                    // A word with the colour, always: the dot alone is not a reading.
-                    Text("APART")
-                        .font(SR.Text.label())
-                        .tracking(1.2)
-                        .foregroundStyle(row.tone.color)
+                    // A word with the colour, always: the dot alone is not a
+                    // reading. Stamped, as the notebook flags a thing to
+                    // look at twice.
+                    SRStamp(text: "Apart", tone: row.tone.color, tilt: -2)
                 }
             }
 
@@ -77,7 +73,7 @@ struct VitalPairCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(SR.cardPadding)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .srGlassCard(.paper)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityIdentifier("health-vital-\(row.key)")
@@ -112,12 +108,14 @@ struct VitalColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(short)
-                .font(SR.Text.mono())
-                .tracking(1.2)
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
                 .foregroundStyle(SR.inkMuted)
             if let reading {
                 Text(reading.displayWithUnit)
                     .font(SR.Text.figure(26))
+                    .tracking(-26 * 0.03)
+                    .monospacedDigit()
                     .foregroundStyle(SR.ink)
                     .lineLimit(1)
                 Text(reading.asOf.map { "\(reading.baseline) · as of \(Self.day($0))" } ?? reading.baseline)
@@ -130,10 +128,11 @@ struct VitalColumn: View {
                         .padding(.top, 4)
                 }
             } else {
-                // A missing reading is a dash, never a zero.
-                Text("—")
-                    .font(SR.Text.figure(26))
-                    .foregroundStyle(SR.inkGhost)
+                // A missing reading is a dash, never a zero — the notes
+                // look's Fraunces dash, in the muted ink.
+                Text("\u{2014}")
+                    .font(SR.Text.serif(21))
+                    .foregroundStyle(SR.inkMuted)
                 Text("No reading")
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
@@ -220,7 +219,7 @@ struct SleepAnalyticsScreen: View {
             } footer: {
                 if let note = sleep?.note, !note.isEmpty {
                     Text(note)
-                        .font(SR.Text.mono())
+                        .font(SR.Text.marginalia(15))
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 4)
@@ -287,12 +286,20 @@ enum SleepFormat {
 
 /// WHOOP's night: asleep and performance, the Watch's total beside it, the
 /// stages as one bar with a legend, and what else the strap noticed.
+///
+/// With the site's sleep doodle beside the figures — the crescent moon in
+/// petrol with its orange stars — where there is room for it: it is the
+/// page's one drawing, and it says "the night" before a word is read.
 struct SleepLastNightCard: View {
     let night: HubDigest.Sleep.LastNight
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 16) {
+                    figures
+                    SRMoonDoodle(width: 56)
+                }
                 HStack(alignment: .top, spacing: 16) { figures }
                 VStack(alignment: .leading, spacing: 12) { figures }
             }
@@ -331,7 +338,7 @@ struct SleepLastNightCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(SR.cardPadding)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .srGlassCard(.paper)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityIdentifier("sleep-last-night")
@@ -344,8 +351,18 @@ struct SleepLastNightCard: View {
 
     private func figure(_ device: String, _ value: String, _ caption: String?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(device).font(SR.Text.mono()).tracking(1.2).foregroundStyle(SR.inkMuted)
-            Text(value).font(SR.Text.figure(28)).foregroundStyle(value == "—" ? SR.inkGhost : SR.ink).lineLimit(1)
+            Text(device).font(SR.Text.kicker()).tracking(SR.Notes.kickerTracking).foregroundStyle(SR.inkMuted)
+            if value == "—" {
+                // No reading: the Fraunces dash, never a zero.
+                Text("\u{2014}").font(SR.Text.serif(22)).foregroundStyle(SR.inkMuted)
+            } else {
+                Text(value)
+                    .font(SR.Text.figure(28))
+                    .tracking(-28 * 0.03)
+                    .monospacedDigit()
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+            }
             if let caption { Text(caption).font(SR.Text.mono()).foregroundStyle(SR.inkMuted) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -362,14 +379,15 @@ struct SleepLastNightCard: View {
 }
 
 /// Seven nights, both devices, a row each: the day, WHOOP's hours, the
-/// Watch's, and WHOOP's sleep performance. Never a sum of the two.
+/// Watch's, and WHOOP's sleep performance. Never a sum of the two. A ledger
+/// on card stock: the petrol feint between the nights.
 struct SleepWeekCard: View {
     let nights: [HubDigest.Sleep.Night]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(nights.reversed().enumerated()), id: \.element.id) { index, night in
-                if index > 0 { Rectangle().fill(SR.divider).frame(height: 1) }
+                if index > 0 { Rectangle().fill(SR.Notes.rule).frame(height: 1) }
                 HStack(spacing: 10) {
                     Text(SleepFormat.day(night.date))
                         .font(SR.Text.bodyMedium(15))
@@ -392,7 +410,7 @@ struct SleepWeekCard: View {
                 )
             }
         }
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .srGlassCard(.paper)
         .accessibilityIdentifier("sleep-week")
     }
 }

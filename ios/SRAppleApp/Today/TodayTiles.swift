@@ -63,21 +63,46 @@ struct TodayTileGrid<Tile: View>: View {
     }
 }
 
-/// A paper tile, one unit tall and two across: the mark, the name, a
+/// An index card, one unit tall and two across: the mark, the name, a
 /// chevron. Nothing else — the counts ride on the mark's badge, and the
 /// reasons are one tap away (John asked for them this spare, 2026-10-05).
+///
+/// `figure` is the one number a door may carry (Readiness): set beside the
+/// name in Inter and double-underlined in the orange pen, the way the site's
+/// notes underline the total that matters. A missing figure ("—") is the
+/// Fraunces em dash in muted ink and gets no underline: there is nothing to
+/// underline.
 struct TodayTileCard<Visual: View>: View {
     let title: String
+    var figure: String? = nil
     @ViewBuilder let visual: () -> Visual
 
     var body: some View {
         HStack(spacing: 12) {
             visual()
-            Text(title)
-                .font(SR.Text.title(17))
-                .foregroundStyle(SR.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(title)
+                    .font(SR.Text.title(17))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if let figure {
+                    if figure == "\u{2014}" {
+                        Text("\u{2014}")
+                            .font(SR.Text.serif(17))
+                            .foregroundStyle(SR.inkMuted)
+                    } else {
+                        Text(figure)
+                            .font(SR.Text.figure(19))
+                            .tracking(-19 * 0.03)
+                            .monospacedDigit()
+                            .foregroundStyle(SR.ink)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .srInkUnderline(seed: seedFor(title))
+                    }
+                }
+            }
             Spacer(minLength: 4)
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
@@ -111,12 +136,17 @@ struct TodayAskTile: View {
         .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
     }
 
+    /// The chat mark in a loop of the cream pen, as the other doors' marks
+    /// sit in loops of theirs.
     private func disc(_ symbol: String) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(SR.paper)
             .frame(width: 36, height: 36)
-            .background(SR.paper.opacity(0.18), in: Circle())
+            .overlay {
+                SRInkStroke(shape: SRInkLoop(seed: seedFor("ask")), tone: SR.paper.opacity(0.75),
+                            lineWidth: 1.5, animated: false)
+            }
             .accessibilityHidden(true)
     }
 }
@@ -174,7 +204,12 @@ struct TodayGamesTile: View {
     }
 }
 
-/// A glyph on a soft disc of its own colour, with an optional count.
+/// A glyph inside a hand-drawn loop of its own pen, with an optional count.
+///
+/// It was a soft disc of the colour. On paper the site marks a thing by
+/// ringing it, so the door's mark is ringed in the same pen it is drawn in;
+/// the loop's wobble is seeded from the symbol, so a door keeps its loop.
+/// Drawn at once, not inked in: the doors are the furniture of the page.
 struct TodayTileGlyph: View {
     let symbol: String
     let tone: Color
@@ -185,7 +220,9 @@ struct TodayTileGlyph: View {
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(tone)
             .frame(width: 38, height: 38)
-            .background(tone.opacity(0.14), in: Circle())
+            .overlay {
+                SRInkStroke(shape: SRInkLoop(seed: seedFor(symbol)), tone: tone, lineWidth: 1.6, animated: false)
+            }
             .overlay(alignment: .topTrailing) {
                 if count > 0 { TodayCountBadge(count: count, fill: tone).offset(x: 6, y: -4) }
             }
@@ -282,6 +319,13 @@ extension TodayAlerts {
 }
 
 /// An urgent alert, pinned under the bar until it is opened or dismissed.
+///
+/// A slip of the ink cover laid across the top of the page: the band's
+/// ground with its cream feint, cut square, set a touch off true and lifted
+/// by a soft shadow, so it reads as something put ON the notebook rather than
+/// written in it. Everything on it asks the ink register (cream, the
+/// on-dark red), which holds in both modes because the cover is the same
+/// ink in both.
 struct TodayUrgentBanner: View {
     let alert: SiteAlert
     let open: () -> Void
@@ -295,12 +339,14 @@ struct TodayUrgentBanner: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(SR.errorOnDark)
                         .frame(width: 32, height: 32)
-                        .background(SR.errorOnDark.opacity(0.2), in: Circle())
+                        .overlay {
+                            SRInkStroke(shape: SRInkLoop(seed: 211), tone: SR.errorOnDark, lineWidth: 1.6, animated: false)
+                        }
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(kicker)
-                            .font(SR.Text.label())
-                            .tracking(1.2)
+                            .font(SR.Text.kicker())
+                            .tracking(SR.Notes.kickerTracking)
                             .foregroundStyle(SR.errorOnDark)
                             .lineLimit(1)
                         Text(alert.title)
@@ -334,7 +380,12 @@ struct TodayUrgentBanner: View {
         .padding(.leading, 14)
         .padding(.trailing, 4)
         .padding(.vertical, 6)
-        .srGlass(.ink, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .srGlassCard(.ink)
+        // The sticky slip's lift (`0 8px 18px -10px` ink), and its slant at
+        // half the angle: a slip this wide tilted a full degree would run
+        // out of the gutter at its far end.
+        .shadow(color: Color(hex: SR.Fixed.ink, alpha: 0.28), radius: 7, x: 0, y: 6)
+        .rotationEffect(.degrees(-0.5))
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
         .transition(.move(edge: .top).combined(with: .opacity))

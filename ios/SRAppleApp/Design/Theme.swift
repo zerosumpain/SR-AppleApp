@@ -3,9 +3,29 @@ import UIKit
 
 /// The Strange Ramblings design system, as the app sees it.
 ///
-/// Ported from `src/app.css` in SR-Main and from the four components that ARE
-/// the /health methodology — `SectionHead`, `HealthShell`, `RankedMoves`,
-/// `TripwireTable`. Values are copied from the tokens, never re-picked by eye.
+/// ## The notes look (since 2026-10-11)
+///
+/// The app is the website's EXERCISE BOOK. Every page is cream paper ruled in
+/// a faint petrol feint every 32pt, with a double red-orange margin rule down
+/// the leading edge; labels are orange mono caps, headings Inter Display
+/// ExtraBold, asides Fraunces italic; the numbers that matter are ringed,
+/// double-underlined or tallied in seeded, hand-drawn ink; and the dense hero
+/// bands are the book's ink COVER. The values below are the site's own tokens
+/// (`sr-tokens.css` and the notes kit's `notes-paper.css`), copied, never
+/// re-picked by eye. The marks themselves are in `SRNotes.swift`; the pen that
+/// draws them, bit-identical to the site's, in `SRNotesPen.swift`.
+///
+/// Dark mode is the blog's NIGHT reading theme — the site's own dark notebook,
+/// warm near-black paper and cream ink — rather than an inversion the app
+/// invented. The ink cover, the sticky note and the drawing pin are fixed:
+/// they look the same in both.
+///
+/// History, briefly: the app began as a literal port of the website (cream,
+/// zero radius, ink bars), went to "paper under glass" for iOS 26 in October
+/// 2026 (Liquid Glass panels over a cream atmosphere), and moved to notes when
+/// the website did, so the phone and the site read as one book. System
+/// furniture — tab bar, navigation bar, sheets, keyboard — is still the
+/// system's glass, tinted; the PAGE is paper.
 ///
 /// ## Two registers, because a paper token is invisible on ink
 ///
@@ -17,52 +37,56 @@ import UIKit
 /// render. Here that becomes `SRRegister`: a view asks its register for a
 /// colour and cannot accidentally reach for the paper one.
 ///
-/// ## Ink is chrome and thin bands
+/// ## Ink is the cover, never the page
 ///
 /// From the third round of the site rebuild, after "a little intense": a TALL
-/// SOLID INK AREA READS AS INTENSITY, NOT AS EDITORIAL. Ink belongs to the bar
-/// the page hangs from, the footer strip, and at most one dense ledger. The
-/// reading surface stays paper. The app follows that — `SRShell` paints an ink
-/// bar at the top edge so everything docks under it, and the content scrolls on
-/// cream beneath.
+/// SOLID INK AREA READS AS INTENSITY, NOT AS EDITORIAL. In the notes look ink
+/// is the book's cover — one hero band at the top of a screen (`SRInkBand`),
+/// with its own faint cream feint and, edge to edge, a torn bottom edge over
+/// the first page. The reading surface stays paper.
 enum SR {
 
-    // MARK: - Palette (src/app.css `:root`)
+    // MARK: - Palette (`sr-tokens.css` `:root`, and the blog's night theme)
     //
     // ## Dark mode
     //
-    // Every paper-register token below is a pair: the site's value for a light
-    // phone, and its partner for a dark one. Dark is the page INVERTED, not
-    // re-picked — the ground goes to a deep warm brown and the ink goes to
-    // cream, and every accent swaps to the `-on-dark` value the site already
-    // measured against `#1a1008`. That is why the pairs exist: a fill of
-    // `SR.ink` carrying `SR.paper` type is cream-on-ink in light and ink-on-cream
-    // in dark, and holds its contrast both ways.
+    // Every paper-register token below is a pair: the site's light value, and
+    // its partner in the blog's NIGHT reading theme (`html[data-reading-theme=
+    // night]`), which is the site's own dark notebook. Until 2026-10-11 the
+    // dark partners were the app's own inversion; they now match the site, so
+    // a screenshot of the phone at night and the blog at night are the same
+    // inks. A fill of `SR.ink` carrying `SR.paper` type is still cream-on-ink
+    // in light and ink-on-cream in dark, and holds its contrast both ways.
     //
     // The ink BAND does not invert. It is chrome, it is dark in both modes, and
     // anything on it asks `SRRegister.ink` (or `SR.band` / `SR.cream`) for its
     // colour — the fixed pair — never `SR.ink` / `SR.paper`.
 
-    /// Warm cream. `--bg`. Deep warm brown in dark mode.
+    /// The page: warm cream `#ede4d4` (`--np-paper`). Night `#14100c`.
     static let paper = Color(uiColor: UI.paper)
-    /// `--surface-elevated` — the opaque panel ground. Never a tint: `--card-bg`
-    /// is 7% ink and reads as transparent the moment it sits over anything.
-    static let surface = Color(light: Fixed.surface, dark: 0x221A12)
-    /// `--text-primary`. Cream in dark mode. For the band's ground, `SR.band`.
+    /// Card stock, `#f3ebdd` (`--np-card`): index cards, rows, figures. The
+    /// opaque panel ground — never a tint, because `--card-bg` is 7% ink and
+    /// reads as transparent the moment it sits over anything. Same value as
+    /// `SR.Notes.card`; the old name stays for its call sites.
+    static let surface = Color(uiColor: UI.card)
+    /// `--text-primary`, the ink. Cream in dark mode. For the cover's ground,
+    /// `SR.band`.
     static let ink = Color(uiColor: UI.ink)
-    /// `--text-secondary`.
-    static let inkSecondary = Color(light: Fixed.inkSecondary, dark: 0xCFC3AE)
-    /// `--text-muted` — 65% ink on paper. PAPER ONLY.
+    /// `--text-secondary`, soft ink: marginalia, ledes, excerpts.
+    static let inkSecondary = Color(light: Fixed.inkSecondary, dark: 0xCDC2B2)
+    /// `--text-muted` — 65% ink on paper (62% cream at night). PAPER ONLY.
     static let inkMuted = Color(uiColor: UI.inkMuted)
-    /// `--text-ghost` — 45%. PAPER ONLY.
-    static let inkGhost = Color(light: Fixed.ink, dark: Fixed.paper, alpha: 0.45)
+    /// `--text-ghost` — 45% (40% at night): faint pencil. PAPER ONLY.
+    static let inkGhost = Color(light: Fixed.ink, 0.45, dark: Night.ink, 0.40)
 
     /// The ink band's ground, in BOTH modes. Chrome, not page.
     static let band = Color(hex: Fixed.ink)
     /// Cream type on the band, in BOTH modes.
     static let cream = Color(hex: Fixed.paper)
 
-    /// `--accent`, burnt orange. Punchy, not regal. PAPER ONLY.
+    /// `--accent`, the orange pen: rings, underlines, ticks, a stamp's box.
+    /// Punchy, not regal. PAPER ONLY. For small orange WRITING (kickers,
+    /// units) use `SR.Notes.pen`, a step darker so it holds as text.
     static let accent = Color(uiColor: UI.accent)
     /// The accent one step deeper, for a FILL that carries cream text — the
     /// Ask button, a selected tab's label. `--accent` under cream measures
@@ -73,13 +97,16 @@ enum SR {
     /// `--accent-on-dark`. `--accent` scores 2.6:1 on `#1a1008`, under the
     /// floor; this is its partner, not a second accent.
     static let accentOnDark = Color(hex: 0xE8863A)
-    /// `--accent-ink`, deep petrol. The counter-accent, and PAPER ONLY — it has
-    /// no role on an ink band, which is why petrol left the vitals rail.
-    static let accentInk = Color(light: Fixed.accentInk, dark: 0x7FB8C0)
+    /// `--accent-ink`, the petrol pen: labels over a reading, structure,
+    /// links, the second person. PAPER ONLY — on the cover it is
+    /// `accentInkOnDark`.
+    static let accentInk = Color(light: Fixed.accentInk, dark: 0x3FA3B0)
     /// `--accent-ink-on-dark`.
     static let accentInkOnDark = Color(hex: 0x7FB8C0)
 
-    /// `--good`, olive. The one hue meaning a number is going the right way.
+    /// `--good`, the olive pencil. The one hue meaning a number is going the
+    /// right way. Night keeps the app's lifted olive rather than the site's
+    /// unchanged `#55663a`, which is a smudge on night paper.
     static let good = Color(light: Fixed.good, dark: 0x8A9A5B)
     /// `--good-on-dark`. Measured off the dashboard reference; the handoff's
     /// token table names #6b7f4a but every appearance of that shade is on paper.
@@ -90,10 +117,11 @@ enum SR {
     /// Error, lifted for ink. The paper value is a smudge on `#1a1008`.
     static let errorOnDark = Color(hex: 0xE08B8B)
 
-    /// `--card-border`.
+    /// `--line-strong`: a card's border, a table's row line. 16% ink (20%
+    /// cream at night).
     static let line = Color(uiColor: UI.line)
-    /// `--divider`.
-    static let divider = Color(light: Fixed.ink, dark: Fixed.paper, alpha: 0.08)
+    /// `--divider`, the faintest rule.
+    static let divider = Color(light: Fixed.ink, 0.08, dark: Night.ink, 0.10)
     /// The hairline on an ink band. `--line-hair` is invisible there.
     static let lineOnDark = Color(hex: 0xEDE4D4, alpha: 0.14)
     /// Cream at reading weight on ink.
@@ -103,11 +131,17 @@ enum SR {
     /// `UIColor` — built here, once, so the proxy holds the dynamic colour
     /// itself rather than a conversion that may have resolved it.
     enum UI {
-        static let paper = UIColor(light: Fixed.paper, dark: 0x120D08)
-        static let ink = UIColor(light: Fixed.ink, dark: Fixed.paper)
-        static let inkMuted = UIColor(light: Fixed.ink, dark: Fixed.paper, alpha: 0.65)
-        static let accent = UIColor(light: Fixed.accent, dark: 0xE8863A)
-        static let line = UIColor(light: Fixed.ink, dark: Fixed.paper, alpha: 0.18)
+        static let paper = UIColor(light: Fixed.paper, dark: Night.paper)
+        static let card = UIColor(light: Fixed.card, dark: Night.card)
+        static let ink = UIColor(light: Fixed.ink, dark: Night.ink)
+        static let inkMuted = UIColor(light: Fixed.ink, 0.65, dark: Night.ink, 0.62)
+        static let accent = UIColor(light: Fixed.accent, dark: Night.accent)
+        static let line = UIColor(light: Fixed.ink, 0.16, dark: Night.ink, 0.20)
+        /// The feint, for the ruled-paper tile (`SRNotebookPaper`), which is
+        /// drawn by UIKit once per appearance.
+        static let rule = UIColor(light: Fixed.accentInk, 0.16, dark: 0x7FB8C0, 0.13)
+        static let marginA = UIColor(light: Fixed.accent, 0.55, dark: Night.accent, 0.50)
+        static let marginB = UIColor(light: Fixed.accent, 0.35, dark: Night.accent, 0.30)
     }
 
     /// The site's light values, raw. For the few surfaces that must look the
@@ -115,6 +149,8 @@ enum SR {
     enum Fixed {
         static let paper: UInt32 = 0xEDE4D4
         static let surface: UInt32 = 0xE8DECE
+        /// Card stock, `--surface-card`.
+        static let card: UInt32 = 0xF3EBDD
         static let ink: UInt32 = 0x1A1008
         static let inkSecondary: UInt32 = 0x3D2E1A
         static let accent: UInt32 = 0xC4570A
@@ -122,6 +158,14 @@ enum SR {
         static let good: UInt32 = 0x55663A
         static let warn: UInt32 = 0xB0892A
         static let error: UInt32 = 0xCC4444
+    }
+
+    /// The blog's night reading theme, raw: the dark partners above.
+    enum Night {
+        static let paper: UInt32 = 0x14100C
+        static let card: UInt32 = 0x1E1913
+        static let ink: UInt32 = 0xECE3D6
+        static let accent: UInt32 = 0xE07B2A
     }
 
     // MARK: - Type
@@ -150,6 +194,15 @@ enum SR {
         static let mono = "JetBrainsMono-Regular"
         static let monoMedium = "JetBrainsMono-Medium"
         static let monoBold = "JetBrainsMono-Bold"
+        /// Fraunces, upright. Contents excerpts, a story's opening lines.
+        /// Static instances at wght 400 and opsz 17 — the site sets Fraunces
+        /// with `font-optical-sizing: auto` and its marginalia are 15–18px, so
+        /// one cut at 17 is what the reader actually sees there. Licence in
+        /// `Fonts/OFL-Fraunces.txt`.
+        static let serif = "Fraunces-Regular"
+        /// Fraunces Italic: the notes look's marginalia — asides, straps, an
+        /// empty page's line. Already italic: never add `.italic()` to it.
+        static let serifItalic = "Fraunces-Italic"
     }
 
     /// The 12pt floor. `check-font-sizes` gates 12px sitewide and the health
@@ -187,10 +240,10 @@ enum SR {
 
     // MARK: - Metrics
     //
-    // Radii are 0 throughout. The only exceptions are the live dot and any pill,
-    // at 100; the system deliberately skips the 8/12/16 middle. There are no
-    // shadows either, except the live dot's glow — which is a glow, not
-    // elevation.
+    // Paper is sharp: cards take `SR.Glass.radius` (3, a cut card's corner) and
+    // nothing in the notes look goes softer than that except a pill or a dot.
+    // There are no shadows either, except the sticky slip's lift and the torn
+    // cover's shade — paper on paper, not elevation.
     enum Radius {
         static let none: CGFloat = 0
         static let hair: CGFloat = 2
@@ -203,7 +256,9 @@ enum SR {
     static let gutter: CGFloat = 20
     /// The gap between sections inside one screen.
     static let sectionGap: CGFloat = 28
-    /// Mono label tracking — `.sr-label-tight` runs 0.18em on a kicker.
+    /// Mono label tracking. The notes kicker runs 0.14em of 12pt —
+    /// `SR.Notes.kickerTracking`, 1.68 — and this older 1.6 is close enough
+    /// that the call sites still using it read as the same voice.
     static let kickerTracking: CGFloat = 1.6
 }
 
@@ -246,6 +301,13 @@ extension Color {
     init(light: UInt32, dark: UInt32, alpha: Double = 1) {
         self.init(uiColor: UIColor(light: light, dark: dark, alpha: alpha))
     }
+
+    /// The same, with its own alpha in each mode: the night theme sets its
+    /// muted inks and feints at different strengths from the day's
+    /// (`rgba(236,227,214,.62)` against `rgba(26,16,8,.65)`).
+    init(light: UInt32, _ lightAlpha: Double, dark: UInt32, _ darkAlpha: Double) {
+        self.init(uiColor: UIColor(light: light, lightAlpha, dark: dark, darkAlpha))
+    }
 }
 
 extension UIColor {
@@ -262,6 +324,76 @@ extension UIColor {
         let light = UIColor(hex: light, alpha: alpha)
         let dark = UIColor(hex: dark, alpha: alpha)
         self.init { $0.userInterfaceStyle == .dark ? dark : light }
+    }
+
+    convenience init(light: UInt32, _ lightAlpha: Double, dark: UInt32, _ darkAlpha: Double) {
+        let light = UIColor(hex: light, alpha: lightAlpha)
+        let dark = UIColor(hex: dark, alpha: darkAlpha)
+        self.init { $0.userInterfaceStyle == .dark ? dark : light }
+    }
+}
+
+// MARK: - The notes kit's own tokens (`notes-paper.css`)
+//
+// Light is the kit's `.np-paper`, dark the blog's night theme. Everything the
+// marks in `SRNotes.swift` draw with comes from here or from the base palette.
+extension SR {
+    enum Notes {
+        /// The desk the paper lies on, seen past its edges. `#e0d4bf`.
+        static let desk = Color(light: 0xE0D4BF, dark: 0x0E0B08)
+        /// Card stock: index cards, list rows, figures, code. `#f3ebdd`.
+        static let card = Color(uiColor: UI.card)
+        /// The feint: petrol at 16% (`--np-rule`), one 1pt line every 32pt.
+        static let rule = Color(uiColor: UI.rule)
+        /// The feint made opaque, for a block that paints its own band of
+        /// paper over the sheet so the rule is not doubled. `#c9cec2`.
+        static let ruleSolid = Color(light: 0xC9CEC2, dark: 0x222623)
+        /// The margin rule's stronger, left line.
+        static let marginA = Color(uiColor: UI.marginA)
+        /// The margin rule's fainter, right line.
+        static let marginB = Color(uiColor: UI.marginB)
+        /// The orange that WRITES: kickers, units, "more" links, a stamp's
+        /// date (`--accent-hover`, `#a84808`). `SR.accent` is the orange that
+        /// DRAWS; at 12pt it is a shade too light to hold as text on cream.
+        static let pen = Color(light: 0xA84808, dark: Night.accent)
+        /// The ochre pencil, the fourth of the pencil-dot colours.
+        static let ochre = Color(light: 0x8C6A12, dark: 0xC9A445)
+        /// Masking tape.
+        static let tape = Color(light: 0xD6C4A0, 0.72, dark: 0xECE3D6, 0.16)
+        /// Graph paper, every 80pt and every 16pt.
+        static let graphMajor = Color(light: Fixed.accentInk, 0.14, dark: 0x7FB8C0, 0.14)
+        static let graphMinor = Color(light: Fixed.accentInk, 0.06, dark: 0x7FB8C0, 0.06)
+        /// The red pencil (`--status-fail`): a low recovery, a refused idea.
+        static let redPencil = Color(light: 0xB3261E, dark: 0xE08B8B)
+
+        /// The sticky note, in BOTH modes: a note stuck on the page is the
+        /// same paper at night. Ink on it is `stickyInk`, never `SR.ink`.
+        static let stickyTop = Color(hex: 0xF7D9B4)
+        static let stickyBottom = Color(hex: 0xF2C99A)
+        static let stickyInk = Color(hex: 0x1A1008)
+        /// The drawing pin's three stops, in both modes.
+        static let pinLight = Color(hex: 0xF6B37A)
+        static let pinMid = Color(hex: 0xE8863A)
+        static let pinDark = Color(hex: 0xB2561A)
+
+        /// The rule pitch: every line of the page is 32pt apart.
+        static let pitch: CGFloat = 32
+        /// Where the feint sits in each pitch, from its top: just under a
+        /// 16pt line's baseline, as the landing's pages rule it.
+        static let ruleY: CGFloat = 23
+        /// The margin rule's two lines, from the page's leading edge. Both
+        /// inside the 20pt gutter, so no row or heading text ever crosses them.
+        static let marginX: (a: CGFloat, b: CGFloat) = (11, 14)
+        /// The kicker's tracking: 0.14em of 12pt.
+        static let kickerTracking: CGFloat = 1.68
+        /// A stamp's tracking: 0.16em of 12pt.
+        static let stampTracking: CGFloat = 1.92
+
+        /// The four pencils, in `pencilIndex` order: orange, petrol, olive,
+        /// ochre.
+        static let pencils: [Color] = [SR.accent, SR.accentInk, SR.good, ochre]
+        /// The pencil a word always gets (`pencilFor` on the site).
+        static func pencil(for word: String) -> Color { pencils[pencilIndex(word)] }
     }
 }
 
@@ -305,6 +437,17 @@ extension SR {
         /// as a caption beside the bar's glass buttons; the mark is the one
         /// piece of type on a screen that is the brand, so it gets the weight.
         static func mark(_ size: CGFloat = SRMark.barSize) -> Font { .custom(Face.brandMedium, size: size, relativeTo: .headline) }
+        /// Marginalia: Fraunces italic, in a softer ink (`SR.inkSecondary`).
+        /// Asides, straps, captions that are commentary, an empty page's
+        /// "nothing here yet". The site writes these with a lower-case first
+        /// letter; that is a COPY rule for new words, not a reason to rewrite
+        /// old ones.
+        static func marginalia(_ size: CGFloat = 16) -> Font { .custom(Face.serifItalic, size: size, relativeTo: .body) }
+        /// Fraunces upright: contents excerpts, a lede set as reading copy.
+        static func serif(_ size: CGFloat = 17) -> Font { .custom(Face.serif, size: size, relativeTo: .body) }
+        /// A kicker or a label: JetBrains Mono at 12, set in caps and tracked
+        /// `SR.Notes.kickerTracking` by the caller (`SRSectionLabel` does).
+        static func kicker(_ size: CGFloat = 12) -> Font { .custom(Face.mono, size: max(size, labelFloor), relativeTo: .caption) }
     }
 
     // MARK: - Phone metrics

@@ -87,8 +87,8 @@ struct ActivitiesScreen: View {
                             .onAppear { Task { await store.loadMore() } }
                     } else {
                         Text("Nothing in this sport yet.")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia())
+                            .foregroundStyle(SR.inkSecondary)
                             .srBareRow()
                     }
                 } else if store.loadingMore {
@@ -219,8 +219,8 @@ struct SegmentsScreen: View {
                 Section {
                     if filtered.isEmpty {
                         Text("None \(form ?? "") right now.")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia())
+                            .foregroundStyle(SR.inkSecondary)
                             .srGlassRow()
                     }
                     ForEach(filtered) { row in
@@ -319,7 +319,7 @@ struct ActivityDetailBody: View {
                     }
                     if activity.elevation.count > 1 {
                         TrailSection(title: "Elevation", trailing: elevationTrailing) {
-                            ElevationChart(points: activity.elevation).frame(height: 150)
+                            ElevationChart(points: activity.elevation).frame(height: 170)
                         }
                     }
                     if !detail.highlights.isEmpty {
@@ -330,7 +330,7 @@ struct ActivityDetailBody: View {
                     }
                     if activity.heartRate.count > 1 {
                         TrailSection(title: "Heart rate", trailing: heartTrailing) {
-                            HeartRateChart(points: activity.heartRate, average: row.avgHeartrate).frame(height: 150)
+                            HeartRateChart(points: activity.heartRate, average: row.avgHeartrate).frame(height: 170)
                         }
                     }
                     if let zones = detail.physio?.zones, zones.contains(where: { $0.seconds > 0 }) {
@@ -470,8 +470,9 @@ struct ActivityHero: View {
                     Image(systemName: "star.fill")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(SR.accentOnDark)
+                    // An aside on the cover: Fraunces italic, cream at 70%.
                     Text("\(highlight.label) — \(highlight.detail)")
-                        .font(SR.Text.secondary())
+                        .font(SR.Text.marginalia(15))
                         .foregroundStyle(SR.onInk(.note))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -569,10 +570,11 @@ private struct ActivitySegmentLine: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .trailing, spacing: 5) {
                 Text(TrailFormat.duration(effort.durationS))
                     .font(SR.Text.mono(15))
                     .foregroundStyle(best ? SR.accent : SR.ink)
+                    .srInkRing(tone: SR.accent, seed: 31, pad: 6, lineWidth: 1.6, animated: false, visible: best)
                 if let rank = effort.rankLine {
                     Text(rank.uppercased())
                         .font(SR.Text.label())
@@ -587,16 +589,15 @@ private struct ActivitySegmentLine: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(minHeight: SR.tapTarget)
-        // The same mark a best effort carries on the segment's own screen:
-        // a PB looks like a PB wherever it is seen.
+        // The same mark a best effort carries on the segment's own screen —
+        // its time ringed in orange, on a faint orange wash — so a PB looks
+        // like a PB wherever it is seen. Card stock, opaque, so the ledger's
+        // hairlines are only ever its gaps.
         .background {
             ZStack {
-                SR.paper
+                SR.Notes.card
                 if best { SR.accent.opacity(0.06) }
             }
-        }
-        .overlay(alignment: .leading) {
-            if best { Rectangle().fill(SR.accent).frame(width: 3) }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -663,13 +664,14 @@ struct SegmentDetailBody: View {
                     }
                     if detail.efforts.count > 1 {
                         TrailSection(title: "Efforts over time", trailing: "lower is quicker") {
-                            EffortsChart(efforts: detail.efforts).frame(height: 160)
+                            EffortsChart(efforts: detail.efforts).frame(height: 180)
                         }
                     }
                     if let conditions = detail.segment.conditions, let line = Self.conditionsLine(conditions) {
                         TrailSection(title: "Conditions") {
+                            // An observation, so it is written as one.
                             Text(line)
-                                .font(SR.Text.secondary())
+                                .font(SR.Text.marginalia())
                                 .foregroundStyle(SR.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -771,10 +773,11 @@ private struct SegmentEffortLine: View {
                     .foregroundStyle(SR.inkMuted)
             }
             Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .trailing, spacing: 5) {
                 Text(TrailFormat.duration(effort.durationS))
                     .font(SR.Text.mono(15))
                     .foregroundStyle(effort.isBest ? SR.accent : SR.ink)
+                    .srInkRing(tone: SR.accent, seed: 31, pad: 6, lineWidth: 1.6, animated: false, visible: effort.isBest)
                 if effort.isBest {
                     Text("BEST")
                         .font(SR.Text.label())
@@ -789,16 +792,15 @@ private struct SegmentEffortLine: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(minHeight: SR.tapTarget)
-        // Opaque: the ledger's hairlines are its background showing through
-        // the gaps, so a translucent row would be tinted by them.
+        // Opaque card stock: the ledger's hairlines are its background
+        // showing through the gaps, so a translucent row would be tinted by
+        // them — and the paper's rules would run through the text. The best
+        // effort's time is ringed, as it is on an activity.
         .background {
             ZStack {
-                SR.paper
+                SR.Notes.card
                 if effort.isBest { SR.accent.opacity(0.06) }
             }
-        }
-        .overlay(alignment: .leading) {
-            if effort.isBest { Rectangle().fill(SR.accent).frame(width: 3) }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -814,7 +816,8 @@ private struct SegmentEffortLine: View {
     }
 }
 
-/// "Show all 14" / "Show fewer" under a clipped list.
+/// "Show all 14" / "Show fewer" under a clipped list — the site's "more"
+/// link: mono caps in the writing orange, underlined.
 private struct ShowAllButton: View {
     @Binding var expanded: Bool
     let total: Int
@@ -826,12 +829,13 @@ private struct ShowAllButton: View {
         } label: {
             HStack(spacing: 6) {
                 Text(expanded ? "SHOW FEWER" : "SHOW ALL \(total)")
-                    .font(SR.Text.label())
-                    .tracking(1.2)
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
+                    .underline()
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 10, weight: .bold))
             }
-            .foregroundStyle(SR.accent)
+            .foregroundStyle(SR.Notes.pen)
             .frame(minHeight: SR.tapTarget, alignment: .leading)
             .contentShape(Rectangle())
         }

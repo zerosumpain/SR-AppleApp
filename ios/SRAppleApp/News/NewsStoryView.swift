@@ -17,6 +17,13 @@ struct NewsStoryScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
             SRSection {
+                // The blog post's margin on a phone: the date stamp sits on its
+                // own rules above the title, tilted as a stamp is.
+                if let stamp = stamp {
+                    SRDateStamp(text: stamp.date, sub: stamp.time, tilt: -3, seed: seedFor(story.title))
+                        .padding(.leading, 4)
+                        .padding(.bottom, 18)
+                }
                 SectionHead(
                     kicker: "A / \(story.sourceLabel) · \(shortAgo(story.publishedAt)) ago",
                     title: titleLines,
@@ -43,14 +50,18 @@ struct NewsStoryScreen: View {
                         .padding(.bottom, 12)
                     ForEach(story.alsoOn) { also in
                         Link(destination: URL(string: also.discussionUrl) ?? SiteClient.defaultOrigin) {
-                            HStack {
+                            // A receipt line: the wire, a dotted leader, its counts.
+                            HStack(alignment: .center, spacing: 8) {
                                 Text(also.sourceLabel)
                                     .font(SR.bodyMedium(15))
                                     .foregroundStyle(SR.accentInk)
-                                Spacer()
+                                    .layoutPriority(1)
+                                SRDottedLeader()
+                                    .frame(minWidth: 12)
                                 Text("\(also.score)▲ \(also.commentCount)◇")
                                     .font(SR.mono(12))
                                     .foregroundStyle(SR.inkMuted)
+                                    .layoutPriority(1)
                             }
                             .padding(.vertical, 9)
                         }
@@ -94,6 +105,19 @@ struct NewsStoryScreen: View {
         return Array(lines.prefix(3))
     }
 
+    /// The publication date for the stamp: "11 Oct" over "SUN 09:30", in
+    /// en-GB order whatever the phone's region, because the stamp is copy.
+    private var stamp: (date: String, time: String)? {
+        guard let published = isoDate(story.publishedAt) else { return nil }
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_GB")
+        day.dateFormat = "d MMM"
+        let time = DateFormatter()
+        time.locale = Locale(identifier: "en_GB")
+        time.dateFormat = "EEE HH:mm"
+        return (day.string(from: published), time.string(from: published))
+    }
+
     private var meta: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
@@ -115,24 +139,27 @@ struct NewsStoryScreen: View {
                 }
             }
 
-            SRGlassGroup(spacing: 10) {
-                HStack(spacing: 10) {
-                    ForEach(AccessPolicy.newsActions(can: store.article?.can, access: access.current), id: \.rawValue) { action in
-                        Button {
-                            SRHaptic.tap()
-                            Task { await act(action) }
-                        } label: {
-                            Image(systemName: action.icon)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(SR.inkSecondary)
-                                .frame(width: 48, height: 48)
-                                .srGlass(.paper, in: Circle(), interactive: true)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(acting)
-                        .accessibilityLabel(action.label)
+            // The row's verbs as icons on discs of card stock with the
+            // card's hairline — not glass, and not looped: a loop is kept
+            // for the figure that matters.
+            HStack(spacing: 10) {
+                ForEach(AccessPolicy.newsActions(can: store.article?.can, access: access.current), id: \.rawValue) { action in
+                    Button {
+                        SRHaptic.tap()
+                        Task { await act(action) }
+                    } label: {
+                        Image(systemName: action.icon)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(SR.inkSecondary)
+                            .frame(width: 48, height: 48)
+                            .background(SR.Notes.card, in: Circle())
+                            .overlay { Circle().strokeBorder(SR.line, lineWidth: 1) }
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
+                    .disabled(acting)
+                    .opacity(acting ? 0.45 : 1)
+                    .accessibilityLabel(action.label)
                 }
             }
         }
@@ -143,25 +170,23 @@ struct NewsStoryScreen: View {
         if store.loading {
             HStack(spacing: 10) {
                 ProgressView().tint(SR.accent)
-                Text("Fetching the article…").font(SR.body(14)).foregroundStyle(SR.inkMuted)
+                Text("Fetching the article…").font(SR.Text.marginalia(16)).foregroundStyle(SR.inkMuted)
             }
         } else if let article {
             VStack(alignment: .leading, spacing: 16) {
+                // The summary is the piece's lede, set as the blog sets one:
+                // Fraunces italic in soft ink, no bar — the face is the mark.
                 if !article.summary.isEmpty {
                     Text(article.summary)
-                        .font(SR.bodyMedium(16))
-                        .lineSpacing(5)
-                        .foregroundStyle(SR.ink)
+                        .font(SR.Text.marginalia(19))
+                        .lineSpacing(4)
+                        .foregroundStyle(SR.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 12)
-                        .overlay(alignment: .leading) {
-                            Rectangle().fill(SR.accent).frame(width: 3)
-                        }
                 }
 
                 if let message = article.message {
                     Text(message)
-                        .font(SR.body(14))
+                        .font(SR.Text.marginalia(16))
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -176,8 +201,12 @@ struct NewsStoryScreen: View {
 
                 if article.truncated {
                     Text("This is the opening of the article. Open it in full to keep reading.")
-                        .font(SR.mono(12))
+                        .font(SR.Text.marginalia(15))
                         .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if !article.content.isEmpty {
+                    // The whole piece is here, so it ends as a post ends.
+                    SREndMark(seed: seedFor(story.title) + 7)
                 }
             }
         } else if let message = store.message {
@@ -212,20 +241,40 @@ struct NewsStoryScreen: View {
 /// A figure with a frame. A number on its own is a number with no frame, which
 /// is the failure /health names for a header figure — so every one of these
 /// carries the label that says what it measures.
+///
+/// Set as a reading in the notes: Inter ExtraBold, tabular and tight, over a
+/// petrol label. Settings and the activity log pass "—" for a reading they do
+/// not have; that is drawn as the notes' Fraunces dash, and VoiceOver hears
+/// that there is no reading rather than a dash.
 struct Figure: View {
     let value: String
     let label: String
+    /// Ring the number in ink: the page's one reading that answers its
+    /// title. The ring goes round the digits alone, as the site's InkRing
+    /// does, never round the label under them.
+    var ringed: Bool = false
 
     var body: some View {
+        let missing = value == "—" || value == "\u{2014}"
         VStack(alignment: .leading, spacing: 3) {
-            Text(value)
-                .font(SR.display(22))
-                .foregroundStyle(SR.ink)
+            if missing {
+                Text("\u{2014}")
+                    .font(SR.Text.serif(18))
+                    .foregroundStyle(SR.inkMuted)
+            } else {
+                Text(value)
+                    .font(SR.Text.figure(22))
+                    .tracking(-22 * 0.03)
+                    .monospacedDigit()
+                    .foregroundStyle(SR.ink)
+                    .srInkRing(seed: 31, pad: 12, visible: ringed)
+            }
             Text(label.uppercased())
-                .font(SR.mono(12))
-                .tracking(1)
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
+                .foregroundStyle(SR.accentInk)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(missing ? "\(label), no reading yet" : "\(label), \(value)")
     }
 }

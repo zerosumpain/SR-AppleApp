@@ -225,7 +225,7 @@ struct SprintStreak: View {
         .padding(.horizontal, SR.cardPadding)
         .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
                 .fill(hot ? SR.accent.opacity(0.14) : Color.clear)
         )
         .animation(.easeOut(duration: 0.25), value: hot)

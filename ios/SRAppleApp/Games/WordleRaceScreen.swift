@@ -611,12 +611,9 @@ struct WordleFinished: View {
                     SRSectionLabel(text: room.solo ? "Your game" : "Standings")
                     VStack(spacing: 0) {
                         ForEach(Array(standings.enumerated()), id: \.element.id) { index, row in
-                            if index > 0 { Divider().overlay(SR.divider) }
+                            if index > 0 { GameLedgerRule() }
                             HStack(alignment: .top, spacing: 12) {
-                                Text("\(index + 1)")
-                                    .font(SR.Text.display(26))
-                                    .foregroundStyle(room.winnerIds.contains(row.id) ? SR.accent : SR.inkGhost)
-                                    .frame(width: 32, alignment: .leading)
+                                GamePlace(place: index + 1, won: room.winnerIds.contains(row.id), ringed: !room.solo)
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 6) {
                                         Text(row.name + (row.id == room.meId ? " (you)" : ""))

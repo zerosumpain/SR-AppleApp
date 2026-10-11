@@ -244,13 +244,13 @@ struct DaydreamReviewBanner: View {
             // Your own "wrong" IS the lesson; saying it twice is noise.
             if !review.reasoning.isEmpty, !(review.byOwner && review.verdict == .wrong) {
                 Text(review.reasoning)
-                    .font(SR.Text.secondary(14))
+                    .font(SR.Text.marginalia(15))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let lesson = review.lesson {
                 Text("Lesson kept: “\(lesson)”")
-                    .font(SR.Text.body(14))
+                    .font(SR.Text.serif(15))
                     .foregroundStyle(SR.ink)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("daydream-review-lesson")
@@ -260,8 +260,8 @@ struct DaydreamReviewBanner: View {
                 onRule(review.verdict == .wrong ? .right : .wrong)
             } label: {
                 Text(argueTitle.uppercased())
-                    .font(SR.Text.label(12))
-                    .tracking(1.1)
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
                     .foregroundStyle(SR.accentInk)
                     .frame(minHeight: SR.tapTarget)
                     .contentShape(Rectangle())
@@ -277,7 +277,7 @@ struct DaydreamReviewBanner: View {
         .overlay(alignment: .leading) {
             Rectangle().fill(review.verdict.tone).frame(width: 3)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("daydream-review")
     }
@@ -320,8 +320,8 @@ struct DaydreamRulingSheet: View {
                     Text(ruling == .wrong
                          ? "jkai keeps your words as a lesson and checks new notes against it. For example: “one of those is the receipt email for the bank charge, not a second charge.”"
                          : "The earlier lesson is withdrawn, so it stops steering new notes.")
-                        .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkMuted)
+                        .font(SR.Text.marginalia(15))
+                        .foregroundStyle(SR.inkSecondary)
                 }
                 .srGlassRow()
                 if rulings.didFail(note) {
