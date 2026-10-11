@@ -4,7 +4,8 @@ import SwiftUI
 
 // What the family widgets and the app share, and the widgets' faces.
 //
-// SHARED with the widget extension (`SRAppleLive`, see watch.yml): nothing
+// SHARED with the widget extension (`SRAppleLive`) and the share extension
+// (`SRAppleShare`), see watch.yml: nothing
 // here may reach for the app's own types.
 //
 // ## Why the Keychain, and not an App Group
@@ -60,6 +61,8 @@ enum FamilyShelf {
 
     enum Account: String, CaseIterable {
         case credential, steps, tasks
+        /// Shares the share extension could not send (FamilyBacklogShared.swift).
+        case backlogQueue
     }
 
     /// `<TEAM>.com.strangeramblings.com.appleapp.shared`, from Info.plist

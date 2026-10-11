@@ -467,6 +467,7 @@ struct ContentView: View {
             // new one on the next read.
             FamilyStepsStore.shared.reset()
             FamilyTasksStore.shared.reset()
+            FamilyBacklogStore.shared.reset()
             FamilyForecastStore.shared.reset()
             LandgrabStore.shared.reset()
         }
@@ -563,6 +564,7 @@ struct ContentView: View {
         case .steps: FamilyStepsScreen()
         case .tasks: FamilyTasksScreen()
         case .messages: FamilyMessagesScreen()
+        case .backlog: FamilyBacklogScreen()
         }
     }
 

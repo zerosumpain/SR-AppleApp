@@ -50,6 +50,7 @@ elif [ -n "${WATCH_PROFILE_PATH:-}" ] && [ -n "${WIDGET_PROFILE_PATH:-}" ]; then
   WIDGET_SOURCE="$WIDGET_PROFILE_PATH"
 fi
 LIVE_UUID=""
+SHARE_UUID=""
 if [ -n "$WATCH_SOURCE" ] && [ -n "$WIDGET_SOURCE" ]; then
   WATCH_UUID=$(install_extra_profile watch "$WATCH_SOURCE")
   WIDGET_UUID=$(install_extra_profile widget "$WIDGET_SOURCE")
@@ -61,8 +62,13 @@ if [ -n "$WATCH_SOURCE" ] && [ -n "$WIDGET_SOURCE" ]; then
     LIVE_UUID=$(install_extra_profile live "$LIVE_PROFILE_PATH")
     echo "LIVE_PROFILE_UUID=$LIVE_UUID" >> "$GITHUB_ENV"
   fi
+  # So does the share extension, minted the same way.
+  if [ -n "${SHARE_PROFILE_PATH:-}" ]; then
+    SHARE_UUID=$(install_extra_profile share "$SHARE_PROFILE_PATH")
+    echo "SHARE_PROFILE_UUID=$SHARE_UUID" >> "$GITHUB_ENV"
+  fi
 fi
-export WATCH_UUID WIDGET_UUID LIVE_UUID
+export WATCH_UUID WIDGET_UUID LIVE_UUID SHARE_UUID
 python3 - <<'PY'
 import os, plistlib
 from pathlib import Path
@@ -90,6 +96,10 @@ if os.environ.get('LIVE_UUID'):
     live = plistlib.loads(Path(temp, 'live.plist').read_bytes())
     assert live['Entitlements']['application-identifier'] == team + '.' + bundle + '.live', 'Live Activity profile does not match <bundle>.live'
     profiles[bundle + '.live'] = os.environ['LIVE_UUID']
+if os.environ.get('SHARE_UUID'):
+    share = plistlib.loads(Path(temp, 'share.plist').read_bytes())
+    assert share['Entitlements']['application-identifier'] == team + '.' + bundle + '.share', 'Share extension profile does not match <bundle>.share'
+    profiles[bundle + '.share'] = os.environ['SHARE_UUID']
 options = {'method': 'app-store-connect', 'destination': 'upload', 'teamID': team, 'signingStyle': 'manual', 'provisioningProfiles': profiles}
 Path(temp, 'ExportOptions.plist').write_bytes(plistlib.dumps(options))
 PY

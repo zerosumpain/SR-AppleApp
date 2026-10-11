@@ -69,6 +69,9 @@ struct FamilyScreen: View {
                     Button { SRHaptic.tap(); router.openFamilyPage(.tasks) } label: { Image(systemName: "checklist") }
                         .accessibilityLabel("Tasks")
                         .accessibilityIdentifier("family-open-tasks")
+                    Button { SRHaptic.tap(); router.openFamilyPage(.backlog) } label: { Image(systemName: "tray.full") }
+                        .accessibilityLabel("Backlog")
+                        .accessibilityIdentifier("family-open-backlog")
                 }
             }
             // msg family lives in Chat; somebody without Chat reaches it here.

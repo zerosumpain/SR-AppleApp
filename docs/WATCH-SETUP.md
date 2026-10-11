@@ -36,8 +36,14 @@ already uploads with, it:
   the one from the previous run (a profile only carries the capabilities its
   App ID had when it was made, so a stale one would hide a fix);
 - checks each has the App Group, and the Watch app's has HealthKit;
-- hands them to `install-signing.sh`, which checks them again and archives all
-  three targets.
+- does the same for the iPhone's two extensions, the Live Activity
+  (`<bundle>.live`) and "Share → SR" (`<bundle>.share`), registering their App
+  IDs itself the first time — neither needs the App Group;
+- hands them to `install-signing.sh`, which checks them again and archives every
+  target.
+
+The five travel together: if any one profile cannot be made, the upload is the
+iPhone app alone (no Watch app, Live Activity or share extension) until it can.
 
 If anything is missing it says exactly what, as a warning, and uploads the
 iPhone app alone:

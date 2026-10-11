@@ -299,6 +299,10 @@ enum SRDemoFixtures {
         if joined == "api/native/family/messages" || joined.hasPrefix("api/native/family/messages/") {
             return familyMessagesRoute(method: method, parts: parts, body: body, clock: clock)
         }
+        // The family backlog — `Family/FamilyBacklogDemoFixtures.swift`.
+        if joined == "api/native/family/backlog" || joined.hasPrefix("api/native/family/backlog/") {
+            return familyBacklogRoute(method: method, parts: parts, body: body, clock: clock)
+        }
         // The family step board and task list — `Family/FamilyBoardDemoFixtures.swift`.
         if joined.hasPrefix("api/native/family/") {
             return familyRoute(method: method, parts: parts, body: body, clock: clock)

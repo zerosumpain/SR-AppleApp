@@ -75,6 +75,7 @@ final class ReviewDemo: ObservableObject {
         // Shared stores that outlive `ContentView`: drop whatever they read.
         FamilyStepsStore.shared.reset()
         FamilyTasksStore.shared.reset()
+        FamilyBacklogStore.shared.reset()
         LandgrabStore.shared.reset()
         UIApplication.shared.shortcutItems = AccessPolicy.quickActions(for: AccessStore.shared.current).map { $0.item }
         active = Self.isActive
@@ -174,6 +175,7 @@ final class SRDemoSession: @unchecked Sendable {
         tasks = nil
         newTasks = 0
         FamilyMessagesDemo.shared.reset()
+        FamilyBacklogDemo.shared.reset()
     }
 
     // MARK: Chat

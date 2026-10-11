@@ -24,6 +24,7 @@ struct MoreScreen: View {
     @ObservedObject private var commissions = CommissionStore.shared
     @ObservedObject private var steps = FamilyStepsStore.shared
     @ObservedObject private var tasks = FamilyTasksStore.shared
+    @ObservedObject private var backlog = FamilyBacklogStore.shared
     @ObservedObject private var landgrab = LandgrabStore.shared
     @ObservedObject private var access = AccessStore.shared
     @ObservedObject private var wildmind = WildmindStore.shared
@@ -83,6 +84,7 @@ struct MoreScreen: View {
             if access.familyBoards {
                 if steps.board == nil { await steps.load() }
                 if tasks.board == nil { await tasks.load() }
+                if backlog.board == nil { await backlog.load() }
                 if landgrab.board == nil { await landgrab.load() }
             }
             if games.lobby == nil { await games.load() }
@@ -91,6 +93,7 @@ struct MoreScreen: View {
             if access.familyBoards {
                 await steps.load()
                 await tasks.load()
+                await backlog.load()
                 await landgrab.load()
             }
             await games.load()
@@ -119,6 +122,14 @@ struct MoreScreen: View {
                     blurb: "Jobs for the family, with a reward when a parent confirms them.",
                     status: tasks.summary.flatMap { taskStatus($0) }
                 )
+            case .backlog:
+                MoreCard(
+                    icon: "tray.full",
+                    fill: SR.accentInk,
+                    title: "Backlog",
+                    blurb: "Videos, links and ideas the family shared to watch or do together.",
+                    status: backlog.board.flatMap(FamilyBacklogRules.status)
+                )
             case .messages:
                 MoreCard(
                     icon: "bubble.left.and.text.bubble.right",
@@ -145,7 +156,7 @@ struct MoreScreen: View {
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, wildmind, steps, tasks, landgrab, sync, settings
+        case daydream, wildmind, steps, tasks, backlog, landgrab, sync, settings
         case place(Router.Tab)
     }
 
@@ -156,7 +167,7 @@ struct MoreScreen: View {
         if AccessStore.ownerSite { all += [.daydream, .wildmind] }
         // The family's step board and task list: pages, not tabs, for
         // everyone with the family and the site credential.
-        if access.familyBoards { all += [.steps, .tasks] }
+        if access.familyBoards { all += [.steps, .tasks, .backlog] }
         // Landgrab, once its board has somebody on it — hidden, like the
         // section on Steps, when the site says no or has nothing.
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
@@ -231,6 +242,7 @@ struct MoreScreen: View {
             .accessibilityIdentifier("more-wildmind")
         case .steps: familyCard(.steps)
         case .tasks: familyCard(.tasks)
+        case .backlog: familyCard(.backlog)
         case .landgrab:
             Button {
                 SRHaptic.tap()
