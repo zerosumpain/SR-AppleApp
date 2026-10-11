@@ -15,6 +15,16 @@ extension XCUIApplication {
             return true
         }
         let more = tabBars.buttons["More"]
+        // A swipe up the page folds the iOS 26 bar down to the selected tab
+        // alone (`tabBarMinimizeBehavior(.onScrollDown)`), and neither the
+        // tab nor More is on it then. A swipe back down opens it out again.
+        if !more.waitForExistence(timeout: 2) {
+            swipeDown()
+            if direct.waitForExistence(timeout: 2) {
+                direct.tap()
+                return true
+            }
+        }
         guard more.waitForExistence(timeout: timeout) else { return false }
         // The app's own More hub: one card per place, `more-<tab>`.
         let card = descendants(matching: .any)["more-\(name.lowercased())"].firstMatch
