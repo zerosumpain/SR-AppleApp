@@ -192,6 +192,7 @@ final class DaydreamStore: ObservableObject {
             notes = Self.merge(notes, feed.notes)
             pipeline = feed.pipeline
             impact = feed.impact
+            DaydreamShelf.shared.count = feed.stale
         } catch let error as URLError where error.code == .cancelled {
         } catch is CancellationError {
         } catch {

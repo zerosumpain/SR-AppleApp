@@ -14,6 +14,7 @@ struct DaydreamScreen: View {
     @ObservedObject private var store = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
     @ObservedObject private var commissions = CommissionStore.shared
+    @ObservedObject private var shelf = DaydreamShelf.shared
     /// The four-step explanation shows until it is folded away once.
     @AppStorage("daydream.howItWorks.seen") private var seenHowItWorks = false
     @State private var reopenedHowItWorks = false
@@ -52,6 +53,8 @@ struct DaydreamScreen: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("daydream-filter")
                 .padding(.vertical, 2)
+
+                if filter == .decide || filter == .all { DaydreamPastDateLine() }
 
                 if let error = commissions.error {
                     Text(error)
@@ -181,8 +184,9 @@ struct DaydreamScreen: View {
     }
 
     private var visibleNotes: [DaydreamNote] {
-        guard let bucket = filter.bucket else { return store.notes }
-        return store.notes.filter { store.bucket(for: $0, feedback: feedback, commissions: commissions) == bucket }
+        let held = store.notes.filter { !shelf.isFiled($0) }
+        guard let bucket = filter.bucket else { return held }
+        return held.filter { store.bucket(for: $0, feedback: feedback, commissions: commissions) == bucket }
     }
 
     /// Double-checks whose note is not among the forty the phone holds.

@@ -17,6 +17,8 @@ import Foundation
 //        commissionId, commissionState, review, act. An older server ignores `detail`;
 //        every added key is optional and derived when absent (see
 //        `DaydreamNote.split` and `derivedBucket`).
+//        `&stale=1` sends only the notes past their date; the answer's `stale`
+//        is how many there are (`DaydreamShelf.swift`).
 //   POST api/native/daydream/feedback        { "id", "verdict": useful|not_useful|never } → { "ok": true }
 //                                            { "id", "verdict": wrong|right, "why" } — a ruling on the claim
 //                                            (`DaydreamRuling.swift`)
@@ -220,6 +222,9 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
     let follow: DaydreamFollow?
     /// Older notes on the same subject this one replaced.
     let replaces: [DaydreamReplaced]
+    /// Probably past its date, and why. `nil` when it is not, and from an
+    /// older server (`DaydreamShelf.swift`).
+    let stale: DaydreamStale?
     /// Whether this copy came from the detailed read. A plain copy (Today's
     /// block) must not overwrite what a detailed one knows — see `merged`.
     let detailed: Bool
@@ -230,7 +235,7 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
          stage: DaydreamStage? = nil, bucket: DaydreamBucket? = nil, checkable: Bool? = nil,
          commissionId: String? = nil, commissionState: String? = nil, review: DaydreamReview? = nil,
          act: DaydreamAct? = nil, follow: DaydreamFollow? = nil, replaces: [DaydreamReplaced] = [],
-         detailed: Bool = false) {
+         stale: DaydreamStale? = nil, detailed: Bool = false) {
         self.id = id
         self.outcome = outcome
         self.channel = channel
@@ -255,13 +260,14 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
         self.act = act
         self.follow = follow
         self.replaces = replaces
+        self.stale = stale
         self.detailed = detailed
     }
 
     enum CodingKeys: String, CodingKey {
         case id, outcome, channel, title, body, createdAt, url, feedback
         case summary, next, sources, stage, bucket, checkable, commissionId, commissionState, review, act
-        case follow, replaces
+        case follow, replaces, stale
     }
 
     /// An id and a title are the note; without either there is nothing to show
@@ -309,6 +315,8 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
             // Follow-ups of the wrong shape cost the follow-ups, never the note.
             follow: c.lenient(DaydreamFollow.self, .follow),
             replaces: c.lossy(DaydreamReplaced.self, .replaces),
+            // A flag of the wrong shape costs the flag, never the note.
+            stale: c.lenient(DaydreamStale.self, .stale),
             detailed: detailed
         )
     }
@@ -364,7 +372,7 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
             stage: nil, bucket: DaydreamNote.derivedBucket(feedback: verdict, commissionState: commissionState,
                                                            ruled: review?.byOwner == true),
             checkable: checkable, commissionId: commissionId, commissionState: commissionState, review: review,
-            act: act, follow: follow, replaces: replaces, detailed: true
+            act: act, follow: follow, replaces: replaces, stale: stale, detailed: true
         )
     }
 }
@@ -534,25 +542,31 @@ struct DaydreamFeed: Decodable, Hashable {
     let notes: [DaydreamNote]
     let pipeline: DaydreamPipeline?
     let impact: DaydreamImpact?
+    /// How many notes are past their date, over every note — most are older
+    /// than the forty the page holds. `nil` from an older server.
+    let stale: Int?
 
-    init(notes: [DaydreamNote], pipeline: DaydreamPipeline? = nil, impact: DaydreamImpact? = nil) {
+    init(notes: [DaydreamNote], pipeline: DaydreamPipeline? = nil, impact: DaydreamImpact? = nil, stale: Int? = nil) {
         self.notes = notes
         self.pipeline = pipeline
         self.impact = impact
+        self.stale = stale
     }
 
-    enum CodingKeys: String, CodingKey { case notes, pipeline, impact }
+    enum CodingKeys: String, CodingKey { case notes, pipeline, impact, stale }
 
     init(from decoder: Decoder) throws {
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else {
             notes = []
             pipeline = nil
             impact = nil
+            stale = nil
             return
         }
         notes = c.lossy(DaydreamNote.self, .notes)
         pipeline = c.lenient(DaydreamPipeline.self, .pipeline)
         impact = c.lenient(DaydreamImpact.self, .impact)
+        stale = c.flexInt(.stale).map { max(0, $0) }
     }
 }
 
