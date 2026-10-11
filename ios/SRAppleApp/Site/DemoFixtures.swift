@@ -307,10 +307,6 @@ enum SRDemoFixtures {
         if joined == "api/native/workflows" || joined.hasPrefix("api/native/workflows/") {
             return flowRoute(method: method, parts: parts, body: body, clock: clock)
         }
-        // The Wildmind valley — `Wildmind/WildmindDemoFixtures.swift`.
-        if joined == "api/native/wildmind" || joined.hasPrefix("api/native/wildmind/") {
-            return wildmindRoute(method: method, parts: parts, query: query)
-        }
         // Everything else — the chat stream included — is a 404.
         return nil
     }

@@ -648,7 +648,7 @@ struct DrawGuessFeed: View {
                 SRSectionLabel(text: "Guesses", trailing: "\(feed.count)")
                 VStack(spacing: 0) {
                     ForEach(Array(feed.enumerated()), id: \.element.id) { index, entry in
-                        if index > 0 { GameLedgerRule() }
+                        if index > 0 { Divider().overlay(SR.divider) }
                         row(entry)
                     }
                 }

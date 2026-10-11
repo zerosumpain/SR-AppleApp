@@ -45,9 +45,12 @@ struct GameStandingsCard: View {
             SRSectionLabel(text: label)
             VStack(spacing: 0) {
                 ForEach(Array((room.standings ?? []).enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { GameLedgerRule() }
+                    if index > 0 { Divider().overlay(SR.divider) }
                     HStack(alignment: .center, spacing: 12) {
-                        GamePlace(place: index + 1, won: room.winnerIds.contains(row.id), ringed: !room.solo)
+                        Text("\(index + 1)")
+                            .font(SR.Text.display(26))
+                            .foregroundStyle(room.winnerIds.contains(row.id) ? SR.accent : SR.inkGhost)
+                            .frame(width: 32, alignment: .leading)
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 Text(row.name + (row.id == room.meId ? " (you)" : ""))
@@ -114,43 +117,6 @@ struct GameFinishedButtons<Store: GameRoomStoring>: View {
                 .controlSize(.large)
                 .accessibilityIdentifier("\(prefix)-done")
         }
-    }
-}
-
-/// A finishing place, "1" to "n", in Inter ExtraBold: the winner's in orange
-/// and, when there was someone to beat, ringed in orange ink, as the site
-/// rings the one figure on a page that matters. A tie rings every winner.
-///
-/// The ring is an overlay, so the place keeps its 32pt column; it reaches
-/// into the card's padding on the left, which is what that padding is for.
-struct GamePlace: View {
-    let place: Int
-    let won: Bool
-    /// False in a solo game: a ring round the only player says nothing.
-    var ringed: Bool = true
-    var size: CGFloat = 26
-    /// Off inside lazy stacks, where a row scrolled back in would draw its
-    /// ring again.
-    var animated: Bool = true
-
-    var body: some View {
-        Text("\(place)")
-            .font(SR.Text.display(size))
-            .monospacedDigit()
-            .foregroundStyle(won ? SR.accent : SR.inkGhost)
-            .srInkRing(seed: 31 + place, pad: 9, animated: animated, visible: won && ringed)
-            .frame(width: 32, alignment: .leading)
-    }
-}
-
-/// The rule between a standings card's lines: the page's petrol feint, so a
-/// table of results reads as a ledger ruled into the card.
-struct GameLedgerRule: View {
-    var body: some View {
-        Rectangle()
-            .fill(SR.Notes.rule)
-            .frame(height: 1)
-            .accessibilityHidden(true)
     }
 }
 

@@ -41,8 +41,7 @@ final class Router: ObservableObject {
 
     enum Sheet: String, Identifiable { case settings, alerts, connections; var id: String { rawValue } }
     /// Pages that live only inside More — not places with a tab of their own.
-    /// Wildmind, like Daydream, is the owner's.
-    enum MorePage: String, Hashable { case daydream, wildmind }
+    enum MorePage: String, Hashable { case daydream }
     enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
 
     func openSettings(_ target: SettingsTarget? = nil) {
@@ -350,7 +349,6 @@ struct ContentView: View {
                         .navigationDestination(for: Router.MorePage.self) { page in
                             switch page {
                             case .daydream: DaydreamScreen()
-                            case .wildmind: WildmindScreen()
                             }
                         }
                         .navigationDestination(for: FamilyPage.self) { familyPage($0) }

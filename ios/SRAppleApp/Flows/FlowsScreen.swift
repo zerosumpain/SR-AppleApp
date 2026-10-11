@@ -170,13 +170,11 @@ struct FlowRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // What starts it, written in its pen (red when it wants you).
-            // Plain, no disc and no loop: in the notes look a loop means
-            // "this is the one that matters", and every row cannot be that.
             Image(systemName: flow.hasQuestion ? "questionmark.bubble.fill" : flow.trigger.kind.icon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(tone)
                 .frame(width: 34, height: 34)
+                .background(tone.opacity(0.12), in: Circle())
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
@@ -287,11 +285,9 @@ struct FlowBuildingRow: View {
                 Text(build.title)
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
-                // The wait is an aside in the margin's hand; a failure is
-                // said plainly, in red.
                 Text(build.error ?? "jkai is building it — this takes a minute or so.")
-                    .font(build.error == nil ? SR.Text.marginalia(15) : SR.Text.secondary())
-                    .foregroundStyle(build.error == nil ? SR.inkSecondary : SR.error)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(build.error == nil ? SR.inkMuted : SR.error)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 6)
@@ -339,18 +335,14 @@ struct FlowNewSheet: View {
                     Section {
                         TextEditor(text: $prompt)
                             .font(SR.Text.body())
-                            .foregroundStyle(SR.ink)
-                            // The card stock shows through, not the system's
-                            // own white (or black) editor ground.
-                            .scrollContentBackground(.hidden)
                             .frame(minHeight: 140)
                             .accessibilityIdentifier("flow-new-prompt")
                     } header: {
                         SRSectionLabel(text: "What should it do?")
                     } footer: {
                         Text("For example: “Every weekday at 7, read my calendar and the weather and WhatsApp me a one-paragraph brief.” jkai builds the steps; you can change any of them after.")
-                            .font(SR.Text.marginalia(15))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary(13))
+                            .foregroundStyle(SR.inkMuted)
                     }
                     .srGlassRow()
                 }

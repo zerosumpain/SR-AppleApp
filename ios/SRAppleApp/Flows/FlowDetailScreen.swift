@@ -191,8 +191,7 @@ struct FlowDetailScreen: View {
                     Text(detail.buildError ?? "")
                 }
             }
-            // The wait is an aside; a failed build is said plainly.
-            .font(detail.buildError == nil ? SR.Text.marginalia(16) : SR.Text.secondary())
+            .font(SR.Text.secondary())
             .foregroundStyle(SR.inkSecondary)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -238,8 +237,8 @@ struct FlowDetailScreen: View {
         Section {
             if detail.steps.isEmpty && !detail.building {
                 Text("No steps yet. Add one, or ask jkai to build it out.")
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
             }
             ForEach(store.layout) { row in
                 layoutRow(row, detail: detail)
@@ -299,8 +298,8 @@ struct FlowDetailScreen: View {
         Section {
             if detail.recentRuns.isEmpty {
                 Text("Not run yet.")
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
             }
             ForEach(detail.recentRuns) { run in
                 NavigationLink(value: FlowRunRef(runId: run.id, title: detail.title)) {
@@ -404,9 +403,9 @@ struct FlowQuestionCard: View {
                 Image(systemName: "questionmark.bubble.fill")
                     .foregroundStyle(SR.accent)
                 Text("JKAI HAS A QUESTION")
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.Notes.pen)
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.accent)
             }
             Text(question)
                 .font(SR.Text.title(18))
@@ -419,11 +418,11 @@ struct FlowQuestionCard: View {
                 .focused($focused)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .srGlass(.paper, in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+                .srGlass(.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .accessibilityIdentifier("flow-question-field")
             Text("The build is paused until you answer. Skipping lets jkai pick something sensible — you can change it after.")
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
             // Side by side when they fit; stacked at larger text sizes.
             ViewThatFits(in: .horizontal) {
@@ -479,18 +478,16 @@ struct FlowTriggerCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // What starts it, in the orange pen: the first node of the
-            // column below, plain, as the steps are.
             Image(systemName: trigger.kind.icon)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(SR.accent)
                 .frame(width: 34, height: 34)
+                .background(SR.accent.opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 5) {
-                // A label over a reading: mono caps in the petrol pen.
                 Text(trigger.kind.label.uppercased())
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.accentInk)
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.inkMuted)
                 Text(trigger.headline(eventLabel: eventLabel))
                     .font(SR.Text.title(16))
                     .foregroundStyle(SR.ink)
@@ -508,8 +505,8 @@ struct FlowTriggerCard: View {
                     Text(trigger.kind == .event && !trigger.enabled
                          ? "Off. Change what starts it on the web canvas."
                          : "Change what starts it on the web canvas.")
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
                 }
                 if trigger.kind == .cron && !trigger.enabled {
                     Text("Paused — nothing runs on schedule.")
@@ -556,12 +553,11 @@ struct FlowStepRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // Each step its symbol in the step's pen (orange for the one that
-            // starts it, petrol for the rest), plain: no disc, no loop.
             Image(systemName: step.symbol)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(isTrigger ? SR.accent : SR.accentInk)
                 .frame(width: 30, height: 30)
+                .background((isTrigger ? SR.accent : SR.accentInk).opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(step.label)
@@ -598,10 +594,10 @@ struct FlowBranchLabel: View {
             Image(systemName: "arrow.turn.down.right")
                 .font(.system(size: 11, weight: .bold))
             Text(label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
+                .font(SR.Text.label())
+                .tracking(1.2)
         }
-        .foregroundStyle(SR.Notes.pen)
+        .foregroundStyle(SR.accent)
         .padding(.leading, CGFloat(max(depth - 1, 0)) * 18 + 6)
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel("Branch: \(label)")
@@ -659,9 +655,9 @@ struct FlowFixBanner: View {
                 Image(systemName: "wrench.and.screwdriver")
                     .foregroundStyle(SR.accent)
                 Text("A FIX FOR “\(proposal.nodeLabel.uppercased())”")
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.Notes.pen)
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.accent)
             }
             Text(proposal.description)
                 .font(SR.Text.body(15))
@@ -674,8 +670,8 @@ struct FlowFixBanner: View {
                     .foregroundStyle(SR.accentInk)
             }
             Text(retryLine)
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
             HStack(spacing: 10) {
                 Button { resolve(true) } label: { SRButtonLabel(title: "Apply", icon: "checkmark") }
                     .srButton(.prominent)
@@ -772,8 +768,8 @@ struct FlowTriggerEditor: View {
                 } else {
                     Section {
                         Text("Runs only when you start it — from here, the web, or jkai.")
-                            .font(SR.Text.marginalia(16))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
                     }
                     .srGlassRow()
                 }
@@ -928,18 +924,14 @@ struct FlowAskSheet: View {
                     Section {
                         TextEditor(text: $instruction)
                             .font(SR.Text.body())
-                            .foregroundStyle(SR.ink)
-                            // The card stock shows through, not the system's
-                            // own editor ground.
-                            .scrollContentBackground(.hidden)
                             .frame(minHeight: 120)
                             .accessibilityIdentifier("flow-ask-instruction")
                     } header: {
                         SRSectionLabel(text: "What should change?")
                     } footer: {
                         Text("jkai proposes the changes; nothing is saved until you apply them.")
-                            .font(SR.Text.marginalia(15))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary(13))
+                            .foregroundStyle(SR.inkMuted)
                     }
                     .srGlassRow()
                 }
@@ -985,8 +977,8 @@ struct FlowAskSheet: View {
         Section {
             if proposal.ops.isEmpty {
                 Text("No changes proposed.")
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
             }
             ForEach(Array(proposal.ops.enumerated()), id: \.offset) { index, op in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {

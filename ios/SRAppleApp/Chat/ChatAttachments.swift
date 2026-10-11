@@ -100,8 +100,7 @@ final class AttachmentImages {
     }
 }
 
-/// A photo in a sent turn, mounted the way the blog mounts a figure: on a
-/// card-stock border with a strip of tape across its top edge.
+/// A photo in a sent turn.
 struct AttachmentImage: View {
     let attachment: ChatAttachment
     @State private var image: UIImage?
@@ -127,15 +126,7 @@ struct AttachmentImage: View {
             }
         }
         .frame(width: 200, height: 200)
-        .clipped()
-        .padding(6)
-        .background(SR.Notes.card)
-        .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-        .srTaped(width: 64)
-        // The tape stands 11pt proud of the mount; keep it off the byline.
-        .padding(.top, 10)
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isImage)
+        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
         .accessibilityLabel(attachment.filename ?? "Photo")
         .task(id: attachment.id) {
             image = await AttachmentImages.shared.load(attachment.id)
@@ -170,11 +161,11 @@ struct PendingAttachmentStrip: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 60, height: 60)
-                        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 } else {
                     HStack(spacing: 7) {
                         Image(systemName: "doc")
-                            .foregroundStyle(SR.Notes.pen)
+                            .foregroundStyle(SR.accent)
                         Text(item.filename)
                             .font(SR.Text.mono())
                             .foregroundStyle(SR.ink)
@@ -183,17 +174,17 @@ struct PendingAttachmentStrip: View {
                     }
                     .padding(.horizontal, 14)
                     .frame(height: 60)
-                    .srGlassCard(.paper)
+                    .srGlass(.paper, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
             }
             .overlay {
                 switch item.state {
                 case .uploading:
-                    RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(SR.paper.opacity(0.55))
                         .overlay { ProgressView().tint(SR.ink) }
                 case .failed:
-                    RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(SR.paper.opacity(0.7))
                         .overlay {
                             Image(systemName: "exclamationmark.triangle.fill")

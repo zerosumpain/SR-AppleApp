@@ -577,7 +577,7 @@ struct BoggleFinished: View {
                             SRSectionLabel(text: "Every word found", trailing: "\(found.count)")
                             VStack(spacing: 0) {
                                 ForEach(Array(found.enumerated()), id: \.element.id) { index, word in
-                                    if index > 0 { GameLedgerRule() }
+                                    if index > 0 { Divider().overlay(SR.divider) }
                                     foundRow(word) { show(word.word, reader) }
                                 }
                             }
@@ -716,13 +716,11 @@ private struct FlowChips: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .frame(minHeight: SR.tapTarget)
-                    // Card stock, filled with the petrol pen while its word
-                    // is lit on the board.
                     .background(
-                        RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                        RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 2, style: .continuous)
                             .fill(on ? SR.accentInk : Color.clear)
                     )
-                    .srGlassCard(.paper)
+                    .srGlassCard(on ? .clear : .paper, radius: SR.Glass.innerRadius + 2)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

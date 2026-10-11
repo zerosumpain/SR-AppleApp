@@ -52,13 +52,12 @@ struct CommissionDetailScreen: View {
     private func content(_ c: DaydreamCommission) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(c.label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
+                .font(SR.Text.label())
+                .tracking(1.2)
                 .foregroundStyle(DaydreamCommissionStatus.tone(for: c.state))
                 .accessibilityIdentifier("commission-state")
             Text(c.spec.title)
-                .font(SR.Text.hero(28))
-                .tracking(-28 * 0.035)
+                .font(SR.Text.display(24))
                 .foregroundStyle(SR.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
@@ -70,10 +69,9 @@ struct CommissionDetailScreen: View {
             stopped: ["declined", "cancelled"].contains(c.state)
         )
 
-        // What the double-check is for is the sheet's lede: Fraunces italic.
         if !c.spec.outcome.isEmpty {
             Text(c.spec.outcome)
-                .font(SR.Text.marginalia(18))
+                .font(SR.Text.body(17))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -91,7 +89,7 @@ struct CommissionDetailScreen: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(DaydreamCommissionStatus.tone(for: c.state).opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("commission-progress")
         }
@@ -218,7 +216,7 @@ struct CommissionDetailScreen: View {
                     .font(.system(size: 17, weight: .semibold))
                     .accessibilityHidden(true)
                 Text(review.verdict.label)
-                    .font(SR.Text.display(20))
+                    .font(SR.Text.title(19))
             }
             .foregroundStyle(review.verdict == .unclear ? SR.ink : review.verdict.tone)
             .accessibilityElement(children: .combine)
@@ -226,8 +224,8 @@ struct CommissionDetailScreen: View {
             .accessibilityIdentifier("commission-verdict")
             if !review.claim.isEmpty {
                 Text("It checked: \(review.claim)")
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary(14))
+                    .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text(review.reasoning)
@@ -238,7 +236,7 @@ struct CommissionDetailScreen: View {
                 .accessibilityIdentifier("commission-verdict-reasoning")
             if let overruled = review.overruled {
                 Text(overruled)
-                    .font(SR.Text.marginalia(15))
+                    .font(SR.Text.secondary(14))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -246,11 +244,11 @@ struct CommissionDetailScreen: View {
                 SRSectionLabel(text: "How it tried to prove the note wrong")
                 ForEach(Array(review.challenges.enumerated()), id: \.offset) { _, challenge in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        // Each doubt is stamped with how it came out.
-                        SRStamp(text: challenge.survives ? "Survived" : "Sank it",
-                                tone: challenge.survives ? SR.good : SR.warn)
-                            .fixedSize()
-                            .frame(minWidth: 96, alignment: .leading)
+                        Text(challenge.survives ? "SURVIVED" : "SANK IT")
+                            .font(SR.Text.label(11))
+                            .tracking(1)
+                            .foregroundStyle(challenge.survives ? SR.good : SR.warn)
+                            .frame(width: 72, alignment: .leading)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(challenge.doubt)
                                 .font(SR.Text.bodyMedium(15))
@@ -267,19 +265,11 @@ struct CommissionDetailScreen: View {
                 }
             }
             if let lesson = review.lesson {
-                // Quoted as the blog quotes: Fraunces italic behind a double
-                // petrol rule.
                 Text("Lesson kept: “\(lesson)”")
-                    .font(SR.Text.marginalia(17))
+                    .font(SR.Text.body(15))
                     .foregroundStyle(SR.ink)
-                    .padding(.leading, 14)
-                    .overlay(alignment: .leading) {
-                        HStack(spacing: 2) {
-                            SR.accentInk.opacity(0.6).frame(width: 1)
-                            SR.accentInk.opacity(0.6).frame(width: 1)
-                        }
-                        .accessibilityHidden(true)
-                    }
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) { Rectangle().fill(SR.accent).frame(width: 2) }
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("commission-verdict-lesson")
             }
@@ -340,7 +330,7 @@ struct CommissionDetailScreen: View {
                 }
                 .tint(SR.inkSecondary)
                 .padding(12)
-                .background(SR.ink.opacity(0.03), in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+                .background(SR.ink.opacity(0.03), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .accessibilityIdentifier("commission-source-\(index)")
             }
         }
@@ -501,7 +491,7 @@ struct CommissionProgressTrack: View {
                 let inset = proxy.size.width / CGFloat(Self.titles.count * 2)
                 Rectangle()
                     .fill(SR.line)
-                    .frame(width: max(0, proxy.size.width - inset * 2), height: 1.5)
+                    .frame(width: max(0, proxy.size.width - inset * 2), height: 2)
                     .offset(x: inset, y: 10)
             }
         }
@@ -519,34 +509,24 @@ struct CommissionProgressTrack: View {
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(SR.paper))
         } else if index < step || (index == step && index == Self.titles.count - 1) {
-            // A step behind it is ticked off in petrol, by hand.
-            ZStack {
-                Circle().fill(SR.paper)
-                SRInkTick(seed: 9 + index)
-                    .stroke(SR.accentInk, style: .ink(2.2))
-                    .frame(width: 16, height: 16)
-            }
-            .frame(width: 22, height: 22)
+            Circle()
+                .fill(SR.accentInk)
+                .overlay(
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(SR.paper)
+                )
+                .frame(width: 18, height: 18)
         } else if index == step {
-            // The step it is on is pencilled in: a dot inside a loose ring.
-            let tone = stopped ? SR.inkMuted : SR.accent
-            ZStack {
-                Circle().fill(SR.paper)
-                Circle().fill(tone.opacity(0.85)).frame(width: 9, height: 9)
-                SRInkLoop(seed: 23 + index, turns: 1.15, wobble: 0.06)
-                    .stroke(tone, style: .ink(1.5))
-                    .frame(width: 18, height: 18)
-            }
-            .frame(width: 22, height: 22)
+            Circle()
+                .fill(stopped ? SR.inkMuted : SR.accent)
+                .frame(width: 18, height: 18)
+                .overlay(Circle().strokeBorder(SR.paper, lineWidth: 3))
         } else {
-            // A step to come is the ring alone, drawn and not yet filled.
-            ZStack {
-                Circle().fill(SR.paper).frame(width: 18, height: 18)
-                SRInkLoop(seed: 23 + index, turns: 1.15, wobble: 0.06)
-                    .stroke(SR.inkGhost, style: .ink(1.3))
-                    .frame(width: 18, height: 18)
-            }
-            .frame(width: 22, height: 22)
+            Circle()
+                .fill(SR.paper)
+                .overlay(Circle().strokeBorder(SR.line, lineWidth: 2))
+                .frame(width: 18, height: 18)
         }
     }
 

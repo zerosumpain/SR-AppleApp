@@ -186,9 +186,6 @@ struct FamilyWidgetGallery: View {
             }
             .padding(SR.gutter)
         }
-        // A stand-in wallpaper, fixed in both modes on purpose: the widgets
-        // are photographed on what a Home Screen puts behind them, not on
-        // the notebook's paper.
         .background(Color(red: 0.36, green: 0.42, blue: 0.5).ignoresSafeArea())
         .accessibilityIdentifier("widget-gallery")
         .navigationTitle("Widget previews")
@@ -200,24 +197,16 @@ struct FamilyWidgetGallery: View {
     }
 
     /// A widget-sized, widget-shaped frame. `lock` draws a Lock Screen slot:
-    /// no card, light text on the wallpaper, dark as the Lock Screen is.
-    /// A Home Screen tile follows the phone's appearance, as the widget
-    /// itself does: card stock by day, the night card by night.
-    @ViewBuilder
+    /// no paper, light text on the wallpaper.
     private func tile<V: View>(_ view: V, width: CGFloat, height: CGFloat = 158, lock: Bool = false) -> some View {
-        if lock {
-            view
-                .padding(6)
-                .frame(width: width, height: height, alignment: .topLeading)
-                .foregroundStyle(Color.white)
-                .environment(\.colorScheme, .dark)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.12)))
-        } else {
-            view
-                .padding(16)
-                .frame(width: width, height: height, alignment: .topLeading)
-                .foregroundStyle(FamilyWidgetInk.ink)
-                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(FamilyWidgetInk.paper))
-        }
+        view
+            .padding(lock ? 6 : 16)
+            .frame(width: width, height: height, alignment: .topLeading)
+            .foregroundStyle(lock ? Color.white : FamilyWidgetInk.ink)
+            .environment(\.colorScheme, lock ? .dark : .light)
+            .background(
+                RoundedRectangle(cornerRadius: lock ? 12 : 22, style: .continuous)
+                    .fill(lock ? Color.white.opacity(0.12) : FamilyWidgetInk.paper)
+            )
     }
 }

@@ -46,48 +46,6 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Daydream")
     }
 
-    // MARK: - More
-
-    /// The More tab: index cards, each place's icon in a hand-drawn loop.
-    @MainActor func testShowcaseMore() {
-        let app = launch()
-        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
-        openTab(app, "More")
-        settle(app, on: byId(app, "more-screen"))
-        soft(byId(app, "more-wildmind").exists, "no Wildmind card in More")
-        attach(app, "Showcase — More")
-    }
-
-    /// Wildmind from More: the valley drawn natively, its readings, and a
-    /// person's pinned card.
-    @MainActor func testShowcaseWildmind() {
-        let app = launch()
-        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
-        openTab(app, "More")
-        settle(app, on: byId(app, "more-screen"))
-        let tile = byId(app, "more-wildmind")
-        guard scroll(app, to: tile) else { return soft(false, "no Wildmind card in More") }
-        tile.tap()
-        settle(app, on: byId(app, "wildmind-screen"), seconds: 3)
-        soft(byId(app, "wildmind-map").waitForExistence(timeout: 10), "no map on the Wildmind page")
-        attach(app, "Showcase — Wildmind")
-
-        let readings = byId(app, "wildmind-readings")
-        soft(scroll(app, to: readings), "no readings under the map")
-        settle(app)
-        attach(app, "Showcase — Wildmind, readings")
-
-        // Back up to the map, and tap JKai.
-        let jkai = byId(app, "wildmind-person-main")
-        guard scroll(app, to: jkai) else { return soft(false, "no JKai on the map") }
-        jkai.tap()
-        let card = byId(app, "wildmind-person-card")
-        soft(card.waitForExistence(timeout: 5), "tapping JKai pinned no card")
-        if card.exists && !card.isHittable { app.swipeUp() }
-        settle(app)
-        attach(app, "Showcase — Wildmind, JKai")
-    }
-
     // MARK: - Family
 
     /// The mini-map on Today, then the tab it opens: pins, today's lines, and

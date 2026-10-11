@@ -70,32 +70,17 @@ struct FollowRouteScreen: View {
         )
     }
 
-    /// Off the line: a sticky-note slip stuck over the top of the map, as
-    /// `SRBanner` is — the warm gradient, ink type, a degree of tilt. The note
-    /// is the same paper by day and by night, so its colours are the fixed
-    /// light ones; the warning glyph is the red pencil so a glance mid-stride
-    /// still reads it as a warning.
     private func offRouteBanner(_ p: RouteNav.Progress) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color(hex: 0xB3261E))
-                .accessibilityHidden(true)
             Text("Off route — \(TrailFormat.metres(p.offRouteM)) m from the line")
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.Notes.stickyInk)
+                .font(SR.Text.body(15))
             Spacer()
         }
+        .foregroundStyle(SR.paper)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(
-            LinearGradient(colors: [SR.Notes.stickyTop, SR.Notes.stickyBottom],
-                           startPoint: UnitPoint(x: 0.33, y: 0.03),
-                           endPoint: UnitPoint(x: 0.67, y: 0.97)),
-            in: RoundedRectangle(cornerRadius: 2, style: .continuous)
-        )
-        .shadow(color: Color(hex: 0x1A1008, alpha: 0.22), radius: 7, x: 0, y: 6)
-        .environment(\.colorScheme, .light)
-        .rotationEffect(.degrees(-1))
+        .background(SR.accent, in: RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .accessibilityIdentifier("follow-off-route")
@@ -116,8 +101,8 @@ struct FollowRouteScreen: View {
             }
             if session.weakSignal {
                 Text("Weak GPS — positions are approximate.")
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary(12))
+                    .foregroundStyle(SR.inkMuted)
             }
             liveRow
             HStack(spacing: 12) {
@@ -194,20 +179,14 @@ struct FollowRouteScreen: View {
         }
     }
 
-    /// A reading on the panel: the petrol label over it, the figure in Inter
-    /// ExtraBold — the face that reads at arm's length, mid-stride.
     private func figure(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(SR.Text.kicker())
+                .font(SR.Text.mono(10))
                 .tracking(0.8)
-                .foregroundStyle(SR.accentInk)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .foregroundStyle(SR.inkMuted)
             Text(value)
-                .font(SR.Text.figure(19))
-                .tracking(-19 * 0.03)
-                .monospacedDigit()
+                .font(SR.Text.mono(17))
                 .foregroundStyle(SR.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)

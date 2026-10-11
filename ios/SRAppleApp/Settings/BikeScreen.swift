@@ -33,8 +33,7 @@ struct BikeScreen: View {
                     SRSectionLabel(text: "Your bike")
                 } footer: {
                     Text("Fixes taken while it is connected are marked as on the bike. The Avinox app must be connected to it during the ride for that to happen.")
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.secondary())
                 }
                 .onAppear { check() }
             } else {

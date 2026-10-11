@@ -247,51 +247,22 @@ struct DevicePrivacyScreen: View {
     @State private var saving = false
     @State private var message: String?
 
-    // The one grouped screen that was left system-styled: on iOS 26 the list
-    // ground is cleared app-wide (see `SRChrome`), so without its own paper it
-    // showed whatever lay behind. It now sits on the ruled page like every
-    // other settings screen, its rows on card stock.
     var body: some View {
         Form {
             Section {
-                Toggle(isOn: $choice.notificationDetails) {
-                    SRRow(title: "Show notification details", subtitle: "Names, places, tasks and step counts", icon: "bell.badge")
-                }
-                .tint(SR.accent)
-                .srGlassRow()
-                Toggle(isOn: $choice.liveActivityEnabled) {
-                    SRRow(title: "Show journey Live Activities", subtitle: "Family journeys while this phone is locked", icon: "location.circle")
-                }
-                .tint(SR.accent)
-                .srGlassRow()
-            } header: {
-                SRSectionLabel(text: "On the Lock Screen")
+                Toggle("Show notification details", isOn: $choice.notificationDetails)
+                Toggle("Show journey Live Activities", isOn: $choice.liveActivityEnabled)
             } footer: {
                 Text("Both are off by default. Details can include names, places, tasks and step counts. Live Activities can show family journeys while this phone is locked. Information already delivered cannot be recalled.")
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
-                    .padding(.vertical, 4)
             }
             .disabled(!ready || saving)
             Section {
-                Button { Task { await save() } } label: {
-                    SRRow(title: saving ? "Saving…" : "Save choices", icon: "checkmark.circle", tone: SR.accent)
-                }
-                .buttonStyle(.plain)
-                .disabled(!ready || saving)
-                .srGlassRow()
-                if let message {
-                    Text(message)
-                        .font(SR.Text.marginalia(16))
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .srGlassRow()
-                }
+                Button(saving ? "Saving…" : "Save choices") { Task { await save() } }
+                    .disabled(!ready || saving)
+                if let message { Text(message).font(SR.Text.secondary()) }
             }
         }
-        .srPaper()
         .navigationTitle("Lock Screen privacy")
-        .navigationBarTitleDisplayMode(.inline)
         .task {
             do {
                 choice = try await SiteClient.shared.send("api/native/push", asSelf: true)
@@ -461,8 +432,8 @@ struct ConnectionsScreen: View {
             SRSectionLabel(text: "The website", trailing: site.paired ? "Connected" : nil)
         } footer: {
             Text("Chat threads, the news desk, your health figures and alerts. A device token, not a password — the website can revoke it at any moment, and it expires after ninety days.")
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
                 .padding(.vertical, 4)
         }
     }
@@ -519,8 +490,8 @@ struct ConnectionsScreen: View {
             SRSectionLabel(text: "The companion", trailing: companion.paired ? "Connected" : nil)
         } footer: {
             Text("Apple Health uploads and family location. A different server and a different credential: disconnecting either leaves the other running.")
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
                 .padding(.vertical, 4)
         }
     }
@@ -539,9 +510,7 @@ struct ConnectionsScreen: View {
                 .font(SR.Text.body(15))
                 .padding(.horizontal, 12).padding(.vertical, 12)
                 .frame(minHeight: SR.tapTarget)
-                // The page's paper inside the row's card stock: a field you
-                // write in, a shade apart from the card it sits on.
-                .background(SR.paper)
+                .background(SR.surface)
                 .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
                 .focused($focus, equals: .server)
                 .submitLabel(.next)
@@ -556,7 +525,7 @@ struct ConnectionsScreen: View {
             .font(SR.Text.body(15))
             .padding(.horizontal, 12).padding(.vertical, 12)
             .frame(minHeight: SR.tapTarget)
-            .background(SR.paper)
+            .background(SR.surface)
             .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
             .focused($focus, equals: .code)
             .submitLabel(.go)
@@ -567,11 +536,16 @@ struct ConnectionsScreen: View {
             }
             .tint(SR.accent)
 
-            // The app's prominent button; disabled, the style fades it.
             Button { connectCompanion() } label: {
-                SRButtonLabel(title: "Connect", fill: true)
+                Text("CONNECT")
+                    .font(SR.Text.label())
+                    .tracking(1.3)
+                    .foregroundStyle(SR.paper)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(companion.busy || code.isEmpty ? SR.inkGhost : SR.accent)
             }
-            .srButton(.prominent)
+            .buttonStyle(.plain)
             .disabled(companion.busy || code.isEmpty)
         }
         .padding(.vertical, 10)
@@ -632,8 +606,8 @@ struct AppleHealthScreen: View {
                 SRSectionLabel(text: "Categories")
             } footer: {
                 Text("Health is read on a schedule iOS controls, not on a timer of ours, so these cost far less than location. Apple does not reveal whether you denied read access, so missing records may mean no data or no permission. Turning one off stops future uploads; delete what is already there on the website.")
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
                     .padding(.vertical, 4)
             }
 
@@ -687,8 +661,8 @@ struct AppleHealthScreen: View {
                 SRSectionLabel(text: "Family location")
             } footer: {
                 Text("Permitted family members see your shared location and journey status. Parents may see their named wards’ history. Daily steps are shared only if you enable the separate steps option above.")
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
                     .padding(.vertical, 4)
             }
 

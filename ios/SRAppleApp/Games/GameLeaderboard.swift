@@ -206,8 +206,8 @@ struct GameLeaderboardScreen: View {
                     .onChange(of: store.window) { _, _ in SRHaptic.select() }
                     .accessibilityIdentifier("leaderboard-window")
                     Text(store.window.caption)
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -254,15 +254,14 @@ struct GameLeaderboardScreen: View {
             SRSectionLabel(text: "Overall", trailing: "Wins")
             VStack(spacing: 0) {
                 ForEach(Array(board.overall.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { GameLedgerRule() }
+                    if index > 0 { Divider().overlay(SR.divider) }
                     LeaderboardLine(
                         rank: row.rank,
                         name: row.name,
                         isMe: row.playerId == board.meId,
                         detail: LeaderboardWords.count(row.played, "game", "games"),
                         figure: "\(row.wins)",
-                        spoken: LeaderboardWords.count(row.wins, "win", "wins"),
-                        tally: row.wins
+                        spoken: LeaderboardWords.count(row.wins, "win", "wins")
                     )
                     .accessibilityIdentifier("leaderboard-overall-\(row.playerId)")
                 }
@@ -281,15 +280,14 @@ struct GameLeaderboardScreen: View {
             SRSectionLabel(text: game.title, trailing: game.scored ? "Best" : "Wins")
             VStack(spacing: 0) {
                 ForEach(Array(game.rows.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { GameLedgerRule() }
+                    if index > 0 { Divider().overlay(SR.divider) }
                     LeaderboardLine(
                         rank: row.rank,
                         name: row.name,
                         isMe: row.playerId == meId,
                         detail: detail(row, scored: game.scored),
                         figure: figureText(row, scored: game.scored),
-                        spoken: spokenText(row, scored: game.scored),
-                        ringed: false
+                        spoken: spokenText(row, scored: game.scored)
                     )
                     .accessibilityIdentifier("leaderboard-\(game.game)-\(row.playerId)")
                 }
@@ -302,11 +300,10 @@ struct GameLeaderboardScreen: View {
     }
 
     /// The right-hand figure: the best score, or wins for a game with no score.
-    /// Nil when a scored game has no best yet: the line writes a dash for
-    /// it, never a 0.
-    private func figureText(_ row: LeaderboardRow, scored: Bool) -> String? {
+    private func figureText(_ row: LeaderboardRow, scored: Bool) -> String {
         guard scored else { return "\(row.wins)" }
-        return row.best.map { "\($0)" }
+        guard let best = row.best else { return "–" }
+        return "\(best)"
     }
 
     private func spokenText(_ row: LeaderboardRow, scored: Bool) -> String {
@@ -331,21 +328,15 @@ struct LeaderboardLine: View {
     let name: String
     let isMe: Bool
     let detail: String
-    /// Nil for no score yet: a Fraunces dash in muted ink.
-    let figure: String?
+    let figure: String
     let spoken: String
-    /// Wins counted out in five-bar gates beside the figure, on the overall
-    /// board where the count is the point. Nil for none.
-    var tally: Int? = nil
-    /// Ring first place. Only the overall board does: one ring to a page,
-    /// round the leader that matters; each game's own #1 is orange alone.
-    var ringed: Bool = true
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // First place ringed, still: the board is a lazy stack, and a
-            // ring that drew itself again on every scroll back would fidget.
-            GamePlace(place: rank, won: rank == 1, ringed: ringed, size: 24, animated: false)
+            Text("\(rank)")
+                .font(SR.Text.display(24))
+                .foregroundStyle(rank == 1 ? SR.accent : SR.inkGhost)
+                .frame(width: 32, alignment: .leading)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(isMe ? "\(name) (you)" : name)
@@ -364,23 +355,11 @@ struct LeaderboardLine: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            if let tally, tally > 0 {
-                SRTally(count: tally, height: 18, tone: SR.inkSecondary, seed: seedFor(name), maxWidth: 76)
-            }
-            Group {
-                if let figure {
-                    Text(figure)
-                        .font(SR.Text.figure(24))
-                        .tracking(-24 * 0.03)
-                        .foregroundStyle(SR.ink)
-                        .monospacedDigit()
-                } else {
-                    Text("\u{2014}")
-                        .font(SR.Text.serif(20))
-                        .foregroundStyle(SR.inkMuted)
-                }
-            }
-            .accessibilityLabel(spoken)
+            Text(figure)
+                .font(SR.Text.figure(24))
+                .foregroundStyle(SR.ink)
+                .monospacedDigit()
+                .accessibilityLabel(spoken)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, isMe ? 6 : 0)

@@ -132,11 +132,6 @@ struct FigureRange: Equatable {
 /// Readiness screen that repeated this card, then repeated Insights' read —
 /// the same score three times. Now the verdict's reasons and advice are in
 /// Insights, and each figure line opens that figure's own page.
-///
-/// It is the book's ink cover: edge to edge in its row, so `SRInkBand` tears
-/// its foot over the paper the areas are written on. Everything on it is a
-/// cream rung or an on-dark pen; the one hand-drawn mark is the loop round the
-/// score.
 struct HealthCompactHero: View {
     let summary: HealthSummary
     let rings: ActivityRingsStore.Rings?
@@ -229,12 +224,6 @@ struct HealthCompactHero: View {
 
 /// Readiness in the middle of today's Move, Exercise and Stand, nested the
 /// way the Watch draws them. A ring with no reading draws its track alone.
-///
-/// In the notes look the score in the hole is RINGED by hand, in orange on
-/// the cover, the way the site's cover rings the pulse figure: the three
-/// rings are the day's measurements, the loop is the pen saying "this one".
-/// It sits inside the innermost ring — a hand loop round the outside would
-/// read as a fourth, wobbly, measurement — and it is not drawn round a dash.
 struct ReadinessRings: View {
     let score: String
     let rings: ActivityRingsStore.Rings?
@@ -264,20 +253,11 @@ struct ReadinessRings: View {
                 }
                 Text(score)
                     .font(SR.Text.figure(32))
-                    .tracking(-32 * 0.03)
-                    .monospacedDigit()
+                    .tracking(-0.64)
                     .foregroundStyle(SR.onInk(.primary))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .padding(.horizontal, step * 3)
-                if score != "—" {
-                    // 46% by 38% of the side: the loop's widest point is
-                    // about 26pt from the centre at 120pt, inside the
-                    // innermost ring's 31pt hole however it wobbles. A
-                    // perfect 100 is wider, and gets a wider loop.
-                    SRInkStroke(shape: SRInkRing(seed: 31), tone: SR.accentOnDark, lineWidth: 1.8)
-                        .frame(width: side * (score.count > 2 ? 0.52 : 0.46), height: side * 0.38)
-                }
             }
             .frame(width: side, height: side)
             .animation(.easeInOut(duration: 0.4), value: rings)

@@ -222,8 +222,7 @@ struct HealthInsightsScreen: View {
 // MARK: - Section header
 
 /// A section's eyebrow with its colour and glyph: the colour says how loud
-/// the section is allowed to be. Set as the notes kicker (mono 12, 0.14em)
-/// in that colour, rather than the writing orange every other kicker has.
+/// the section is allowed to be.
 struct InsightsHeader: View {
     let text: String
     let icon: String
@@ -237,14 +236,14 @@ struct InsightsHeader: View {
                 .foregroundStyle(tint)
                 .accessibilityHidden(true)
             Text(text.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
+                .font(SR.Text.label(13))
+                .tracking(1.4)
                 .foregroundStyle(tint)
             Spacer(minLength: 8)
             if let trailing {
                 Text(trailing.uppercased())
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
+                    .font(SR.Text.mono())
+                    .tracking(1)
                     .foregroundStyle(SR.inkMuted)
             }
         }
@@ -278,8 +277,7 @@ enum InsightsAttention {
     }
 }
 
-/// The live tripwires, on an index card tinted and edged the colour of the
-/// worst of them.
+/// The live tripwires, on a card tinted the colour of the worst of them.
 struct InsightsAttentionCard: View {
     let tripwires: [HubDigest.Tripwire]
 
@@ -297,15 +295,11 @@ struct InsightsAttentionCard: View {
             }
         }
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                    .fill(SR.Notes.card)
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                    .fill(worst.opacity(0.08))
-            }
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                .fill(worst.opacity(0.08))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
                 .strokeBorder(worst.opacity(0.45), lineWidth: 1.5)
         )
         .accessibilityIdentifier("insights-attention")
@@ -314,12 +308,6 @@ struct InsightsAttentionCard: View {
 
 /// One live tripwire: a badge that pulses when it has been crossed, the
 /// signal and where it stands, then what it means.
-///
-/// The badge is the loudest thing on the page and stays a solid disc in the
-/// state's colour, its glyph in the paper token (cream on a light phone, the
-/// night's near-black on a dark one — each the side that holds against that
-/// mode's red and orange). No hand-drawn loop round it: the solid disc
-/// already says "look", and a loop on every row would spend the mark.
 struct InsightsAttentionRow: View {
     let tripwire: HubDigest.Tripwire
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -332,7 +320,7 @@ struct InsightsAttentionRow: View {
                 Circle().fill(tint)
                 Image(systemName: InsightsAttention.symbol(tripwire.state))
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(SR.paper)
+                    .foregroundStyle(.white)
                     .symbolEffect(.pulse, options: .repeating, isActive: tripped && !reduceMotion)
             }
             .frame(width: 38, height: 38)
@@ -371,29 +359,32 @@ struct InsightsAttentionRow: View {
     }
 }
 
-/// Every tripwire clear: one quiet line, not a card — written on the page
-/// and ticked in the olive pencil, as the notebook ticks a checklist.
+/// Every tripwire clear: one quiet line, not a card.
 struct InsightsAllClear: View {
     let count: Int
 
     var body: some View {
         HStack(spacing: 10) {
-            SRInkTick(seed: 9)
-                .stroke(SR.good, style: .ink(2.4))
-                .frame(width: 22, height: 22)
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(SR.good)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("All \(count) tripwires clear")
                     .font(SR.Text.title(16))
                     .foregroundStyle(SR.ink)
                 Text("Nothing has crossed its line")
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                .fill(SR.good.opacity(0.08))
+        )
         .accessibilityElement(children: .combine)
     }
 }
@@ -454,8 +445,8 @@ struct InsightsForecastTile: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Text(title.uppercased())
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
+                    .font(SR.Text.label(11))
+                    .tracking(1.1)
                     .foregroundStyle(SR.accentInk)
                     .lineLimit(1)
                 Spacer(minLength: 2)
@@ -467,17 +458,11 @@ struct InsightsForecastTile: View {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(Self.format(forecast.projected ?? forecast.now))
                     .font(SR.Text.figure(24))
-                    .tracking(-24 * 0.03)
-                    .monospacedDigit()
                     .foregroundStyle(SR.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 if let unit = forecast.unit {
-                    Text(unit.uppercased())
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
-                        .foregroundStyle(SR.Notes.pen)
-                        .lineLimit(1)
+                    Text(unit).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
                 }
             }
             Text("from \(Self.format(forecast.now)) · \(forecast.horizonDays)d")
@@ -496,17 +481,15 @@ struct InsightsForecastTile: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // Index-card stock edged in the petrol pen: the forecast's colour,
-        // on the notebook's card.
         .background(
-            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                .fill(SR.Notes.card)
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                .fill(SR.accentInk.opacity(0.06))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                .strokeBorder(SR.accentInk.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                .strokeBorder(SR.accentInk.opacity(0.22), lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
     }
 
     /// "Sleep forecast: 7.28 h in 90 days, rising. Rising at +0.03 a month."

@@ -97,7 +97,6 @@ final class SiteTests: XCTestCase {
             SR.Face.display, SR.Face.brand, SR.Face.brandMedium,
             SR.Face.body, SR.Face.bodyMedium, SR.Face.bodyBold,
             SR.Face.mono, SR.Face.monoMedium, SR.Face.monoBold,
-            SR.Face.serif, SR.Face.serifItalic,
         ]
         for face in faces {
             XCTAssertNotNil(UIFont(name: face, size: 14), "font not registered: \(face)")
@@ -136,8 +135,7 @@ final class SiteTests: XCTestCase {
         XCTAssertEqual(UIColor(SR.accentInk).hexString, "0E5B66")    // --accent-ink
         XCTAssertEqual(UIColor(SR.good).hexString, "55663A")         // --good
         XCTAssertEqual(UIColor(SR.goodOnDark).hexString, "8A9A5B")   // --good-on-dark
-        XCTAssertEqual(UIColor(SR.surface).hexString, "F3EBDD")      // --np-card, card stock
-        XCTAssertEqual(UIColor(SR.Notes.card).hexString, "F3EBDD")   // --np-card
+        XCTAssertEqual(UIColor(SR.surface).hexString, "E8DECE")      // --surface-elevated
     }
 
     // MARK: - Relative time

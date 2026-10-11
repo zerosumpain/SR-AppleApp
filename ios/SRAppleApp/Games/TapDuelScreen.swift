@@ -261,7 +261,7 @@ struct TapDuelTimes: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, player in
-                if index > 0 { GameLedgerRule() }
+                if index > 0 { Divider().overlay(SR.divider) }
                 let won = room.round?.winnerId == player.id
                 HStack(spacing: 12) {
                     Text(player.name + (player.id == room.meId ? " (you)" : ""))
@@ -325,9 +325,12 @@ struct TapDuelFinished: View {
 
                 VStack(spacing: 0) {
                     ForEach(Array(standings.enumerated()), id: \.element.id) { index, row in
-                        if index > 0 { GameLedgerRule() }
+                        if index > 0 { Divider().overlay(SR.divider) }
                         HStack(alignment: .top, spacing: 12) {
-                            GamePlace(place: index + 1, won: room.winnerIds.contains(row.id), ringed: !room.solo)
+                            Text("\(index + 1)")
+                                .font(SR.Text.display(26))
+                                .foregroundStyle(room.winnerIds.contains(row.id) ? SR.accent : SR.inkGhost)
+                                .frame(width: 32, alignment: .leading)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(row.name + (row.id == room.meId ? " (you)" : ""))
                                     .font(SR.Text.title())

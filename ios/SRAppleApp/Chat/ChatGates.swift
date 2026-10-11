@@ -87,11 +87,9 @@ struct PlanCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        // Numbered as the site numbers a list in the margin:
-                        // Fraunces italic in the writing orange.
                         Text("\(index + 1)")
-                            .font(SR.Text.marginalia(17))
-                            .foregroundStyle(SR.Notes.pen)
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.accent)
                             .frame(minWidth: 16, alignment: .trailing)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(step.title)
@@ -100,7 +98,7 @@ struct PlanCard: View {
                             if !step.detail.isEmpty {
                                 Text(step.detail)
                                     .font(SR.Text.secondary())
-                                    .foregroundStyle(SR.inkSecondary)
+                                    .foregroundStyle(SR.inkMuted)
                                     .lineLimit(3)
                             }
                         }
@@ -134,10 +132,11 @@ struct PlanCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .padding(.leading, 6)
-        // An index card marked in the margin: it is waiting on you.
-        .overlay(alignment: .leading) { ChatMarginRule().padding(.leading, 6) }
         .srGlassCard(.paper)
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .strokeBorder(SR.accent.opacity(0.55), lineWidth: 1)
+        )
         .alert("Suggest a change", isPresented: $adjusting) {
             TextField("What should be different?", text: $adjustment)
             Button("Cancel", role: .cancel) { adjustment = "" }
@@ -172,28 +171,19 @@ struct ClarifyCard: View {
                             .lineLimit(1...4)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .srGlassCard(.paper)
+                            .srGlass(.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     } else {
                         // Choices as a column of rows, not a segmented control:
                         // a choice is often a sentence, and segments truncate.
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(question.choices, id: \.self) { choice in
-                                let chosen = answers[question.id] == choice
                                 Button {
                                     SRHaptic.select()
                                     answers[question.id] = choice
                                 } label: {
                                     HStack(spacing: 10) {
-                                        // A hand-drawn ring, pencilled in when chosen.
-                                        ZStack {
-                                            SRInkLoop(seed: seedFor(choice), turns: 1.15, wobble: 0.06)
-                                                .stroke(chosen ? SR.accent : SR.inkMuted, style: .ink(1.3))
-                                            if chosen {
-                                                Circle().fill(SR.accent.opacity(0.85)).frame(width: 8, height: 8)
-                                            }
-                                        }
-                                        .frame(width: 20, height: 20)
-                                        .accessibilityHidden(true)
+                                        Image(systemName: answers[question.id] == choice ? "largecircle.fill.circle" : "circle")
+                                            .foregroundStyle(answers[question.id] == choice ? SR.accent : SR.inkMuted)
                                         Text(choice)
                                             .font(SR.Text.body(15))
                                             .foregroundStyle(SR.ink)
@@ -204,7 +194,6 @@ struct ClarifyCard: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityAddTraits(chosen ? AccessibilityTraits.isSelected : [])
                             }
                         }
                     }
@@ -222,9 +211,11 @@ struct ClarifyCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .padding(.leading, 6)
-        .overlay(alignment: .leading) { ChatMarginRule().padding(.leading, 6) }
         .srGlassCard(.paper)
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .strokeBorder(SR.accent.opacity(0.55), lineWidth: 1)
+        )
     }
 
     private var complete: Bool {
@@ -233,21 +224,5 @@ struct ClarifyCard: View {
 
     private func binding(_ id: String) -> Binding<String> {
         Binding(get: { answers[id] ?? "" }, set: { answers[id] = $0 })
-    }
-}
-
-/// The page's double margin rule as a mark down a leading edge: two 1pt
-/// lines, the stronger then the fainter, 2pt apart. A plan or question card
-/// wears it as the notes mark a card that matters; your turns in the thread
-/// wear it as their rule.
-struct ChatMarginRule: View {
-    var body: some View {
-        HStack(spacing: 2) {
-            SR.Notes.marginA.frame(width: 1)
-            SR.Notes.marginB.frame(width: 1)
-        }
-        .padding(.vertical, 1)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }

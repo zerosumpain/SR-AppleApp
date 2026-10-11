@@ -2,11 +2,8 @@ import SwiftUI
 
 /// The masthead every section opens with.
 ///
-/// Began as a port of `src/lib/components/shell/SectionHead.svelte` (a lettered
-/// mono kicker over an uppercase headline). In the notes look it is the page
-/// head `SRPageHeader` draws: the kicker in the writing orange, the headline in
-/// Inter ExtraBold at 34 in SENTENCE case — the site's notes pages never shout
-/// — and the standfirst as Fraunces italic marginalia.
+/// A direct port of `src/lib/components/shell/SectionHead.svelte`: a lettered
+/// mono kicker, an uppercase Inter Display headline, and one standfirst.
 ///
 /// The headline arrives as an ARRAY OF LINES, exactly as it does on the web, and
 /// for the same reason — where "EIGHT ANALYTICS / ALREADY RUNNING" folds is a
@@ -23,19 +20,19 @@ struct SectionHead: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(kicker.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
-                .foregroundStyle(register == .ink ? SR.accentOnDark : SR.Notes.pen)
-                .padding(.bottom, 10)
+                .font(SR.monoMedium(12))
+                .tracking(SR.kickerTracking)
+                .foregroundStyle(register == .ink ? SR.accentOnDark : SR.inkSecondary)
+                .padding(.bottom, 14)
 
             // line-height 0.94 on the web. SwiftUI adds leading rather than
             // setting it, so the negative spacing is what buys the same tight
             // stack; without it a two-line headline reads as two headlines.
             VStack(alignment: .leading, spacing: -4) {
                 ForEach(Array(title.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(SR.Text.hero(34))
-                        .tracking(-34 * 0.035)
+                    Text(line.uppercased())
+                        .font(SR.display(30))
+                        .tracking(-0.6)
                         .foregroundStyle(register.primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -45,11 +42,11 @@ struct SectionHead: View {
 
             if let strap {
                 Text(strap)
-                    .font(SR.Text.marginalia(17))
-                    .lineSpacing(2)
+                    .font(SR.body(14))
+                    .lineSpacing(3)
                     .foregroundStyle(register.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 12)
+                    .padding(.top, 14)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -200,17 +197,11 @@ struct SRFooterStrip: View {
     }
 }
 
-/// A section of a ruled page.
+/// A paper section with the system's bottom rule.
 ///
-/// Was the web port's slab: a 4% ink wash for `tinted` and a 2pt ink bar
-/// under every section but the last. On ruled paper both cut through the
-/// petrol feint and the margin rule, so in the notes look a section is
-/// whitespace in whole rules (32pt), and `tinted` is a slip of card stock
-/// laid on the page with the petrol bar the blog gives its callouts. The
-/// slip sits inside the gutter, so the double margin rule stays visible.
-///
-/// `isLast` is kept so the call sites read as before; with no rule under a
-/// section there is nothing for it to leave off.
+/// `section:last-of-type { border-bottom: none }` on the web — a section's rule
+/// separates it from the NEXT section, so on the last one it draws a stray line
+/// across whatever empty space is left. `isLast` is that rule.
 struct SRSection<Content: View>: View {
     var tinted: Bool = false
     var isLast: Bool = false
@@ -219,25 +210,14 @@ struct SRSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, tinted ? 18 : 0)
-            .padding(.leading, tinted ? 19 : 0)
-            .padding(.trailing, tinted ? 16 : 0)
-            .background {
-                if tinted {
-                    RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                        .fill(SR.Notes.card)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                                .strokeBorder(SR.line, lineWidth: 1)
-                        )
-                        .overlay(alignment: .leading) {
-                            Rectangle().fill(SR.accentInk).frame(width: 3)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+            .padding(.horizontal, SR.gutter)
+            .padding(.vertical, 34)
+            .background(tinted ? SR.ink.opacity(0.04) : Color.clear)
+            .overlay(alignment: .bottom) {
+                if !isLast {
+                    Rectangle().fill(SR.ink.opacity(0.12)).frame(height: 2)
                 }
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.vertical, 32)
     }
 }
 
@@ -258,12 +238,8 @@ struct SRLedger<Row: View>: View {
     }
 }
 
-/// The five-bar meter, as a tally. `leverage` out of five, with a label
-/// saying what it measures — "4 of 5" on its own is a number without a unit.
-///
-/// Was five filled bars; in the notes look it is the count in hand-drawn
-/// strokes, a full five being one closed gate. VoiceOver still hears
-/// "label: n of total".
+/// The five-bar meter. `leverage` out of five, with a label saying what it
+/// measures — "4 of 5" on its own is a number without a unit.
 struct SRMeter: View {
     let filled: Int
     var total: Int = 5
@@ -272,16 +248,16 @@ struct SRMeter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if filled > 0 {
-                SRTally(count: min(filled, total), height: 16, tone: register.accent, seed: seedFor(label))
-            } else {
-                // Nothing to tally: a faint pencil stroke, so the row does not
-                // look as if the meter failed to draw.
-                Capsule().fill(register.muted.opacity(0.4)).frame(width: 12, height: 1.5).frame(height: 16)
+            HStack(spacing: 3) {
+                ForEach(Array(0..<total), id: \.self) { index in
+                    Rectangle()
+                        .fill(index < filled ? register.accent : register.hairline)
+                        .frame(height: 6)
+                }
             }
             Text(label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
+                .font(SR.mono(12))
+                .tracking(1)
                 .foregroundStyle(register.muted)
         }
         .accessibilityElement(children: .ignore)
@@ -300,43 +276,44 @@ struct SRButton: View {
     let action: () -> Void
 
     var body: some View {
-        // The app's pen-and-card button, like every other. `register` still
+        // Glass now, like every other button in the app. `register` still
         // decides the label's colour for the outlined weight on an ink band.
         Button(action: action) {
             SRButtonLabel(title: title, fill: true)
                 .foregroundStyle(filled ? SR.paper : register.primary)
         }
-        .srButton(filled ? .prominent : .regular, seed: seedFor(title))
+        .srButton(filled ? .prominent : .regular)
         .controlSize(.large)
         .disabled(disabled)
     }
 }
 
-/// A small status stamp in a row ("Saved", "Selected"): the notes look's
-/// rubber stamp, square to the row (`tilt` 0) because it sits among other
-/// words. Was an outlined mono pill.
+/// A mono pill. Radius 100 — one of the two exceptions to radius 0.
 struct SRPill: View {
     let text: String
     var tone: Color
     var register: SRRegister = .paper
-    var tilt: Double = 0
 
     var body: some View {
-        SRStamp(text: text, tone: tone, tilt: tilt)
+        Text(text.uppercased())
+            .font(SR.monoMedium(12))
+            .tracking(1)
+            .foregroundStyle(tone)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 3)
+            .overlay(RoundedRectangle(cornerRadius: SR.Radius.pill).strokeBorder(tone.opacity(0.5), lineWidth: 1))
     }
 }
 
-/// A kicker: mono caps in the writing orange, 0.14em — the same recipe as
-/// `SRSectionLabel`, without the header row. On the cover it writes in
-/// orange-on-dark.
+/// A mono eyebrow. `.sr-label-tight`.
 struct SRLabel: View {
     let text: String
     var register: SRRegister = .paper
 
     var body: some View {
         Text(text.uppercased())
-            .font(SR.Text.kicker())
-            .tracking(SR.Notes.kickerTracking)
-            .foregroundStyle(register == .ink ? SR.accentOnDark : SR.Notes.pen)
+            .font(SR.monoMedium(12))
+            .tracking(1.4)
+            .foregroundStyle(register.muted)
     }
 }

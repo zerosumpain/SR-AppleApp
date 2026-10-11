@@ -211,8 +211,8 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(location.waitForExistence(timeout: 10), "no Location row in settings")
         location.tap()
 
-        XCTAssertTrue(app.staticTexts["The balance,"].waitForExistence(timeout: 10)
-                      || app.staticTexts["measured"].waitForExistence(timeout: 2),
+        XCTAssertTrue(app.staticTexts["THE BALANCE,"].waitForExistence(timeout: 10)
+                      || app.staticTexts["MEASURED"].waitForExistence(timeout: 2),
                       "the battery instrument did not open")
         attach(app, "Settings — the battery instrument")
     }

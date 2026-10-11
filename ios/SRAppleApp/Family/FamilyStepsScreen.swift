@@ -30,13 +30,10 @@ struct FamilyStepsScreen: View {
                     if !board.people.isEmpty {
                         ranking(board)
                     }
-                    // Yesterday's result, as a note in the margin under the
-                    // board rather than a line of the board itself.
                     if let line = FamilySteps.yesterdayLine(board) {
-                        Text(line)
-                            .font(SR.Text.marginalia(16))
+                        Label(line, systemImage: "trophy")
+                            .font(SR.Text.secondary())
                             .foregroundStyle(SR.inkSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 4)
                             .accessibilityIdentifier("steps-yesterday")
                     }
@@ -122,34 +119,21 @@ struct FamilyStepsHero: View {
             if let mine = board.mine {
                 VStack(alignment: .leading, spacing: 8) {
                     SRSectionLabel(text: "Your place", trailing: FamilySteps.tied(board) ? "Joint" : nil)
-                    // First place is ringed in the orange pen, the way the
-                    // site rings the one figure on a page that matters. Any
-                    // other place is just written down.
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(FamilySteps.ordinal(mine.rank))
                             .font(SR.Text.hero(56))
-                            .tracking(-56 * 0.035)
-                            .foregroundStyle(SR.ink)
-                            .srInkRing(seed: 31, pad: 10, lineWidth: 2.2, visible: mine.rank == 1)
-                            // The ring's room: it reaches 10pt out and about a
-                            // sixth of the figure's height above and below.
-                            .padding(.leading, mine.rank == 1 ? 10 : 0)
-                            .padding(.vertical, mine.rank == 1 ? 4 : 0)
+                            .foregroundStyle(mine.rank == 1 ? SR.accent : SR.ink)
                         Text("of \(board.people.count)")
-                            .font(SR.Text.kicker(15))
-                            .tracking(SR.Notes.kickerTracking)
+                            .font(SR.Text.label(15))
                             .foregroundStyle(SR.inkMuted)
                     }
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(FamilySteps.figure(mine.steps))
                             .font(SR.Text.figure(30))
-                            .tracking(-30 * 0.03)
-                            .monospacedDigit()
                             .foregroundStyle(SR.ink)
-                        Text("STEPS")
-                            .font(SR.Text.kicker())
-                            .tracking(SR.Notes.kickerTracking)
-                            .foregroundStyle(SR.Notes.pen)
+                        Text("steps")
+                            .font(SR.Text.mono(13))
+                            .foregroundStyle(SR.inkMuted)
                         if mine.live {
                             SRGlassChip(text: "Live", icon: "iphone", tone: SR.good)
                                 .accessibilityLabel("Live from this iPhone")
@@ -157,7 +141,7 @@ struct FamilyStepsHero: View {
                     }
                     if let gap = FamilySteps.gap(board) {
                         Text(gap)
-                            .font(SR.Text.marginalia(16))
+                            .font(SR.Text.bodyMedium(15))
                             .foregroundStyle(SR.inkSecondary)
                     }
                 }
@@ -168,7 +152,6 @@ struct FamilyStepsHero: View {
                     SRSectionLabel(text: "Your place")
                     Text("You're not on the board yet")
                         .font(SR.Text.display(20))
-                        .tracking(-20 * 0.02)
                         .foregroundStyle(SR.ink)
                     Text("Your steps reach it from this app's Apple Health upload. Turn on Activity in Settings → Apple Health.")
                         .font(SR.Text.secondary())
@@ -181,9 +164,6 @@ struct FamilyStepsHero: View {
 }
 
 /// One person on the board: place, name, a bar against the leader, steps.
-///
-/// The leader's figure is double-underlined in the orange pen — the total
-/// the board is about. Joint leaders share the line.
 struct FamilyStepsRow: View {
     let person: FamilyStepsPerson
     let leader: Int
@@ -192,7 +172,7 @@ struct FamilyStepsRow: View {
         HStack(spacing: 12) {
             Text("\(person.rank)")
                 .font(SR.Text.label(15))
-                .foregroundStyle(person.rank == 1 ? SR.Notes.pen : SR.inkMuted)
+                .foregroundStyle(person.rank == 1 ? SR.accent : SR.inkMuted)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
@@ -202,8 +182,8 @@ struct FamilyStepsRow: View {
                         .lineLimit(1)
                     if person.live {
                         Text("LIVE")
-                            .font(SR.Text.kicker())
-                            .tracking(SR.Notes.kickerTracking)
+                            .font(SR.Text.mono())
+                            .tracking(0.8)
                             .foregroundStyle(SR.good)
                     }
                 }
@@ -220,10 +200,8 @@ struct FamilyStepsRow: View {
             }
             Text(FamilySteps.figure(person.steps))
                 .font(SR.Text.figure(19))
-                .tracking(-19 * 0.03)
                 .foregroundStyle(SR.ink)
                 .monospacedDigit()
-                .modifier(LeaderUnderline(on: person.rank == 1 && person.steps > 0, seed: seedFor(person.id)))
         }
         .padding(.horizontal, SR.cardPadding)
         .padding(.vertical, 10)
@@ -231,22 +209,6 @@ struct FamilyStepsRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(FamilySteps.ordinal(person.rank)), \(person.me ? "you" : person.name), \(FamilySteps.figure(person.steps)) steps\(person.live ? ", live" : "")")
         .accessibilityIdentifier("steps-row-\(person.id)")
-    }
-}
-
-/// The leader's double underline, or nothing: a modifier so the rows that
-/// are not leading carry no empty overlay.
-private struct LeaderUnderline: ViewModifier {
-    let on: Bool
-    let seed: Int
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if on {
-            content.srInkUnderline(seed: seed)
-        } else {
-            content
-        }
     }
 }
 
@@ -262,8 +224,8 @@ struct FamilyShowOnToday: View {
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
                 Text("A card with \(what). On this phone only.")
-                    .font(SR.Text.marginalia(14))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -275,17 +237,16 @@ struct FamilyShowOnToday: View {
     }
 }
 
-/// Today's step card: the top three, in order — nothing else. The kicker sits
+/// Today's step card: the top three, in order — nothing else. The title sits
 /// above the card like Family tracking's, and your own place rides on its
-/// right; one tap opens the board. Each line is a contents row: the name,
-/// a dotted leader across to the count.
+/// right; one tap opens the board.
 struct TodayStepsCard: View {
     @ObservedObject private var store = FamilyStepsStore.shared
     let open: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "Family steps", trailing: store.shown.flatMap(FamilySteps.place))
+            SRSectionLabel(text: "Family steps", trailing: store.shown.flatMap(FamilySteps.place), prominent: true)
             Button {
                 SRHaptic.tap()
                 open()
@@ -295,9 +256,7 @@ struct TodayStepsCard: View {
                         let top = FamilySteps.top(board, 3)
                         ForEach(Array(top.enumerated()), id: \.element.id) { index, person in
                             if index > 0 { Rectangle().fill(SR.divider).frame(height: 1) }
-                            // On the baseline, so the leader's dots (which have
-                            // no text) sit on the line the words stand on.
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            HStack(spacing: 10) {
                                 Text("\(person.rank)")
                                     .font(SR.Text.label())
                                     .foregroundStyle(SR.inkMuted)
@@ -306,9 +265,7 @@ struct TodayStepsCard: View {
                                     .font(SR.Text.bodyMedium(15))
                                     .foregroundStyle(person.me ? SR.accentDeep : SR.ink)
                                     .lineLimit(1)
-                                    .layoutPriority(1)
-                                SRDottedLeader()
-                                    .frame(minWidth: 12)
+                                Spacer(minLength: 8)
                                 Text(FamilySteps.figure(person.steps))
                                     .font(SR.Text.mono(14))
                                     .foregroundStyle(SR.ink)
@@ -318,8 +275,8 @@ struct TodayStepsCard: View {
                         }
                     } else {
                         Text(store.loaded ? (store.message ?? "No steps on the board yet today.") : "Reading the board…")
-                            .font(SR.Text.marginalia(15))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
                             .padding(.vertical, 9)
                     }
                 }

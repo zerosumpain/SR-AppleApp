@@ -215,8 +215,8 @@ struct JourneyDestinationSheet: View {
                     .srGlassRow()
                 } footer: {
                     Text("Timed by Apple Maps from where this iPhone is now. The correction stays on this phone and moves the leave-by reminder with it.")
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
                 }
                 if let failure = search.failure {
                     Text(failure)
@@ -269,8 +269,7 @@ struct JourneyDestinationSheet: View {
 
 /// Time left to leave, counting down on the right of a journey's row:
 /// "42:10" inside the hour, "3:05:00" inside the day, "1d 4h" beyond, and
-/// LEAVE NOW in red once it has passed — NOW ringed in the red pencil, the
-/// one time on the card that asks for something.
+/// LEAVE NOW in red once it has passed.
 struct LeaveCountdown: View {
     let leaveBy: Date
     var size: CGFloat = 20
@@ -289,17 +288,13 @@ struct LeaveCountdown: View {
                     }
                 }
                 .font(SR.Text.figure(size))
-                .tracking(-size * 0.03)
                 .monospacedDigit()
                 .foregroundStyle(tint(left))
                 .lineLimit(1)
                 .multilineTextAlignment(.trailing)
-                // Inked at once: the countdown redraws every 30 seconds and
-                // the ring must not replay with it.
-                .srInkRing(tone: SR.Notes.redPencil, seed: 37, pad: 7, animated: false, visible: left <= 0)
                 Text(left <= 0 ? "LEAVE" : "TO LEAVE")
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
+                    .font(SR.Text.label())
+                    .tracking(1.1)
                     .foregroundStyle(left <= 0 ? SR.error : SR.inkMuted)
             }
             .accessibilityElement(children: .ignore)

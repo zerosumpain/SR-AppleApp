@@ -126,11 +126,11 @@ final class ChatComposerTests: XCTestCase {
         desk.tap()
 
         XCTAssertTrue(app.buttons["desk-close"].waitForExistence(timeout: 5), "the drawer did not open")
-        XCTAssertTrue(app.staticTexts["Week 7, Tuesday off"].waitForExistence(timeout: 5), "the desk should open on the answer being read")
+        XCTAssertTrue(app.staticTexts["WEEK 7, TUESDAY OFF"].waitForExistence(timeout: 5), "the desk should open on the answer being read")
         shoot(app, "Chat — desk drawer")
 
         app.buttons["Previous page"].tap()
-        XCTAssertTrue(app.staticTexts["Week 6, at a glance"].waitForExistence(timeout: 5), "paging back should show the earlier answer's page")
+        XCTAssertTrue(app.staticTexts["WEEK 6, AT A GLANCE"].waitForExistence(timeout: 5), "paging back should show the earlier answer's page")
         shoot(app, "Chat — desk drawer, health page")
 
         let draft = app.buttons["desk-action-draft"]
