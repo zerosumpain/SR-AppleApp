@@ -23,11 +23,9 @@ struct NewsScreen: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 viewPicker
-                // The strap is the page talking about itself, so it is written
-                // in the margin's hand rather than set as a label.
                 Text(strap)
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, SR.gutter + 4)
                     .padding(.bottom, 4)
@@ -111,55 +109,42 @@ struct NewsScreen: View {
     /// one 66 points, into which "Favourites" does not go, and the system
     /// truncates rather than wrapping. Chips keep every label legible and let
     /// the row scroll.
-    /// The five views as index tabs: card stock in a hand-drawn box, the
-    /// current one filled in the deep orange the prominent button uses. Square
-    /// cornered, as card is cut, rather than glass capsules.
+    /// The five views as glass chips. On iOS 26 they share one container, so
+    /// the selection's accent glass flows from chip to chip rather than
+    /// blinking between them.
     private var viewPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(NewsView.allCases) { item in
-                    let current = item == store.view
-                    Button {
-                        SRHaptic.select()
-                        Task { await store.select(item) }
-                    } label: {
-                        Text(item.label.uppercased())
-                            .font(SR.Text.kicker())
-                            .tracking(SR.Notes.kickerTracking)
-                            .foregroundStyle(current ? SR.paper : SR.inkSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .frame(minHeight: 40)
-                            .background(current ? SR.accentDeep : SR.Notes.card)
-                            .overlay {
-                                if !current {
-                                    SRInkBox(seed: seedFor(item.label))
-                                        .stroke(SR.inkSecondary.opacity(0.7), style: .ink(1.2))
-                                        .accessibilityHidden(true)
-                                }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-                            .contentShape(Rectangle())
+            SRGlassGroup(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(NewsView.allCases) { item in
+                        let current = item == store.view
+                        Button {
+                            SRHaptic.select()
+                            Task { await store.select(item) }
+                        } label: {
+                            Text(item.label.uppercased())
+                                .font(SR.Text.label())
+                                .tracking(1.2)
+                                .foregroundStyle(current ? SR.paper : SR.inkSecondary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .frame(minHeight: 40)
+                                .srGlass(current ? .accent : .paper, in: Capsule(), interactive: true)
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("news-view-\(item.rawValue)")
+                        .accessibilityAddTraits(current ? [.isSelected] : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("news-view-\(item.rawValue)")
-                    .accessibilityAddTraits(current ? [.isSelected] : [])
                 }
+                .padding(.horizontal, SR.gutter)
+                .padding(.vertical, 4)
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.vertical, 4)
         }
         .scrollClipDisabled()
     }
 }
 
-/// A story as a row of the blog's contents page, on its own index card.
-///
-/// The phone version of `ContentsRows`: the wire and the time on the first
-/// rule in the writing orange, a dotted leader running to the story's place in
-/// the ranking, then the headline in Inter ExtraBold and the reason it is here
-/// in Fraunces. The rank is the row's number, not decoration — the leader is
-/// what ties it to the line it belongs to.
 struct NewsLedgerRow: View {
     let story: NewsStory
     let saved: Bool
@@ -171,67 +156,73 @@ struct NewsLedgerRow: View {
     let onAction: (NewsAction) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // One line whatever the wire is called: the stamp line truncates
-            // before it wraps, so every title in the list starts at the same
-            // height and the leader always has the line to run along.
-            HStack(alignment: .center, spacing: 10) {
-                Text("\(story.sourceLabel) · \(shortAgo(story.publishedAt))".uppercased())
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(story.read ? SR.inkMuted : SR.Notes.pen)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                SRDottedLeader()
-                    .frame(minWidth: 12)
+        HStack(alignment: .top, spacing: 12) {
                 Text("\(story.rank)")
-                    .font(SR.Text.display(20))
-                    .tracking(-20 * 0.02)
-                    .monospacedDigit()
-                    .foregroundStyle(story.read ? SR.inkGhost : SR.Notes.pen)
-                    .layoutPriority(1)
-            }
+                    .font(SR.Text.display(26))
+                    .foregroundStyle(story.read ? SR.ink.opacity(0.3) : SR.accent)
+                    .frame(width: 36, alignment: .leading)
 
-            Text(story.title)
-                .font(SR.Text.display(19))
-                .tracking(-19 * 0.02)
-                .foregroundStyle(story.read ? SR.inkMuted : SR.ink)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    // The eyebrow's two halves STACK rather than sitting side by
+                    // side. "TOOL" fits on one line and "FIELD STUDY №6" wraps to
+                    // two, and then rows in the same list start their titles at
+                    // different heights — the grid's alignment must not be
+                    // decided by the length of a label.
+                    HStack(spacing: 8) {
+                        Text(story.sourceLabel.uppercased())
+                            .font(SR.monoMedium(12))
+                            .tracking(1)
+                            .foregroundStyle(SR.inkSecondary)
+                        Text(shortAgo(story.publishedAt))
+                            .font(SR.mono(12))
+                            .foregroundStyle(SR.inkMuted)
+                        if story.score > 0 {
+                            Text("\(story.score)▲")
+                                .font(SR.mono(12))
+                                .foregroundStyle(SR.inkMuted)
+                        }
+                        if story.commentCount > 0 {
+                            Text("\(story.commentCount)◇")
+                                .font(SR.mono(12))
+                                .foregroundStyle(SR.inkMuted)
+                        }
+                    }
 
-            Text(meta)
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
-                .lineLimit(1)
+                    Text(story.title)
+                        .font(SR.bodyMedium(16))
+                        .foregroundStyle(story.read ? SR.inkMuted : SR.ink)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
 
-            if let correlation = story.correlation {
-                CorrelationNote(correlation: correlation)
-            }
+                    Text(story.domain)
+                        .font(SR.mono(12))
+                        .foregroundStyle(SR.inkMuted)
+                        .lineLimit(1)
 
-            if !story.alsoOn.isEmpty {
-                Text("ALSO ON \(story.alsoOn.map(\.sourceLabel).joined(separator: ", ").uppercased())")
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.accentInk)
-            }
+                    if let correlation = story.correlation {
+                        CorrelationNote(correlation: correlation)
+                    }
 
-            if saved || kept || busy {
-                HStack(spacing: 10) {
-                    if saved { SRPill(text: "Saved", tone: SR.Notes.pen) }
-                    if kept { SRPill(text: "In graph", tone: SR.good) }
-                    if busy { ProgressView().scaleEffect(0.6).tint(SR.accent) }
+                    if !story.alsoOn.isEmpty {
+                        Text("ALSO ON \(story.alsoOn.map(\.sourceLabel).joined(separator: ", ").uppercased())")
+                            .font(SR.mono(12))
+                            .tracking(0.8)
+                            .foregroundStyle(SR.accentInk)
+                    }
+
+                    HStack(spacing: 10) {
+                        if saved { SRPill(text: "Saved", tone: SR.accent) }
+                        if kept { SRPill(text: "In graph", tone: SR.good) }
+                        if busy { ProgressView().scaleEffect(0.6).tint(SR.accent) }
+                    }
                 }
-                .padding(.top, 2)
             }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Every story is on card. A read one keeps its card and lets its ink
-        // fade, which is how a page you have been through looks — the old
-        // "sink into the glass" has no paper equivalent that still reads.
-        .srGlassCard(.paper, interactive: true)
-        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Read stories sink: less glass, more page.
+            .srGlassCard(story.read ? .clear : .paper, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .accessibilityIdentifier("news-row-\(story.key)")
         .accessibilityLabel("\(story.title), \(story.sourceLabel)")
         // The four row actions. A swipe would be invisible; a context menu is
@@ -248,14 +239,6 @@ struct NewsLedgerRow: View {
             }
         }
     }
-
-    /// The domain, then the wire's own counts when it gave any.
-    private var meta: String {
-        var parts = [story.domain]
-        if story.score > 0 { parts.append("\(story.score)▲") }
-        if story.commentCount > 0 { parts.append("\(story.commentCount)◇") }
-        return parts.joined(separator: " · ")
-    }
 }
 
 /// Why a row surfaced. The explaining sentence goes in BODY font, not mono —
@@ -265,76 +248,41 @@ struct CorrelationNote: View {
     let correlation: NewsCorrelation
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // The names it matched are the knowledge base's tags, so each gets
-            // its pencil dot: the same name is the same colour on every row.
-            PencilledNames(names: correlation.names)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(correlation.names.joined(separator: " · ").uppercased())
+                .font(SR.monoMedium(12))
+                .tracking(1)
+                .foregroundStyle(SR.accentInk)
             Text(correlation.why)
-                .font(SR.Text.serif(16))
+                .font(SR.body(14))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let evidence = correlation.evidence, evidence.notes > 0 {
                 Text("\(evidence.notes) note\(evidence.notes == 1 ? "" : "s") already")
-                    .font(SR.Text.marginalia(15))
+                    .font(SR.mono(12))
                     .foregroundStyle(SR.inkMuted)
             }
         }
-        .padding(.leading, 12)
-        // The blog's sidenote on a phone: a slip with a 3pt petrol bar.
+        .padding(.leading, 10)
         .overlay(alignment: .leading) {
-            Rectangle().fill(SR.accentInk.opacity(0.6)).frame(width: 3)
+            Rectangle().fill(SR.accentInk.opacity(0.35)).frame(width: 2)
         }
     }
 }
 
-/// The knowledge-base names a row matched, each with its pencil dot.
-///
-/// A plain wrapping run would need a flow layout for a handful of short
-/// words; one line that truncates keeps the slip to the height of a rule, and
-/// VoiceOver still reads every name from the label.
-private struct PencilledNames: View {
-    let names: [String]
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ForEach(Array(names.prefix(3).enumerated()), id: \.offset) { _, name in
-                HStack(spacing: 7) {
-                    SRPencilDot(word: name)
-                    Text(name.uppercased())
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
-                        .foregroundStyle(SR.accentInk)
-                        .lineLimit(1)
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(names.joined(separator: ", "))
-    }
-}
-
-/// A transient message, on a sticky slip like `SRBanner`: the note is the same
-/// warm paper at night, so its ink is resolved in the light palette.
+/// A transient message. Ink, because it is chrome.
 struct SRToast: View {
     let text: String
 
     var body: some View {
         Text(text)
-            .font(SR.Text.marginalia(16))
-            .foregroundStyle(SR.Notes.stickyInk)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 16)
+            .font(SR.body(14))
+            .foregroundStyle(SR.cream)
+            .padding(.horizontal, 18)
             .padding(.vertical, 12)
-            .background(
-                LinearGradient(colors: [SR.Notes.stickyTop, SR.Notes.stickyBottom],
-                               startPoint: UnitPoint(x: 0.33, y: 0.03),
-                               endPoint: UnitPoint(x: 0.67, y: 0.97)),
-                in: RoundedRectangle(cornerRadius: 2, style: .continuous)
-            )
-            .shadow(color: Color(hex: SR.Fixed.ink, alpha: 0.22), radius: 7, x: 0, y: 6)
-            .environment(\.colorScheme, .light)
-            .rotationEffect(.degrees(-1))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .srGlass(.ink, in: Capsule())
+            .environment(\.colorScheme, .dark)
             .padding(.horizontal, SR.gutter)
             .padding(.bottom, 12)
             .transition(.move(edge: .bottom).combined(with: .opacity))

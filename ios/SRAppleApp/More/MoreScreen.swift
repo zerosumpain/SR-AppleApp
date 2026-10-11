@@ -13,10 +13,6 @@ import SwiftUI
 /// And a front page rather than a list of names. What is waiting on you comes
 /// first — an invitation, a game you are in — then one card per place saying
 /// what is in it.
-///
-/// In the notes look each card is an index card, and its place's icon sits
-/// inside a hand-drawn ink loop in the place's pen rather than on a disc of
-/// colour: the page is paper, and a filled disc was the one solid blot on it.
 struct MoreScreen: View {
     /// What sits in More for this person, in bar order.
     let places: [Router.Tab]
@@ -110,7 +106,7 @@ struct MoreScreen: View {
             case .steps:
                 MoreCard(
                     icon: "figure.walk",
-                    tone: SR.good,
+                    fill: SR.good,
                     title: "Steps",
                     blurb: "Today's family step board. Top spot is checked every fifteen minutes.",
                     status: steps.shown.flatMap(FamilySteps.place)
@@ -118,7 +114,7 @@ struct MoreScreen: View {
             case .tasks:
                 MoreCard(
                     icon: "checklist",
-                    tone: SR.accentDeep,
+                    fill: SR.accentDeep,
                     title: "Tasks",
                     blurb: "Jobs for the family, with a reward when a parent confirms them.",
                     status: tasks.summary.flatMap { taskStatus($0) }
@@ -126,7 +122,7 @@ struct MoreScreen: View {
             case .messages:
                 MoreCard(
                     icon: "bubble.left.and.text.bubble.right",
-                    tone: SR.accent,
+                    fill: SR.accent,
                     title: "msg family",
                     blurb: "One line to everyone's phone, and their replies."
                 )
@@ -208,7 +204,7 @@ struct MoreScreen: View {
             } label: {
                 MoreCard(
                     icon: "sparkles",
-                    tone: SR.accentInk,
+                    fill: SR.accentInk,
                     title: "Daydream",
                     blurb: "What jkai spotted in your days, and your call on each.",
                     status: toDecide > 0 ? "\(toDecide) to decide" : nil
@@ -223,7 +219,7 @@ struct MoreScreen: View {
             } label: {
                 MoreCard(
                     icon: "mountain.2",
-                    tone: SR.good,
+                    fill: SR.good,
                     title: "Wildmind",
                     blurb: "Two Claude minds in a valley, inventing whatever they need.",
                     // The day of this life, once the page has been opened —
@@ -244,7 +240,7 @@ struct MoreScreen: View {
             } label: {
                 MoreCard(
                     icon: "hexagon.fill",
-                    tone: SR.accent,
+                    fill: SR.accent,
                     title: "Landgrab",
                     blurb: "Ground the family won and lost this week, and the outings that took it.",
                     status: Landgrab.moreStatus(landgrab.board)
@@ -268,7 +264,7 @@ struct MoreScreen: View {
             } label: {
                 MoreCard(
                     icon: "arrow.triangle.2.circlepath",
-                    tone: SR.good,
+                    fill: SR.good,
                     title: companion.busy ? "Syncing…" : "Sync now",
                     blurb: companion.message,
                     status: companion.lastUpload.map { "Last upload \($0.formatted(date: .omitted, time: .shortened))" }
@@ -284,7 +280,7 @@ struct MoreScreen: View {
             } label: {
                 MoreCard(
                     icon: "gearshape.fill",
-                    tone: SR.inkSecondary,
+                    fill: SR.inkSecondary,
                     title: "Settings",
                     blurb: "Notifications, connections, Apple Health and this iPhone."
                 )
@@ -328,7 +324,7 @@ struct MoreScreen: View {
     }
 }
 
-/// One place's card: an icon in its own pen, the name, what is in it now.
+/// One place's card: an icon on its own colour, the name, what is in it now.
 struct MorePlaceCard: View {
     let place: Router.Tab
     @ObservedObject var games: GamesStore
@@ -336,7 +332,7 @@ struct MorePlaceCard: View {
     var body: some View {
         // No row of game marks: the Games page lists them, once. Ten marks
         // also ran past the edge of a phone.
-        MoreCard(icon: icon, tone: tone, title: title, blurb: blurb, status: status)
+        MoreCard(icon: icon, fill: fill, title: title, blurb: blurb, status: status)
     }
 
     private var title: String {
@@ -357,7 +353,7 @@ struct MorePlaceCard: View {
         }
     }
 
-    private var tone: Color {
+    private var fill: Color {
         switch place {
         case .games: return SR.accent
         case .news: return SR.accentInk
@@ -386,12 +382,11 @@ struct MorePlaceCard: View {
     }
 }
 
-/// A card in More: an icon in a hand-drawn loop in its place's pen, the name,
-/// what is in it, and anything live to say, stamped.
+/// A card in More: an icon on its own colour, the name, what is in it, and
+/// anything live to say.
 struct MoreCard<Extra: View>: View {
     let icon: String
-    /// The place's pen: the icon and its loop.
-    let tone: Color
+    let fill: Color
     let title: String
     let blurb: String
     var status: String? = nil
@@ -401,17 +396,11 @@ struct MoreCard<Extra: View>: View {
         SRCard(interactive: true) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top) {
-                    // Seeded from the icon, not the title, so "Sync now"
-                    // turning into "Syncing…" does not redraw its loop. Not
-                    // drawn in: More is opened all day, and a loop that
-                    // redrew itself every visit would be a twitch.
                     Image(systemName: icon)
-                        .font(.system(size: 19, weight: .regular))
-                        .foregroundStyle(tone)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(SR.paper)
                         .frame(width: 44, height: 44)
-                        .overlay {
-                            SRInkStroke(shape: SRInkLoop(seed: seedFor(icon)), tone: tone, lineWidth: 1.6, animated: false)
-                        }
+                        .background(Circle().fill(fill))
                         .accessibilityHidden(true)
                     Spacer(minLength: 4)
                     Image(systemName: "chevron.right")
@@ -432,7 +421,7 @@ struct MoreCard<Extra: View>: View {
                 Spacer(minLength: 0)
                 extra()
                 if let status {
-                    SRGlassChip(text: status, tone: SR.Notes.pen)
+                    SRGlassChip(text: status, tone: SR.accent)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -444,7 +433,7 @@ struct MoreCard<Extra: View>: View {
 }
 
 extension MoreCard where Extra == EmptyView {
-    init(icon: String, tone: Color, title: String, blurb: String, status: String? = nil) {
-        self.init(icon: icon, tone: tone, title: title, blurb: blurb, status: status) { EmptyView() }
+    init(icon: String, fill: Color, title: String, blurb: String, status: String? = nil) {
+        self.init(icon: icon, fill: fill, title: title, blurb: blurb, status: status) { EmptyView() }
     }
 }

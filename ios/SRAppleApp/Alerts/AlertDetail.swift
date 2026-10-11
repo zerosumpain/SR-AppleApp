@@ -21,41 +21,26 @@ struct AlertDetailScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .center, spacing: 10) {
-                    // The glyph in its tone, plain: a loop is kept for the
-                    // figure that matters, not for decoration.
+                HStack(spacing: 10) {
                     Image(systemName: alert.icon)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(AlertTone.of(alert))
                         .frame(width: 34, height: 34)
+                        .background(AlertTone.of(alert).opacity(0.12), in: Circle())
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            SRPencilDot(word: alert.category, size: 10)
-                            Text(alert.category.uppercased())
-                                .font(SR.Text.kicker())
-                                .tracking(SR.Notes.kickerTracking)
-                                .foregroundStyle(SR.Notes.pen)
-                        }
-                        if stamped == nil {
-                            Text(when)
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkMuted)
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    // When it was raised, stamped on the page as the
-                    // notebook dates an entry: the day, then the time and
-                    // how long ago.
-                    if let stamped {
-                        SRDateStamp(text: stamped.day, sub: stamped.time, tilt: -3, seed: seedFor(alert.id))
-                            .padding(.trailing, 4)
+                        Text(alert.category.uppercased())
+                            .font(SR.Text.label())
+                            .tracking(1.3)
+                            .foregroundStyle(SR.inkMuted)
+                        Text(when)
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.inkMuted)
                     }
                 }
 
                 Text(alert.title)
                     .font(SR.Text.display(24))
-                    .tracking(-24 * 0.02)
                     .foregroundStyle(SR.ink)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
@@ -108,16 +93,6 @@ struct AlertDetailScreen: View {
         .navigationTitle("Alert")
         .navigationBarTitleDisplayMode(.inline)
         .task { await alerts.markRead(alert.id) }
-    }
-
-    /// The stamp's two lines — "Sun 11 Oct" over "07:42 · 2h ago" — or nil
-    /// when the time will not parse, and the plain line says what it can.
-    private var stamped: (day: String, time: String)? {
-        guard let date = parseTimestamp(alert.createdAt) else { return nil }
-        let ago = shortAgo(alert.createdAt)
-        let time = date.formatted(date: .omitted, time: .shortened)
-        return (date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)),
-                ago.isEmpty ? time : "\(time) · \(ago) ago")
     }
 
     private var when: String {

@@ -22,8 +22,7 @@ struct NoticedNoteRow: View {
                 openURL(link)
             } label: {
                 Text(note.title)
-                    .font(SR.Text.display(17))
-                    .tracking(-17 * 0.02)
+                    .font(SR.Text.title(16))
                     .foregroundStyle(SR.ink)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -36,7 +35,7 @@ struct NoticedNoteRow: View {
 
             if !note.body.isEmpty {
                 Text(note.body)
-                    .font(SR.Text.serif(15))
+                    .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkSecondary)
                     .lineSpacing(2)
                     .lineLimit(expanded ? nil : 3)
@@ -62,12 +61,12 @@ struct NoticedNoteRow: View {
         HStack(spacing: 6) {
             Image(systemName: note.channel.icon)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(SR.Notes.pen)
+                .foregroundStyle(SR.accent)
                 .accessibilityHidden(true)
             Text(note.outcome.label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
-                .foregroundStyle(SR.Notes.pen)
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(SR.accent)
                 .lineLimit(1)
             Spacer(minLength: 6)
             Text(shortAgo(note.createdAt))
@@ -84,7 +83,7 @@ struct NoticedNoteRow: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(SR.inkMuted)
                 Text("Won't show this kind again")
-                    .font(SR.Text.marginalia(15))
+                    .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
             } else {
                 verdictButton(.useful, icon: "hand.thumbsup", label: "Useful", id: "noticed-useful", current: current)
@@ -129,9 +128,8 @@ struct NoticedNoteRow: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(on ? SR.accent : SR.inkMuted)
                 .frame(width: 40, height: 34)
-                .background(on ? SR.accent.opacity(0.12) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-                .contentShape(Rectangle())
+                .background(on ? SR.accent.opacity(0.12) : Color.clear, in: Capsule())
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

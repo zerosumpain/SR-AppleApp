@@ -27,15 +27,12 @@ targets:
     sources:
       - SRAppleWatch
       - Shared
-      # Three faces, not the phone's full set: figures, labels, and the site's
-      # reading face for an alert's or a workflow's title.
+      # Two faces, not the phone's nine: figures and labels.
       - path: SRAppleApp/Fonts/InterDisplay-ExtraBold.ttf
         buildPhase: resources
       - path: SRAppleApp/Fonts/JetBrainsMono-Regular.ttf
         buildPhase: resources
       - path: SRAppleApp/Fonts/JetBrainsMono-Medium.ttf
-        buildPhase: resources
-      - path: SRAppleApp/Fonts/DMSans-Medium.ttf
         buildPhase: resources
     dependencies:
       - target: SRAppleWatchWidgets

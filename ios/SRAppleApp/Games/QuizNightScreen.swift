@@ -375,11 +375,11 @@ struct QuizOptionButton: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 6, style: .continuous)
                     .fill(fill)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 6, style: .continuous)
                     .strokeBorder(stroke, lineWidth: strokeWidth)
             )
             .opacity(dim ? 0.5 : 1)
@@ -625,7 +625,7 @@ struct QuizPicksList: View {
             SRSectionLabel(text: room.solo ? "Your score" : "Scores")
             VStack(spacing: 0) {
                 ForEach(Array(ranked.enumerated()), id: \.element.id) { index, player in
-                    if index > 0 { GameLedgerRule() }
+                    if index > 0 { Divider().overlay(SR.divider) }
                     row(player)
                 }
             }
@@ -703,9 +703,12 @@ struct QuizFinished: View {
                     SRSectionLabel(text: room.solo ? "Your quiz" : "Standings", trailing: room.title)
                     VStack(spacing: 0) {
                         ForEach(Array(standings.enumerated()), id: \.element.id) { index, row in
-                            if index > 0 { GameLedgerRule() }
+                            if index > 0 { Divider().overlay(SR.divider) }
                             HStack(alignment: .center, spacing: 12) {
-                                GamePlace(place: index + 1, won: room.winnerIds.contains(row.id), ringed: !room.solo)
+                                Text("\(index + 1)")
+                                    .font(SR.Text.display(26))
+                                    .foregroundStyle(room.winnerIds.contains(row.id) ? SR.accent : SR.inkGhost)
+                                    .frame(width: 32, alignment: .leading)
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 6) {
                                         Text(row.name + (row.id == room.meId ? " (you)" : ""))

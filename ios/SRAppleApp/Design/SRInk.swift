@@ -2,19 +2,17 @@ import SwiftUI
 import UIKit
 import CoreImage
 
-/// The /health hero, on a phone: the exercise book's INK COVER.
+/// The /health hero, on a phone.
 ///
-/// SR-Health is a paper page with full-width ink bands across its hero sections
+/// SR-Health is a paper page with full-width INK BANDS across its hero sections
 /// — readiness and today's figures at the top, an activity's headline figures at
-/// the top of an activity. In the notes look those bands are the book's cover,
-/// as the website's landing hero is: near-black `#1a1008`, a faint cream feint
-/// every 32pt, marked up in orange and petrol, and — edge to edge — a torn
-/// bottom edge where the cover lies over the first page.
+/// the top of an activity. Those bands are what make the page read as a
+/// designed object rather than a form, and they are what the app was missing.
 ///
 /// The rule from the site still holds, and it is why these are bands and not
 /// the app's ground: a tall solid ink area reads as intensity, not editorial.
-/// One cover at the top of a screen, the page under it paper. Every colour on
-/// a cover is cream at a rung of `SR.onInk(_:)` or one of the lifted partners
+/// One band at the top of a screen, the page under it paper. Every colour on a
+/// band is cream at a rung of `SR.onInk(_:)` or one of the lifted partners
 /// (`accentOnDark`, `goodOnDark`) — never a paper token, which is the mistake
 /// every relighting bug on the website came from.
 
@@ -65,58 +63,35 @@ struct SRGrain: View {
 
 // MARK: - The band
 
-/// The kicker on the cover: the paper kicker's recipe (mono 12 caps, 0.14em)
-/// in orange-on-dark — the one orange thing above the headline.
+/// The mono kicker on a band. Accent-on-dark, 0.18em — the one orange thing
+/// above the headline.
 struct SRInkKicker: View {
     let text: String
 
     var body: some View {
         Text(text.uppercased())
-            .font(SR.Text.kicker())
-            .tracking(SR.Notes.kickerTracking)
+            .font(SR.Text.label())
+            .tracking(SR.inkKickerTracking)
             .foregroundStyle(SR.accentOnDark)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-/// The ink cover.
+/// A full-width ink band.
 ///
-/// Solid `SR.band`, its own cream feint every 32pt (13pt into each pitch, as
-/// the site's hero is ruled), a 3pt corner and a cream hairline at 8% so its
-/// edge still shows on night paper. Edge to edge (`inset: 0`, a grouped list's
-/// already-inset row) it is square and, by default, TORN along its foot: the
-/// teeth and the shade of the cover lifting off the page under it. Inset from
-/// a screen edge it is a card of cover board, untorn.
-///
-/// In a `List` it goes in a row with zero insets (`srInkRow()`); in a
-/// `ScrollView` it sits outside the gutter. Children see a dark colour scheme
-/// and ask `SRRegister.ink` for their colours.
+/// Full width means full width: in a `List` it goes in a row with zero insets
+/// and an ink row background (`srInkRow()`), in a `ScrollView` it sits outside
+/// the gutter. An inset ink panel FLOATS — the site learned that twice.
 struct SRInkBand<Content: View>: View {
     var kicker: String? = nil
     var meta: String? = nil
-    /// How far the cover sits in from its container's edge. A screen edge
-    /// wants the gutter; a grouped list's row has already been inset.
+    /// How far the slab sits in from its container's edge. A screen edge wants
+    /// the gutter; a grouped list's row has already been inset.
     var inset: CGFloat = SR.Glass.bandInset
-    /// The torn foot. `nil` tears a full-width cover (`inset == 0`) and leaves
-    /// an inset one whole.
-    var torn: Bool? = nil
     @ViewBuilder var content: Content
 
-    private var tears: Bool { torn ?? (inset == 0) }
-
     var body: some View {
-        VStack(spacing: 0) {
-            cover
-            if tears {
-                // Under the cover, in the layout: a list row's neighbour
-                // would paint over anything hung outside it.
-                SRTornEdge().padding(.horizontal, inset)
-            }
-        }
-    }
-
-    private var cover: some View {
         VStack(alignment: .leading, spacing: 16) {
             if kicker != nil || meta != nil {
                 // Stacked, not side by side: a long kicker wraps, and a meta line
@@ -138,20 +113,19 @@ struct SRInkBand<Content: View>: View {
         .padding(.horizontal, 18)
         .padding(.top, 20)
         .padding(.bottom, 22)
+        // Smoked glass: the ink band, lifted off the page and inset from its
+        // edges. The band used to dock the page under it at full width; on
+        // glass it floats, and it is the one dark thing on the screen, so it
+        // still reads as the hero it was.
         .background {
-            SRGrain(opacity: 0.04)
-                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            SRGrain(opacity: 0.05)
+                .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius + 4, style: .continuous))
         }
-        .srGlassCard(.ink, radius: corner)
+        .srGlassCard(.ink, radius: SR.Glass.radius + 4)
         .environment(\.colorScheme, .dark)
         .padding(.horizontal, inset)
-        .padding(.top, 6)
-        .padding(.bottom, tears ? 0 : 6)
+        .padding(.vertical, 6)
     }
-
-    /// Square when torn — paper tears, it does not round — and a cut card's
-    /// corner otherwise.
-    private var corner: CGFloat { tears || inset == 0 ? 0 : SR.Glass.radius }
 }
 
 /// An Inter Display headline on ink, uppercase and tight.
@@ -273,15 +247,13 @@ struct SRInkFigure: Identifiable, Hashable {
     var id: String { label }
 }
 
-/// Stat cells as a ruled ledger on the cover — /health's `.stat-grid`, in
-/// the notes look: cream hairlines between the cells and along the top and
-/// foot, no box round it, and the `lit` figure RINGED in orange-on-dark
-/// rather than only coloured.
+/// Stat cells split by 1px cream hairlines — /health's `.stat-grid`.
 ///
-/// A `Grid`, not a `LazyVGrid`: each cell draws its own leading and top rule,
-/// so every cell in a row must be the row's full height or a short cell's rule
-/// stops partway down. `Grid` sizes a row to its tallest cell. A short last
-/// row is padded with empty cells for the same reason.
+/// A `Grid`, not a `LazyVGrid`: the hairlines are the grid's own background
+/// showing through a 1pt gap, so every cell in a row must be the row's full
+/// height or the gap under a short cell paints as a bar. `Grid` sizes a row to
+/// its tallest cell. A short last row is padded with empty ink cells for the
+/// same reason — an unfilled track would show as a block of hairline colour.
 struct SRInkCellGrid: View {
     let figures: [SRInkFigure]
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -291,33 +263,23 @@ struct SRInkCellGrid: View {
         let rows = stride(from: 0, to: figures.count, by: columns).map { start in
             Array(figures[start..<min(start + columns, figures.count)])
         }
-        Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+        Grid(horizontalSpacing: 1, verticalSpacing: 1) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 GridRow {
-                    ForEach(Array(row.enumerated()), id: \.element.id) { column, figure in
-                        SRInkCell(figure: figure)
-                            .overlay(alignment: .leading) {
-                                if column > 0 { SR.onInk(.hairline).frame(width: 1) }
-                            }
-                            .overlay(alignment: .top) {
-                                if rowIndex > 0 { SR.onInk(.hairline).frame(height: 1) }
-                            }
-                    }
+                    ForEach(row) { figure in SRInkCell(figure: figure) }
                     if row.count < columns {
                         ForEach(0..<(columns - row.count), id: \.self) { _ in
-                            Color.clear
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .overlay(alignment: .leading) { SR.onInk(.hairline).frame(width: 1) }
-                                .overlay(alignment: .top) {
-                                    if rowIndex > 0 { SR.onInk(.hairline).frame(height: 1) }
-                                }
+                            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
                 }
             }
         }
-        .overlay(alignment: .top) { SR.onInk(.hairline).frame(height: 1) }
-        .overlay(alignment: .bottom) { SR.onInk(.hairline).frame(height: 1) }
+        .background(SR.onInk(.fill), in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                .strokeBorder(SR.onInk(.hairline), lineWidth: 1)
+        )
     }
 }
 
@@ -329,11 +291,9 @@ struct SRInkCell: View {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(figure.value)
                     .font(SR.Text.figure(26))
-                    .tracking(-26 * 0.03)
-                    .monospacedDigit()
+                    .tracking(-0.52)
                     .foregroundStyle(figure.lit ? SR.accentOnDark : SR.onInk(.primary))
                     .lineLimit(1)
-                    .srInkRing(tone: SR.accentOnDark, seed: 31, pad: 6, visible: figure.lit)
                 if let unit = figure.unit {
                     Text(unit)
                         .font(SR.Text.mono())
@@ -367,19 +327,9 @@ struct SRInkDonut: View {
     /// is a numeral with a ring round it.
     var lineWidth: CGFloat = 10
     var scoreSize: CGFloat = 34
-    /// The notes look's overstroke: a hand-drawn loop in orange-on-dark round
-    /// the donut, as the site loops its pulse figure. The geometry underneath
-    /// is unchanged; a screen opts in.
-    var inkRing: Bool = false
-    var ringSeed: Int = 31
 
     var body: some View {
         ZStack {
-            if inkRing {
-                SRInkStroke(shape: SRInkLoop(seed: ringSeed, turns: 1.1, wobble: 0.035),
-                            tone: SR.accentOnDark, lineWidth: 2)
-                    .padding(-lineWidth * 0.9)
-            }
             Circle()
                 .stroke(SR.onInk(.track), lineWidth: lineWidth)
             Circle()

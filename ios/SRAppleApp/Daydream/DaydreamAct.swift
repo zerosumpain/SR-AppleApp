@@ -170,9 +170,10 @@ struct DaydreamActBanner: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Stamped, as a done job is on paper: DONE, SENT, DRAFTED.
-            SRStamp(text: heading, tone: tone, tilt: -2)
-                .padding(.vertical, 2)
+            Text(heading)
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(tone)
             Text(act.status == .undone ? "Taken back: \(act.label)" : act.label)
                 .font(SR.Text.body(15))
                 .foregroundStyle(SR.ink)
@@ -189,9 +190,7 @@ struct DaydreamActBanner: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // The draft is a letter on card stock, laid on the slip.
-                .background(SR.Notes.card, in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("daydream-act-draft")
                 HStack(spacing: 10) {
@@ -215,8 +214,8 @@ struct DaydreamActBanner: View {
                     onOp("undo")
                 } label: {
                     Text((busy ? "Undoing…" : "Undo").uppercased())
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
+                        .font(SR.Text.label(12))
+                        .tracking(1.1)
                         .foregroundStyle(SR.accentInk)
                         .frame(minHeight: SR.tapTarget)
                         .contentShape(Rectangle())
@@ -234,7 +233,7 @@ struct DaydreamActBanner: View {
         .overlay(alignment: .leading) {
             Rectangle().fill(act.status == .undone ? SR.line : tone).frame(width: 3)
         }
-        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("daydream-act-done")
     }

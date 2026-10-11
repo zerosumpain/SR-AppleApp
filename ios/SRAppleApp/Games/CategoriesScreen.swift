@@ -393,7 +393,7 @@ struct CategoriesCardReview: View {
                     SRSectionLabel(text: "\(index + 1) · \(category)")
                     VStack(spacing: 0) {
                         ForEach(Array(people.enumerated()), id: \.element.id) { n, person in
-                            if n > 0 { GameLedgerRule() }
+                            if n > 0 { Divider().overlay(SR.divider) }
                             answerRow(person, answer(of: person, at: index))
                         }
                     }

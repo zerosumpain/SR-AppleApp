@@ -330,6 +330,24 @@ final class SiteClient {
         return data
     }
 
+    /// One request whose answer the caller reads for itself, refusals and
+    /// all: the body, the status and the headers come back as they are. Only
+    /// a 401 throws (`expired`), as it does everywhere else. For a write that
+    /// carries its own headers and must read a refusal's — the Wildmind
+    /// whisper sends an `Idempotency-Key` and reads `retry-after` off a 429.
+    func exchange(
+        _ path: String, method: String = "POST", body: Data? = nil, headers: [String: String] = [:]
+    ) async throws -> (Data, HTTPURLResponse) {
+        var req = try request(path, method: method, body: body)
+        for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw SiteError.message("No reply from the server.")
+        }
+        if http.statusCode == 401 { throw SiteError.expired }
+        return (data, http)
+    }
+
     /// Raw bytes — an attachment's image, which is not JSON.
     func bytes(_ path: String) async throws -> Data {
         let (data, response) = try await session.data(for: try request(path))

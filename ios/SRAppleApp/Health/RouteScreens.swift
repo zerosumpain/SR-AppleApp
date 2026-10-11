@@ -127,18 +127,18 @@ struct RouteListRow: View {
                     .font(SR.Text.mono(13))
                     .foregroundStyle(SR.inkSecondary)
                 if row.source == "imported" || offline {
-                    // Stamped, square in the row: what the route IS, said the
-                    // way the notebook marks a card. Offline in petrol — it is
-                    // the thing to know before setting out.
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         if row.source == "imported" {
-                            SRStamp(text: "Published route", tone: SR.inkMuted)
+                            Text("PUBLISHED ROUTE")
                         }
                         if offline {
-                            SRStamp(text: "Offline", icon: "arrow.down.circle.fill", tone: SR.accentInk)
+                            Label("OFFLINE", systemImage: "arrow.down.circle.fill")
+                                .labelStyle(.titleAndIcon)
                         }
                     }
-                    .padding(.top, 4)
+                    .font(SR.Text.mono())
+                    .tracking(0.8)
+                    .foregroundStyle(SR.inkMuted)
                 }
             }
             Spacer(minLength: 4)
@@ -216,8 +216,8 @@ struct PlanRouteScreen: View {
                 .pickerStyle(.segmented)
             }
             Text(pinLine)
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .srGlassRow()
@@ -268,7 +268,7 @@ struct PlanRouteScreen: View {
             SRSectionLabel(text: "Describe it")
         } footer: {
             Text("This only fills the form below. Nothing is planned until you press Plan.")
-                .font(SR.Text.marginalia(15))
+                .font(SR.Text.secondary(12))
                 .foregroundStyle(SR.inkMuted)
         }
     }
@@ -303,8 +303,8 @@ struct PlanRouteScreen: View {
                     }
                     if let suggestion = planner.suggestion {
                         Text(suggestion)
-                            .font(SR.Text.marginalia(15))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary(12))
+                            .foregroundStyle(SR.inkMuted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -334,12 +334,11 @@ struct PlanRouteScreen: View {
             } label: {
                 HStack {
                     Spacer()
-                    // The button style's mono label, not a body face over it.
                     if planner.busy == .planning {
                         ProgressView().tint(SR.paper)
-                        Text("Planning — up to a minute")
+                        Text("Planning — up to a minute").font(SR.Text.body())
                     } else {
-                        Text("Plan")
+                        Text("Plan").font(SR.Text.body())
                     }
                     Spacer()
                 }
@@ -375,7 +374,7 @@ struct PlanRouteScreen: View {
         } footer: {
             if let why = plan.rationale.first {
                 Text(why)
-                    .font(SR.Text.marginalia(15))
+                    .font(SR.Text.secondary(12))
                     .foregroundStyle(SR.inkMuted)
             }
         }
@@ -395,7 +394,7 @@ struct PlanRouteScreen: View {
                 HStack {
                     Spacer()
                     if planner.busy == .saving { ProgressView().tint(SR.paper) }
-                    Text("Save this route")
+                    Text("Save this route").font(SR.Text.body())
                     Spacer()
                 }
             }
@@ -410,9 +409,7 @@ struct PlanRouteScreen: View {
     }
 }
 
-/// One of the three candidates: its numbers, its score, and why. The chosen
-/// one's score is ringed in orange — picking one of three is circling it —
-/// and the ring draws itself in as the choice moves.
+/// One of the three candidates: its numbers, its score, and why.
 struct CandidateRow: View {
     let candidate: RouteCandidate
     let chosen: Bool
@@ -433,15 +430,14 @@ struct CandidateRow: View {
                         .font(SR.Text.mono())
                         .tracking(0.8)
                         .foregroundStyle(chosen ? SR.accent : SR.inkMuted)
-                        .srInkRing(tone: SR.accent, seed: seedFor("option \(candidate.rank)"), pad: 6, lineWidth: 1.6, visible: chosen)
                 }
                 Text(candidate.summaryLine)
                     .font(SR.Text.mono(13))
                     .foregroundStyle(SR.inkSecondary)
                 ForEach(candidate.notes.prefix(3), id: \.self) { note in
                     Text(note)
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -514,7 +510,7 @@ private struct PlanPin: View {
             .fill(fill)
             .frame(width: 16, height: 16)
             .overlay(Circle().stroke(SR.paper, lineWidth: 2.5))
-            .shadow(color: SR.band.opacity(0.2), radius: 2, y: 1)
+            .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
     }
 }
 
@@ -576,7 +572,7 @@ struct NearbyRoutesScreen: View {
                     SRSectionLabel(text: "From OpenStreetMap", trailing: "\(store.rows.count)")
                 } footer: {
                     Text("Tap one to save it to your routes.")
-                        .font(SR.Text.marginalia(15))
+                        .font(SR.Text.secondary(12))
                         .foregroundStyle(SR.inkMuted)
                 }
             }
@@ -670,11 +666,11 @@ struct PlannedRouteBody: View {
                         .frame(maxWidth: .infinity)
                 }
                 .srButton(.prominent)
-                .padding(.horizontal, SR.gutter)
+                .padding(.horizontal, 16)
                 .accessibilityIdentifier("route-follow")
 
                 OfflineRow(detail: detail)
-                    .padding(.horizontal, SR.gutter)
+                    .padding(.horizontal, 16)
 
                 if !gifts.recipients.isEmpty {
                     Menu {
@@ -686,7 +682,7 @@ struct PlannedRouteBody: View {
                             .frame(maxWidth: .infinity)
                     }
                     .srButton(.regular)
-                    .padding(.horizontal, SR.gutter)
+                    .padding(.horizontal, 16)
                     .accessibilityIdentifier("route-send")
                 }
 
@@ -694,18 +690,16 @@ struct PlannedRouteBody: View {
                     VStack(alignment: .leading, spacing: 6) {
                         SRSectionLabel(text: "Profile")
                         ElevationChart(points: elevations)
-                            .frame(height: 160)
+                            .frame(height: 140)
                     }
-                    .padding(.horizontal, SR.gutter)
+                    .padding(.horizontal, 16)
                 }
 
                 if let notes = detail.notes, !notes.isEmpty {
-                    // The route's own notes: marginalia, literally.
                     Text(notes)
-                        .font(SR.Text.marginalia())
+                        .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, SR.gutter)
+                        .padding(.horizontal, 16)
                 }
 
                 if !detail.waypoints.isEmpty {
@@ -717,7 +711,7 @@ struct PlannedRouteBody: View {
                                 .foregroundStyle(SR.ink)
                         }
                     }
-                    .padding(.horizontal, SR.gutter)
+                    .padding(.horizontal, 16)
                 }
             }
             .padding(.vertical, 16)
@@ -782,20 +776,10 @@ struct OfflineRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Group {
-                if case .ready = maps.state(for: detail.id) {
-                    // On the phone: ticked, in the olive pencil.
-                    SRInkTick(seed: seedFor(detail.id))
-                        .stroke(SR.good, style: .ink(2.4))
-                        .frame(width: 22, height: 22)
-                } else {
-                    Image(systemName: icon)
-                        .font(.system(size: 18))
-                        .foregroundStyle(SR.accent)
-                }
-            }
-            .frame(width: 26)
-            .accessibilityHidden(true)
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(SR.accent)
+                .frame(width: 26)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(SR.Text.title()).foregroundStyle(SR.ink)
                 Text(subtitle)
@@ -878,7 +862,7 @@ struct OfflineMapsScreen: View {
                                    trailing: ByteCountFormatter.string(fromByteCount: Int64(maps.totalBytes), countStyle: .file))
                 } footer: {
                     Text("Map data © OpenStreetMap contributors, OpenMapTiles, served by OpenFreeMap.")
-                        .font(SR.Text.mono())
+                        .font(SR.Text.secondary(12))
                         .foregroundStyle(SR.inkMuted)
                 }
             }

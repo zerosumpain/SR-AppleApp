@@ -395,7 +395,7 @@ struct AnagramFinished: View {
                         SRSectionLabel(text: "Every word found", trailing: "\(found.count)")
                         VStack(spacing: 0) {
                             ForEach(Array(found.enumerated()), id: \.element.id) { index, word in
-                                if index > 0 { GameLedgerRule() }
+                                if index > 0 { Divider().overlay(SR.divider) }
                                 foundRow(word)
                             }
                         }

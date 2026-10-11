@@ -4,26 +4,32 @@ import SwiftUI
 /// in More — the owner's alone.
 ///
 /// Wildmind is a small world where JKai and a companion have Claude for minds
-/// and have to invent whatever they need. The landing page shows it as a page
-/// of the notes: a kicker, the heading, a lede, the valley drawn in pencil,
-/// and the readings under it — what they have invented (ringed), what the
-/// referee threw out (struck through), the places they have found, the family
-/// tree. This is that page, drawn by the phone rather than shown in a web
-/// view, so it can be pinched, panned and tapped, and polled only while it is
-/// on screen.
+/// and have to invent whatever they need. The page keeps the chapter's content
+/// — the heading, a lede naming the two, the valley's map, and the readings
+/// under it (what they have invented, what the referee threw out, the places
+/// they have found, the family tree) — in the app's own paper-under-glass
+/// look: section labels, glass cards and stat tiles, like Daydream beside it.
+/// The map is drawn by the phone rather than shown in a web view, so it can be
+/// pinched, panned and tapped, and it is polled only while it is on screen.
 ///
 /// The data is `GET api/native/wildmind` (`WildmindStore`); the words follow
-/// the site's rules (`WildmindWords`); the map is `WildmindMap`.
+/// the site's rules (`WildmindWords`); the map is `WildmindMap`. Under the
+/// heading, "Whisper to JKai" and the pages for what the map cannot show —
+/// Talk, Chronicle and Inventions (`WildmindPages.swift`), read from the
+/// owner-only lane.
 struct WildmindScreen: View {
     @ObservedObject private var store = WildmindStore.shared
+    /// "View as" hides the whisper button: the site refuses writes then.
+    @ObservedObject private var access = AccessStore.shared
     @Environment(\.scenePhase) private var scenePhase
-    /// The person whose card is pinned under the map.
+    /// The person whose card is shown under the map.
     @State private var selected: String?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 header
+                if showsLinks { links }
                 content
             }
             .padding(.horizontal, SR.gutter)
@@ -50,13 +56,13 @@ struct WildmindScreen: View {
 
     // MARK: - Header
 
-    /// The chapter's head: the kicker, the heading, the lede naming the two,
-    /// and the aside about the shirt with a dot of the orange it means.
+    /// The page's head: the kicker, the heading, the lede naming the two, and
+    /// the aside about the shirt with a dot of the orange it means.
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             SRPageHeader(kicker: "wildmind", title: "Meanwhile, in the valley")
             Text(WildmindWords.lede(main: mainName, companion: companionName))
-                .font(SR.Text.serif(17))
+                .font(SR.Text.body(17))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -64,13 +70,75 @@ struct WildmindScreen: View {
                     .fill(SR.accent)
                     .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
-                Text(WildmindWords.shirt(main: mainName))
-                    .font(SR.Text.marginalia(16))
+                Text(sentence(WildmindWords.shirt(main: mainName)))
+                    .font(SR.Text.secondary(15))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 4)
+    }
+
+    // MARK: - Talk, Chronicle, Inventions
+
+    /// Not for a phone the site refused: those pages would refuse it too.
+    private var showsLinks: Bool {
+        if case .refused = store.phase { return false }
+        return true
+    }
+
+    /// "Whisper to JKai" (not while viewing as someone else, when the site
+    /// refuses writes), then the three pages the valley's words live on.
+    private var links: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if access.viewingAs == nil {
+                NavigationLink(value: WildmindPage.talk(compose: true)) {
+                    SRButtonLabel(title: "Whisper to \(mainName)", icon: "ear", fill: true)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityIdentifier("wildmind-whisper")
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { pageLinks }
+                VStack(alignment: .leading, spacing: 10) { pageLinks }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("wildmind-links")
+    }
+
+    @ViewBuilder
+    private var pageLinks: some View {
+        pageLink("Talk", icon: "text.bubble", page: .talk(compose: false), id: "wildmind-open-talk")
+        pageLink("Chronicle", icon: "book", page: .chronicle, id: "wildmind-open-chronicle")
+        pageLink("Inventions", icon: "lightbulb", page: .inventions, id: "wildmind-open-inventions")
+    }
+
+    /// A small glass tile: the icon over the page's name. Three go across;
+    /// at the larger text sizes they stack.
+    private func pageLink(_ title: String, icon: String, page: WildmindPage, id: String) -> some View {
+        NavigationLink(value: page) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(SR.accent)
+                    .accessibilityHidden(true)
+                Text(title.uppercased())
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 76)
+            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(id)
     }
 
     // MARK: - What there is to show
@@ -86,13 +154,13 @@ struct WildmindScreen: View {
             SREmpty(
                 title: "Not on the site yet",
                 icon: "map",
-                message: "the valley isn\u{2019}t on this build of the site yet. It\u{2019}ll be drawn here once the site catches up."
+                message: "The valley isn\u{2019}t on this build of the site yet. It\u{2019}ll be drawn here once the site catches up."
             )
         case .refused:
             SREmpty(
                 title: "Not on this phone",
                 icon: "lock",
-                message: "the valley is watched from the owner\u{2019}s phone."
+                message: "The valley is watched from the owner\u{2019}s phone."
             )
         case .failed(let message):
             SREmpty(
@@ -126,14 +194,14 @@ struct WildmindScreen: View {
         }
     }
 
-    // MARK: - The map figure
+    // MARK: - The map
 
     private func figure(_ snapshot: WildmindSnapshot, state: WildmindState) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SRNoteLabel(text: WildmindWords.figureLabel(state, main: mainName))
+            SRSectionLabel(text: WildmindWords.figureLabel(state, main: mainName))
             if let note = WildmindWords.stateNote(state, snapshot: snapshot) {
-                Text(note)
-                    .font(SR.Text.marginalia(16))
+                Text(sentence(note))
+                    .font(SR.Text.secondary(15))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -152,24 +220,24 @@ struct WildmindScreen: View {
                     .padding(.top, 4)
             } else {
                 Text(store.fromPublicChapter
-                     ? "the map needs a newer site than this one, so here are the valley\u{2019}s words without it."
-                     : "nobody\u{2019}s explored anywhere yet, so there\u{2019}s no map to draw.")
-                    .font(SR.Text.marginalia(16))
+                     ? "The map needs a newer site than this one, so here are the valley\u{2019}s words without it."
+                     : "Nobody\u{2019}s explored anywhere yet, so there\u{2019}s no map to draw.")
+                    .font(SR.Text.secondary(15))
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text(WildmindWords.caption(snapshot, state: state))
-                .font(SR.Text.body(15))
+                .font(SR.Text.secondary(14))
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .animation(.easeOut(duration: 0.2), value: selected)
     }
 
-    /// The pinned index card for the person tapped on the map.
+    /// The card for the person tapped on the map.
     private func personCard(_ person: WildmindPerson, state: WildmindState) -> some View {
-        let tone = person.isMain ? SR.accent : person.id == "companion" ? SR.accentInk : SR.Notes.ochre
-        return SRCard {
+        let tone = WildmindTone.of(person)
+        return SRCard(accented: true) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 10) {
                     Circle()
@@ -198,8 +266,8 @@ struct WildmindScreen: View {
                     .accessibilityLabel("Close \(person.name)\u{2019}s card")
                     .accessibilityIdentifier("wildmind-person-card-close")
                 }
-                Text(WildmindWords.doingNear(person))
-                    .font(SR.Text.marginalia(17))
+                Text(sentence(WildmindWords.doingNear(person)))
+                    .font(SR.Text.body(16))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 6) {
@@ -211,31 +279,23 @@ struct WildmindScreen: View {
                 .padding(.top, 2)
             }
         }
-        .srPinned()
-        .padding(.top, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("wildmind-person-card")
     }
 
-    /// A ledger line: the label in the petrol pen, a dotted leader, the value.
-    /// A value the site did not send is a Fraunces dash, read as "not known".
+    /// A label…value line, as `SRRow` sets one. A value the site did not send
+    /// is a dash, read as "not known".
     private func ledgerRow(_ label: String, _ value: String?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
-                .foregroundStyle(SR.accentInk)
-            SRDottedLeader()
-            if let value {
-                Text(value)
-                    .font(SR.Text.body(15))
-                    .foregroundStyle(SR.ink)
-                    .multilineTextAlignment(.trailing)
-            } else {
-                Text("\u{2014}")
-                    .font(SR.Text.serif(15))
-                    .foregroundStyle(SR.inkMuted)
-            }
+                .font(SR.Text.label())
+                .tracking(SR.kickerTracking)
+                .foregroundStyle(SR.inkMuted)
+            Spacer(minLength: 8)
+            Text(value ?? "\u{2014}")
+                .font(SR.Text.body(15))
+                .foregroundStyle(value == nil ? SR.inkMuted : SR.ink)
+                .multilineTextAlignment(.trailing)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label), \(value ?? "not known")")
@@ -245,67 +305,45 @@ struct WildmindScreen: View {
 
     private func readings(_ snapshot: WildmindSnapshot, state: WildmindState) -> some View {
         let stats = snapshot.stats
-        return VStack(alignment: .leading, spacing: 30) {
+        return VStack(alignment: .leading, spacing: SR.sectionGap) {
             invented(stats)
-            refused(stats)
-            figureReading(label: "Places found", value: stats.placesFound, unit: "places found",
-                          aside: "each has a name, and some are written on the map.")
-            figureReading(label: "Explored", value: stats.exploredTiles, unit: "tiles explored",
-                          aside: stats.exploredTiles.map(Self.areaAside))
             builtAndTamed(stats)
             familyTree(stats, state: state, time: snapshot.time)
             fairCopy(stats)
-            VStack(alignment: .leading, spacing: 0) {
-                Text("I\u{2019}ll write up how it works once it stops surprising me.")
-                    .font(SR.Text.marginalia(17))
-                    .foregroundStyle(SR.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                SREndMark(seed: seedFor("Meanwhile, in the valley") + 7)
-            }
+            Text("I\u{2019}ll write up how it works once it stops surprising me.")
+                .font(SR.Text.secondary(15))
+                .foregroundStyle(SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 4)
     }
 
-    /// Things invented: the figure ringed in orange, the newest names set
-    /// upright inside the italic aside, then how they think.
+    /// The four figures as tiles, then the newest inventions by name and how
+    /// they think. A figure the site did not send is a dash, never 0.
     private func invented(_ stats: WildmindStats) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SRNoteLabel(text: "Things invented")
-            HStack(alignment: .firstTextBaseline, spacing: 18) {
-                if let count = stats.invented {
-                    Text(WildmindWords.figure(count))
-                        .font(SR.Text.hero(52))
-                        .tracking(-52 * 0.03)
-                        .monospacedDigit()
-                        .foregroundStyle(SR.ink)
-                        .padding(.horizontal, 4)
-                        .srInkRing(seed: 641, pad: 12, lineWidth: 2.2)
-                        .padding(.leading, 12)
-                } else {
-                    Text("\u{2014}")
-                        .font(SR.Text.serif(40))
-                        .foregroundStyle(SR.inkMuted)
-                }
-                Text("THINGS INVENTED IN THIS VALLEY")
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.Notes.pen)
-                    .fixedSize(horizontal: false, vertical: true)
+            SRSectionLabel(text: "What they\u{2019}ve made of it")
+            SRTileGrid {
+                SRStatTile(value: figureText(stats.invented), label: "Invented", caption: "in this valley")
+                SRStatTile(value: stats.refused.map { "\u{00D7} \(WildmindWords.figure($0))" } ?? "\u{2014}",
+                           label: "Turned down", caption: "by the referee")
+                SRStatTile(value: figureText(stats.placesFound), label: "Places found", caption: "each one named")
+                SRStatTile(value: figureText(stats.exploredTiles), unit: "tiles", label: "Explored",
+                           caption: stats.exploredTiles.map(Self.area))
             }
-            .padding(.vertical, 10)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(stats.invented.map { "\($0) things invented in this valley" } ?? "Things invented: not known")
             let parts = WildmindWords.latestParts(stats.latest)
             if !parts.isEmpty {
-                parts.reduce(Text("")) { text, part in
-                    text + Text(part.text).font(part.isName ? SR.Text.serif(16) : SR.Text.marginalia(16))
+                parts.enumerated().reduce(Text("")) { text, item in
+                    let part = item.element
+                    return text + Text(item.offset == 0 && !part.isName ? sentence(part.text) : part.text)
+                        .font(part.isName ? SR.Text.bodyMedium(15) : SR.Text.secondary(15))
                 }
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
             }
             if let line = WildmindWords.habitAndModels(stats) {
-                Text(line)
-                    .font(SR.Text.marginalia(16))
+                Text(sentence(line))
+                    .font(SR.Text.secondary(15))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -314,62 +352,22 @@ struct WildmindScreen: View {
         .accessibilityIdentifier("wildmind-readings")
     }
 
-    /// Ideas turned down: one scribble per idea, struck through, and the count.
-    private func refused(_ stats: WildmindStats) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRNoteLabel(text: "Ideas turned down")
-            HStack(alignment: .center, spacing: 14) {
-                if let count = stats.refused, count > 0 {
-                    SRScribbles(count: count)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(stats.refused.map { "\u{00D7} \(WildmindWords.figure($0))" } ?? "\u{2014}")
-                        .font(SR.Text.display(28))
-                        .monospacedDigit()
-                        .foregroundStyle(SR.Notes.pen)
-                    Text("IDEAS TURNED DOWN")
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
-                        .foregroundStyle(SR.Notes.pen)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(stats.refused.map { "\($0) ideas turned down" } ?? "Ideas turned down: not known")
-            Text("by the referee, for want of the makings.")
-                .font(SR.Text.marginalia(16))
-                .foregroundStyle(SR.inkSecondary)
-        }
+    private func figureText(_ value: Int?) -> String {
+        value.map(WildmindWords.figure) ?? "\u{2014}"
     }
 
-    /// A plain reading: the figure, its unit, and a note in the margin.
-    private func figureReading(label: String, value: Int?, unit: String, aside: String?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SRNoteLabel(text: label)
-            SRFigure(value: value.map(WildmindWords.figure), unit: unit, size: 34, missing: "\(label): not known")
-            if let aside {
-                Text(aside)
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// "a tile is two metres a side, so that's about two hectares."
-    private static func areaAside(_ tiles: Int) -> String {
+    /// "about two hectares": a tile is two metres a side.
+    private static func area(_ tiles: Int) -> String {
         let hectares = Double(tiles) * 4 / 10_000
-        let area: String
-        if hectares < 0.75 {
-            area = "under a hectare"
-        } else if hectares < 1.5 {
-            area = "about a hectare"
-        } else {
-            area = "about \(WildmindWords.count(Int(hectares.rounded()))) hectares"
-        }
-        return "a tile is two metres a side, so that\u{2019}s \(area)."
+        if hectares < 0.75 { return "under a hectare" }
+        if hectares < 1.5 { return "about a hectare" }
+        // A word while it is short; past twenty a figure, so the tile's
+        // one-line caption is never cut.
+        let n = Int(hectares.rounded())
+        return "about \(n < 20 ? WildmindWords.count(n) : WildmindWords.figure(n)) ha"
     }
 
-    /// What they have built and tamed, each tallied in five-bar gates.
+    /// What they have built and tamed, one line each.
     private func builtAndTamed(_ stats: WildmindStats) -> some View {
         let built = stats.built
         let rows: [(one: String, many: String, count: Int)] = [
@@ -381,33 +379,36 @@ struct WildmindScreen: View {
             ("animal tamed", "animals tamed", stats.tamed ?? 0),
         ].filter { $0.count > 0 }
         return VStack(alignment: .leading, spacing: 10) {
-            SRNoteLabel(text: "Built and tamed")
+            SRSectionLabel(text: "Built and tamed")
             if rows.isEmpty {
-                Text("nothing built yet, and nothing tamed.")
-                    .font(SR.Text.marginalia(16))
+                Text("Nothing built yet, and nothing tamed.")
+                    .font(SR.Text.secondary(15))
                     .foregroundStyle(SR.inkMuted)
-            }
-            ForEach(rows, id: \.many) { row in
-                HStack(alignment: .center, spacing: 10) {
-                    Text(row.count == 1 ? row.one : row.many)
-                        .font(SR.Text.body(15))
-                        .foregroundStyle(SR.ink)
-                        .fixedSize()
-                    SRDottedLeader()
-                    SRTally(count: row.count, height: 16, tone: SR.ink, seed: seedFor(row.many), maxWidth: 120)
-                    Text(WildmindWords.figure(row.count))
-                        .font(SR.Text.mono(13))
-                        .monospacedDigit()
-                        .foregroundStyle(SR.Notes.pen)
+            } else {
+                SRCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(rows, id: \.many) { row in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Text(sentence(row.count == 1 ? row.one : row.many))
+                                    .font(SR.Text.body(15))
+                                    .foregroundStyle(SR.ink)
+                                Spacer(minLength: 8)
+                                Text(WildmindWords.figure(row.count))
+                                    .font(SR.Text.mono(13))
+                                    .monospacedDigit()
+                                    .foregroundStyle(SR.accent)
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(row.count) \(row.count == 1 ? row.one : row.many)")
+                        }
+                    }
                 }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(row.count) \(row.count == 1 ? row.one : row.many)")
             }
         }
     }
 
     /// The family tree: the last few lives in lower-case roman numerals, any
-    /// older ones in ghost ink, and this one with its dot.
+    /// older ones faded, and this one with its dot.
     private func familyTree(_ stats: WildmindStats, state: WildmindState, time: WildmindTime) -> some View {
         let shown = Array(stats.earlierLives.prefix(3).reversed())
         let earlier = max(stats.earlierLives.count, (stats.generation ?? 1) - 1)
@@ -418,22 +419,24 @@ struct WildmindScreen: View {
         // the count.
         let numbered = stats.generation != nil && shown.allSatisfy { $0.n != nil }
         let first = shown.count + 1
-        return VStack(alignment: .leading, spacing: 6) {
-            SRNoteLabel(text: "The family tree")
-                .padding(.bottom, 4)
-            if older > 0 {
-                treeRow(nil, "and \(WildmindWords.count(older)) before them", ghost: true)
+        return VStack(alignment: .leading, spacing: 10) {
+            SRSectionLabel(text: "The family tree")
+            SRCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    if older > 0 {
+                        treeRow(nil, "and \(WildmindWords.count(older)) before them", ghost: true)
+                    }
+                    ForEach(Array(shown.enumerated()), id: \.offset) { index, life in
+                        treeRow(numbered ? life.n : index + 1, WildmindWords.lifeLine(life))
+                    }
+                    treeRow(numbered ? stats.generation : first, WildmindWords.thisLife(state, time: time),
+                            living: state != .betweenLives)
+                }
             }
-            ForEach(Array(shown.enumerated()), id: \.offset) { index, life in
-                treeRow(numbered ? life.n : index + 1, WildmindWords.lifeLine(life))
-            }
-            treeRow(numbered ? stats.generation : first, WildmindWords.thisLife(state, time: time),
-                    living: state != .betweenLives)
-            Text("when one dies, Claude reads back over the life and leaves the next a few lessons, which is roughly how families work too.")
-                .font(SR.Text.marginalia(15))
+            Text("When one dies, Claude reads back over the life and leaves the next a few lessons, which is roughly how families work too.")
+                .font(SR.Text.secondary(14))
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
         }
     }
 
@@ -441,11 +444,11 @@ struct WildmindScreen: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(number.map(WildmindWords.roman) ?? "")
                 .font(SR.Text.mono(12))
-                .foregroundStyle(SR.Notes.pen)
+                .foregroundStyle(SR.accent)
                 .frame(width: 34, alignment: .trailing)
                 .accessibilityHidden(true)
             Text(text)
-                .font(SR.Text.marginalia(18))
+                .font(SR.Text.body(16))
                 .foregroundStyle(ghost ? SR.inkGhost : SR.ink)
                 .fixedSize(horizontal: false, vertical: true)
             if living {
@@ -460,9 +463,11 @@ struct WildmindScreen: View {
 
     /// The line and the minds, as a short ledger.
     private func fairCopy(_ stats: WildmindStats) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ledgerRow("Generation", WildmindWords.generation(stats.generation))
-            ledgerRow("Minds", minds(stats.models))
+        SRCard {
+            VStack(alignment: .leading, spacing: 8) {
+                ledgerRow("Generation", WildmindWords.generation(stats.generation))
+                ledgerRow("Minds", minds(stats.models))
+            }
         }
     }
 
@@ -474,10 +479,17 @@ struct WildmindScreen: View {
         case (nil, nil): return nil
         }
     }
+
+    /// The site writes its asides in lower case (a notes rule); the app's
+    /// copy is sentence case, so the first letter is raised here.
+    private func sentence(_ text: String) -> String {
+        guard let first = text.first else { return text }
+        return first.uppercased() + text.dropFirst()
+    }
 }
 
-/// The map's key: a swatch per ground in the map's own inks, then the marks.
-/// Open ground is plain paper and has no entry, as on the site.
+/// The map's key: a swatch per ground in the map's own colours, then the
+/// marks. Open ground is plain paper and has no entry, as on the site.
 struct WildmindKey: View {
     private enum Swatch: Hashable {
         case ground(WildmindGround)
@@ -502,7 +514,7 @@ struct WildmindKey: View {
                     // Mono 12 at 0.06em in the softer ink, lower case, as
                     // the site sets its key.
                     Text(item.0)
-                        .font(SR.Text.kicker())
+                        .font(SR.Text.mono(12))
                         .tracking(12 * 0.06)
                         .foregroundStyle(SR.inkSecondary)
                         .lineLimit(1)
@@ -541,7 +553,7 @@ struct WildmindKey: View {
         case .unexplored:
             ZStack {
                 SR.paper
-                SR.Notes.rule.frame(height: 1)
+                SR.line.frame(height: 1)
             }
             .overlay { Rectangle().stroke(SR.inkGhost, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])) }
         case .hut:

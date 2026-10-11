@@ -1,293 +1,198 @@
 import SwiftUI
 import UIKit
 
-/// Paper, with glass only where the phone puts it.
+/// Paper under glass.
 ///
-/// The notes look (2026-10-11): every screen is a page of the site's exercise
-/// book. This file holds the pieces nearly every screen reaches for, so that
-/// re-skinning them here re-skinned the app without touching its call sites:
+/// The app used to be the website's system carried over whole: a cream page,
+/// zero radius, no shadows, ink as chrome. That was right for a desk and it
+/// read, on iOS 26, as an app that had not noticed the phone it was on — every
+/// bar opaque, every control flat, nothing refracting anything.
 ///
-/// - **The ground is ruled paper.** `srGround` / `srPaper` lay cream paper with
-///   a faint petrol feint every 32pt and a double red-orange margin rule down
-///   the leading edge (`SRNotebookPaper`). On iOS 18 and later the feint scrolls
-///   with the page, as lines on a page do; on 17 it stays put.
-/// - **Cards are index-card stock.** `srGlass(.paper)` / `srGlassCard(.paper)`
-///   are opaque card (`SR.Notes.card`), a 1pt `SR.line` border and a cut
-///   card's 3pt corner. No material, no shadow, no tilt.
-/// - **The hero is the ink cover.** `.ink` surfaces are the book's near-black
-///   cover with its own faint cream feint. The register rule still holds:
-///   anything on it asks `SRRegister.ink` for its colour.
-/// - **Buttons are pen and card.** The one action a screen is for is a solid
-///   orange block with a cream mono label; everything else is card stock in a
-///   hand-drawn ink box.
-/// - **The furniture stays glass.** Tab bar, navigation bar, sheets, keyboard
-///   and anything floating over a map (`.clear`) are the system's own Liquid
-///   Glass, tinted. Glass over a page is how the phone works; the page is ours.
+/// The overhaul biases towards Apple's Liquid Glass and keeps Strange Ramblings
+/// as the MATERIAL the glass sits over and the voice it speaks in:
 ///
-/// History: from October 2026 to this change the app was "paper under glass"
-/// — Liquid Glass cards and buttons over a cream ground with soft coloured
-/// fields per tab (the `SRMood`s), radius 26 everywhere. The website then
-/// moved its landing and blog to notes, and the app followed so the two read
-/// as one book. The glass names (`srGlass`, `SRGlassChip`, `SR.Glass`) stayed
-/// because over a thousand call sites use them; the names are history, the
-/// look is paper.
+/// - **The furniture is glass.** Tab bar, navigation bar, buttons, the chat
+///   composer, chips, the floating figures. On iOS 26 these are the system's
+///   own `glassEffect`; on 17–25 they fall back to a material, so an older
+///   phone gets frosted panels rather than a crash.
+/// - **The ground is paper.** Cream, grain, and two faint fields of the accent
+///   and the counter-accent drifting under the content — glass with nothing
+///   behind it to bend is just a grey panel, and this is what it bends.
+/// - **Ink survives as smoked glass.** /health's ink band becomes a dark slab
+///   tinted `#1a1008`. The register rule still holds: anything on it asks
+///   `SRRegister.ink` for its colour.
+/// - **The voice is SR.** Inter Display for figures and headlines, JetBrains
+///   Mono kickers, DM Sans reading copy, burnt orange for the one thing that
+///   matters on a screen, the `sr.` mark in the bar.
+///
+/// What gave way: the zero radius. Glass is continuous curvature or it is not
+/// glass, so surfaces take `SR.Glass.radius` — the one corner the app uses.
 extension SR {
     enum Glass {
-        /// The corner every card uses: a cut card's, 3pt. (Was 26, concentric
-        /// with the phone's corners, when cards were glass.)
-        static let radius: CGFloat = 3
-        /// Rows, chips and inner panels inside a card. DESIGN D4 asks for 2;
-        /// it is 4 because call sites derive radii from it
-        /// (`innerRadius - 4` in the Daydream filter, `innerRadius + 4`
-        /// widely), and a negative corner radius is undefined. Cards drawn
-        /// through `srGlassCard` are clamped to `radius` anyway.
-        static let innerRadius: CGFloat = 4
+        /// The corner every glass surface uses. Concentric with the phone's
+        /// own corners at a 16pt inset, which is where the cards sit.
+        static let radius: CGFloat = 26
+        /// Rows, chips and inner panels inside a card.
+        static let innerRadius: CGFloat = 16
         /// How far a hero slab sits in from the screen edge.
         static let bandInset: CGFloat = SR.gutter
-        /// The tint the system's glass FURNITURE takes over paper — the
-        /// floating `.clear` surfaces still use system glass.
+        /// A cream tint on glass over paper, so a panel reads as a sheet of the
+        /// page lifted rather than a hole in it.
         static let paperTint = Color(light: 0xF6EFE3, dark: 0x2A2118, alpha: 0.55)
-        /// The cover's ground as a tint, for glass that must read as ink.
+        /// The smoked slab. Ink, not black — the brown is the SR part.
         static let inkTint = Color(hex: 0x1A1008, alpha: 0.82)
-        /// A grouped list row: card stock, opaque. (Was frosted cream at 62%.)
-        /// Kept for the call sites that fill a capsule or a chip with it.
-        static let rowFill = SR.Notes.card
+        /// A grouped list row over the atmosphere: frosted cream, not opaque, so
+        /// the ground shows through the sections the way it does through glass.
+        static let rowFill = Color(light: 0xFBF6EE, dark: 0x251D15, alpha: 0.62)
         /// The accent, as glass wants it: saturated enough to read through.
-        static let accentTint = Color(light: 0xC4570A, dark: 0xE07B2A, alpha: 0.85)
-        /// The pre-26 glass fallback's highlight edge. A white rim on a dark
-        /// page is a glare line, so it dims with the ground.
+        static let accentTint = Color(light: 0xC4570A, dark: 0xE8863A, alpha: 0.85)
+        /// The pre-26 fallback's highlight edge. A white rim on a dark page is
+        /// a glare line, so it dims with the ground.
         static let rim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 1, alpha: 0.45) })
     }
 }
 
 // MARK: - The ground
 
-/// Which tab a screen belongs to.
+/// Which way a screen's atmosphere leans.
 ///
-/// Under glass each mood was a soft field of colour behind the content. The
-/// ruled page is the same page everywhere — an exercise book does not change
-/// colour between chapters — so the ground ignores it now, and the area's
-/// identity comes from its kickers and its marks. The cases stay so the 64
-/// `srGround(_:)` call sites still say where they are.
+/// One tab, one mood — the hue under the glass tells you where you are before
+/// the title does, and never so strongly that it competes with the content.
 enum SRMood {
-    /// Today.
+    /// Today: the accent, warm.
     case warm
-    /// Chat, settings.
+    /// Chat: almost nothing. Reading copy wants a quiet ground.
     case quiet
-    /// Health.
+    /// Health: olive and accent — the good direction and the bad.
     case vital
-    /// News, Flows, Daydream.
+    /// News: petrol, the counter-accent.
     case wire
-}
 
-/// The ruled feint as tiles, drawn once each by UIKit and tiled by the
-/// compositor — the `SRNoise` technique. A page of rules is one image layer,
-/// so it costs nothing on scroll, where a full-screen `Canvas` would redraw
-/// every frame the page moved.
-enum SRPaperTile {
-    /// The page's feint in a light appearance: an 8 × 32pt tile, clear but for
-    /// one 1pt rule at `SR.Notes.ruleY`.
-    static let light = feint(SR.UI.rule.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), at: SR.Notes.ruleY)
-    /// The same in dark (the night theme's petrol at 13%).
-    static let dark = feint(SR.UI.rule.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), at: SR.Notes.ruleY)
-    /// The cover's feint: cream at 5% (`SR.onInk(.fill)`), the rule 13pt into
-    /// each pitch, as the site's hero rules its ink.
-    static let cover = feint(UIColor(hex: 0xEDE4D4, alpha: 0.05), at: 13)
-
-    static func feint(for scheme: ColorScheme) -> UIImage { scheme == .dark ? dark : light }
-
-    private static func feint(_ colour: UIColor, at y: CGFloat) -> UIImage {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.opaque = false
-        let size = CGSize(width: 8, height: SR.Notes.pitch)
-        return UIGraphicsImageRenderer(size: size, format: format).image { context in
-            colour.setFill()
-            context.fill(CGRect(x: 0, y: y, width: size.width, height: 1))
+    fileprivate var fields: [(Color, UnitPoint, CGFloat)] {
+        switch self {
+        case .warm:
+            return [(SR.accent.opacity(0.22), UnitPoint(x: 0.95, y: 0.02), 420),
+                    (SR.warn.opacity(0.16), UnitPoint(x: 0.0, y: 0.45), 360),
+                    (SR.accentInk.opacity(0.08), UnitPoint(x: 0.9, y: 0.95), 380)]
+        case .quiet:
+            return [(SR.accent.opacity(0.08), UnitPoint(x: 1.0, y: 0.0), 380),
+                    (SR.accentInk.opacity(0.05), UnitPoint(x: 0.0, y: 1.0), 380)]
+        case .vital:
+            return [(SR.good.opacity(0.20), UnitPoint(x: 0.0, y: 0.05), 420),
+                    (SR.accent.opacity(0.14), UnitPoint(x: 1.0, y: 0.35), 360),
+                    (SR.good.opacity(0.10), UnitPoint(x: 0.6, y: 1.0), 380)]
+        case .wire:
+            return [(SR.accentInk.opacity(0.18), UnitPoint(x: 1.0, y: 0.0), 420),
+                    (SR.accent.opacity(0.10), UnitPoint(x: 0.0, y: 0.55), 340),
+                    (SR.accentInk.opacity(0.08), UnitPoint(x: 0.5, y: 1.0), 380)]
         }
     }
 }
 
-/// The double margin rule: two 1pt verticals, the stronger at x = 11 and the
-/// fainter at x = 14 from the leading edge, in the 20pt gutter so no row or
-/// heading crosses them.
-struct SRMarginRule: View {
-    var body: some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: SR.Notes.marginX.a)
-            SR.Notes.marginA.frame(width: 1)
-            Color.clear.frame(width: SR.Notes.marginX.b - SR.Notes.marginX.a - 1)
-            SR.Notes.marginB.frame(width: 1)
-            Spacer(minLength: 0)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-/// The page: cream, the petrol feint every 32pt, the double margin rule, and a
-/// trace of grain.
-struct SRNotebookPaper: View {
-    /// How far the page has scrolled, modulo the pitch. `srGround` feeds it on
-    /// iOS 18 and later so the rules travel with the writing; 0 holds them.
-    var phase: CGFloat = 0
-
-    @Environment(\.colorScheme) private var scheme
+/// Cream, the grain, and the soft fields the glass refracts.
+///
+/// Radial gradients rather than blurred shapes: a blur is re-rendered every
+/// frame a scroll view moves over it, a gradient is drawn once.
+struct SRAtmosphere: View {
+    var mood: SRMood = .warm
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack {
             SR.paper
-            GeometryReader { geometry in
-                Image(uiImage: SRPaperTile.feint(for: scheme))
-                    .resizable(resizingMode: .tile)
-                    // One pitch taller than the page, so lifting it by up to a
-                    // pitch never shows a bare strip at the foot.
-                    .frame(width: geometry.size.width, height: geometry.size.height + SR.Notes.pitch)
-                    .offset(y: -phase)
+            ForEach(Array(mood.fields.enumerated()), id: \.offset) { _, field in
+                RadialGradient(
+                    colors: [field.0, field.0.opacity(0)],
+                    center: field.1,
+                    startRadius: 0,
+                    endRadius: field.2
+                )
             }
-            .clipped()
-            SRMarginRule()
-            SRGrain(opacity: scheme == .dark ? 0.015 : 0.03)
+            SRGrain(opacity: 0.035)
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
     }
 }
 
-/// The scroll maths behind the travelling rules. A plain enum rather than a
-/// member of the view, so the scroll-geometry callback (which SwiftUI may run
-/// off the main actor) can call it without crossing into a view's isolation.
-enum SRRuledScroll {
-    /// The rules' travel for a scroll position: how far into the current pitch
-    /// the content has moved. `nil` for a scroll view that does not scroll
-    /// vertically — a carousel inside the page must not drag the rules about.
-    @available(iOS 18.0, *)
-    static func phase(of geometry: ScrollGeometry) -> CGFloat? {
-        guard geometry.contentSize.height > geometry.containerSize.height else { return nil }
-        return phase(travelled: geometry.contentOffset.y + geometry.contentInsets.top)
-    }
-
-    /// `travelled` modulo the pitch, in [0, pitch) — overscroll at the top
-    /// (negative travel) included.
-    static func phase(travelled: CGFloat) -> CGFloat {
-        let into = travelled.truncatingRemainder(dividingBy: SR.Notes.pitch)
-        return into < 0 ? into + SR.Notes.pitch : into
-    }
-}
-
-/// The old name for the ground. Kept so nothing outside this file changes; the
-/// mood is accepted and ignored.
-struct SRAtmosphere: View {
-    var mood: SRMood = .warm
-
-    var body: some View {
-        SRNotebookPaper()
-    }
-}
-
-/// Hangs the ruled page behind a scroll view and, from iOS 18, moves its rules
-/// with the scroll.
-private struct SRGround: ViewModifier {
-    @State private var phase: CGFloat = 0
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        let page = content
-            .scrollContentBackground(.hidden)
-            .background { SRNotebookPaper(phase: phase) }
-        if #available(iOS 18.0, *) {
-            page.onScrollGeometryChange(for: Optional<CGFloat>.self) { geometry in
-                SRRuledScroll.phase(of: geometry)
-            } action: { _, next in
-                if let next { phase = next }
-            }
-        } else {
-            page
-        }
-    }
-}
-
 extension View {
-    /// The screen's ground: ruled paper under a scroll view or a list, edge to
-    /// edge. The mood names the area and no longer changes the paper.
+    /// The screen's ground: paper with its atmosphere, under a scroll view or a
+    /// list, edge to edge.
     func srGround(_ mood: SRMood = .warm) -> some View {
-        modifier(SRGround())
+        self
+            .scrollContentBackground(.hidden)
+            .background { SRAtmosphere(mood: mood) }
     }
 }
 
-// MARK: - Surfaces
+// MARK: - Glass, with a floor
 
-/// What a surface is made of. The names are the glass era's; the materials
-/// are the notebook's.
+/// How much glass a surface asks for.
 enum SRGlassKind {
-    /// Index-card stock. Cards, tiles, list groups.
+    /// A sheet of the page, lifted. Cards, tiles, list groups.
     case paper
-    /// The ink cover. Hero bands. Pair with `SRRegister.ink`.
+    /// The smoked slab. Hero bands. Pair with `SRRegister.ink`.
     case ink
-    /// Solid orange. The one primary action on a screen.
+    /// The accent as glass. The one primary action on a screen.
     case accent
-    /// System glass, for controls floating over content (a map, a photo).
+    /// Untinted, for controls floating over content.
     case clear
 }
 
 extension View {
-    /// A surface in `shape`: card stock, the ink cover, solid orange, or —
-    /// for `.clear` only — the system's Liquid Glass (a material before 26).
+    /// Liquid Glass in `shape` on iOS 26, a tinted material before it.
     ///
-    /// `interactive` no longer changes the surface: paper does not flex. The
-    /// press feedback comes from the button the surface is the label of
-    /// (`.plain` dims on touch); the parameter stays for its call sites.
+    /// Every glass surface in the app goes through here, so the fallback is
+    /// decided once. `interactive` is for things you press: the glass flexes
+    /// and lights under the finger, which is the feedback a flat button never
+    /// had.
     @ViewBuilder
     func srGlass<S: Shape>(_ kind: SRGlassKind = .paper, in shape: S, interactive: Bool = false) -> some View {
-        switch kind {
-        case .paper:
-            self
-                .background { shape.fill(SR.Notes.card) }
-                .overlay { shape.stroke(SR.line, lineWidth: 1) }
-        case .ink:
-            self
-                .background {
-                    ZStack {
-                        shape.fill(SR.band)
-                        Image(uiImage: SRPaperTile.cover)
-                            .resizable(resizingMode: .tile)
-                            .clipShape(shape)
-                    }
+        if #available(iOS 26.0, *) {
+            self.glassEffect(srGlassValue(kind, interactive: interactive), in: shape)
+        } else {
+            self.background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(srFallbackTint(kind))
                 }
-                // Cream at 8%: invisible on day paper, and the only thing that
-                // shows the cover's edge on night paper, which is nearly ink.
-                .overlay { shape.stroke(SR.cream.opacity(0.08), lineWidth: 1) }
-        case .accent:
-            self.background { shape.fill(SR.accentDeep) }
-        case .clear:
-            if #available(iOS 26.0, *) {
-                self.glassEffect(Glass.regular.interactive(interactive), in: shape)
-            } else {
-                self.background {
-                    ZStack {
-                        shape.fill(.ultraThinMaterial)
-                        shape.fill(Color(light: 0xFFFFFF, dark: 0x000000, alpha: 0.2))
-                    }
-                }
-                .overlay { shape.stroke(SR.Glass.rim, lineWidth: 0.75) }
             }
+            .overlay { shape.stroke(kind == .ink ? Color.white.opacity(0.10) : SR.Glass.rim, lineWidth: 0.75) }
         }
     }
 
-    /// The common case: a card at the app's one corner. Paper, ink and accent
-    /// surfaces are clamped to `SR.Glass.radius` whatever a call site asks
-    /// for — paper is cut square, and the radii call sites pass (6, 16, 22)
-    /// were sized for glass. Glass (`.clear`) keeps the radius it is given.
+    /// The common case: a rounded glass sheet at the app's one radius.
     func srGlassCard(_ kind: SRGlassKind = .paper, radius: CGFloat = SR.Glass.radius, interactive: Bool = false) -> some View {
-        let corner = kind == .clear ? radius : min(radius, SR.Glass.radius)
-        return srGlass(kind, in: RoundedRectangle(cornerRadius: corner, style: .continuous), interactive: interactive)
+        srGlass(kind, in: RoundedRectangle(cornerRadius: radius, style: .continuous), interactive: interactive)
+    }
+
+}
+
+@available(iOS 26.0, *)
+private func srGlassValue(_ kind: SRGlassKind, interactive: Bool) -> Glass {
+    let base: Glass
+    switch kind {
+    case .paper: base = Glass.regular.tint(SR.Glass.paperTint)
+    case .ink: base = Glass.regular.tint(SR.Glass.inkTint)
+    case .accent: base = Glass.regular.tint(SR.Glass.accentTint)
+    case .clear: base = Glass.regular
+    }
+    return base.interactive(interactive)
+}
+
+private func srFallbackTint(_ kind: SRGlassKind) -> Color {
+    switch kind {
+    case .paper: return Color(light: 0xF6EFE3, dark: 0x2A2118, alpha: 0.6)
+    case .ink: return Color(hex: 0x1A1008, alpha: 0.9)
+    case .accent: return SR.accent
+    case .clear: return Color(light: 0xFFFFFF, dark: 0x000000, alpha: 0.2)
     }
 }
 
 /// Glass that should merge when close — chips, a row of buttons.
 ///
 /// On iOS 26 this is `GlassEffectContainer`, which lets neighbouring glass
-/// shapes blend into one another as they move. Paper does not merge, so it
-/// matters only to `.clear` surfaces now; it is harmless around anything else.
+/// shapes blend into one another as they move. Before 26 it is a plain stack's
+/// worth of nothing.
 struct SRGlassGroup<Content: View>: View {
     var spacing: CGFloat = 12
     @ViewBuilder var content: Content
@@ -303,65 +208,28 @@ struct SRGlassGroup<Content: View>: View {
 
 // MARK: - Buttons
 
-/// The app's buttons, in pen and card.
+/// The app's buttons, as glass.
 ///
-/// `.prominent` is the one action a screen is for: a solid orange block
-/// (`SR.accentDeep`, which holds 5.5:1 under cream) with the cream mono label.
-/// `.regular` is everything else: card stock inside a hand-drawn ink box, an
-/// ink label. Both are at least 44pt tall, dim to 80% under the finger and to
-/// 45% when disabled.
+/// `.prominent` is the one action a screen is for — accent glass, cream label.
+/// `.regular` is everything else. On iOS 26 both are the system's own glass
+/// button styles, so they press, flex and morph exactly like every other app
+/// on the phone; before 26 they are capsules.
 enum SRButtonWeight { case prominent, regular }
 
 extension View {
-    /// Style a `Button` (or `ShareLink`, or anything that takes a button
-    /// style) as one of the app's two buttons. `seed` picks the wobble of a
-    /// regular button's box; `SRButton` passes `seedFor(title)` so a button
-    /// keeps its box.
-    func srButton(_ weight: SRButtonWeight = .regular, seed: Int = 47) -> some View {
-        buttonStyle(SRNotesButtonStyle(weight: weight, seed: seed))
-    }
-}
-
-/// The button style behind `srButton`.
-struct SRNotesButtonStyle: ButtonStyle {
-    var weight: SRButtonWeight = .regular
-    var seed: Int = 47
-
-    func makeBody(configuration: Configuration) -> some View {
-        SRNotesButtonBody(configuration: configuration, weight: weight, seed: seed)
-    }
-}
-
-/// A view rather than the style's body, so it can read the environment.
-private struct SRNotesButtonBody: View {
-    let configuration: ButtonStyleConfiguration
-    let weight: SRButtonWeight
-    let seed: Int
-
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        let corner = RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-        configuration.label
-            .font(SR.Text.label(13))
-            .foregroundStyle(weight == .prominent ? SR.paper : SR.ink)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(minHeight: SR.tapTarget)
-            .background {
-                if weight == .prominent {
-                    corner.fill(SR.accentDeep)
-                } else {
-                    ZStack {
-                        corner.fill(SR.Notes.card)
-                        SRInkBox(seed: seed, amp: 0.6, inset: 1)
-                            .stroke(SR.inkSecondary, style: .ink(1.3))
-                    }
-                }
+    @ViewBuilder
+    func srButton(_ weight: SRButtonWeight = .regular) -> some View {
+        if #available(iOS 26.0, *) {
+            switch weight {
+            case .prominent: self.buttonStyle(.glassProminent).tint(SR.accent)
+            case .regular: self.buttonStyle(.glass).tint(SR.ink)
             }
-            .contentShape(corner)
-            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        } else {
+            switch weight {
+            case .prominent: self.buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(SR.accent)
+            case .regular: self.buttonStyle(.bordered).buttonBorderShape(.capsule).tint(SR.ink)
+            }
+        }
     }
 }
 
@@ -390,9 +258,7 @@ struct SRButtonLabel: View {
 // MARK: - Headers
 
 /// A headline for a screen whose headline IS the content: a game's result, a
-/// round, a workflow's name. The notes page head: an orange mono kicker, the
-/// title in Inter ExtraBold at 34 in sentence case, and the strap as
-/// marginalia — Fraunces italic in the soft ink.
+/// round, a workflow's name. A mono kicker, then the title in Inter Display.
 ///
 /// NOT for a tab's root. Tab roots carry no page title: the tab bar already
 /// says where you are, the bar carries the `sr.` mark (and, on Today, the
@@ -412,18 +278,18 @@ struct SRPageHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(kicker.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
-                .foregroundStyle(SR.Notes.pen)
+                .font(SR.Text.label())
+                .tracking(SR.kickerTracking)
+                .foregroundStyle(SR.accent)
             Text(title)
-                .font(SR.Text.hero(34))
-                .tracking(-34 * 0.035)
+                .font(SR.Text.hero(38))
+                .tracking(-0.8)
                 .foregroundStyle(SR.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             if let strap {
                 Text(strap)
-                    .font(SR.Text.marginalia(17))
+                    .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)
@@ -486,48 +352,21 @@ struct SRBarMark: View {
 
 // MARK: - Small furniture
 
-/// A rubber stamp holding a short mono label. Status, not action.
-///
-/// Was a glass capsule; now the notes look's stamp: mono caps tracked 0.16em in
-/// the tone, a hand-drawn box in the same tone at 75%, the box's wobble seeded
-/// from the words so a status keeps its box. Tilted −2° standing on its own;
-/// pass `tilt: 0` for a chip packed into a dense row, where a slant reads as
-/// a mistake.
+/// A capsule of glass holding a short mono label. Status, not action.
 struct SRGlassChip: View {
     let text: String
     var icon: String? = nil
     var tone: Color = SR.inkSecondary
-    var tilt: Double = -2
-
-    var body: some View {
-        SRStamp(text: text, icon: icon, tone: tone, tilt: tilt)
-    }
-}
-
-/// The stamp both `SRGlassChip` and `SRPill` draw.
-struct SRStamp: View {
-    let text: String
-    var icon: String? = nil
-    var tone: Color = SR.inkSecondary
-    var tilt: Double = 0
 
     var body: some View {
         HStack(spacing: 5) {
             if let icon { Image(systemName: icon).font(.system(size: 10, weight: .bold)) }
-            Text(text.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.stampTracking)
-                .lineLimit(1)
+            Text(text.uppercased()).font(SR.Text.mono()).tracking(0.8)
         }
         .foregroundStyle(tone)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4)
-        .overlay {
-            SRStampBox(seed: seedFor(text))
-                .stroke(tone.opacity(0.75), style: .ink(1.3))
-                .accessibilityHidden(true)
-        }
-        .rotationEffect(.degrees(tilt))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .srGlass(.paper, in: Capsule())
     }
 }
 
@@ -555,13 +394,11 @@ struct SRGlassIconButton: View {
 }
 
 extension View {
-    /// A row in an inset-grouped list on the ruled page: card stock, with a
-    /// petrol feint between rows — the ledger look. The section keeps the
-    /// system's corner and the page's rules show between sections.
+    /// A row in an inset-grouped list over the atmosphere.
     func srGlassRow() -> some View {
         self
-            .listRowBackground(SR.Notes.card)
-            .listRowSeparatorTint(SR.Notes.rule)
+            .listRowBackground(SR.Glass.rowFill)
+            .listRowSeparatorTint(SR.divider)
     }
 
     /// A header row in a grouped list that is not a row at all — the page

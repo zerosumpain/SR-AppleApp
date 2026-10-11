@@ -74,8 +74,8 @@ struct LocationSettingsScreen: View {
 
                 SRSection(isLast: true) {
                     Text("Battery figures are device-wide — iOS does not report per-app use. Changes apply at the next fix, not the next launch.")
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -115,11 +115,8 @@ struct LocationSettingsScreen: View {
 
         return VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top, spacing: 22) {
-                // The reading this page exists for, ringed in ink once it
-                // has a value; an honest dash is left unmarked.
                 Figure(value: sharingDrain.map { String(format: "%.1f%%", $0) } ?? "—",
-                       label: "Drain/hour sharing",
-                       ringed: sharingDrain != nil)
+                       label: "Drain/hour sharing")
                 Figure(value: allDrain.map { String(format: "%.1f%%", $0) } ?? "—",
                        label: "Drain/hour overall")
             }
@@ -142,8 +139,8 @@ struct LocationSettingsScreen: View {
             Text(hours >= 1
                  ? String(format: "Measured over %.1f hours of sharing, charging time excluded.", hours)
                  : "Not enough evidence yet. A reading is taken every five minutes and at least an hour of discharge is needed before this says anything — below that the 1% battery step is most of the signal.")
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.mono(12))
+                .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let since = outbox.state.countingSince {
@@ -178,9 +175,9 @@ struct LocationSettingsScreen: View {
                             Text(preset.label.uppercased())
                                 .font(SR.monoMedium(12))
                                 .tracking(1.2)
-                                .foregroundStyle(current ? SR.Notes.pen : SR.ink)
+                                .foregroundStyle(current ? SR.accent : SR.ink)
                             Spacer()
-                            if current { SRPill(text: "Selected", tone: SR.Notes.pen) }
+                            if current { SRPill(text: "Selected", tone: SR.accent) }
                         }
                         Text(preset.detail)
                             .font(SR.body(14))
@@ -190,9 +187,7 @@ struct LocationSettingsScreen: View {
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    // Index cards in a ruled stack: card stock, the 1pt
-                    // line between them showing through the gaps.
-                    .background(SR.Notes.card)
+                    .background(SR.paper)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -488,7 +483,7 @@ struct LocationSettingsScreen: View {
                     Spacer()
                     Text(value.wrappedValue == 0 ? "Off" : "\(Int(value.wrappedValue))\(unit)")
                         .font(SR.monoMedium(13))
-                        .foregroundStyle(SR.Notes.pen)
+                        .foregroundStyle(SR.accent)
                 }
             }
             if let note {
@@ -512,7 +507,7 @@ struct LocationSettingsScreen: View {
                     Spacer()
                     Text(value.wrappedValue == 0 ? "Off" : "\(value.wrappedValue)\(unit)")
                         .font(SR.monoMedium(13))
-                        .foregroundStyle(SR.Notes.pen)
+                        .foregroundStyle(SR.accent)
                 }
             }
             if let note {
@@ -543,13 +538,7 @@ struct LocationSettingsScreen: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // A strip of the ink cover: the band with its cream feint and the
-        // hairline that shows its edge on night paper. Dark inside, so the
-        // pen-and-card Discard draws on the night card with a cream label
-        // (on day card stock that cream label would vanish) and Apply is
-        // the night orange with dark type.
-        .srGlassCard(.ink)
-        .environment(\.colorScheme, .dark)
+        .background(SR.band)
         .padding(.horizontal, SR.gutter)
         .padding(.bottom, 10)
     }

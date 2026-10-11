@@ -124,9 +124,7 @@ struct SRRouteMap: UIViewRepresentable {
             let layer = MLNCircleStyleLayer(identifier: id, source: source)
             layer.circleColor = NSExpression(forConstantValue: color)
             layer.circleRadius = NSExpression(forConstantValue: radius)
-            // The paper's cream, not white: the map's pins are ringed in
-            // the same stock as the page around the map.
-            layer.circleStrokeColor = NSExpression(forConstantValue: UIColor(hex: SR.Fixed.paper))
+            layer.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
             layer.circleStrokeWidth = NSExpression(forConstantValue: 2.5)
             style.addLayer(layer)
         }

@@ -1,19 +1,20 @@
 import SwiftUI
 import UIKit
 
-/// The valley, drawn as the site's notes chapter draws it: pencil on the
-/// page rather than a game's map pasted onto it.
+/// The valley, drawn by the phone on an opaque rounded card: the site's map
+/// content, in the app's own look.
 ///
 /// Three layers, so a pinch costs almost nothing:
 ///
 /// 1. **The ground** is one picture, made once per terrain version and colour
 ///    scheme (`WildmindRaster`, off the main thread) and scaled by the
 ///    compositor as the reader zooms. Unseen cells are clear, so what nobody
-///    has explored is the page's own ruled paper.
-/// 2. **The pen** — the coast in petrol, the dashed edge of the known, trails,
-///    huts, fires, animals, the two people, place names — is a `Canvas` over
-///    it, redrawn as the view moves. It is a few hundred strokes at most.
-/// 3. **The frame** — the double neat line, the moon, the day's stamp — stays
+///    has explored is the card's plain paper.
+/// 2. **The marks** — the coast in petrol, the dashed edge of the known,
+///    trails, huts, fires, animals, the two people, place names — are a
+///    `Canvas` over it, redrawn as the view moves. A few hundred strokes at
+///    most.
+/// 3. **The frame** — the card's edge, the night's moon, the day chip — stays
 ///    put whatever the map does.
 ///
 /// Pinch to zoom (up to six times), drag to pan once zoomed; at the whole
@@ -43,7 +44,7 @@ struct WildmindMap: View {
 
     var body: some View {
         // The frame takes the map's own proportions at the column's width,
-        // between nine and seventeen rules tall, as the site's phone frame is.
+        // between 288 and 544 points tall, as the site's phone frame is.
         Color.clear
             .aspectRatio(CGFloat(max(1, shape.width)) / CGFloat(max(1, shape.height)), contentMode: .fit)
             .frame(maxWidth: .infinity)
@@ -53,8 +54,6 @@ struct WildmindMap: View {
                     map(in: geometry.size)
                 }
             }
-            // Room for the stamp, which hangs over the frame's foot.
-            .padding(.bottom, 26)
             .task(id: pictureKey) { await draw() }
     }
 
@@ -107,32 +106,40 @@ struct WildmindMap: View {
                     }
                 } label: {
                     Text("WHOLE VALLEY")
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.stampTracking)
+                        .font(SR.Text.label())
+                        .tracking(SR.kickerTracking)
                         .foregroundStyle(SR.accentInk)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(SR.paper)
-                        .overlay {
-                            SRStampBox(seed: 627).stroke(SR.accentInk.opacity(0.75), style: .ink(1.3))
-                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .srGlass(.paper, in: Capsule(), interactive: true)
                 }
                 .buttonStyle(.plain)
                 .frame(minWidth: 44, minHeight: 44)
-                .position(x: plan.inner.minX + 62, y: plan.inner.minY + 26)
+                .position(x: plan.inner.minX + 70, y: plan.inner.minY + 26)
                 .accessibilityLabel("Show the whole valley")
                 .accessibilityIdentifier("wildmind-map-reset")
             }
         }
         .frame(width: size.width, height: size.height)
-        .clipShape(Rectangle().inset(by: 7))
-        .overlay { neatLine.accessibilityHidden(true) }
+        // An opaque card, not glass: the map is content, and the page's
+        // atmosphere showing through the unexplored cells would read as
+        // terrain.
+        .background(SR.paper)
+        .clipShape(frameShape)
+        .overlay { frameShape.strokeBorder(SR.line, lineWidth: 1).accessibilityHidden(true) }
         .overlay(alignment: .topTrailing) {
             if snapshot.time.isNight && state != .offline {
-                SRMoonDoodle(width: 48).padding(.top, 18).padding(.trailing, 22)
+                Image(systemName: "moon.stars.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(SR.accentInk)
+                    .frame(width: 36, height: 36)
+                    .srGlass(.paper, in: Circle())
+                    .padding(.top, 12)
+                    .padding(.trailing, 12)
+                    .accessibilityHidden(true)
             }
         }
-        .overlay(alignment: .bottomTrailing) { stamp }
+        .overlay(alignment: .bottomTrailing) { dayChip }
         .gesture(dragGesture(size), including: zoomed ? .all : .subviews)
         .simultaneousGesture(magnifyGesture(size))
     }
@@ -184,59 +191,32 @@ struct WildmindMap: View {
 
     // MARK: - The frame
 
-    /// The double neat line (`inkLine(r, 0, 4, 1000, 4, .5, .0012)`, seeds
-    /// 611 on): outer at the edge in ink, inner six points in, finer.
-    private var neatLine: some View {
-        Canvas { context, size in
-            for (ring, inset, width, tone) in [(0, CGFloat(1), CGFloat(1.6), SR.ink), (1, CGFloat(7), CGFloat(0.8), SR.inkSecondary)] {
-                let w = size.width
-                let h = size.height
-                let corners = [
-                    CGPoint(x: inset, y: inset), CGPoint(x: w - inset, y: inset),
-                    CGPoint(x: w - inset, y: h - inset), CGPoint(x: inset, y: h - inset),
-                ]
-                var path = Path()
-                for side in 0..<4 {
-                    let a = corners[side]
-                    let b = corners[(side + 1) % 4]
-                    let length = hypot(b.x - a.x, b.y - a.y)
-                    guard length > 0 else { continue }
-                    var r = InkRNG(611 + ring * 4 + side)
-                    let stroke = InkGeometry.line(&r, 0, 4, 1000, 4, amp: 0.5, bow: 0.0012)
-                    let place = CGAffineTransform(translationX: 0, y: -4)
-                        .concatenating(CGAffineTransform(scaleX: length / 1000, y: 1))
-                        .concatenating(CGAffineTransform(rotationAngle: atan2(b.y - a.y, b.x - a.x)))
-                        .concatenating(CGAffineTransform(translationX: a.x, y: a.y))
-                    path.addPath(Path(ink: [stroke]).applying(place))
-                }
-                context.stroke(path, with: .color(tone), style: .ink(width))
-            }
-        }
-        .allowsHitTesting(false)
+    private var frameShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
     }
 
-    /// "DAY 5 / SPRING" across the frame's foot, tilted, on its own paper —
-    /// faded when the valley has stopped answering.
+    /// "DAY 5 · SPRING" in the frame's corner — faded when the valley has
+    /// stopped answering.
     @ViewBuilder
-    private var stamp: some View {
+    private var dayChip: some View {
         let text = state == .betweenLives ? "Between" : (snapshot.time.day.map { "Day \($0)" } ?? "Day \u{2014}")
         let sub = state == .betweenLives ? "lives" : WildmindWords.stampSub(state, time: snapshot.time)
-        SRDateStamp(text: text, sub: sub, seed: 621, mono: true)
-            .opacity(state == .stale || state == .offline ? 0.6 : 0.88)
-            .padding(.trailing, 24)
-            .offset(y: 26)
+        SRGlassChip(text: "\(text) \u{00B7} \(sub)", icon: snapshot.time.isNight ? "moon.fill" : "sun.max.fill")
+            .opacity(state == .stale || state == .offline ? 0.6 : 1)
+            .padding(.trailing, 12)
+            .padding(.bottom, 12)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 
-    // MARK: - The pen
+    // MARK: - The marks
 
     private var placeNames: [String] {
         grid.regions.sorted { ($0.isLandmark ? 0 : 1) < ($1.isLandmark ? 0 : 1) }.map(\.name)
     }
 
     private func colour(for person: WildmindPerson) -> Color {
-        person.isMain ? SR.accent : person.id == "companion" ? SR.accentInk : SR.Notes.ochre
+        WildmindTone.of(person)
     }
 
     private func drawPen(in context: inout GraphicsContext, layout: WildmindMapLayout) {
@@ -297,7 +277,7 @@ struct WildmindMap: View {
                          with: .color(SR.accent))
         }
 
-        // Trails: a dotted pencil line behind each person.
+        // Trails: a dotted line behind each person.
         for person in snapshot.people where !person.trail.isEmpty {
             var trail = Path()
             let points = (person.trail + [WildmindPoint(x: person.x, z: person.z)]).map { point -> CGPoint in
@@ -334,15 +314,12 @@ struct WildmindMap: View {
                 context.stroke(ring, with: .color(tone), style: StrokeStyle(lineWidth: 2, dash: [2.5, 2]))
             }
             if selected == person.id {
-                var loop = Path()
-                var rng = InkRNG(seedFor(person.name) + 3)
-                Ink.ring(&rng, cx: Double(p.x), cy: Double(p.y), rx: Double(r * 2.4), ry: Double(r * 2.2),
-                         turns: 1.12, wob: 0.06, into: &loop)
-                context.stroke(loop, with: .color(tone), style: .ink(1.6))
+                let loop = Path(ellipseIn: CGRect(x: p.x - r * 2.4, y: p.y - r * 2.2, width: r * 4.8, height: r * 4.4))
+                context.stroke(loop, with: .color(tone), style: .wildmindLine(1.6))
             }
         }
 
-        // Words over the map, each on a patch of paper rubbed clear: the
+        // Words over the map, each on a patch of paper cleared behind it: the
         // people's tags first, then the places, skipping any that would
         // land on another.
         let bounds = layout.inner.insetBy(dx: 4, dy: 4)
@@ -354,8 +331,8 @@ struct WildmindMap: View {
             let words = WildmindWords.tag(person, pastTense: state.pastTense)
             let rest = String(words.dropFirst(person.name.count))
             let text = context.resolve(
-                (Text(person.name).foregroundStyle(tone) + Text(rest).foregroundStyle(SR.inkSecondary))
-                    .font(SR.Text.marginalia(16))
+                Text(person.name).font(SR.Text.bodyMedium(14)).foregroundStyle(tone)
+                    + Text(rest).font(SR.Text.secondary(14)).foregroundStyle(SR.inkSecondary)
             )
             let size = text.measure(in: CGSize(width: bounds.width * 0.7, height: 80))
             let reach: CGFloat = 1.5 * m + 22
@@ -370,7 +347,7 @@ struct WildmindMap: View {
             taken.append(spot.insetBy(dx: -4, dy: -2))
             rubClear(spot, in: &context)
             context.draw(text, in: spot)
-            // A pen arrow from the words back to the disc.
+            // A thin leader from the words back to the disc.
             let from = CGPoint(x: spot.midX < p.x ? spot.maxX - 4 : spot.minX + 4,
                                y: spot.midY < p.y ? spot.maxY + 1 : spot.minY - 1)
             let gap = 1.5 * m + 4
@@ -378,14 +355,14 @@ struct WildmindMap: View {
             let dy = p.y - from.y
             let distance = max(1, hypot(dx, dy))
             let to = CGPoint(x: p.x - dx / distance * gap, y: p.y - dy / distance * gap)
-            var arrow = Path()
-            var rng = InkRNG(631 + (person.isMain ? 0 : 1))
-            Ink.arrow(&rng, Double(from.x), Double(from.y), Double(to.x), Double(to.y), bow: 0.16, into: &arrow)
-            context.stroke(arrow, with: .color(SR.inkSecondary), style: .ink(1.2))
+            var leader = Path()
+            leader.move(to: from)
+            leader.addLine(to: to)
+            context.stroke(leader, with: .color(SR.inkSecondary), style: .wildmindLine(1))
         }
 
         if snapshot.stats.met == false && snapshot.people.count > 1 {
-            let note = context.resolve(Text("they haven\u{2019}t met yet").font(SR.Text.marginalia(15)).foregroundStyle(SR.inkMuted))
+            let note = context.resolve(Text("They haven\u{2019}t met yet").font(SR.Text.secondary(14)).foregroundStyle(SR.inkMuted))
             let size = note.measure(in: CGSize(width: bounds.width, height: 60))
             let spot = CGRect(x: bounds.minX + 6, y: bounds.minY + 6, width: size.width, height: size.height)
             if !taken.contains(where: spot.intersects) {
@@ -395,7 +372,7 @@ struct WildmindMap: View {
             }
         }
 
-        // Places: a pencil cross for each, its name where there is room —
+        // Places: a small cross for each, its name where there is room —
         // landmarks first; the rest only once the reader has zoomed in.
         let places = grid.regions
             .filter { $0.isLandmark || $0.kind == "h" || layout.zoom >= 1.8 }
@@ -407,12 +384,13 @@ struct WildmindMap: View {
             let p = layout.point(c.x, c.y)
             guard bounds.contains(p) else { continue }
             var cross = Path()
-            var rng = InkRNG(seedFor(place.name))
-            Ink.line(&rng, Double(p.x) - 4, Double(p.y) - 4, Double(p.x) + 4, Double(p.y) + 4, amp: 0.4, bow: 0.02, into: &cross)
-            Ink.line(&rng, Double(p.x) - 4, Double(p.y) + 4, Double(p.x) + 4, Double(p.y) - 4, amp: 0.4, bow: 0.02, into: &cross)
-            context.stroke(cross, with: .color(SR.inkSecondary), style: .ink(1.2))
+            cross.move(to: CGPoint(x: p.x - 3.5, y: p.y - 3.5))
+            cross.addLine(to: CGPoint(x: p.x + 3.5, y: p.y + 3.5))
+            cross.move(to: CGPoint(x: p.x - 3.5, y: p.y + 3.5))
+            cross.addLine(to: CGPoint(x: p.x + 3.5, y: p.y - 3.5))
+            context.stroke(cross, with: .color(SR.inkSecondary), style: .wildmindLine(1.2))
             guard written < limit else { continue }
-            let name = context.resolve(Text(place.name).font(SR.Text.marginalia(13)).foregroundStyle(SR.inkSecondary))
+            let name = context.resolve(Text(place.name).font(SR.Text.secondary(13)).foregroundStyle(SR.inkSecondary))
             let size = name.measure(in: CGSize(width: 180, height: 60))
             let options = [
                 CGRect(x: p.x + 9, y: p.y - size.height / 2, width: size.width, height: size.height),
@@ -428,23 +406,23 @@ struct WildmindMap: View {
             written += 1
         }
 
-        // The scale bar, bottom left: a hand line with end ticks.
+        // The scale bar, bottom left: a line with end ticks.
         if let scale = WildmindWords.scale(pointsPerMetre: Double(layout.unit) / grid.metresPerCell, room: 110) {
             let length = CGFloat(Double(scale.metres) * Double(layout.unit) / grid.metresPerCell)
             let x0 = bounds.minX + 8
             let y0 = bounds.maxY - 10
-            let words = context.resolve(Text(scale.words.uppercased()).font(SR.Text.kicker()).foregroundStyle(SR.inkMuted))
+            let words = context.resolve(Text(scale.words.uppercased()).font(SR.Text.mono(12)).foregroundStyle(SR.inkMuted))
             let size = words.measure(in: CGSize(width: 220, height: 40))
             let patch = CGRect(x: x0 - 2, y: y0 - size.height - 6, width: max(length, size.width) + 4, height: size.height + 12)
             rubClear(patch, in: &context)
             var bar = Path()
-            var rng = InkRNG(651)
-            Ink.line(&rng, Double(x0), Double(y0), Double(x0 + length), Double(y0), amp: 0.4, bow: 0.01, into: &bar)
+            bar.move(to: CGPoint(x: x0, y: y0))
+            bar.addLine(to: CGPoint(x: x0 + length, y: y0))
             bar.move(to: CGPoint(x: x0, y: y0 - 4))
             bar.addLine(to: CGPoint(x: x0, y: y0 + 3))
             bar.move(to: CGPoint(x: x0 + length, y: y0 - 4))
             bar.addLine(to: CGPoint(x: x0 + length, y: y0 + 3))
-            context.stroke(bar, with: .color(SR.inkSecondary), style: .ink(1.3))
+            context.stroke(bar, with: .color(SR.inkSecondary), style: .wildmindLine(1.3))
             context.draw(words, at: CGPoint(x: x0, y: y0 - 5), anchor: .bottomLeading)
         }
     }
@@ -453,8 +431,8 @@ struct WildmindMap: View {
         region.isLandmark ? 0 : region.kind == "h" ? 1 : 2
     }
 
-    /// A patch of paper wiped clear behind a word: a soft-edged smudge, then
-    /// the patch itself.
+    /// A patch of paper cleared behind a word: a soft edge, then the patch
+    /// itself.
     private func rubClear(_ rect: CGRect, in context: inout GraphicsContext) {
         let patch = rect.insetBy(dx: -4, dy: -1)
         context.drawLayer { layer in
@@ -558,5 +536,22 @@ struct WildmindMapLayout {
         let overX = max(0, (mapSize.width - inner.width) / 2)
         let overY = max(0, (mapSize.height - inner.height) / 2)
         return CGSize(width: min(overX, max(-overX, wanted.width)), height: min(overY, max(-overY, wanted.height)))
+    }
+}
+
+/// Each person's colour on the map and on their card: JKai in the accent,
+/// the companion in petrol, anyone else in a Wildmind-only ochre.
+enum WildmindTone {
+    static let other = Color(light: 0x8C6A12, dark: 0xC9A445)
+
+    static func of(_ person: WildmindPerson) -> Color {
+        person.isMain ? SR.accent : person.id == "companion" ? SR.accentInk : other
+    }
+}
+
+extension StrokeStyle {
+    /// A plain round-capped line for the map's marks.
+    static func wildmindLine(_ width: CGFloat) -> StrokeStyle {
+        StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
     }
 }

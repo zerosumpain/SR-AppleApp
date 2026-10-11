@@ -131,8 +131,8 @@ struct FamilyTasksScreen: View {
         Section {
             if toDo.isEmpty {
                 Text(awaiting.isEmpty ? "Nothing to do. Add something with +." : "Everything else is done.")
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .srGlassRow()
             }
             ForEach(toDo) { task in row(task, board) }
@@ -148,8 +148,8 @@ struct FamilyTasksScreen: View {
         Section {
             if board.completed.isEmpty {
                 Text(board.me.parent ? "Nothing confirmed in the last 90 days." : "Nothing of yours confirmed in the last 90 days.")
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .srGlassRow()
             }
             ForEach(board.completed) { task in row(task, board) }
@@ -170,8 +170,8 @@ struct FamilyTasksScreen: View {
         if board.owed.items.isEmpty {
             Section {
                 Text(board.me.parent ? "Nobody is owed anything." : "Nothing owed to you right now.")
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .srGlassRow()
             }
         } else if board.me.parent {
@@ -213,22 +213,11 @@ struct FamilyTasksScreen: View {
                     SRHaptic.tap()
                     Task { await store.act(.paid, on: task) }
                 } label: {
-                    // Boxed by hand in the olive pen. Borderless, not
-                    // `srButton`: in a List only the borderless styles keep
-                    // a tap on the rest of the row from pressing it.
                     Text(store.busy == task.id ? "…" : "Mark paid")
-                        .font(SR.Text.label(13))
-                        .foregroundStyle(SR.good)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: SR.tapTarget)
-                        .background(SR.Notes.card)
-                        .overlay {
-                            SRInkBox(seed: seedFor(task.id)).stroke(SR.good.opacity(0.8), style: .ink(1.3))
-                        }
-                        .contentShape(Rectangle())
+                        .font(SR.Text.bodyMedium(14))
                 }
-                .buttonStyle(.borderless)
-                .opacity(store.busy != nil ? 0.45 : 1)
+                .buttonStyle(.bordered)
+                .tint(SR.good)
                 .disabled(store.busy != nil)
                 .accessibilityIdentifier("task-paid-\(task.id)")
             }
@@ -307,10 +296,12 @@ struct FamilyTaskRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            FamilyTaskBox(seed: seedFor(task.id), ticked: task.status == "done" || task.status == "confirmed",
-                          tone: statusTone)
+            Image(systemName: statusIcon)
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(statusTone)
                 .frame(width: 26)
                 .padding(.top, 1)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
                     .font(SR.Text.title())
@@ -335,13 +326,13 @@ struct FamilyTaskRow: View {
                 }
                 HStack(spacing: 10) {
                     Text(forLine.uppercased())
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
+                        .font(SR.Text.mono())
+                        .tracking(0.6)
                         .foregroundStyle(SR.inkMuted)
                     if let due = dueLine {
                         Text(due.text.uppercased())
-                            .font(SR.Text.kicker())
-                            .tracking(SR.Notes.kickerTracking)
+                            .font(SR.Text.mono())
+                            .tracking(0.6)
                             .foregroundStyle(due.overdue ? SR.error : SR.inkMuted)
                     }
                 }
@@ -357,17 +348,13 @@ struct FamilyTaskRow: View {
                 Button {
                     act(primary)
                 } label: {
-                    // The action's mark in the olive pen, plain.
-                    // Borderless, so only this — not the row — presses it.
                     Image(systemName: busy ? "hourglass" : primary.icon)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(SR.good)
-                        .frame(width: 38, height: 38)
-                        .frame(width: SR.tapTarget, height: SR.tapTarget)
-                        .contentShape(Circle())
+                        .frame(width: 34, height: 34)
                 }
-                .buttonStyle(.borderless)
-                .opacity(busy ? 0.45 : 1)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .tint(SR.good)
                 .disabled(busy)
                 .accessibilityLabel("\(primary.label): \(task.title)")
                 .accessibilityIdentifier("task-\(primary.rawValue)-\(task.id)")
@@ -375,6 +362,14 @@ struct FamilyTaskRow: View {
         }
         .padding(.vertical, 6)
         .accessibilityIdentifier("task-row-\(task.id)")
+    }
+
+    private var statusIcon: String {
+        switch task.status {
+        case "done": return "checkmark.circle"
+        case "confirmed": return "checkmark.seal.fill"
+        default: return "circle"
+        }
     }
 
     private var statusTone: Color {
@@ -410,33 +405,6 @@ struct FamilyTaskRow: View {
     }
 }
 
-/// A task's box on the list, drawn by hand: empty while it is to do, ticked
-/// in orange once somebody says it is done, in olive once a parent confirms
-/// it (the title is struck through then too). Decorative: the row's words
-/// say where the task is.
-struct FamilyTaskBox: View {
-    let seed: Int
-    let ticked: Bool
-    let tone: Color
-
-    var body: some View {
-        ZStack {
-            SRInkBox(seed: seed, amp: 0.5)
-                .stroke(ticked ? tone : SR.inkMuted, style: .ink(1.3))
-                .frame(width: 18, height: 18)
-            if ticked {
-                // The tick runs out of its box, as a quick pen's does.
-                SRInkTick(seed: seed + 1)
-                    .stroke(tone, style: .ink(2.2))
-                    .frame(width: 22, height: 22)
-                    .offset(x: 3, y: -3)
-            }
-        }
-        .frame(width: 26, height: 26)
-        .accessibilityHidden(true)
-    }
-}
-
 /// The Owed shelf's headline: the money, and the treats with no money in them.
 struct FamilyOwedTotal: View {
     let board: FamilyTasksBoard
@@ -445,29 +413,13 @@ struct FamilyOwedTotal: View {
         let others = FamilyTaskRules.owedOther(board)
         VStack(alignment: .leading, spacing: 6) {
             SRSectionLabel(text: board.me.parent ? "Owed, everyone" : "Owed to you")
-            // The total, double-underlined in the orange pen as a sum is in
-            // an exercise book — when there is one. Nothing owed is written
-            // plainly, in muted ink.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if board.owed.totalPence > 0 {
-                    Text(FamilyTaskRules.money(board.owed.totalPence))
-                        .font(SR.Text.hero(44))
-                        .tracking(-44 * 0.03)
-                        .monospacedDigit()
-                        .foregroundStyle(SR.good)
-                        .srInkUnderline(lineWidth: 2.6)
-                        .padding(.bottom, 10)
-                } else {
-                    Text(FamilyTaskRules.money(board.owed.totalPence))
-                        .font(SR.Text.hero(44))
-                        .tracking(-44 * 0.03)
-                        .monospacedDigit()
-                        .foregroundStyle(SR.inkMuted)
-                }
-                Text("OWED")
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.Notes.pen)
+                Text(FamilyTaskRules.money(board.owed.totalPence))
+                    .font(SR.Text.hero(44))
+                    .foregroundStyle(board.owed.totalPence > 0 ? SR.good : SR.inkMuted)
+                Text("owed")
+                    .font(SR.Text.label(14))
+                    .foregroundStyle(SR.inkMuted)
             }
             if !others.isEmpty {
                 Text("And " + others.compactMap { $0.reward?.label }.joined(separator: ", ") + ".")
@@ -512,7 +464,6 @@ struct FamilyTaskSheet: View {
                 } header: {
                     SRSectionLabel(text: "Task")
                 }
-                .srGlassRow()
 
                 Section {
                     Picker("For", selection: $draft.assigneeId) {
@@ -530,7 +481,6 @@ struct FamilyTaskSheet: View {
                 } header: {
                     SRSectionLabel(text: "Who and when")
                 }
-                .srGlassRow()
 
                 Section {
                     Toggle("Reward", isOn: $draft.hasReward.animation())
@@ -559,11 +509,9 @@ struct FamilyTaskSheet: View {
                 } footer: {
                     if draft.hasReward {
                         Text("Cash needs an amount. A reward is owed once a parent confirms the task, until they mark it paid.")
-                            .font(SR.Text.marginalia(15))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary(13))
                     }
                 }
-                .srGlassRow()
 
                 if let message = refusal ?? (draft.title.isEmpty ? nil : draft.problem) {
                     Section {
@@ -571,7 +519,6 @@ struct FamilyTaskSheet: View {
                             .font(SR.Text.secondary())
                             .foregroundStyle(SR.error)
                     }
-                    .srGlassRow()
                 }
             }
             .scrollContentBackground(.hidden)
@@ -626,7 +573,7 @@ struct TodayTasksCard: View {
         } label: {
             SRCard(interactive: true) {
                 VStack(alignment: .leading, spacing: 12) {
-                    SRSectionLabel(text: "Family tasks", trailing: store.summary?.owedLine)
+                    SRSectionLabel(text: "Family tasks", trailing: store.summary?.owedLine, prominent: true)
                     if let summary = store.summary {
                         HStack(alignment: .firstTextBaseline, spacing: 22) {
                             figure("\(summary.toDo)", "to do")
@@ -643,9 +590,9 @@ struct TodayTasksCard: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 ForEach(summary.next.prefix(2)) { line in
                                     HStack(spacing: 8) {
-                                        SRInkBox(seed: seedFor(line.id), amp: 0.5)
-                                            .stroke(SR.inkMuted, style: .ink(1.2))
-                                            .frame(width: 13, height: 13)
+                                        Image(systemName: "circle")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(SR.inkGhost)
                                             .accessibilityHidden(true)
                                         Text(line.title)
                                             .font(SR.Text.bodyMedium(15))
@@ -664,8 +611,8 @@ struct TodayTasksCard: View {
                         }
                     } else {
                         Text(store.loaded ? (store.message ?? "No tasks yet.") : "Reading the list…")
-                            .font(SR.Text.marginalia(15))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
                     }
                 }
             }
@@ -677,18 +624,15 @@ struct TodayTasksCard: View {
         .accessibilityIdentifier("today-tasks")
     }
 
-    /// A count over its petrol label, as the site labels a reading.
     private func figure(_ value: String, _ label: String, tone: Color = SR.ink) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
                 .font(SR.Text.figure(26))
-                .tracking(-26 * 0.03)
-                .monospacedDigit()
                 .foregroundStyle(tone)
             Text(label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
-                .foregroundStyle(SR.accentInk)
+                .font(SR.Text.label())
+                .tracking(1)
+                .foregroundStyle(SR.inkMuted)
         }
     }
 }

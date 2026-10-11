@@ -192,9 +192,15 @@ enum WildmindDemo {
 }
 
 extension SRDemoFixtures {
-    /// `GET api/native/wildmind`. Anything else under it is a 404.
-    static func wildmindRoute(method: String, parts: [String], query: [String: String]) -> String? {
-        guard method == "GET", parts.count == 3 else { return nil }
-        return WildmindDemo.answer(have: query["have"])
+    /// `GET api/native/wildmind`, and the owner lane under it — talk,
+    /// chronicle, inventions, whispers and `POST whisper` — from
+    /// `WildmindDemoLane`. Anything else under it is a 404.
+    static func wildmindRoute(method: String, parts: [String], query: [String: String], body: Data?, now: Date) -> String? {
+        if parts.count == 3 {
+            guard method == "GET" else { return nil }
+            return WildmindDemo.answer(have: query["have"])
+        }
+        guard parts.count == 4 else { return nil }
+        return WildmindDemoLane.shared.route(method: method, route: parts[3], query: query, body: body, now: now)
     }
 }

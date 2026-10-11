@@ -253,20 +253,6 @@ final class AlarmPlayer {
 
 // MARK: - Raising it
 
-/// The alarm's own colours, fixed in both modes.
-///
-/// Everything else on the page takes the night theme's lifted red at night
-/// (`SR.error` is a soft #E08B8B there, right for red words on dark paper).
-/// The alarm's solid fields carry WHITE words, and white on that pink is
-/// barely 2.4:1 — at night, exactly when an alarm is likeliest, the loud
-/// screen went pale. So the fills hold the day's red, deep red and olive
-/// whatever the phone's appearance.
-enum FamilyAlarmInk {
-    static let red = Color(hex: SR.Fixed.error)
-    static let deep = Color(hex: 0x8E1B1B)
-    static let calm = Color(hex: SR.Fixed.good)
-}
-
 /// The red button on the Family tab's bar.
 struct FamilyAlarmButton: View {
     @ObservedObject private var store = FamilyAlarmStore.shared
@@ -279,7 +265,7 @@ struct FamilyAlarmButton: View {
         } label: {
             Image(systemName: store.raised == nil ? "sos.circle.fill" : "light.beacon.max.fill")
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, FamilyAlarmInk.red)
+                .foregroundStyle(.white, SR.error)
                 .font(.system(size: 20, weight: .bold))
                 .symbolEffect(.pulse, options: .repeating, isActive: store.raised != nil)
         }
@@ -319,7 +305,8 @@ struct RaiseAlarmSheet: View {
                             .font(SR.Text.body())
                             .lineLimit(1...3)
                             .padding(12)
-                            .srGlassCard(.paper)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(SR.surface))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(SR.line, lineWidth: 1))
                         HoldToRaise(sending: store.sending) {
                             stopTest()
                             Task { await store.raise(kind, message: message) }
@@ -333,8 +320,8 @@ struct RaiseAlarmSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Text("If you are in immediate danger, call 999 as well. This tells your family; it does not call the emergency services.")
-                        .font(SR.Text.marginalia(16))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(SR.gutter)
@@ -374,13 +361,8 @@ struct RaiseAlarmSheet: View {
                 .font(SR.Text.title(15))
                 .foregroundStyle(SR.error)
                 .frame(maxWidth: .infinity, minHeight: SR.tapTarget)
-                // The notebook's regular button, boxed by hand — in the
-                // alarm's red rather than ink, because it makes the noise.
-                .background(SR.Notes.card)
-                .overlay {
-                    SRInkBox(seed: seedFor("alarm-test")).stroke(SR.error.opacity(0.7), style: .ink(1.4))
-                }
-                .contentShape(Rectangle())
+                .overlay(Capsule().strokeBorder(SR.error.opacity(0.5), lineWidth: 1.5))
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityHint("Plays for ten seconds here only. Nobody else is told.")
@@ -413,17 +395,8 @@ struct RaiseAlarmSheet: View {
                     .foregroundStyle(kind == option ? SR.error : SR.inkGhost)
             }
             .padding(12)
-            // Index cards, the chosen one washed and edged in the alarm's red.
-            .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(SR.Notes.card)
-                    if kind == option {
-                        RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(SR.error.opacity(0.08))
-                    }
-                }
-            }
-            .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                .strokeBorder(kind == option ? SR.error.opacity(0.5) : SR.line, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 14).fill(kind == option ? SR.error.opacity(0.08) : SR.surface))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(kind == option ? SR.error.opacity(0.5) : SR.line, lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -459,20 +432,13 @@ struct RaiseAlarmSheet: View {
             .accessibilityIdentifier("family-alarm-stand-down")
         }
         .padding(16)
-        .background {
-            // Card stock under the red wash, so the page's rules stay out.
-            ZStack {
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(SR.Notes.card)
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(SR.error.opacity(0.08))
-            }
-        }
-        .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.error.opacity(0.5), lineWidth: 1.5))
+        .background(RoundedRectangle(cornerRadius: 18).fill(SR.error.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(SR.error.opacity(0.5), lineWidth: 1.5))
     }
 }
 
 /// A big red button that fires after being held for two seconds, filling as
-/// it goes. Cut square like every block on the page, and left as loud as it
-/// was: the alarm's reds and white are fixed in both modes on purpose. VoiceOver gets a plain double-tap action instead: a long press is
+/// it goes. VoiceOver gets a plain double-tap action instead: a long press is
 /// not a gesture a screen-reader user can see the progress of.
 struct HoldToRaise: View {
     let sending: Bool
@@ -483,10 +449,10 @@ struct HoldToRaise: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(FamilyAlarmInk.red.opacity(0.85))
+            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(SR.error.opacity(0.85))
             GeometryReader { proxy in
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                    .fill(FamilyAlarmInk.deep)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color(hex: 0x8E1B1B))
                     .frame(width: proxy.size.width * progress)
             }
             HStack(spacing: 10) {
@@ -502,7 +468,7 @@ struct HoldToRaise: View {
             .frame(maxWidth: .infinity)
         }
         .frame(height: 72)
-        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onLongPressGesture(minimumDuration: Self.hold, maximumDistance: 40) {
             SRHaptic.ok()
             progress = 0
@@ -539,7 +505,7 @@ struct IncomingAlarmView: View {
 
     var body: some View {
         ZStack {
-            (alarm.cancelled ? FamilyAlarmInk.calm : FamilyAlarmInk.red)
+            (alarm.cancelled ? SR.good : SR.error)
                 .opacity(flash && !alarm.cancelled ? 0.8 : 1)
                 .ignoresSafeArea()
             VStack(spacing: 22) {
@@ -570,7 +536,7 @@ struct IncomingAlarmView: View {
                         Label("Show where they are", systemImage: "map.fill")
                             .font(SR.Text.title(18))
                             .frame(maxWidth: .infinity, minHeight: 56)
-                            .foregroundStyle(FamilyAlarmInk.red)
+                            .foregroundStyle(SR.error)
                             .background(Capsule().fill(.white))
                     }
                     .buttonStyle(.plain)

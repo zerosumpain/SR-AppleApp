@@ -34,8 +34,7 @@ struct WelcomeScreen: View {
                     }
                     .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
                     .frame(height: 50)
-                    // Cut square like the app's own buttons beside it.
-                    .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+                    .clipShape(Capsule())
                     .accessibilityIdentifier("welcome-apple")
 
                     Button {
@@ -214,13 +213,6 @@ struct ReviewScreen: View {
                         strap: "John has your request. This screen changes by itself once he has said yes — there is nothing else to do."
                     )
                 }
-
-                // The request, stamped: where it stands, in the rubber
-                // stamp the notebook dates and marks things with.
-                SRStamp(text: status == .declined ? "Not approved" : "In review",
-                        tone: status == .declined ? SR.error : SR.Notes.pen,
-                        tilt: -4)
-                    .padding(.leading, 4)
 
                 VStack(alignment: .leading, spacing: 6) {
                     SRLabel(text: "Signed in as")

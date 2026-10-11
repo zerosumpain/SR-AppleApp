@@ -92,8 +92,8 @@ struct ThreadListScreen: View {
                         }
                     } else if !store.conversations.isEmpty {
                         Text("Nothing yet today.")
-                            .font(SR.Text.marginalia(16))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
                             .srGlassRow()
                     }
                 } header: {
@@ -317,30 +317,29 @@ struct ThreadListScreen: View {
     }
 }
 
-/// One thread: a line of the ledger. Title, a sub-line of provenance, and the
-/// last thing said.
+/// One thread. Title, a sub-line of provenance, and the last thing said.
 struct ThreadRow: View {
     let conversation: Conversation
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // The source, as a glyph in its pen: a thread that came in over
-            // WhatsApp and one started here are different kinds of thing, and
-            // the colour says which.
-            ThreadGlyph(
-                icon: conversation.isWhatsApp ? "phone.bubble" : "sparkle",
-                tone: conversation.isWhatsApp ? SR.good : SR.accent,
-                seed: seedFor(conversation.id)
-            )
+            // The source, as a glyph in a disc: a thread that came in over
+            // WhatsApp and one started here are different kinds of thing.
+            Image(systemName: conversation.isWhatsApp ? "phone.bubble" : "sparkle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(conversation.isWhatsApp ? SR.good : SR.accent)
+                .frame(width: 34, height: 34)
+                .background((conversation.isWhatsApp ? SR.good : SR.accent).opacity(0.12), in: Circle())
+                .padding(.top, 2)
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
-                // A pinned thread is pinned as a card is: a drawing pin.
                 if conversation.pinned {
-                    SRPin(size: 11)
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(SR.accent)
                 }
                 Text(conversation.displayTitle)
-                    .font(SR.Text.display(17))
-                    .tracking(-17 * 0.02)
+                    .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
                     .lineLimit(1)
                 Spacer(minLength: 6)
@@ -356,8 +355,8 @@ struct ThreadRow: View {
             if let preview = conversation.oneLinePreview,
                Conversation.clip(preview) != conversation.displayTitle {
                 Text(preview)
-                    .font(SR.Text.serif(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .lineLimit(1)
                     .multilineTextAlignment(.leading)
             }
@@ -376,12 +375,16 @@ struct FamilyThreadRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ThreadGlyph(icon: "person.2.wave.2", tone: SR.accentInk, seed: seedFor("Family"))
+            Image(systemName: "person.2.wave.2")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SR.accentDeep)
+                .frame(width: 34, height: 34)
+                .background(SR.accentDeep.opacity(0.12), in: Circle())
+                .padding(.top, 2)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
                     Text("Family")
-                        .font(SR.Text.display(17))
-                        .tracking(-17 * 0.02)
+                        .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
                         .lineLimit(1)
                     Spacer(minLength: 6)
@@ -392,33 +395,14 @@ struct FamilyThreadRow: View {
                     }
                 }
                 Text(latest ?? "msg family — one line to everyone's phone")
-                    .font(SR.Text.serif(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .lineLimit(1)
             }
         }
         .padding(.vertical, 6)
         .frame(minHeight: SR.tapTarget, alignment: .leading)
         .contentShape(Rectangle())
-    }
-}
-
-/// A thread's glyph in the ledger: the symbol in its tone, plain — no
-/// tinted disc and no hand-drawn loop. In the notes look a loop means "this
-/// is the one that matters", and a loop on every row would spend that.
-/// `seed` is kept so the call sites read as before.
-private struct ThreadGlyph: View {
-    let icon: String
-    let tone: Color
-    var seed: Int = 0
-
-    var body: some View {
-        Image(systemName: icon)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(tone)
-            .frame(width: 34, height: 34)
-            .padding(.top, 2)
-            .accessibilityHidden(true)
     }
 }
 
@@ -495,10 +479,10 @@ struct ChatScreen: View {
                         Button {
                             Task { await store.loadOlder() }
                         } label: {
-                            Text((store.loading ? "Loading…" : "Earlier turns").uppercased())
-                                .font(SR.Text.kicker())
-                                .tracking(SR.Notes.kickerTracking)
-                                .foregroundStyle(SR.Notes.pen)
+                            Text(store.loading ? "Loading…" : "Earlier turns")
+                                .font(SR.Text.label())
+                                .tracking(1.2)
+                                .foregroundStyle(SR.accent)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                         }
@@ -613,7 +597,7 @@ struct ChatScreen: View {
                         .foregroundStyle(SR.ink)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .srGlassCard(.paper)
+                        .srGlass(.paper, in: Capsule(), interactive: true)
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 84)
@@ -754,10 +738,9 @@ struct ChatScreen: View {
             if !store.pending.isEmpty {
                 PendingAttachmentStrip(items: store.pending) { store.removePending($0) }
             }
-            // A slip of card stock for the draft and pen-ringed discs for the
-            // controls, floating over the transcript. It was a glass capsule;
-            // on the notes the page is paper all the way down, and the keyboard
-            // under it is the system's glass.
+            // A floating glass capsule, the shape iOS 26 gives every composer:
+            // the transcript runs on underneath it, and nothing hard-edged
+            // separates the two.
             SRGlassGroup(spacing: 10) {
                 HStack(alignment: .bottom, spacing: 10) {
                     attachMenu
@@ -775,7 +758,7 @@ struct ChatScreen: View {
                             .padding(.horizontal, 18)
                             .padding(.vertical, 12)
                             .frame(minHeight: 48)
-                            .srGlassCard(.paper)
+                            .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                             .accessibilityIdentifier("chat-composer")
                     }
 
@@ -805,9 +788,7 @@ struct ChatScreen: View {
                 .font(.system(size: store.sending ? 14 : 17, weight: .bold))
                 .foregroundStyle(sendable || store.sending ? SR.paper : SR.inkMuted)
                 .frame(width: 48, height: 48)
-                .background {
-                    if sendable || store.sending { Circle().fill(SR.accentDeep) } else { ComposerDisc(seed: 61) }
-                }
+                .srGlass(sendable || store.sending ? .accent : .paper, in: Circle(), interactive: true)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -840,9 +821,7 @@ struct ChatScreen: View {
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(recorder.recording ? SR.paper : SR.ink)
             .frame(width: 48, height: 48)
-            .background {
-                if recorder.recording { Circle().fill(SR.accentDeep) } else { ComposerDisc(seed: 67) }
-            }
+            .srGlass(recorder.recording ? .accent : .paper, in: Circle(), interactive: true)
             .contentShape(Circle())
             // Pressing starts, lifting sends. `onPressingChanged` fires on touch
             // down, which is when a hold-to-talk control has to start listening.
@@ -860,13 +839,13 @@ struct ChatScreen: View {
                 .font(SR.Text.mono(14))
                 .foregroundStyle(SR.ink)
             Text("Release to send")
-                .font(SR.Text.marginalia(16))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
         .frame(maxWidth: .infinity, minHeight: 48)
-        .srGlassCard(.paper)
+        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 
@@ -876,13 +855,13 @@ struct ChatScreen: View {
         HStack(spacing: 10) {
             ProgressView().tint(SR.accent)
             Text("Transcribing…")
-                .font(SR.Text.marginalia(16))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
         .frame(maxWidth: .infinity, minHeight: 48)
-        .srGlassCard(.paper)
+        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("chat-transcribing")
     }
@@ -977,7 +956,7 @@ struct ChatScreen: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(SR.ink)
                 .frame(width: 48, height: 48)
-                .background { ComposerDisc(seed: 59) }
+                .srGlass(.paper, in: Circle(), interactive: true)
                 .contentShape(Circle())
         }
         .disabled(store.sending || !store.canAttachMore)
@@ -1034,20 +1013,5 @@ struct ChatScreen: View {
 
     private var sendable: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !store.uploading
-    }
-}
-
-/// A composer control's ground: a disc of card stock with the card's own
-/// hairline, so the round buttons beside the draft read as paper rather than
-/// as glass. No hand-drawn loop: those are kept for the figure that matters.
-/// `seed` is kept so the call sites read as before.
-private struct ComposerDisc: View {
-    var seed: Int = 0
-
-    var body: some View {
-        Circle()
-            .fill(SR.Notes.card)
-            .overlay { Circle().strokeBorder(SR.line, lineWidth: 1) }
-            .accessibilityHidden(true)
     }
 }

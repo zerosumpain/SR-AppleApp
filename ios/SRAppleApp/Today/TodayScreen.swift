@@ -127,16 +127,12 @@ final class TodayStore: ObservableObject {
 /// that is a glance: how the body is doing, what the site has been trying to
 /// tell you, and where the conversation got to.
 ///
-/// A page of the notebook, dated: the day's stamp in the top corner, then who
-/// is where on an index card, then four doors — Ask jkai, Health (the three
-/// rings, the readiness figure underlined), Daydream (what the loop noticed)
-/// and Games. The alerts and the workflows are the bell's: Up next repeated
-/// them and went. An urgent alert still pins itself under the bar, as a slip
-/// of the ink cover. Nothing here is the only place to read anything.
-///
-/// The section names are kickers, not headings, on purpose: with no page
-/// title the stamp is the masthead, and three Inter headings under it would
-/// shout over the one mark that says what day this page is.
+/// Under glass the screen is a stack of lifted sheets on a warm ground: who is
+/// where, then four squares — Ask jkai, Health (the three rings), Daydream
+/// (what the loop noticed) and Games — then the wire, and Sync at the foot.
+/// The alerts and the workflows are the bell's: Up next repeated them and
+/// went. An urgent alert still pins itself under the bar.
+/// Nothing here is the only place to read anything.
 ///
 /// No "carry on" card for the last thread: the Chat tab is one tap away on the
 /// bar and opens on that list.
@@ -180,15 +176,6 @@ struct TodayScreen: View {
             // bar carries the date, so the first thing under the bar is the
             // thing the app is opened for: where everyone is.
             VStack(alignment: .leading, spacing: 24) {
-                // The date, stamped in the page's corner as the site stamps
-                // its notes. It sits on its own line, so no heading below
-                // can run into it at a large text size.
-                dateStamp
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, 6)
-                    .padding(.top, 6)
-                    .padding(.bottom, -10)
-
                 // Over the companion pairing, so a family member without the
                 // site's sees it too — if the owner gave them the family. Draws
                 // nothing until there is somebody to show.
@@ -385,17 +372,6 @@ struct TodayScreen: View {
         Date().formatted(.dateTime.weekday(.wide).day().month(.wide))
     }
 
-    /// "27 SEPTEMBER" over "SUNDAY", in a hand-drawn box, tilted. Silent to
-    /// VoiceOver: the bar has already said the date, in full.
-    private var dateStamp: some View {
-        let now = Date()
-        return SRDateStamp(
-            text: now.formatted(.dateTime.day().month(.wide)),
-            sub: now.formatted(.dateTime.weekday(.wide))
-        )
-        .accessibilityHidden(true)
-    }
-
     // MARK: - Cards
 
     /// Before the companion is paired the app cannot know who is holding it,
@@ -403,10 +379,9 @@ struct TodayScreen: View {
     private var companionCard: some View {
         SRCard(accented: true) {
             VStack(alignment: .leading, spacing: 12) {
-                SRSectionLabel(text: "Not connected")
+                SRSectionLabel(text: "Not connected", prominent: true)
                 Text("Connect this iPhone")
                     .font(SR.Text.display())
-                    .tracking(-22 * 0.02)
                     .foregroundStyle(SR.ink)
                 Text("Pair with the companion to upload from Apple Health. What else appears here is up to the account it pairs as.")
                     .font(SR.Text.secondary())
@@ -426,10 +401,9 @@ struct TodayScreen: View {
     private var connectCard: some View {
         SRCard(accented: true) {
             VStack(alignment: .leading, spacing: 12) {
-                SRSectionLabel(text: "Not connected")
+                SRSectionLabel(text: "Not connected", prominent: true)
                 Text("Connect this iPhone")
                     .font(SR.Text.display())
-                    .tracking(-22 * 0.02)
                     .foregroundStyle(SR.ink)
                 Text("Pair with strangeramblings.com to read your threads, the news desk and your health figures here.")
                     .font(SR.Text.secondary())
@@ -484,7 +458,7 @@ struct TodayScreen: View {
             SRHaptic.tap()
             router.show(.health)
         } label: {
-            TodayTileCard(title: "Readiness", figure: readiness?.value) {
+            TodayTileCard(title: readiness.map { "Readiness \($0.value)" } ?? "Readiness") {
                 TodayRings(vitals: vitals).frame(width: 42, height: 42)
             }
         }

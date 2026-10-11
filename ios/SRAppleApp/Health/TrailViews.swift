@@ -5,15 +5,10 @@ import Charts
 // The parts the activity and segment screens share: rows, a route map, the
 // charts, the zone strip, the splits table and the state screens.
 //
-// Charts follow /health's one-hue rule: one pen's line with a 14% wash of the
-// same pen under it, dashed ghost reference lines, and no second colour unless
-// a second MEANING needs one. A heart-rate chart in red beside an elevation
-// chart in green is two charts shouting; one hue lets the shape carry it.
-//
-// In the notes look each chart is drawn on graph paper (`srGraphPaper`, as the
-// site's health page draws its steps), in one of the book's two pens: the
-// ground — elevation, a route's profile — in petrol, the body — heart rate,
-// effort — in orange. The value grid is the page's petrol feint, not a grey.
+// Charts follow /health's one-hue rule: the accent line with a 14% accent area
+// under it on paper, dashed ghost reference lines, and no second colour unless a
+// second MEANING needs one. A heart-rate chart in red beside an elevation chart
+// in green is two charts shouting; one hue lets the shape carry it.
 
 // MARK: - Rows
 
@@ -263,35 +258,22 @@ private struct RouteDot: View {
 
 // MARK: - Charts
 
-/// Axis furniture in the notes register: mono labels, and the whole chart
-/// laid on graph paper. No axis gridlines: the graph paper is the grid, as
-/// on the site, and value ticks drawn over a 16pt lattice would be two
-/// grids that do not line up.
+/// Axis furniture in the app's register: hairline grid, mono labels.
 private struct SRAxis: ViewModifier {
     func body(content: Content) -> some View {
         content
             .chartXAxis {
                 AxisMarks(values: .automatic(desiredCount: 5)) { _ in
+                    AxisGridLine().foregroundStyle(SR.divider)
                     AxisValueLabel().font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
                 }
             }
             .chartYAxis {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
+                    AxisGridLine().foregroundStyle(SR.divider)
                     AxisValueLabel().font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
                 }
             }
-            .srChartPaper()
-    }
-}
-
-extension View {
-    /// A chart's sheet of graph paper: a little inset so the axis labels do
-    /// not sit on the border, then the grid behind. The inset comes out of
-    /// the chart's own frame, so a call site gives it ~20pt more height.
-    func srChartPaper() -> some View {
-        self
-            .padding(EdgeInsets(top: 12, leading: 8, bottom: 8, trailing: 12))
-            .srGraphPaper()
     }
 }
 
@@ -315,14 +297,14 @@ struct ElevationChart: View {
                     yStart: .value("Floor", floor),
                     yEnd: .value("Elevation", point.e)
                 )
-                .foregroundStyle(SR.accentInk.opacity(0.14))
+                .foregroundStyle(SR.accent.opacity(0.14))
                 .interpolationMethod(.monotone)
                 LineMark(
                     x: .value("km", point.d / 1000),
                     y: .value("Elevation", point.e)
                 )
-                .foregroundStyle(SR.accentInk)
-                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .foregroundStyle(SR.accent)
+                .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                 .interpolationMethod(.monotone)
             }
         }
@@ -357,7 +339,7 @@ struct HeartRateChart: View {
                     y: .value("bpm", point.v)
                 )
                 .foregroundStyle(SR.accent)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
             }
             if let average {
                 RuleMark(y: .value("Average", average))
@@ -410,6 +392,7 @@ struct EffortsChart: View {
         .chartYScale(domain: (low - pad)...(high + pad))
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisGridLine().foregroundStyle(SR.divider)
                 AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
@@ -417,6 +400,7 @@ struct EffortsChart: View {
         }
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
+                AxisGridLine().foregroundStyle(SR.divider)
                 AxisValueLabel {
                     Text(TrailFormat.duration(value.as(Double.self) ?? 0))
                         .font(SR.Text.mono())
@@ -424,7 +408,6 @@ struct EffortsChart: View {
                 }
             }
         }
-        .srChartPaper()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(points.count) efforts, best \(TrailFormat.duration(low))")
     }
@@ -503,10 +486,8 @@ struct ZoneStrip: View {
 
 // MARK: - Splits
 
-/// Per-kilometre splits. The quickest is marked — its pace ringed in orange —
-/// because that is the question a splits table is read for.
-///
-/// On card stock, so the page's rules do not run through the figures.
+/// Per-kilometre splits. The quickest is marked, because that is the question a
+/// splits table is read for.
 struct SplitsTable: View {
     let splits: [ActivitySplit]
     let activityType: String
@@ -525,7 +506,6 @@ struct SplitsTable: View {
                 )
             }
         }
-        .background(SR.Notes.card)
         .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
     }
 
@@ -550,21 +530,19 @@ private struct SplitLine: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
-                // Column heads are labels over readings: the petrol pen.
                 Text(cell)
-                    .font(header ? SR.Text.kicker() : SR.Text.mono(14))
-                    .tracking(header ? SR.Notes.kickerTracking : 0)
-                    .foregroundStyle(header ? SR.accentInk : (lit && index == 2 ? SR.accent : SR.ink))
+                    .font(header ? SR.Text.label() : SR.Text.mono(14))
+                    .tracking(header ? 1.2 : 0)
+                    .foregroundStyle(header ? SR.inkMuted : (lit && index == 2 ? SR.accent : SR.ink))
                     .lineLimit(1)
-                    .srInkRing(tone: SR.accent, seed: 31, pad: 6, lineWidth: 1.6, animated: false, visible: lit && index == 2)
                     .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : .trailing)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, header ? 8 : 9)
-        .background(lit ? SR.accent.opacity(0.06) : Color.clear)
+        .background(header ? SR.surface : (lit ? SR.accent.opacity(0.08) : Color.clear))
         .overlay(alignment: .bottom) {
-            Rectangle().fill(header ? SR.line : SR.Notes.rule).frame(height: 1)
+            Rectangle().fill(SR.divider).frame(height: 1)
         }
         .accessibilityElement(children: .combine)
     }

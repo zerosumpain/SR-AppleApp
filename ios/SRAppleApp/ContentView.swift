@@ -353,6 +353,8 @@ struct ContentView: View {
                             case .wildmind: WildmindScreen()
                             }
                         }
+                        // Talk, Chronicle and Inventions, from the Wildmind page.
+                        .navigationDestination(for: WildmindPage.self) { WildmindPageView(page: $0) }
                         .navigationDestination(for: FamilyPage.self) { familyPage($0) }
                         // Landgrab's map: from its own card here and from Steps.
                         .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }

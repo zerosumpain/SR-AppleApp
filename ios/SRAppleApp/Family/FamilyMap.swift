@@ -90,9 +90,7 @@ struct TodayFamilyCard: View {
             let initials = view.initials
             let absent = view.absent
             VStack(alignment: .leading, spacing: 10) {
-                // A kicker, as every section on Today is: the page's one
-                // headline is its date stamp.
-                SRSectionLabel(text: "Family tracking")
+                SRSectionLabel(text: "Family tracking", prominent: true)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(groups.enumerated()), id: \.element.id) { index, place in
                         if index > 0 { divider }
@@ -110,23 +108,14 @@ struct TodayFamilyCard: View {
                         absentRow(absent, lines: view.absentLines, initials: initials)
                     }
                 }
-                // The page's double margin rule down its leading edge: the
-                // one card on Today that is about people, marked in the
-                // margin the way a note that matters is, and set apart from
-                // the doors below it. (It was an orange outline; on card
-                // stock the margin rule says the same thing in the notebook's
-                // own hand.) Clear of the circles, which start 16pt in.
-                .overlay(alignment: .leading) {
-                    HStack(spacing: 2) {
-                        SR.Notes.marginA.frame(width: 1)
-                        SR.Notes.marginB.frame(width: 1)
-                    }
-                    .padding(.leading, 6)
-                    .padding(.vertical, 1)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                }
                 .srGlassCard(.paper)
+                // A slight edge in the site's orange: the one card on Today
+                // that is about people, set apart from the doors below it.
+                .overlay(
+                    RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                        .strokeBorder(SR.accent.opacity(0.7), lineWidth: 1.5)
+                        .allowsHitTesting(false)
+                )
                 // Any row opens the tab. The circles say who; the only words
                 // are where (John asked for the card that spare, 2026-10-05) —
                 // who is doing what, how fast and how long ago are on Family.

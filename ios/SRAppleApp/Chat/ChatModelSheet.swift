@@ -135,8 +135,8 @@ struct ThreadModelSheet: View {
             Text(model.locked
                  ? "Fixed once a thread has its first message, because its price is set then. Start a new thread to use another."
                  : "The site's default, the Codex models, and the ones you have used lately.")
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
         }
     }
 
@@ -158,8 +158,8 @@ struct ThreadModelSheet: View {
                 }
             } else {
                 Text("This model does not take a thinking level.")
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .srGlassRow()
             }
         } header: {
@@ -167,8 +167,8 @@ struct ThreadModelSheet: View {
         } footer: {
             if model.supportsThinking {
                 Text("Can be changed at any point. More thinking is slower and costs more.")
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
             }
         }
     }
@@ -184,13 +184,8 @@ struct ThreadModelSheet: View {
                 }
             }
             Spacer()
-            // The choice in use is ticked by hand, in the orange pen.
             if selected {
-                SRInkTick(seed: seedFor(title))
-                    .stroke(SR.accent, style: .ink(2.4))
-                    .frame(width: 20, height: 20)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Selected")
+                Image(systemName: "checkmark").foregroundStyle(SR.accent)
             }
         }
         .frame(minHeight: SR.tapTarget)

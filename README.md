@@ -364,21 +364,25 @@ ink band, component cards). The rules every screen follows:
   the bar until it is opened or dismissed.
 - **Settings live in More,** at the foot of the hub, with Daydream at its
   head. A phone with no More (four places or fewer) keeps the cog on Today.
+- **Wildmind sits beside Daydream in More** (owner only): a native page for
+  the valley of two Claude minds, with its map on an opaque card and the rest
+  in the same glass cards, section labels and stat tiles as every other screen.
+  From it: **Talk** (what JKai and Wren said, thought and wrote, read like a
+  chat thread, with a composer to whisper to JKai and see him hear it),
+  **Chronicle** (each life's now, timeline and diary) and **Inventions**.
 - **One filled control per screen,** in `SR.accentDeep` so its cream label
-  holds 5:1; everything else is card stock with a hand-drawn ink box.
+  holds 5:1; everything else is paper glass.
 - **The mark is `SRMark`:** `sr` in DM Mono Medium with a drawn accent dot and
   halo, 26pt in the bar, 20pt on the ink top bar. Never a typed full stop.
 
-The app follows the phone's appearance unless Settings › Appearance overrides
-it. Light is the site's notes paper; dark is the blog's night notebook (paper
-#14100C, ink #ECE3D6), never a separate design. The simulator in CI is booted
-in **dark** appearance so the night palette is exercised on every run.
+The app is light-locked. That is not an omission: the site has no dark mode, and
+the simulator in CI is booted in **dark** appearance on purpose so a regression
+shows up as a screenshot.
 
-Fonts are the five OFL families, instanced to static cuts and bundled under
-`ios/SRAppleApp/Fonts/` with their licences: Fraunces (upright and italic, the
-notes look's marginalia) joined Inter Display, DM Sans, DM Mono and JetBrains
-Mono on 2026-10-11. `Font.custom` fails silently on a missing face, so
-`SiteTests.testEveryNamedFontIsRegistered` asserts all eleven arrived.
+Fonts are the four OFL families, instanced to static cuts and bundled under
+`ios/SRAppleApp/Fonts/` with their licences. `Font.custom` fails silently on a
+missing face, so `SiteTests.testEveryNamedFontIsRegistered` asserts all nine
+arrived.
 
 `@auth/core` remains pinned for the legacy session-decoding tests. Production browser
 sessions are validated by Main; the companion never receives Main's signing key.

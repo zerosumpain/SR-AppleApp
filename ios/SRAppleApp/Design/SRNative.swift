@@ -46,12 +46,9 @@ enum SRChrome {
         // A hairline, not the system's 0.33pt grey — the app has exactly one
         // rule weight and this is it.
         bar.shadowColor = SR.UI.line
-        // The inline title is a notes heading: Inter Display ExtraBold, as the
-        // site sets every heading. Inline titles render a custom face fine;
-        // it is only the large-title slot (below) that must never get one.
         bar.titleTextAttributes = [
             .foregroundColor: ink,
-            .font: scaled(SR.Face.display, 17, .headline),
+            .font: scaled(SR.Face.bodyBold, 17, .headline),
         ]
         // COLOUR ONLY, no face.
         //
@@ -124,7 +121,7 @@ enum SRChrome {
         bar.configureWithTransparentBackground()
         bar.titleTextAttributes = [
             .foregroundColor: ink,
-            .font: scaled(SR.Face.display, 17, .headline),
+            .font: scaled(SR.Face.bodyBold, 17, .headline),
         ]
         bar.largeTitleTextAttributes = [.foregroundColor: ink]
         UINavigationBar.appearance().standardAppearance = bar
@@ -169,18 +166,15 @@ enum SRHaptic {
 
 // MARK: - Surfaces
 
-/// An index card: opaque card stock, a 1pt border, a cut 3pt corner, no
-/// shadow.
+/// A hairline card. Zero radius, no shadow, the opaque surface token.
 ///
 /// `--card-bg` is 7% ink and reads as transparent the moment it sits over
-/// anything, which on a phone it always does; card stock is opaque and the
-/// reason this does not take a tint parameter.
+/// anything, which on a phone it always does; `--surface-elevated` is the
+/// opaque one and the reason this does not take a tint parameter.
 struct SRCard<Content: View>: View {
-    /// The card that matters on the screen: it gets the page's double margin
-    /// rule down its leading edge, the way a note is marked in the margin.
     var accented: Bool = false
-    /// Set when the card is the label of a button. Paper does not flex; the
-    /// press is the button's own dimming. Kept for its call sites.
+    /// Set when the card is the label of a button, so the glass answers the
+    /// finger.
     var interactive: Bool = false
     @ViewBuilder var content: Content
 
@@ -188,50 +182,39 @@ struct SRCard<Content: View>: View {
         content
             .padding(SR.cardPadding + 2)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The accent rule survives the move to glass as a short bar at the
+            // leading edge, inset from the curve — a hairline down a rounded
+            // side would bend with it and read as a mistake.
             .overlay(alignment: .leading) {
                 if accented {
-                    HStack(spacing: 2) {
-                        SR.Notes.marginA.frame(width: 1)
-                        SR.Notes.marginB.frame(width: 1)
-                    }
-                    .padding(.leading, 6)
-                    .padding(.vertical, 1)
-                    .accessibilityHidden(true)
+                    Capsule().fill(SR.accent).frame(width: 3).padding(.vertical, 18)
                 }
             }
             .srGlassCard(.paper, interactive: interactive)
     }
 }
 
-/// The kicker above a group: the notes look's margin label. JetBrains Mono 12
-/// in caps, tracked 0.14em, in the orange that writes (`SR.Notes.pen`).
+/// A mono eyebrow above a group. The list-section header, in the app's voice.
 struct SRSectionLabel: View {
     let text: String
     var trailing: String? = nil
-    /// A heading rather than a kicker: Inter ExtraBold at 22 in ink, sentence
-    /// case — Today's section titles, which head their cards rather than sit
-    /// quietly over a list. The trailing text stays a kicker.
+    /// Larger, bold and in the reading colour (cream on the dark ground):
+    /// Today's section titles, which head their cards rather than sit quietly
+    /// over a list.
     var prominent = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            if prominent {
-                Text(text)
-                    .font(SR.Text.display(22))
-                    .tracking(-22 * 0.02)
-                    .foregroundStyle(SR.ink)
-            } else {
-                Text(text.uppercased())
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.Notes.pen)
-            }
+            Text(text.uppercased())
+                .font(prominent ? SR.Text.sectionTitle() : SR.Text.label())
+                .tracking(prominent ? 1.2 : 1.4)
+                .foregroundStyle(prominent ? SR.ink : SR.inkMuted)
             Spacer(minLength: 8)
             if let trailing {
                 Text(trailing.uppercased())
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.Notes.pen)
+                    .font(SR.Text.mono())
+                    .tracking(1)
+                    .foregroundStyle(SR.inkMuted)
             }
         }
         .accessibilityAddTraits(.isHeader)
@@ -257,19 +240,15 @@ struct SRStatTile: View {
 
     var body: some View {
         let tile = VStack(alignment: .leading, spacing: 6) {
-            // A label over a reading: the petrol pen, as the site labels a
-            // figure (`.np-label`).
             Text(label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
-                .foregroundStyle(SR.accentInk)
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(SR.inkMuted)
                 .lineLimit(1)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(SR.Text.figure())
-                    .tracking(-28 * 0.03)
-                    .monospacedDigit()
                     .foregroundStyle(SR.ink)
                     // No `minimumScaleFactor`. It was the escape hatch that made
                     // the grid look fine at every text size by quietly undoing
@@ -277,10 +256,9 @@ struct SRStatTile: View {
                     // instead, and the number stays the size it was asked to be.
                     .lineLimit(1)
                 if let unit {
-                    Text(unit.uppercased())
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
-                        .foregroundStyle(SR.Notes.pen)
+                    Text(unit)
+                        .font(SR.Text.mono(13))
+                        .foregroundStyle(SR.inkMuted)
                 }
                 if let trend {
                     Image(systemName: trend == .up ? "arrow.up.right" : trend == .down ? "arrow.down.right" : "arrow.right")
@@ -387,9 +365,8 @@ extension SRRow where Trailing == EmptyView {
 
 /// The empty state, said once and the same way everywhere.
 ///
-/// The notes look's empty page: the icon inside a hand-drawn ink ring, the
-/// title in Inter ExtraBold, and the message as marginalia — Fraunces italic
-/// in the soft ink, the way the site writes "nothing here yet".
+/// `ContentUnavailableView` is the system's and it is the right shape; it is
+/// wrapped only so the face and the accent come from here.
 struct SREmpty: View {
     let title: String
     let icon: String
@@ -408,22 +385,18 @@ struct SREmpty: View {
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 28, weight: .regular))
+                .font(.system(size: 30, weight: .regular))
                 .foregroundStyle(SR.accent)
                 .frame(width: 72, height: 72)
-                .overlay {
-                    SRInkStroke(shape: SRInkLoop(seed: seedFor(title)), tone: SR.accent, lineWidth: 1.8)
-                }
-                .accessibilityHidden(true)
+                .srGlass(.paper, in: Circle())
             Text(title)
                 .font(SR.Text.display(19))
-                .tracking(-19 * 0.02)
                 .foregroundStyle(SR.ink)
                 .multilineTextAlignment(.center)
             if let message {
                 Text(message)
-                    .font(SR.Text.marginalia(16))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -440,53 +413,36 @@ struct SREmpty: View {
     }
 }
 
-/// The one-line "something happened" note, above the safe area.
-///
-/// A sticky note slipped onto the page: the sticky gradient, ink type, a 2pt
-/// corner, turned a degree, lifted by a soft shadow. Fixed in both modes — a
-/// sticky note is the same paper at night — so it is resolved in the light
-/// palette whatever the phone is set to. The dot says what kind of note it
-/// is: orange for news, red pencil when `tone` is `SR.error`.
+/// The one-line "something happened" strip, above the safe area.
 struct SRBanner: View {
     let text: String
     var tone: Color = SR.ink
 
     var body: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(tone == SR.ink ? Color(hex: SR.Fixed.accent) : Color(hex: 0xB3261E))
-                .frame(width: 7, height: 7)
-                .accessibilityHidden(true)
+            Circle().fill(tone == SR.ink ? SR.accentOnDark : SR.errorOnDark).frame(width: 7, height: 7)
             Text(text)
-                .font(SR.Text.marginalia(16))
-                .foregroundStyle(SR.Notes.stickyInk)
+                .font(SR.Text.secondary(14))
+                .foregroundStyle(SR.cream)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(
-            LinearGradient(colors: [SR.Notes.stickyTop, SR.Notes.stickyBottom],
-                           startPoint: UnitPoint(x: 0.33, y: 0.03),
-                           endPoint: UnitPoint(x: 0.67, y: 0.97)),
-            in: RoundedRectangle(cornerRadius: 2, style: .continuous)
-        )
-        // `0 8px 18px -10px` ink at 35% on the site. SwiftUI has no spread, so
-        // a smaller, fainter blur stands in for the negative one.
-        .shadow(color: Color(hex: 0x1A1008, alpha: 0.22), radius: 7, x: 0, y: 6)
-        .environment(\.colorScheme, .light)
-        .rotationEffect(.degrees(-1))
-        .padding(.horizontal, 14)
-        .padding(.bottom, 8)
+        // Floating smoked glass rather than a full-width strip: on iOS 26 a
+        // message rises out of the chrome, it does not slot under it.
+        .srGlass(.ink, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .accessibilityAddTraits(.isStaticText)
+            .accessibilityAddTraits(.isStaticText)
     }
 }
 
 // MARK: - Modifiers
 
 extension View {
-    /// Ruled paper under a scroll view, edge to edge.
+    /// Paper under a scroll view, edge to edge.
     ///
     /// `.background(SR.paper)` alone leaves the system's grouped-list ground
     /// showing through a `List`, which is the two-apps look again.

@@ -9,14 +9,8 @@ import SwiftUI
 /// the page's. The accessibility identifiers of the shared answers
 /// (`noticed-useful`, `noticed-not-useful`, `noticed-more`, `noticed-title`)
 /// are the row's, so the UI tests find the same controls on either.
-///
-/// On the page it is an index card: card stock, the red head rule under the
-/// kicker line, and — for the note at the top of the list — a drawing pin.
 struct DaydreamNoteCard: View {
     let note: DaydreamNote
-    /// The top card of the list wears the pin, as the newest note on a board
-    /// does. One pin: a pin on every card stops meaning anything.
-    var pinned: Bool = false
     @ObservedObject private var feedback = NoticedFeedback.shared
     @ObservedObject private var commissions = CommissionStore.shared
     @ObservedObject private var store = DaydreamStore.shared
@@ -33,10 +27,6 @@ struct DaydreamNoteCard: View {
         SRCard {
             VStack(alignment: .leading, spacing: 12) {
                 kicker
-                // The index card's red head rule, closing the label line.
-                SR.Notes.marginA
-                    .frame(height: 1)
-                    .accessibilityHidden(true)
                 title
                 if !note.summary.isEmpty { summary }
                 if !note.replaces.isEmpty { replacesLine }
@@ -61,9 +51,6 @@ struct DaydreamNoteCard: View {
                     DaydreamFollowSection(note: note, follow: follow)
                 }
             }
-        }
-        .overlay(alignment: .top) {
-            if pinned { SRPin().offset(y: -6) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("daydream-note-\(note.id)")
@@ -96,21 +83,21 @@ struct DaydreamNoteCard: View {
         HStack(spacing: 6) {
             Image(systemName: note.channel.icon)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(SR.Notes.pen)
+                .foregroundStyle(SR.accent)
                 .accessibilityHidden(true)
             Text(note.channel.label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
-                .foregroundStyle(SR.Notes.pen)
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(SR.accent)
                 .lineLimit(1)
                 .layoutPriority(1)
             Text("·")
-                .font(SR.Text.kicker())
+                .font(SR.Text.label())
                 .foregroundStyle(SR.inkGhost)
                 .accessibilityHidden(true)
             Text(note.outcome.label.uppercased())
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
+                .font(SR.Text.label())
+                .tracking(1.2)
                 .foregroundStyle(SR.inkMuted)
                 .lineLimit(1)
             Spacer(minLength: 6)
@@ -129,8 +116,7 @@ struct DaydreamNoteCard: View {
             openURL(link)
         } label: {
             Text(note.title)
-                .font(SR.Text.display(19))
-                .tracking(-19 * 0.02)
+                .font(SR.Text.title(17))
                 .foregroundStyle(SR.ink)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -146,17 +132,15 @@ struct DaydreamNoteCard: View {
     /// "Replaces 2 earlier notes on the same subject: …" — one card per subject.
     private var replacesLine: some View {
         Text("Replaces \(note.replaces.count == 1 ? "an earlier note" : "\(note.replaces.count) earlier notes") on the same subject: \(note.replaces.map(\.title).joined(separator: "; "))")
-            .font(SR.Text.marginalia(15))
+            .font(SR.Text.secondary(13))
             .foregroundStyle(SR.inkMuted)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("daydream-replaces")
     }
 
     private var summary: some View {
-        // What it spotted reads as the excerpt does on the blog's contents:
-        // Fraunces upright in soft ink.
         Text(note.summary)
-            .font(SR.Text.serif(16))
+            .font(SR.Text.secondary(15))
             .foregroundStyle(SR.inkSecondary)
             .lineSpacing(2)
             .lineLimit(expanded ? nil : 3)
@@ -173,7 +157,10 @@ struct DaydreamNoteCard: View {
 
     private func nextStep(_ next: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            SRNoteLabel(text: "Suggested next step")
+            Text("SUGGESTED NEXT STEP")
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(SR.accentInk)
             Text(next)
                 .font(SR.Text.body(15))
                 .foregroundStyle(SR.ink)
@@ -183,12 +170,11 @@ struct DaydreamNoteCard: View {
         .padding(.leading, 14)
         .padding(.trailing, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The blog's callout: a slip with a 3pt petrol bar.
-        .background(SR.accentInk.opacity(0.06))
+        .background(SR.accentInk.opacity(0.08))
         .overlay(alignment: .leading) {
             Rectangle().fill(SR.accentInk).frame(width: 3)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("daydream-next-step")
     }
@@ -196,24 +182,25 @@ struct DaydreamNoteCard: View {
     private var sources: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("HOW IT KNOWS")
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
+                .font(SR.Text.label())
+                .tracking(1.2)
                 .foregroundStyle(SR.inkMuted)
-            // Each source as a tag on the site is shown: its pencil dot and its
-            // name, no capsule. A source cited by two notes is the same colour
-            // on both.
-            DaydreamWrap(spacing: 8) {
+            DaydreamWrap(spacing: 6) {
                 ForEach(Array(note.sources.enumerated()), id: \.offset) { _, source in
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        SRPencilDot(word: source)
-                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                    HStack(spacing: 5) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 10, weight: .semibold))
+                            .accessibilityHidden(true)
                         Text(source)
                             .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkSecondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
-                    .padding(.trailing, 8)
+                    .foregroundStyle(SR.inkSecondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(SR.ink.opacity(0.04)))
+                    .overlay(Capsule().strokeBorder(SR.line, lineWidth: 1))
                 }
             }
         }
@@ -263,7 +250,7 @@ struct DaydreamNoteCard: View {
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(tone.opacity(0.08), in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+            .background(tone.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -301,9 +288,9 @@ struct DaydreamNoteCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center) {
                 Text("WHAT DO YOU WANT TO DO?")
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.Notes.pen)
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.inkMuted)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 6)
                 moreMenu
@@ -353,8 +340,8 @@ struct DaydreamNoteCard: View {
                         .font(SR.Text.bodyMedium(16))
                         .foregroundStyle(SR.ink)
                     Text(detail)
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -363,17 +350,14 @@ struct DaydreamNoteCard: View {
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: SR.tapTarget, alignment: .leading)
-            // Each choice in a hand-drawn box, as the regular button is; the
-            // one already chosen is boxed in the orange pen over a wash.
             .background(
-                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                    .fill(on ? SR.accent.opacity(0.10) : Color.clear)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(on ? SR.accent.opacity(0.10) : SR.ink.opacity(0.02))
             )
-            .overlay {
-                SRInkBox(seed: seedFor(title))
-                    .stroke(on ? SR.accent.opacity(0.75) : SR.inkSecondary.opacity(0.5), style: .ink(on ? 1.5 : 1.2))
-                    .accessibilityHidden(true)
-            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(on ? SR.accent.opacity(0.5) : SR.line, lineWidth: 1)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -532,17 +516,17 @@ struct DaydreamNoteCard: View {
 
 // MARK: - Small parts
 
-/// Four pencil dots: where a note is in Spotted → Your call → In motion →
-/// Result. Steps behind it are pencilled in petrol, the step it is on in the
-/// orange pen, and the steps still to come are only the loose ring, the way a
-/// dot is drawn before it is filled.
+/// Four dots: where a note is in Spotted → Your call → In motion → Result.
 struct DaydreamStageDots: View {
     let stage: DaydreamStage
 
     var body: some View {
         HStack(spacing: 3) {
             ForEach(DaydreamStage.allCases, id: \.self) { step in
-                dot(step)
+                Circle()
+                    .fill(fill(step))
+                    .overlay(Circle().strokeBorder(step.number > stage.number ? SR.line : Color.clear, lineWidth: 1))
+                    .frame(width: 6, height: 6)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -550,24 +534,9 @@ struct DaydreamStageDots: View {
         .accessibilityIdentifier("daydream-stage-dots")
     }
 
-    /// `PencilDot.svelte` at 10pt: a filled dot of radius 3.6 in a 14 box at
-    /// 85%, and the looser ring seeded by the step's name.
-    private func dot(_ step: DaydreamStage) -> some View {
-        let done = step.number < stage.number
-        let here = step == stage
-        let tone: Color = here ? SR.accent : done ? SR.accentInk : SR.inkGhost
-        var r = InkRNG(seedFor(step.label))
-        let ring = InkGeometry.ring(&r, cx: 7, cy: 7, rx: 5.6, ry: 5.2, turns: 1.15, wob: 0.08)
-        let box = CGSize(width: 14, height: 14)
-        return ZStack {
-            if done || here {
-                SRInkPath(ink: Path(ellipseIn: CGRect(x: 3.4, y: 3.4, width: 7.2, height: 7.2)), viewBox: box)
-                    .fill(tone.opacity(0.85))
-            }
-            SRInkPath(ink: Path(ink: [ring]), viewBox: box)
-                .stroke(tone, style: .ink(1.1))
-        }
-        .frame(width: 10, height: 10)
+    private func fill(_ step: DaydreamStage) -> Color {
+        if step == stage { return SR.accent }
+        return step.number < stage.number ? SR.accentInk : Color.clear
     }
 }
 

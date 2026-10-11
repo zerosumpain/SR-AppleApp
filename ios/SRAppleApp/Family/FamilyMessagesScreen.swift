@@ -115,16 +115,8 @@ struct FamilyMessagesScreen: View {
                 (Text(reply.mine ? "You " : "\(reply.fromName) ").font(SR.Text.bodyMedium(13)).foregroundColor(SR.ink)
                     + Text(reply.body).font(SR.Text.secondary(13)).foregroundColor(SR.inkSecondary))
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 9)
-                    // A reply is written in the message's margin: the
-                    // notebook's double rule down its edge.
-                    .overlay(alignment: .leading) {
-                        HStack(spacing: 2) {
-                            SR.Notes.marginA.frame(width: 1)
-                            SR.Notes.marginB.frame(width: 1)
-                        }
-                        .accessibilityHidden(true)
-                    }
+                    .padding(.leading, 8)
+                    .overlay(alignment: .leading) { Rectangle().fill(SR.accent.opacity(0.5)).frame(width: 2) }
             }
         }
         .padding(.horizontal, 12)
@@ -185,11 +177,10 @@ struct FamilyMessagesScreen: View {
                         .foregroundStyle(SR.ink)
                         .lineLimit(1...6)
                         .focused($composerFocused)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 18)
                         .padding(.vertical, 12)
                         .frame(minHeight: 48)
-                        // A slip of card stock to write on, cut square.
-                        .srGlassCard(.paper)
+                        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                         .accessibilityIdentifier("family-msg-composer")
 
                     Button {

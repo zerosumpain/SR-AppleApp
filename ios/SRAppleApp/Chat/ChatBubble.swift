@@ -4,9 +4,8 @@ import SwiftUI
 ///
 /// The web chat's register, brought to the phone (2026-10-01): a small mono
 /// byline per turn (`YOU · 14:02`, `JKAI · 14:02`), jkai's prose full-width on
-/// the page with no bubble round it, your own turns marked by the page's
-/// double margin rule down their leading edge (a 2pt accent rule until the
-/// notes look, 2026-10-11), and everything a turn RAN folded to one line —
+/// the page with no bubble round it, your own turns marked by a 2pt accent rule
+/// down their leading edge, and everything a turn RAN folded to one line —
 /// `● 4 tools · on the desk` — that opens the desk drawer at this answer.
 ///
 /// The earlier smoked-ink bubble for your turns went: the desk reads a thread
@@ -21,9 +20,7 @@ struct ChatBubble: View {
         if message.isUser { userTurn } else { assistantTurn }
     }
 
-    /// Your turn: the double margin rule, then what you said, in ink on the
-    /// page. The same two red lines the exercise book is ruled with, so your
-    /// words are marked off as yours without a box round them.
+    /// Your turn: the accent rule, then what you said, in ink on the page.
     private var userTurn: some View {
         VStack(alignment: .leading, spacing: 6) {
             byline
@@ -33,7 +30,9 @@ struct ChatBubble: View {
             }
             .padding(.leading, 14)
             .padding(.vertical, 2)
-            .overlay(alignment: .leading) { ChatMarginRule() }
+            .overlay(alignment: .leading) {
+                Rectangle().fill(SR.accent).frame(width: 2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
@@ -50,7 +49,7 @@ struct ChatBubble: View {
                 // been accepted and not started. Saying nothing at all looks
                 // like a dropped message.
                 Text("…")
-                    .font(SR.Text.marginalia(17))
+                    .font(SR.body(16))
                     .foregroundStyle(SR.inkMuted)
             } else {
                 MarkdownText(raw: message.content)
@@ -83,11 +82,11 @@ struct ChatBubble: View {
     private var byline: some View {
         HStack(spacing: 8) {
             (Text(message.isUser ? "YOU" : "JKAI")
-                .foregroundStyle(message.isUser ? SR.Notes.pen : SR.accentInk)
+                .foregroundStyle(message.isUser ? SR.accent : SR.inkSecondary)
              + Text(message.createdAt.map { " · " + Self.clock($0) } ?? "")
                 .foregroundStyle(SR.inkMuted))
-                .font(SR.Text.kicker())
-                .tracking(SR.Notes.kickerTracking)
+                .font(SR.Text.label(12))
+                .tracking(1.2)
             if message.source == "whatsapp" {
                 SRPill(text: "WhatsApp", tone: SR.good)
             }
@@ -172,9 +171,9 @@ struct TurnActivityPanel: View {
                 HStack(spacing: 8) {
                     ProgressView().scaleEffect(0.6).tint(SR.accent)
                     Text(headline)
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
-                        .foregroundStyle(SR.accentInk)
+                        .font(SR.monoMedium(12))
+                        .tracking(1.1)
+                        .foregroundStyle(SR.inkSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     if hasDetail {
@@ -190,23 +189,19 @@ struct TurnActivityPanel: View {
 
             if open {
                 if !activity.steps.isEmpty { ToolStepList(steps: activity.steps) }
-                // Its reasoning is an aside to the answer, so it is written
-                // as one: Fraunces italic in soft ink, behind a petrol rule.
                 if !activity.thinking.isEmpty {
                     Text(activity.thinking)
-                        .font(SR.Text.marginalia(15))
-                        .foregroundStyle(SR.inkSecondary)
+                        .font(SR.mono(12))
+                        .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 12)
-                        .overlay(alignment: .leading) {
-                            SR.accentInk.opacity(0.5).frame(width: 2)
-                        }
+                        .padding(10)
+                        .background(SR.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .srGlassCard(.paper)
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
     }
 
     private var hasDetail: Bool { !activity.steps.isEmpty || !activity.thinking.isEmpty }
@@ -225,16 +220,7 @@ struct TurnActivityPanel: View {
 struct BlockedTurnCard: View {
     let blocked: BlockedTurn
 
-    /// An index card with the margin's double rule down it: the one card in
-    /// the thread that is waiting on you.
     var body: some View {
-        SRCard(accented: true) {
-            content
-                .padding(.leading, 6)
-        }
-    }
-
-    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             SRLabel(text: "Needs the website")
             Text(blocked.sentence)
@@ -248,14 +234,21 @@ struct BlockedTurnCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text("Confirmations and credential prompts are answered at the desk. The turn is waiting there, and a WhatsApp message with the link is on its way.")
-                .font(SR.Text.marginalia(15))
-                .foregroundStyle(SR.inkSecondary)
+                .font(SR.body(14))
+                .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
             Link(destination: SiteClient.defaultOrigin.appendingPathComponent("jkai")) {
                 SRButtonLabel(title: "Open jkai on the web", icon: "safari")
             }
             .srButton(.prominent)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .srGlassCard(.paper)
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .strokeBorder(SR.accent.opacity(0.55), lineWidth: 1)
+        )
     }
 }
 
@@ -265,8 +258,7 @@ struct BlockedTurnCard: View {
 /// spans, links — but it flattens block structure, so fenced code and list items
 /// are split out here first. A code block set in body font is unreadable, and
 /// the site inverts contrast for code (`--code-bg` is ink, `--code-text` cream)
-/// rather than tinting it. (The app inverted it too until the notes look; code
-/// is card stock with a petrol bar now, as the blog sets it — see `CodeBlock`.)
+/// rather than tinting it.
 struct MarkdownText: View {
     let raw: String
     /// Which ground the prose is on. A user turn is smoked ink now, and ink
@@ -371,7 +363,7 @@ struct MarkdownText: View {
             for run in parsed.runs where run.inlinePresentationIntent == .code {
                 parsed[run.range].font = SR.mono(14)
             }
-            if heading { parsed.font = SR.Text.display(18) }
+            if heading { parsed.font = SR.bodyBold(17) }
             result += parsed
             if index < lines.count - 1 { result += AttributedString("\n") }
         }
@@ -379,9 +371,7 @@ struct MarkdownText: View {
     }
 }
 
-/// A fenced block, as the blog sets code on the notes: card stock, a 3pt
-/// petrol bar down the leading edge, mono in ink. It was inverted ink (the old
-/// `--code-bg`), which on ruled paper read as a hole in the page.
+/// A fenced block. Inverted contrast, per `--code-bg` / `--code-text`.
 struct CodeBlock: View {
     let text: String
     let language: String?
@@ -390,10 +380,10 @@ struct CodeBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             if let language {
                 Text(language.uppercased())
-                    .font(SR.Text.kicker())
-                    .tracking(SR.Notes.kickerTracking)
-                    .foregroundStyle(SR.accentInk)
-                    .padding(.horizontal, 14)
+                    .font(SR.mono(12))
+                    .tracking(1)
+                    .foregroundStyle(Color(hex: 0xEDE4D4, alpha: 0.5))
+                    .padding(.horizontal, 12)
                     .padding(.top, 10)
             }
             // Code scrolls in its own container rather than wrapping. A wrapped
@@ -402,19 +392,12 @@ struct CodeBlock: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text)
                     .font(SR.mono(13))
-                    .lineSpacing(4)
-                    .foregroundStyle(SR.ink)
+                    .foregroundStyle(SR.paper)
                     .textSelection(.enabled)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 14)
+                    .padding(12)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SR.Notes.card)
-        .overlay(alignment: .leading) {
-            SR.accentInk.frame(width: 3).accessibilityHidden(true)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 2, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
+        .background(SR.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

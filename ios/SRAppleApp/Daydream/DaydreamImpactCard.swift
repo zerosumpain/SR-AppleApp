@@ -17,14 +17,14 @@ struct DaydreamImpactCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("IMPACT")
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
-                        .foregroundStyle(SR.Notes.pen)
+                        .font(SR.Text.label())
+                        .tracking(SR.kickerTracking)
+                        .foregroundStyle(SR.accent)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)
                     Text("LAST \(impact.windowDays) DAYS")
-                        .font(SR.Text.kicker())
-                        .tracking(SR.Notes.kickerTracking)
+                        .font(SR.Text.mono())
+                        .tracking(1)
                         .foregroundStyle(SR.inkMuted)
                 }
 
@@ -52,27 +52,16 @@ struct DaydreamImpactCard: View {
 
     // MARK: - Figures
 
-    /// The score is the one figure on the page that matters, so it is ringed
-    /// in petrol, as the site rings "% useful". Without enough answers there
-    /// is nothing to ring: a Fraunces dash, never a 0.
     private var headline: some View {
-        HStack(alignment: .lastTextBaseline, spacing: 22) {
-            VStack(alignment: .leading, spacing: 8) {
-                SRNoteLabel(text: "Worth knowing")
-                if let rate = impact.hitRateText {
-                    Text(rate)
-                        .font(SR.Text.figure(36))
-                        .tracking(-36 * 0.03)
-                        .foregroundStyle(SR.accentInk)
-                        .monospacedDigit()
-                        .srInkRing(tone: SR.accentInk, seed: 31, pad: 9, lineWidth: 2.2)
-                        .padding(.leading, 9)
-                        .padding(.vertical, 4)
-                } else {
-                    Text("\u{2014}")
-                        .font(SR.Text.serif(30))
-                        .foregroundStyle(SR.inkMuted)
-                }
+        HStack(alignment: .lastTextBaseline, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Worth knowing")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+                Text(impact.hitRateText ?? "—")
+                    .font(SR.Text.figure(36))
+                    .foregroundStyle(SR.accentInk)
+                    .monospacedDigit()
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Worth knowing, \(impact.hitRateText ?? "not enough answers yet")")
@@ -89,7 +78,7 @@ struct DaydreamImpactCard: View {
                     }
                     .foregroundStyle(delta > 0 ? SR.good : delta < 0 ? SR.error : SR.inkMuted)
                     Text("vs the \(impact.windowDays) days before")
-                        .font(SR.Text.marginalia(15))
+                        .font(SR.Text.mono())
                         .foregroundStyle(SR.inkMuted)
                 }
                 .accessibilityElement(children: .ignore)
@@ -109,20 +98,16 @@ struct DaydreamImpactCard: View {
         }
     }
 
-    /// A receipt line: the label, a dotted leader, the figure.
     private func fact(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .firstTextBaseline) {
             Text(label)
                 .font(SR.Text.secondary())
                 .foregroundStyle(SR.inkSecondary)
-                .layoutPriority(1)
-            SRDottedLeader()
-                .frame(minWidth: 12)
+            Spacer(minLength: 8)
             Text(value)
                 .font(SR.Text.mono(13))
                 .foregroundStyle(SR.ink)
                 .monospacedDigit()
-                .layoutPriority(1)
         }
         .accessibilityElement(children: .combine)
     }
@@ -184,10 +169,6 @@ struct DaydreamImpactCard: View {
             }
         }
         .frame(height: 140)
-        // On graph paper, as the site's charts are pinned to the page.
-        .padding(.horizontal, 10)
-        .padding(.vertical, 12)
-        .srGraphPaper()
         .accessibilityLabel("Answers to notes, week by week, over the last \(min(impact.weeks.count, 12)) weeks")
     }
 

@@ -22,8 +22,8 @@ struct FlowRunScreen: View {
                 Section {
                     if detail.steps.isEmpty {
                         Text(detail.run.state.isFinished ? "No steps recorded." : "Waiting for the first step…")
-                            .font(SR.Text.marginalia(16))
-                            .foregroundStyle(SR.inkSecondary)
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
                     }
                     ForEach(detail.steps) { step in
                         FlowRunStepRow(step: step)
@@ -71,27 +71,15 @@ struct FlowRunScreen: View {
                         .foregroundStyle(SR.inkSecondary)
                 }
             }
-            HStack(alignment: .center, spacing: 10) {
-                if let trigger = run.trigger {
-                    Text(trigger.uppercased())
-                        .font(SR.Text.mono())
-                        .tracking(0.8)
-                        .foregroundStyle(SR.inkMuted)
-                }
-                Spacer(minLength: 8)
-                // When it ran, stamped on the run's card the way a page of
-                // the notebook is dated: the day, and the time under it.
+            HStack(spacing: 10) {
+                if let trigger = run.trigger { Text(trigger.uppercased()) }
                 if let started = run.startedAt, let date = isoDate(started) {
-                    SRDateStamp(
-                        text: date.formatted(.dateTime.day().month(.abbreviated)),
-                        sub: date.formatted(date: .omitted, time: .shortened),
-                        tilt: -3,
-                        seed: seedFor(run.id),
-                        ground: SR.Notes.card
-                    )
-                    .padding(.vertical, 4)
+                    Text(date.formatted(date: .abbreviated, time: .shortened).uppercased())
                 }
             }
+            .font(SR.Text.mono())
+            .tracking(0.8)
+            .foregroundStyle(SR.inkMuted)
             if let error = run.error {
                 Text(error)
                     .font(SR.Text.secondary())
@@ -149,7 +137,7 @@ struct FlowRunStepRow: View {
                             .fixedSize(horizontal: true, vertical: true)
                             .padding(10)
                     }
-                    .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+                    .background(SR.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } label: {
                     Text(expanded ? "Output" : outputPreview(output))
                         .font(SR.Text.mono())

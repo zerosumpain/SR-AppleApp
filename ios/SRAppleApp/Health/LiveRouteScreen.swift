@@ -58,8 +58,8 @@ struct LiveRouteScreen: View {
                     .foregroundStyle(walk.progress?.offRoute == true ? SR.accent : SR.ink)
                 ProgressView(value: walk.fraction).tint(SR.accent)
                 Text(seen(walk))
-                    .font(SR.Text.marginalia(15))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
             }
             .padding(16)
             .srGlassCard()
@@ -94,9 +94,7 @@ struct LiveWalksCard: View {
                 SRSectionLabel(text: "Out on a route", trailing: "\(store.walks.count)")
                     .padding(.horizontal, 4)
                 VStack(spacing: 0) {
-                    ForEach(Array(store.walks.enumerated()), id: \.element.id) { index, w in
-                        // A ledger: the petrol feint between walks.
-                        if index > 0 { SR.Notes.rule.frame(height: 1) }
+                    ForEach(store.walks) { w in
                         NavigationLink(value: LiveWalkRef(id: w.id, title: "\(w.name) · \(w.routeName)")) {
                             HStack(spacing: 12) {
                                 Image(systemName: Sport.icon(w.sport))
@@ -107,9 +105,7 @@ struct LiveWalksCard: View {
                                     Text(w.line).font(SR.Text.mono(13)).foregroundStyle(SR.inkSecondary)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(SR.inkGhost)
+                                Image(systemName: "chevron.right").font(.footnote).foregroundStyle(SR.inkMuted)
                             }
                             .padding(.vertical, 12)
                             .padding(.horizontal, 14)
@@ -137,8 +133,7 @@ struct RouteGiftsCard: View {
                 SRSectionLabel(text: "Routes sent to you", trailing: "\(store.gifts.count)")
                     .padding(.horizontal, 4)
                 VStack(spacing: 0) {
-                    ForEach(Array(store.gifts.enumerated()), id: \.element.id) { index, g in
-                        if index > 0 { SR.Notes.rule.frame(height: 1) }
+                    ForEach(store.gifts) { g in
                         HStack(spacing: 12) {
                             Image(systemName: Sport.icon(g.route.sport)).foregroundStyle(SR.accent).frame(width: 26)
                             VStack(alignment: .leading, spacing: 3) {
