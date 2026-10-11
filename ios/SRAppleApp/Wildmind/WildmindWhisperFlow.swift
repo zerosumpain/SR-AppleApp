@@ -71,7 +71,9 @@ enum WildmindWhisperFailure: Equatable, Sendable {
     case keyReused
     /// The site could not read the request (no key, a bad body).
     case badRequest
-    /// The lane is closed or Wildmind did not answer: nothing was sent.
+    /// The lane is closed, or Wildmind did not confirm in time. SR-Main
+    /// also answers 503 when its own deadline passes, so the whisper may
+    /// have landed: a retry of the same words keeps the key.
     case offline
     /// No answer at all reached the phone: it may or may not have landed.
     case network
@@ -121,12 +123,24 @@ enum WildmindWhisperFailure: Equatable, Sendable {
         case .betweenLives: return "The valley\u{2019}s between lives. Try again once the next one begins."
         case .keyReused: return "That didn\u{2019}t go. Send it again."
         case .badRequest: return "The site couldn\u{2019}t read that whisper. Send it again."
-        case .offline: return "The valley isn\u{2019}t answering, so it wasn\u{2019}t sent. Try again in a moment."
+        case .offline: return "The valley didn\u{2019}t confirm it. Send it again \u{2014} it won\u{2019}t arrive twice."
         case .network: return "No answer from the site. Send it again \u{2014} it won\u{2019}t arrive twice."
         case .refused: return "Whispers go from the owner\u{2019}s own phone."
         case .expired: return "This iPhone needs pairing again."
         case .notOnSite: return "Whispering needs a newer site than this one."
         case .other: return "That whisper didn\u{2019}t go. Try again."
+        }
+    }
+
+    /// What John reads over the composer before sending, when this keeps
+    /// whispers off (`WildmindTalkStore.sendBlock`): nothing has been tried
+    /// yet, so nothing is said about a whisper that did or didn't go.
+    var blockMessage: String {
+        switch self {
+        case .offline: return "The valley isn\u{2019}t answering just now, so whispers are off."
+        case .refused: return "Whispers go from the owner\u{2019}s own phone."
+        case .notOnSite: return "Whispering needs a newer site than this one."
+        default: return message
         }
     }
 
@@ -172,6 +186,9 @@ struct WildmindWhisperFlow: Equatable {
     private(set) var sentIds: [Int] = []
     /// No sending before this (a 429's retry-after).
     private(set) var coolUntil: Date?
+    /// The last failure has been seen: John typed again or came back to the
+    /// page. The phase stays failed, so a retry still reuses the key.
+    private(set) var failureSeen = false
 
     var isSending: Bool {
         if case .sending = phase { return true }
@@ -181,6 +198,14 @@ struct WildmindWhisperFlow: Equatable {
     var failure: WildmindWhisperFailure? {
         if case .failed(let failure, _, _) = phase { return failure }
         return nil
+    }
+
+    /// The failure to show over the composer: the last one until it has been
+    /// seen, and a 429 for as long as it still keeps sending off.
+    func banner(now: Date) -> WildmindWhisperFailure? {
+        guard let failure else { return nil }
+        if case .slowDown = failure, coolingSeconds(now: now) != nil { return failure }
+        return failureSeen ? nil : failure
     }
 
     /// May these words go now? `blocked` is the page's own reason not to
@@ -211,6 +236,7 @@ struct WildmindWhisperFlow: Equatable {
             key = newKey()
         }
         phase = .sending(text: text, key: key)
+        failureSeen = false
         return (text, key)
     }
 
@@ -225,6 +251,7 @@ struct WildmindWhisperFlow: Equatable {
 
     /// The site refused it, or nothing came back.
     mutating func failed(_ failure: WildmindWhisperFailure, now: Date) {
+        failureSeen = false
         guard case .sending(let text, let key) = phase else {
             phase = .failed(failure, text: "", key: nil)
             return
@@ -235,10 +262,15 @@ struct WildmindWhisperFlow: Equatable {
         }
     }
 
-    /// The error has been read (John is typing again): keep the key for a
-    /// retry, lose the banner.
+    /// The banner has been read (John is typing again, or has come back to
+    /// the page): hide a failure but keep its key for a retry of the same
+    /// words; a finished send goes back to idle.
     mutating func acknowledge() {
-        if case .sent = phase { phase = .idle }
+        switch phase {
+        case .sent: phase = .idle
+        case .failed: failureSeen = true
+        case .idle, .sending: break
+        }
     }
 
     /// How long to wait before asking `/whispers` again: three seconds for a

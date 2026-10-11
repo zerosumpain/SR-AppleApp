@@ -210,6 +210,12 @@ struct WildmindTalkFilter: Equatable, Hashable, Sendable {
     var kinds: Kinds = .all
     var who: Who = .both
 
+    /// Whether John's whispers show under this filter: they are JKai's, and
+    /// a whisper kind.
+    var showsWhispers: Bool {
+        (kinds == .all || kinds == .whispers) && who != .companion
+    }
+
     /// The path for one page: the newest, one older than `before`, or the
     /// ones newer than `since`.
     func path(before: Int? = nil, since: Int? = nil, limit: Int = 60) -> String {
@@ -230,6 +236,57 @@ enum WildmindTalkMerge {
         for entry in held { byId[entry.id] = entry }
         for entry in page { byId[entry.id] = entry }
         return byId.values.sorted { $0.id < $1.id }
+    }
+}
+
+/// The thread Talk holds and where to ask after it.
+///
+/// `cursor` is the newest log id a page from the site has brought, and is
+/// what `since` asks after. It is never a whisper shown straight after
+/// sending: that whisper's log id is the valley's newest, so asking `since`
+/// it would skip whatever was said or thought between the last page and the
+/// whisper, and those entries would never come. Such a whisper is held in
+/// `optimistic`, shown in `entries`, until a page brings it.
+struct WildmindTalkThread: Equatable, Sendable {
+    /// Oldest first.
+    private(set) var entries: [WildmindTalkEntry] = []
+    private(set) var cursor: Int?
+    private(set) var optimistic: [WildmindTalkEntry] = []
+
+    /// Start again: a new filter, a new valley, a closed route.
+    mutating func forget() {
+        entries = []
+        cursor = nil
+        optimistic = []
+    }
+
+    /// A page from the site: the newest page (`replacing`, which starts the
+    /// thread again) or the ones after `cursor`.
+    mutating func adopt(_ page: [WildmindTalkEntry], replacing: Bool, newValley: Bool = false) {
+        if newValley { optimistic = [] }
+        let brought = Set(page.map(\.id))
+        optimistic.removeAll { brought.contains($0.id) }
+        let newest = page.map(\.id).max()
+        if replacing {
+            entries = WildmindTalkMerge.merge(page, optimistic)
+            cursor = newest
+        } else {
+            entries = WildmindTalkMerge.merge(entries, page)
+            if let newest { cursor = max(cursor ?? newest, newest) }
+        }
+    }
+
+    /// An older page: it never moves the cursor.
+    mutating func adoptOlder(_ page: [WildmindTalkEntry]) {
+        let brought = Set(page.map(\.id))
+        optimistic.removeAll { brought.contains($0.id) }
+        entries = WildmindTalkMerge.merge(entries, page)
+    }
+
+    /// A whisper just accepted, shown before a page brings it.
+    mutating func showSent(_ entry: WildmindTalkEntry) {
+        optimistic = WildmindTalkMerge.merge(optimistic, [entry])
+        entries = WildmindTalkMerge.merge(entries, [entry])
     }
 }
 

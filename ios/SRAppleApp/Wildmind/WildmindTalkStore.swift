@@ -134,6 +134,9 @@ enum WildmindFeeds {
 /// screen is up. A changed valley seed is a new valley, and the thread starts
 /// again from its newest page.
 ///
+/// `since` asks after the newest id a page has brought, never after the
+/// whisper shown at the foot straight after sending (`WildmindTalkThread`).
+///
 /// Polled only while the screen is up: `/talk` every fifteen seconds, and
 /// `/whispers` with it — every three seconds for a minute after a whisper
 /// goes, when a change there (heard, dropped) also fetches the newer talk at
@@ -146,8 +149,10 @@ final class WildmindTalkStore: ObservableObject {
     static let normalCadence: TimeInterval = 15
 
     @Published private(set) var phase: WildmindLoadPhase = .loading
+    /// The entries held and the `since` cursor.
+    @Published private(set) var thread = WildmindTalkThread()
     /// Oldest first.
-    @Published private(set) var entries: [WildmindTalkEntry] = []
+    var entries: [WildmindTalkEntry] { thread.entries }
     @Published private(set) var valley: WildmindValley?
     /// Older entries remain on the site.
     @Published private(set) var hasOlder = false
@@ -227,14 +232,35 @@ final class WildmindTalkStore: ObservableObject {
     func setFilter(_ next: WildmindTalkFilter) {
         guard next != filter else { return }
         filter = next
-        entries = []
+        forget()
         hasOlder = false
         phase = .loading
         Task { await self.refresh() }
     }
 
+    /// Open Talk to whisper: if the filter would hide John's whisper (only
+    /// thoughts, only diaries, only Wren), show everything again.
+    func showWhispers() {
+        guard !filter.showsWhispers else { return }
+        setFilter(WildmindTalkFilter())
+    }
+
+    /// The composer's last refusal has been seen (John is typing again, or
+    /// has come back to the page): stop showing it, keep its key.
+    func acknowledgeFailure() {
+        guard flow.phase != .idle else { return }
+        var next = flow
+        next.acknowledge()
+        if next != flow { flow = next }
+    }
+
+    /// Drop the thread, its cursor and any whisper waiting for a page.
+    private func forget() {
+        thread.forget()
+    }
+
     private func fetchNewer() async {
-        let since = entries.last?.id
+        let since = thread.cursor
         let filter = self.filter
         do {
             let page: WildmindTalkPage = try await client.send(filter.path(since: since, limit: Self.pageSize))
@@ -261,7 +287,7 @@ final class WildmindTalkStore: ObservableObject {
             guard let next = WildmindLoadPhase.of(error) else { return }
             switch next {
             case .notOnSite, .refused:
-                entries = []
+                forget()
                 phase = next
             default:
                 if entries.isEmpty && phase != .ready { phase = next } else { stale = true }
@@ -271,12 +297,9 @@ final class WildmindTalkStore: ObservableObject {
 
     private func adopt(_ page: WildmindTalkPage, replacing: Bool) {
         let before = entries.last?.id
-        if replacing {
-            entries = page.entries.sorted { $0.id < $1.id }
-            hasOlder = page.more
-        } else {
-            entries = WildmindTalkMerge.merge(entries, page.entries)
-        }
+        let newValley = page.valley?.seed != nil && valley?.seed != nil && page.valley?.seed != valley?.seed
+        thread.adopt(page.entries, replacing: replacing, newValley: newValley)
+        if replacing { hasOlder = page.more }
         valley = page.valley ?? valley
         stale = false
         phase = .ready
@@ -294,11 +317,11 @@ final class WildmindTalkStore: ObservableObject {
             guard filter == self.filter, !page.offline else { return }
             if let seed = page.valley?.seed, let held = valley?.seed, seed != held {
                 // The valley changed under us: start again from its newest page.
-                entries = []
+                forget()
                 await refresh()
                 return
             }
-            entries = WildmindTalkMerge.merge(entries, page.entries)
+            thread.adoptOlder(page.entries)
             hasOlder = page.more
         } catch {
             stale = WildmindLoadPhase.of(error) != nil
@@ -400,13 +423,17 @@ final class WildmindTalkStore: ObservableObject {
 
     /// The whisper at the foot of the thread at once, before the next page
     /// brings it — when the filter shows whispers at all.
+    ///
+    /// It goes into `entries` only: the `since` cursor stays at the newest id
+    /// a page brought, so the next ask still fetches what was said between
+    /// that page and this whisper.
     private func showSent(_ reply: WildmindWhisperAccepted, text: String) {
-        guard filter.kinds == .all || filter.kinds == .whispers, filter.who != .companion else { return }
+        guard filter.showsWhispers else { return }
         let entry = WildmindTalkEntry(
             id: reply.logId, minute: nil, when: reply.when ?? valley?.clock, who: "main", name: "JKai",
             kind: .whisper, text: text
         )
-        entries = WildmindTalkMerge.merge(entries, [entry])
+        thread.showSent(entry)
         if phase != .ready { phase = .ready }
         footTick &+= 1
     }

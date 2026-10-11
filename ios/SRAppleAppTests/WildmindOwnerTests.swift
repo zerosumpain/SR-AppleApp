@@ -327,6 +327,82 @@ final class WildmindOwnerTests: XCTestCase {
         XCTAssertEqual(again?.key, "k4", "an accepted whisper retires its key")
     }
 
+    /// A whisper shown at once must not move the `since` cursor: talk logged
+    /// between the last page and the whisper has smaller ids, and asking
+    /// after the whisper's id would never fetch it.
+    func testSentWhisperDoesNotMoveTheTalkCursor() {
+        func line(_ id: Int, _ kind: WildmindTalkKind = .speech) -> WildmindTalkEntry {
+            WildmindTalkEntry(id: id, who: "companion", name: "Wren", kind: kind, text: "line \(id)")
+        }
+        var thread = WildmindTalkThread()
+        thread.adopt([line(116), line(110)], replacing: true)
+        XCTAssertEqual(thread.cursor, 116)
+
+        // Wren speaks as 199; John's whisper is accepted as 200.
+        thread.showSent(WildmindTalkEntry(id: 200, who: "main", name: "JKai", kind: .whisper, text: "Hello"))
+        XCTAssertEqual(thread.entries.map(\.id), [110, 116, 200], "the whisper shows at once")
+        XCTAssertEqual(thread.cursor, 116, "but the next ask is still since=116")
+
+        // The next page brings 199 and the whisper itself.
+        thread.adopt([line(200, .whisper), line(199)], replacing: false)
+        XCTAssertEqual(thread.entries.map(\.id), [110, 116, 199, 200])
+        XCTAssertEqual(thread.cursor, 200)
+        XCTAssertTrue(thread.optimistic.isEmpty, "a page brought it")
+
+        // A whisper still waiting survives a fresh newest page that lacks it,
+        // and goes with a new valley.
+        thread.showSent(WildmindTalkEntry(id: 205, who: "main", name: "JKai", kind: .whisper, text: "Again"))
+        thread.adopt([line(201), line(199)], replacing: true)
+        XCTAssertEqual(thread.entries.map(\.id), [199, 201, 205])
+        XCTAssertEqual(thread.cursor, 201)
+        thread.adopt([line(3)], replacing: true, newValley: true)
+        XCTAssertEqual(thread.entries.map(\.id), [3])
+
+        // An older page never moves the cursor.
+        thread.adoptOlder([line(1)])
+        XCTAssertEqual(thread.cursor, 3)
+        thread.forget()
+        XCTAssertNil(thread.cursor)
+        XCTAssertTrue(thread.entries.isEmpty)
+    }
+
+    /// A failure banner goes once seen (John types, or comes back), but the
+    /// key stays for a retry; a 429 shows for as long as it holds.
+    func testFailureBannerClearsButKeepsTheKey() {
+        var flow = WildmindWhisperFlow()
+        let t0 = Date(timeIntervalSince1970: 3_000_000)
+        _ = flow.begin("Mind the river", now: t0, newKey: { "k1" })
+        flow.failed(.dead, now: t0)
+        XCTAssertEqual(flow.banner(now: t0), .dead)
+        flow.acknowledge()
+        XCTAssertNil(flow.banner(now: t0), "seen, so gone")
+        XCTAssertEqual(flow.failure, .dead, "still failed underneath")
+        XCTAssertEqual(flow.begin("Mind the river", now: t0, newKey: { "k2" })?.key, "k1", "the retry reuses the key")
+
+        flow.failed(.slowDown(retryAfter: 10), now: t0)
+        flow.acknowledge()
+        XCTAssertEqual(flow.banner(now: t0.addingTimeInterval(5)), .slowDown(retryAfter: 10), "a 429 shows while it holds")
+        XCTAssertNil(flow.banner(now: t0.addingTimeInterval(11)))
+
+        flow.accepted(WildmindWhisperAccepted(logId: 9), now: t0.addingTimeInterval(12))
+        flow.acknowledge()
+        XCTAssertEqual(flow.phase, .idle)
+    }
+
+    /// `offline` after a send can't promise the whisper didn't land; before
+    /// one, the block says only that whispers are off.
+    func testOfflineWordingAndWhisperFilter() {
+        XCTAssertFalse(WildmindWhisperFailure.offline.message.contains("wasn\u{2019}t sent"))
+        XCTAssertTrue(WildmindWhisperFailure.offline.keepsKey)
+        XCTAssertEqual(WildmindWhisperFailure.offline.blockMessage, "The valley isn\u{2019}t answering just now, so whispers are off.")
+        XCTAssertEqual(WildmindWhisperFailure.dead.blockMessage, WildmindWhisperFailure.dead.message)
+
+        XCTAssertTrue(WildmindTalkFilter().showsWhispers)
+        XCTAssertTrue(WildmindTalkFilter(kinds: .whispers, who: .main).showsWhispers)
+        XCTAssertFalse(WildmindTalkFilter(kinds: .thought, who: .both).showsWhispers)
+        XCTAssertFalse(WildmindTalkFilter(kinds: .all, who: .companion).showsWhispers)
+    }
+
     func testWhisperFlowPollsFastForAMinute() {
         var flow = WildmindWhisperFlow()
         let t0 = Date(timeIntervalSince1970: 2_000_000)

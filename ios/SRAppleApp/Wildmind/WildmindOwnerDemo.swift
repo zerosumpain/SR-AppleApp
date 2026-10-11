@@ -50,7 +50,7 @@ final class WildmindDemoLane: @unchecked Sendable {
 
     // MARK: The valley's words
 
-    static let valley: [String: Any] = ["seed": 7, "generation": 3, "day": 5, "clock": "Day 5, 15:30"]
+    static var valley: [String: Any] { ["seed": 7, "generation": 3, "day": 5, "clock": "Day 5, 15:30"] }
     /// The valley's minute now: day five, 15:30.
     static let nowMinute = 5 * 1440 + 15 * 60 + 30
 

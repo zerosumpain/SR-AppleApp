@@ -71,6 +71,13 @@ struct WildmindTalkScreen: View {
         .navigationTitle("Talk")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
+        .onAppear {
+            // A refusal from an earlier visit has been seen; and a page opened
+            // to whisper shows the whispers.
+            store.acknowledgeFailure()
+            if compose && !viewingAs { store.showWhispers() }
+        }
+        .onChange(of: draft) { _, _ in store.acknowledgeFailure() }
         .task(id: scenePhase == .active) {
             guard scenePhase == .active else { return }
             await store.poll()
@@ -560,7 +567,7 @@ struct WildmindTalkScreen: View {
     /// whisper now, or whether one will be heard soon.
     @ViewBuilder
     private func composerNote(_ block: WildmindWhisperFailure?) -> some View {
-        if let failure = store.flow.failure {
+        if let failure = store.flow.banner(now: Date()) {
             if case .slowDown = failure {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     if let left = store.flow.coolingSeconds(now: context.date) {
@@ -571,7 +578,7 @@ struct WildmindTalkScreen: View {
                 SRBanner(text: failure.message, tone: SR.error)
             }
         } else if let block {
-            note(block.message, icon: "moon.zzz")
+            note(block.blockMessage, icon: "moon.zzz")
         } else if let dropped = store.lastAccepted?.dropped, store.flow.isWatching(now: Date()) {
             note("That pushed out \u{201C}\(dropped)\u{201D}, which \(mainName) hadn\u{2019}t heard yet.", icon: "arrow.uturn.down")
         } else if let line = WildmindWhisperWords.readiness(
