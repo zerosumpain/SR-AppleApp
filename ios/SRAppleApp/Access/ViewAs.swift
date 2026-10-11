@@ -22,8 +22,8 @@ struct ViewAsScreen: View {
             Section {
                 if access.previews.isEmpty {
                     Text("Nobody else is on the app yet — or the site has not sent their views. They arrive with the family view, every 30 seconds.")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
+                        .font(SR.Text.marginalia(16))
+                        .foregroundStyle(SR.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .srGlassRow()
                 }
@@ -56,8 +56,8 @@ struct ViewAsScreen: View {
                 SRSectionLabel(text: "See the app as")
             } footer: {
                 Text("Their tabs, cards, family view, chats and stories, as their phone would show them. Look only: sending a message or starting anything is refused until you exit. Nothing is saved: relaunching the app, or Exit on the banner, brings you back.")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
             }
             if access.viewingAs != nil {
                 Section {
@@ -112,7 +112,9 @@ struct ViewingAsBanner: View {
         .foregroundStyle(SR.paper)
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .background(SR.accentDeep, in: Capsule())
+        // Solid orange cut square, as every accent surface in the notebook
+        // is; it floats, so it keeps its shadow.
+        .background(SR.accentDeep, in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .shadow(color: SR.ink.opacity(0.2), radius: 6, y: 2)
         .accessibilityElement(children: .contain)
     }

@@ -456,7 +456,7 @@ struct LiarsDicePlaying: View {
             VStack(spacing: 0) {
                 let seated = room.players.filter { state?.seat($0.id)?.seated ?? $0.joined }
                 ForEach(Array(seated.enumerated()), id: \.element.id) { index, player in
-                    if index > 0 { Divider().overlay(SR.divider) }
+                    if index > 0 { GameLedgerRule() }
                     seatRow(player)
                 }
             }
@@ -604,7 +604,7 @@ struct LiarsDiceRevealCard: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(reveal.dice.enumerated()), id: \.element.id) { index, cup in
-                    if index > 0 { Divider().overlay(SR.divider) }
+                    if index > 0 { GameLedgerRule() }
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(cup.playerId == room.meId ? "You" : room.name(of: cup.playerId))

@@ -154,8 +154,8 @@ struct DeleteAccountScreen: View {
             } footer: {
                 if lane == .companion {
                     Text("What this iPhone uploaded goes straight away; the rest of your account follows within a couple of minutes.")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
+                        .font(SR.Text.marginalia(15))
+                        .foregroundStyle(SR.inkSecondary)
                 }
             }
 
@@ -166,7 +166,8 @@ struct DeleteAccountScreen: View {
                     .font(SR.Text.body(15))
                     .padding(.horizontal, 12).padding(.vertical, 12)
                     .frame(minHeight: SR.tapTarget)
-                    .background(SR.surface)
+                    // Paper inside the card: the field to write in.
+                    .background(SR.paper)
                     .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
                     .accessibilityIdentifier("delete-account-confirm")
 

@@ -389,7 +389,13 @@ import UIKit
                                 try? companion.outbox.persistIfDirty()
                             }
                         }
-                } else { ContentUnavailableView("Sync unavailable", systemImage: "lock.shield", description: Text(delegate.startupError ?? "Starting…")) }
+                } else {
+                    // The store could not open: the notebook's own empty page,
+                    // on its ruled paper, rather than the system's grey one.
+                    SREmpty(title: "Sync unavailable", icon: "lock.shield", message: delegate.startupError ?? "Starting…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .srPaper()
+                }
             }
             // Light, dark or the phone's own: every screen, every sheet.
             .srAppearanceRoot()

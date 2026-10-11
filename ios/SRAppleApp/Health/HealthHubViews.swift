@@ -75,14 +75,18 @@ struct HeartRateCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("HEART RATE")
-                        .font(SR.Text.label())
-                        .tracking(1.2)
-                        .foregroundStyle(SR.inkMuted)
+                    SRNoteLabel(text: "Heart rate")
                     if let last = points.last {
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("\(Int(last.bpm))").font(SR.Text.figure(26)).foregroundStyle(SR.ink)
-                            Text("bpm").font(SR.Text.mono(13)).foregroundStyle(SR.inkMuted)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("\(Int(last.bpm))")
+                                .font(SR.Text.figure(26))
+                                .tracking(-26 * 0.03)
+                                .monospacedDigit()
+                                .foregroundStyle(SR.ink)
+                            Text("BPM")
+                                .font(SR.Text.kicker())
+                                .tracking(SR.Notes.kickerTracking)
+                                .foregroundStyle(SR.Notes.pen)
                             Text(last.at.formatted(date: .omitted, time: .shortened))
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
@@ -92,7 +96,7 @@ struct HeartRateCard: View {
                 Spacer()
                 if let low = points.map(\.bpm).min(), let high = points.map(\.bpm).max() {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("RANGE").font(SR.Text.label()).tracking(1.2).foregroundStyle(SR.inkMuted)
+                        SRNoteLabel(text: "Range")
                         Text("\(Int(low))–\(Int(high))").font(SR.Text.mono(15)).foregroundStyle(SR.ink)
                     }
                 }
@@ -100,8 +104,8 @@ struct HeartRateCard: View {
 
             if points.isEmpty {
                 Text("No heart rate from this iPhone in the last day. It arrives with the next sync from Apple Health.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia())
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Chart {
@@ -132,13 +136,13 @@ struct HeartRateCard: View {
                 .chartYScale(domain: yDomain(points))
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .hour, count: 6)) { _ in
-                        AxisGridLine().foregroundStyle(SR.line)
+                        AxisGridLine().foregroundStyle(SR.Notes.rule)
                         AxisValueLabel(format: .dateTime.hour()).font(SR.mono(11)).foregroundStyle(SR.inkMuted)
                     }
                 }
                 .chartYAxis {
                     AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
-                        AxisGridLine().foregroundStyle(SR.line)
+                        AxisGridLine().foregroundStyle(SR.Notes.rule)
                         AxisValueLabel().font(SR.mono(11)).foregroundStyle(SR.inkMuted)
                     }
                 }
@@ -155,7 +159,7 @@ struct HeartRateCard: View {
         }
         .padding(SR.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .srGlassCard(.paper)
     }
 
     private func yDomain(_ points: [HeartTimeline.Point]) -> ClosedRange<Double> {
@@ -182,7 +186,8 @@ struct HeartRateCard: View {
 /// it lives here now, once, beside the reasons for it.
 ///
 /// The factors' bars are accent-on-dark: on this band they are the lit thing,
-/// what readiness is made of, and nothing else on it is orange but the kicker.
+/// what readiness is made of, and nothing else on it is orange but the kicker
+/// and the hand-drawn loop round the score — the cover's one ringed figure.
 struct InsightsReadBand: View {
     let hub: HubDigest
 
@@ -190,19 +195,23 @@ struct InsightsReadBand: View {
         SRInkBand(kicker: "The read", meta: updated, inset: 0) {
             if let readiness = hub.readiness {
                 HStack(alignment: .center, spacing: 16) {
-                    VStack(spacing: 0) {
+                    // Spaced so the loop, which reaches a sixth of the
+                    // figure's height below it, clears the label.
+                    VStack(spacing: 8) {
                         Text("\(Int(readiness.score.rounded()))")
                             .font(SR.Text.hero(46))
-                            .tracking(-1)
+                            .tracking(-46 * 0.03)
+                            .monospacedDigit()
                             .foregroundStyle(SR.onInk(.primary))
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
+                            .srInkRing(tone: SR.accentOnDark, seed: 31, pad: 10, lineWidth: 2)
                         Text("READINESS")
                             .font(SR.Text.label(11))
                             .tracking(SR.inkLabelTracking)
                             .foregroundStyle(SR.onInk(.label))
                     }
-                    .frame(minWidth: 84)
+                    .frame(minWidth: 96)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(readiness.label.uppercased())
                             .font(SR.Text.display(22))
@@ -351,13 +360,31 @@ struct MoveRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 labelled("Buys", move.buys)
                 labelled("Costs", move.costs)
-                Text(move.leverage)
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
+                HStack(alignment: .center, spacing: 8) {
+                    // "4/5 · …": the leverage counted out in olive gates, as
+                    // the site tallies a count. The words beside it still
+                    // say it, for VoiceOver and for a reader who prefers a
+                    // number; a leverage that is not "n/m" gets no tally.
+                    if let count = Self.leverageCount(move.leverage) {
+                        SRTally(count: count, height: 13, tone: SR.good, seed: seedFor(move.title), lineWidth: 1.4)
+                    }
+                    Text(move.leverage)
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                }
             }
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
+    }
+
+    /// The leading "n" of a leverage written "n/m · …", when it is a small
+    /// count worth drawing; anything else is nil.
+    static func leverageCount(_ leverage: String) -> Int? {
+        let head = leverage.prefix { $0.isASCII && $0.isNumber }
+        guard !head.isEmpty, leverage.dropFirst(head.count).first == "/",
+              let count = Int(head), (1...10).contains(count) else { return nil }
+        return count
     }
 
     private func labelled(_ label: String, _ text: String) -> some View {
@@ -413,7 +440,7 @@ struct InstrumentsScreen: View {
                 ForEach(hub.instruments) { InstrumentRow(instrument: $0).srGlassRow() }
             } footer: {
                 Text("Each panel reads only the window it needs. A dash is no reading, not a zero.")
-                    .font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15)).foregroundStyle(SR.inkMuted)
             }
         }
         .listStyle(.insetGrouped)
@@ -432,7 +459,7 @@ struct TripwiresScreen: View {
                 ForEach(hub.tripwires) { TripwireRow(tripwire: $0).srGlassRow() }
             } footer: {
                 Text("A tripwire is a line agreed in advance. Tripped means it was crossed; close means within reach of it.")
-                    .font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15)).foregroundStyle(SR.inkMuted)
             }
         }
         .listStyle(.insetGrouped)
@@ -451,7 +478,7 @@ struct MovesScreen: View {
                 ForEach(hub.moves) { MoveRow(move: $0).srGlassRow() }
             } footer: {
                 Text("Ranked by leverage: what each would buy for what it costs, over the numbers on this page.")
-                    .font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15)).foregroundStyle(SR.inkMuted)
             }
         }
         .listStyle(.insetGrouped)
@@ -495,7 +522,7 @@ struct ForecastScreen: View {
                         InsightsHeader(text: "Other forecasts", icon: "chart.line.uptrend.xyaxis", tint: SR.accentInk)
                     } footer: {
                         Text("A trend with its cone: the band widens because the future is less certain than the past, not because the line is wrong.")
-                            .font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia(15)).foregroundStyle(SR.inkMuted)
                     }
                 }
             }
@@ -548,24 +575,29 @@ struct ForecastCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Text(forecast.label.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.2)
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
                     .foregroundStyle(SR.accentInk)
                 Spacer()
                 Image(systemName: tile.trend.symbol)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(SR.accentInk)
                 Text(tile.trend.word.uppercased())
-                    .font(SR.Text.label(11))
-                    .tracking(1)
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
                     .foregroundStyle(SR.accentInk)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(InsightsForecastTile.format(forecast.projected ?? forecast.now))
                     .font(SR.Text.figure(40))
+                    .tracking(-40 * 0.03)
+                    .monospacedDigit()
                     .foregroundStyle(SR.ink)
                 if let unit = forecast.unit {
-                    Text(unit).font(SR.Text.mono(14)).foregroundStyle(SR.inkMuted)
+                    Text(unit.uppercased())
+                        .font(SR.Text.kicker())
+                        .tracking(SR.Notes.kickerTracking)
+                        .foregroundStyle(SR.Notes.pen)
                 }
                 Spacer()
                 Text("from \(InsightsForecastTile.format(forecast.now)) · \(forecast.horizonDays)d")
@@ -599,31 +631,31 @@ struct ForecastCard: View {
                 .chartYScale(domain: yDomain)
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                        AxisGridLine().foregroundStyle(SR.line)
                         AxisValueLabel(format: .dateTime.day().month(.abbreviated)).font(SR.mono(11)).foregroundStyle(SR.inkMuted)
                     }
                 }
                 .chartYAxis {
                     AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
-                        AxisGridLine().foregroundStyle(SR.line)
                         AxisValueLabel().font(SR.mono(11)).foregroundStyle(SR.inkMuted)
                     }
                 }
                 .frame(height: 220)
+                // The forecast is the petrol pen's, and drawn on its paper.
+                .srChartPaper()
                 .accessibilityLabel("\(forecast.label) forecast: \(forecast.reading)")
             }
         }
         .padding(SR.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         // The grid tile's ground and edge, so the drill-in reads as that
-        // tile, opened.
+        // tile, opened: index-card stock edged in petrol.
         .background(
-            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
-                .fill(SR.accentInk.opacity(0.06))
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .fill(SR.Notes.card)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
-                .strokeBorder(SR.accentInk.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .strokeBorder(SR.accentInk.opacity(0.3), lineWidth: 1)
         )
     }
 }
@@ -637,10 +669,11 @@ struct ExperimentsScreen: View {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text(experiment.live ? "LIVE" : "QUEUED")
-                                .font(SR.Text.label(11))
-                                .tracking(1)
-                                .foregroundStyle(experiment.live ? SR.accent : SR.inkMuted)
+                            // Stamped, as the notebook marks a status: orange
+                            // for the one running, pencil for the queue.
+                            SRStamp(text: experiment.live ? "Live" : "Queued",
+                                    tone: experiment.live ? SR.accent : SR.inkMuted,
+                                    tilt: experiment.live ? -2 : 0)
                             Spacer()
                             if let counter = experiment.counter {
                                 Text(counter).font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
@@ -668,7 +701,7 @@ struct ExperimentsScreen: View {
 
     private func field(_ label: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label.uppercased()).font(SR.Text.label(11)).tracking(1).foregroundStyle(SR.inkMuted)
+            Text(label.uppercased()).font(SR.Text.kicker()).tracking(SR.Notes.kickerTracking).foregroundStyle(SR.accentInk)
             Text(text).font(SR.Text.secondary()).foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -676,6 +709,12 @@ struct ExperimentsScreen: View {
 }
 
 /// The verdict: the page's last word, and the one place a headline is set big.
+///
+/// Set as a notes page: the heading in Inter ExtraBold at 30, in the case the
+/// site sends it — no forced capitals, since a heading on paper does not
+/// shout (each line is its own text, which the UI tests read) — the quote as marginalia against the double
+/// margin rule, and the review date stamped at the foot, as the notebook
+/// dates a thing it means to come back to.
 struct VerdictScreen: View {
     let verdict: HubDigest.Verdict
 
@@ -685,8 +724,9 @@ struct VerdictScreen: View {
                 // An ARRAY OF LINES, as on the page: where it folds was decided.
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(verdict.headline.enumerated()), id: \.offset) { _, line in
-                        Text(line.uppercased())
-                            .font(SR.Text.display(26))
+                        Text(line)
+                            .font(SR.Text.hero(30))
+                            .tracking(-30 * 0.035)
                             .foregroundStyle(SR.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -699,20 +739,27 @@ struct VerdictScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let quote = verdict.quote {
-                    HStack(alignment: .top, spacing: 12) {
-                        Rectangle().fill(SR.accent).frame(width: 3)
-                        Text(quote)
-                            .font(SR.Text.body(17))
-                            .italic()
-                            .foregroundStyle(SR.inkSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(quote)
+                        .font(SR.Text.marginalia(18))
+                        .foregroundStyle(SR.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 15)
+                        // The double margin rule down its edge, as an
+                        // accented card has it. An overlay, so the rules are
+                        // offered the quote's own height and run its length.
+                        .overlay(alignment: .leading) {
+                            HStack(spacing: 2) {
+                                Rectangle().fill(SR.Notes.marginA).frame(width: 1)
+                                Rectangle().fill(SR.Notes.marginB).frame(width: 1)
+                            }
+                            .accessibilityHidden(true)
+                        }
                 }
                 if let review = verdict.reviewOn {
-                    Text("REVIEW \(review)")
-                        .font(SR.Text.label())
-                        .tracking(1.2)
-                        .foregroundStyle(SR.inkMuted)
+                    SRDateStamp(text: Self.stampDay(review), sub: "Review")
+                        .padding(.top, 10)
+                        .padding(.leading, 4)
+                        .accessibilityLabel("Review on \(Self.stampDay(review))")
                 }
             }
             .padding(SR.gutter)
@@ -721,5 +768,18 @@ struct VerdictScreen: View {
         .srGround(.vital)
         .navigationTitle("The verdict")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// "2026-09-24" → "24 Sep 2026" for the stamp; anything that is not a
+    /// day is stamped as it came.
+    static func stampDay(_ raw: String) -> String {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_GB_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: String(raw.prefix(10))) else { return raw }
+        let out = DateFormatter()
+        out.locale = Locale(identifier: "en_GB")
+        out.dateFormat = "d MMM yyyy"
+        return out.string(from: date)
     }
 }

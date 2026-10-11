@@ -18,6 +18,12 @@ import SwiftUI
 //   live flag, the selected filter. Never body copy, never decoration.
 // - Olive stays "the right way" and red stays "tripped". Neither is orange's
 //   job, and orange is neither of theirs.
+//
+// The notes look (2026-10-11) keeps all of that and changes the materials:
+// the band is the exercise book's ink cover, the paper is ruled, a card is
+// index-card stock, and the lit figure is RINGED by hand as well as coloured.
+// The pen marks follow the same rule as the colours — one per thing that
+// matters, never decoration.
 
 // MARK: - The four areas
 
@@ -157,7 +163,7 @@ struct HealthAreaTile: View {
                     // Two lines reserved, so the four tiles stand the same
                     // height whatever each has to say.
                     Text(detail)
-                        .font(SR.Text.mono())
+                        .font(SR.Text.kicker())
                         .foregroundStyle(SR.inkMuted)
                         .lineLimit(2, reservesSpace: true)
                         .multilineTextAlignment(.leading)
@@ -165,8 +171,8 @@ struct HealthAreaTile: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(SR.cardPadding)
-            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4, interactive: true)
-            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
+            .srGlassCard(.paper, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(title), \(detail)")
         }
@@ -270,6 +276,11 @@ struct ActivityWeekDay: Identifiable, Hashable {
 /// distance, laid out by day — and one colour for one quantity is how the eye
 /// joins the number to its shape. Today is marked by its letter, in full
 /// cream, not by a second colour.
+///
+/// Drawn as the site draws its steps chart: each bar a hand-drawn box
+/// (`SRInkBox`, seeded by its day so it keeps its wobble) over a faint wash,
+/// standing on a pencil line that every day has, so a blank day still has
+/// its place on the page.
 struct SRInkWeekBars: View {
     let days: [ActivityWeekDay]
     var height: CGFloat = 52
@@ -280,15 +291,21 @@ struct SRInkWeekBars: View {
             ForEach(days) { day in
                 VStack(spacing: 6) {
                     ZStack(alignment: .bottom) {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(SR.onInk(.fill))
+                        Rectangle()
+                            .fill(SR.onInk(.ghost))
+                            .frame(height: 1)
                         if day.count > 0 {
                             // An outing with no distance (a swim logged by
                             // time, a gym session) still gets a stub: it
-                            // happened.
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(SR.accentOnDark)
-                                .frame(height: max(4, height * CGFloat(day.km / peak)))
+                            // happened. Eight points, so the box has room to
+                            // be a box.
+                            ZStack {
+                                SR.accentOnDark.opacity(0.2).padding(1.5)
+                                SRInkBox(seed: seedFor(day.key), amp: 0.6, inset: 1)
+                                    .stroke(SR.accentOnDark, style: .ink(1.5))
+                            }
+                            .frame(height: max(8, height * CGFloat(day.km / peak)))
+                            .accessibilityHidden(true)
                         }
                     }
                     .frame(height: height)
@@ -351,14 +368,17 @@ struct RecordsStrip: View {
                             Image(systemName: "trophy.fill")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(SR.accent)
+                            // A label over a reading, in the petrol pen.
                             Text(record.label.uppercased())
-                                .font(SR.Text.label())
-                                .tracking(1.2)
-                                .foregroundStyle(SR.inkMuted)
+                                .font(SR.Text.kicker())
+                                .tracking(SR.Notes.kickerTracking)
+                                .foregroundStyle(SR.accentInk)
                                 .lineLimit(1)
                         }
                         Text(record.display)
                             .font(SR.Text.figure(22))
+                            .tracking(-22 * 0.03)
+                            .monospacedDigit()
                             .foregroundStyle(SR.ink)
                             .lineLimit(1)
                         if let date = record.date, !date.isEmpty {
@@ -370,7 +390,7 @@ struct RecordsStrip: View {
                     }
                     .padding(14)
                     .frame(minWidth: 150, alignment: .leading)
-                    .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+                    .srGlassCard(.paper)
                     .accessibilityElement(children: .combine)
                 }
             }
@@ -390,9 +410,14 @@ struct HealthChip: Identifiable, Hashable {
     var id: String { key ?? "all" }
 }
 
-/// A row of filters. The selected one is the accent, filled — a filter is a
-/// thing the reader acts on — in the deep accent, which is the one that holds
-/// cream text.
+/// A row of filters, as the notebook would mark one: every chip a small
+/// card in a faint hand-drawn box, and the chosen one RINGED in orange — a
+/// filter is a thing the reader acts on, and circling a word is how a page
+/// says "this one". The ring draws itself in when the choice changes.
+///
+/// The ring is put on the card, inside the 44pt tap frame, because a
+/// horizontal scroll view clips to its own height: hung on the frame, the
+/// loop's top and bottom would be cut off.
 struct HealthChips: View {
     let chips: [HealthChip]
     @Binding var selection: String?
@@ -408,17 +433,24 @@ struct HealthChips: View {
                     } label: {
                         HStack(spacing: 6) {
                             Text(chip.label.uppercased())
-                                .font(SR.Text.label())
-                                .tracking(1)
+                                .font(SR.Text.kicker())
+                                .tracking(SR.Notes.kickerTracking)
                             Text("\(chip.count)")
                                 .font(SR.Text.mono())
                                 .opacity(0.75)
                         }
-                        .foregroundStyle(on ? SR.paper : SR.inkSecondary)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(on ? SR.accentDeep : SR.Glass.rowFill))
-                        .overlay(Capsule().strokeBorder(on ? Color.clear : SR.line, lineWidth: 1))
+                        .foregroundStyle(on ? SR.ink : SR.inkSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                                    .fill(SR.Notes.card)
+                                SRInkBox(seed: seedFor(chip.label), amp: 0.5, inset: 1)
+                                    .stroke(SR.inkSecondary.opacity(on ? 0.25 : 0.5), style: .ink(1.1))
+                            }
+                        }
+                        .srInkRing(tone: SR.accent, seed: seedFor(chip.id), pad: 4, lineWidth: 1.8, visible: on)
                         .frame(minHeight: SR.tapTarget)
                         .contentShape(Rectangle())
                     }
@@ -456,8 +488,9 @@ struct SegmentsFormBand: View {
                     Image(systemName: "star.fill")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(SR.accentOnDark)
+                    // An aside on the cover: Fraunces italic, cream at 70%.
                     Text(newestLine(newest))
-                        .font(SR.Text.secondary())
+                        .font(SR.Text.marginalia(15))
                         .foregroundStyle(SR.onInk(.note))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -511,12 +544,14 @@ struct WithinReachRow: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(String(format: "%.1f%%", gettable.gapPct))
-                    .font(SR.Text.mono(15))
+                    .font(SR.Text.figure(17))
+                    .tracking(-17 * 0.03)
+                    .monospacedDigit()
                     .foregroundStyle(SR.accent)
                 Text("OFF BEST")
-                    .font(SR.Text.label())
-                    .tracking(1)
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
+                    .foregroundStyle(SR.Notes.pen)
             }
         }
         .padding(.vertical, 6)
@@ -543,9 +578,8 @@ struct RoutesBand: View {
                 SRHaptic.tap()
                 router.health.append(HealthRoute.planRoute)
             } label: {
-                Label("Plan a route", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                    .font(SR.Text.bodyMedium(16))
-                    .frame(maxWidth: .infinity, minHeight: 30)
+                // The button style's own mono label, not a body face over it.
+                SRButtonLabel(title: "Plan a route", icon: "point.topleft.down.to.point.bottomright.curvepath", fill: true)
             }
             .srButton(.prominent)
             .accessibilityIdentifier("routes-plan")

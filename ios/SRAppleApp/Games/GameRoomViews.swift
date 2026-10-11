@@ -151,7 +151,7 @@ struct GameLobby<Store: GameRoomStoring>: View {
                     SRSectionLabel(text: "Players", trailing: "\(room.playing.count) in")
                     VStack(spacing: 0) {
                         ForEach(Array(room.players.enumerated()), id: \.element.id) { index, player in
-                            if index > 0 { Divider().overlay(SR.divider) }
+                            if index > 0 { GameLedgerRule() }
                             playerRow(player)
                         }
                     }
@@ -220,9 +220,9 @@ struct GameLobby<Store: GameRoomStoring>: View {
                         .foregroundStyle(player.joined ? SR.ink : SR.inkMuted)
                     if player.isHost {
                         Text("HOST")
-                            .font(SR.Text.label())
-                            .tracking(1.2)
-                            .foregroundStyle(SR.accent)
+                            .font(SR.Text.kicker())
+                            .tracking(SR.Notes.kickerTracking)
+                            .foregroundStyle(SR.Notes.pen)
                     }
                 }
                 if player.status == "invited" {
@@ -235,7 +235,7 @@ struct GameLobby<Store: GameRoomStoring>: View {
                 }
             }
             Spacer(minLength: 8)
-            SRGlassChip(text: statusLabel(player), tone: statusTone(player.status))
+            SRGlassChip(text: statusLabel(player), tone: statusTone(player.status), tilt: 0)
         }
         .frame(minHeight: SR.tapTarget)
         .padding(.vertical, 4)
@@ -252,17 +252,17 @@ struct GameLobby<Store: GameRoomStoring>: View {
             SRSectionLabel(text: "Ask more people")
             if games.players.isEmpty {
                 Text("Nobody else in the family can play yet. They need the SR app on their phone, with games turned on for them.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(16))
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if others.isEmpty {
                 Text("Everyone who can play has been asked.")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(16))
+                    .foregroundStyle(SR.inkSecondary)
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(others.enumerated()), id: \.element.id) { index, person in
-                        if index > 0 { Divider().overlay(SR.divider) }
+                        if index > 0 { GameLedgerRule() }
                         HStack(spacing: 12) {
                             Text(person.name)
                                 .font(SR.Text.title())
@@ -297,8 +297,8 @@ struct GameLobby<Store: GameRoomStoring>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text("Their phone rings when the SR app is open — tell them to open it.")
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.marginalia(15))
+                .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -374,7 +374,13 @@ struct GameLobby<Store: GameRoomStoring>: View {
 
 // MARK: - Countdown
 
-/// The 3-2-1, full screen on ink, before any game's play begins.
+/// The 3-2-1, full screen on the ink cover, before any game's play begins.
+///
+/// The book's cover rather than a page: solid ink in both modes with its own
+/// cream feint (the site's hero is ruled 13pt into each pitch), the figure in
+/// cream, ringed once in orange-on-dark as it lands. Everything inside asks
+/// the ink register, and the colour scheme is forced dark so a system control
+/// that ever lands here is drawn for a dark ground.
 struct GameCountdownView<Store: GameRoomStoring>: View {
     let room: GameRoom
     @ObservedObject var store: Store
@@ -385,11 +391,15 @@ struct GameCountdownView<Store: GameRoomStoring>: View {
     var body: some View {
         ZStack {
             SR.band.ignoresSafeArea()
+            Image(uiImage: SRPaperTile.cover)
+                .resizable(resizingMode: .tile)
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+            SRGrain(opacity: 0.04)
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
             VStack(spacing: 18) {
-                Text("GET READY")
-                    .font(SR.Text.label(13))
-                    .tracking(SR.inkKickerTracking)
-                    .foregroundStyle(SR.onInk(.label))
+                SRInkKicker(text: "Get ready")
                 TimelineView(.periodic(from: .now, by: 0.05)) { _ in
                     Text(figure)
                         .font(SR.Text.hero(150))
@@ -398,15 +408,19 @@ struct GameCountdownView<Store: GameRoomStoring>: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                         .contentTransition(.numericText(countsDown: true))
+                        // Drawn once, round the space the figure stands in:
+                        // the digits change under it, the ring does not.
+                        .srInkRing(tone: SR.accentOnDark, seed: 37, pad: 28, lineWidth: 3)
                         .accessibilityLabel(figure == "…" ? "Get ready" : "Starting in \(figure)")
                 }
                 Text(note)
-                    .font(SR.Text.secondary())
+                    .font(SR.Text.marginalia(18))
                     .foregroundStyle(SR.onInk(.note))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, SR.gutter)
             }
         }
+        .environment(\.colorScheme, .dark)
         .accessibilityIdentifier(id)
     }
 

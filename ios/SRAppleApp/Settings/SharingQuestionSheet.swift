@@ -10,17 +10,34 @@ struct SharingQuestionSheet: View {
     let answer: (Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
+    // A page of the notebook rather than a system sheet: the ruled paper, the
+    // page head (kicker, Inter title), the pin in a loop drawn round it, and
+    // the app's two buttons. The question is the only thing on the page.
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Image(systemName: "location.circle")
-                .font(.system(size: 34, weight: .regular))
+                .font(.system(size: 26, weight: .regular))
                 .foregroundStyle(SR.accent)
+                .frame(width: 46, height: 46)
+                .overlay {
+                    SRInkStroke(shape: SRInkLoop(seed: 29), tone: SR.accent, lineWidth: 1.8)
+                }
                 .accessibilityHidden(true)
 
-            Text(SharingQuestion.title)
-                .font(SR.Text.display())
-                .foregroundStyle(SR.ink)
-                .fixedSize(horizontal: false, vertical: true)
+            // The page head, a size down from `SRPageHeader`'s so the
+            // question and both answers fit the half-height sheet.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("FAMILY LOCATION")
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
+                    .foregroundStyle(SR.Notes.pen)
+                Text(SharingQuestion.title)
+                    .font(SR.Text.hero(28))
+                    .tracking(-28 * 0.035)
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+            }
 
             Text(SharingQuestion.message)
                 .font(SR.Text.body())
@@ -34,13 +51,11 @@ struct SharingQuestionSheet: View {
                 answer(true)
                 dismiss()
             } label: {
-                Text("Share")
-                    .font(SR.Text.bodyMedium())
-                    .foregroundStyle(SR.paper)
-                    .frame(maxWidth: .infinity, minHeight: SR.tapTarget)
-                    .background(SR.accent)
+                SRButtonLabel(title: "Share", icon: "location.fill", fill: true)
             }
-            .buttonStyle(.plain)
+            .srButton(.prominent)
+            .controlSize(.large)
+            .accessibilityLabel("Share")
             .accessibilityIdentifier("sharing-question-share")
 
             Button {
@@ -48,20 +63,18 @@ struct SharingQuestionSheet: View {
                 answer(false)
                 dismiss()
             } label: {
-                Text("Not now")
-                    .font(SR.Text.bodyMedium())
-                    .foregroundStyle(SR.ink)
-                    .frame(maxWidth: .infinity, minHeight: SR.tapTarget)
-                    .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
+                SRButtonLabel(title: "Not now", fill: true)
             }
-            .buttonStyle(.plain)
+            .srButton(.regular, seed: 53)
+            .controlSize(.large)
+            .accessibilityLabel("Not now")
             .accessibilityIdentifier("sharing-question-not-now")
         }
         .padding(.horizontal, SR.gutter)
         .padding(.top, 28)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(SR.paper.ignoresSafeArea())
+        .background { SRNotebookPaper() }
         .presentationDetents([.medium, .large])
     }
 }

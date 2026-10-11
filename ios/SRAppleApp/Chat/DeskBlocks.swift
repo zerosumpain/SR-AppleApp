@@ -32,8 +32,10 @@ extension EnvironmentValues {
 
 /// The desk's palette, named for what it means rather than for its hue.
 enum DeskInk {
-    /// `--card`: a block lifted off the desk's surface.
-    static let card = Color(hex: 0xF3EBDD)
+    /// `--card`: a block lifted off the desk's surface. The notes' card stock
+    /// token, so it follows the phone into night — the literal it replaced
+    /// was the light card only, and lit up a dark drawer like a lamp.
+    static let card = SR.Notes.card
     /// `up` — petrol. `--accent-ink`.
     static let up = SR.accentInk
     /// `down` — the accent.
@@ -72,8 +74,8 @@ struct DeskBlockView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(DeskInk.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(SR.line, lineWidth: 0.75))
+            .background(DeskInk.card, in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
             .accessibilityElement(children: .contain)
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -121,7 +123,7 @@ struct DeskBlockView: View {
     private var footer: some View {
         if let foot = block.foot {
             Text(foot)
-                .font(SR.Text.secondary(14))
+                .font(SR.Text.marginalia(15))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -195,21 +197,24 @@ struct DeskFigureCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // A reading on the notes: petrol label, tight Inter figure, the
+            // unit in the writing orange.
             Text(item.label.uppercased())
-                .font(SR.Text.label(12))
-                .tracking(0.8)
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
+                .foregroundStyle(SR.accentInk)
                 .lineLimit(1)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(item.value)
                     .font(SR.Text.figure(22))
+                    .tracking(-22 * 0.03)
                     .foregroundStyle(DeskInk.tone(item.tone) ?? SR.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 if let unit = item.unit {
-                    Text(unit)
-                        .font(SR.Text.mono(12))
-                        .foregroundStyle(SR.inkMuted)
+                    Text(unit.uppercased())
+                        .font(SR.Text.kicker())
+                        .foregroundStyle(SR.Notes.pen)
                 }
             }
             if let delta = item.delta {
@@ -224,8 +229,8 @@ struct DeskFigureCell: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
-        .background(DeskInk.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(SR.line, lineWidth: 0.75))
+        .background(DeskInk.card, in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([item.label, item.value + (item.unit.map { " \($0)" } ?? ""), item.delta].compactMap { $0 }.joined(separator: ", "))
     }
@@ -330,7 +335,7 @@ struct DeskSeriesChart: View {
         }
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
-                AxisGridLine().foregroundStyle(SR.divider)
+                AxisGridLine().foregroundStyle(SR.Notes.rule)
                 AxisValueLabel().font(SR.Text.mono(12)).foregroundStyle(SR.inkMuted)
             }
         }
@@ -431,7 +436,7 @@ struct DeskHeat: View {
                             .fixedSize()
                         ForEach(0..<columns.count, id: \.self) { index in
                             let value = index < row.values.count ? row.values[index] : nil
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
                                 .fill(fill(value, low: low, high: high))
                                 .frame(minWidth: 24, minHeight: 20)
                         }
@@ -485,10 +490,12 @@ struct DeskRows: View {
 
     private func line(_ row: PanelRow, index: Int) -> some View {
         HStack(alignment: .top, spacing: 10) {
+            // Numbered as the site numbers a list in the margin: Fraunces
+            // italic in the writing orange.
             if numbered {
                 Text("\(index + 1)")
-                    .font(SR.Text.display(15))
-                    .foregroundStyle(SR.accent)
+                    .font(SR.Text.marginalia(17))
+                    .foregroundStyle(SR.Notes.pen)
                     .frame(minWidth: 18, alignment: .leading)
             } else if let tone = DeskInk.tone(row.tone) {
                 Circle().fill(tone).frame(width: 7, height: 7).padding(.top, 6)
@@ -502,12 +509,21 @@ struct DeskRows: View {
                 if let sub = row.sub {
                     Text(sub)
                         .font(SR.Text.secondary(14))
-                        .foregroundStyle(SR.inkMuted)
+                        .foregroundStyle(SR.inkSecondary)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 6)
+            .layoutPriority(1)
+            // A row with a figure at its end is a contents line: a dotted
+            // leader runs from the title to it, on the title's first line.
+            if row.meta != nil {
+                SRDottedLeader()
+                    .frame(minWidth: 12)
+                    .padding(.top, 9)
+            } else {
+                Spacer(minLength: 6)
+            }
             if let meta = row.meta {
                 Text(meta)
                     .font(SR.Text.mono(12))
@@ -553,7 +569,9 @@ struct DeskTable: View {
                                 .background(index == pick ? DeskInk.up.opacity(0.12) : Color.clear)
                         }
                     }
-                    Divider().overlay(SR.line)
+                    // A card ledger, as the blog's tables: a petrol rule under
+                    // the head, the page's feint between rows.
+                    Divider().overlay(SR.accentInk.opacity(0.6))
                     ForEach(Array(rows.prefix(Self.cap).enumerated()), id: \.offset) { _, row in
                         GridRow {
                             ForEach(0..<columns.count, id: \.self) { index in
@@ -569,14 +587,14 @@ struct DeskTable: View {
                                     .background(index == pick ? DeskInk.up.opacity(0.12) : Color.clear)
                             }
                         }
-                        Divider().overlay(SR.divider)
+                        Divider().overlay(SR.Notes.rule)
                     }
                 }
             }
             if rows.count > Self.cap {
                 Text("The first \(Self.cap) of \(rows.count) rows. The rest are on the web.")
-                    .font(SR.Text.secondary(13))
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
             }
         }
     }
@@ -696,16 +714,16 @@ struct DeskEntity: View {
                 .font(.system(size: 14))
                 .foregroundStyle(SR.accent)
                 .frame(width: 30, height: 30)
-                .background(SR.accent.opacity(0.10), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
                 if let kind {
                     Text(kind.uppercased())
-                        .font(SR.Text.label(12))
-                        .tracking(0.8)
-                        .foregroundStyle(SR.inkMuted)
+                        .font(SR.Text.kicker())
+                        .tracking(SR.Notes.kickerTracking)
+                        .foregroundStyle(SR.accentInk)
                 }
                 Text(name)
-                    .font(SR.Text.title(16))
+                    .font(SR.Text.display(16))
+                    .tracking(-16 * 0.02)
                     .foregroundStyle(SR.ink)
                 if let summary {
                     Text(summary)
@@ -743,11 +761,21 @@ struct DeskActionRow: View {
                             .tracking(0.8)
                             .multilineTextAlignment(.leading)
                     }
+                    // The first action is the prominent one, filled in the
+                    // deep orange as the notes' prominent button is; the rest
+                    // are boxed by hand.
                     .foregroundStyle(index == 0 ? SR.paper : SR.ink)
                     .padding(.horizontal, 12)
                     .frame(maxWidth: .infinity, minHeight: SR.tapTarget, alignment: .leading)
-                    .background(index == 0 ? SR.ink : Color.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(index == 0 ? SR.ink : SR.line, lineWidth: 1))
+                    .background(index == 0 ? SR.accentDeep : Color.clear,
+                                in: RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+                    .overlay {
+                        if index != 0 {
+                            SRInkBox(seed: seedFor(item.label))
+                                .stroke(SR.inkSecondary, style: .ink(1.3))
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -771,10 +799,10 @@ struct DeskAskButton: View {
             HStack(spacing: 6) {
                 Image(systemName: "text.bubble").font(.system(size: 11, weight: .semibold))
                 Text(ask.label.uppercased())
-                    .font(SR.Text.label(12))
-                    .tracking(0.8)
+                    .font(SR.Text.kicker())
+                    .tracking(SR.Notes.kickerTracking)
             }
-            .foregroundStyle(SR.accent)
+            .foregroundStyle(SR.Notes.pen)
             .frame(minHeight: 32)
         }
         .buttonStyle(.plain)

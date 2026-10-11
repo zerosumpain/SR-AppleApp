@@ -68,10 +68,12 @@ struct LandgrabSection: View {
             .padding(.vertical, 4)
             .srGlassCard(.paper)
 
+            // Last week's result: a note in the margin under the board.
             if let line = Landgrab.lastWeekLine(board) {
-                Label(line, systemImage: "flag.checkered")
-                    .font(SR.Text.secondary())
+                Text(line)
+                    .font(SR.Text.marginalia(16))
                     .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
                     .accessibilityIdentifier("landgrab-last-week")
             }
@@ -120,7 +122,7 @@ struct LandgrabRow: View {
         HStack(spacing: 10) {
             Text("\(person.rank)")
                 .font(SR.Text.label(15))
-                .foregroundStyle(person.rank == 1 ? SR.accent : SR.inkMuted)
+                .foregroundStyle(person.rank == 1 ? SR.Notes.pen : SR.inkMuted)
                 .frame(width: 18)
             LandgrabSwatch(name: person.name, colour: person.colour, id: person.id)
             let layout = typeSize.isAccessibilitySize
@@ -253,6 +255,7 @@ struct LandgrabMapScreen: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label(week))
                     .font(SR.Text.display(20))
+                    .tracking(-20 * 0.02)
                     .foregroundStyle(SR.ink)
                 if let range = Landgrab.weekRange(start: week, end: "") {
                     Text(range)
@@ -325,8 +328,8 @@ struct LandgrabMapScreen: View {
             legend(shown.changes)
             if shown.changes.truncated {
                 Text("A big week: only the largest changes are on the map.")
-                    .font(SR.Text.secondary(13))
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
                     .padding(.horizontal, 4)
             }
         }
@@ -425,10 +428,11 @@ struct LandgrabMapScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 4)
+                // The outing on the map is ticked in the orange pen.
                 if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(SR.accent)
+                    SRInkTick(seed: seedFor(change.id))
+                        .stroke(SR.accent, style: .ink(2.4))
+                        .frame(width: 22, height: 22)
                         .accessibilityHidden(true)
                 }
             }

@@ -83,10 +83,15 @@ struct AlertsScreen: View {
                         .lineLimit(4)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("\(alert.category.uppercased()) · \(shortAgo(alert.createdAt))")
-                        .font(SR.Text.mono())
-                        .tracking(1)
-                        .foregroundStyle(SR.inkMuted)
+                    // The category's pencil dot: each kind of alert keeps
+                    // its own colour, here, on the detail and on the site.
+                    HStack(spacing: 6) {
+                        SRPencilDot(word: alert.category, size: 10)
+                        Text("\(alert.category.uppercased()) · \(shortAgo(alert.createdAt))")
+                            .font(SR.Text.mono())
+                            .tracking(1)
+                            .foregroundStyle(SR.inkMuted)
+                    }
                 }
 
                 Spacer(minLength: 4)
@@ -104,11 +109,17 @@ struct AlertsScreen: View {
     private func tone(_ alert: SiteAlert) -> Color { AlertTone.of(alert) }
 }
 
-/// A row's sheet, with a coloured edge when the alert matters more than most.
+/// A row's card, with a coloured edge when the alert matters more than most.
+///
+/// Was a rounded glass slab with a 2pt border. In the notes look it is card
+/// stock like every other row, and severity is the margin rule's idiom: a
+/// bar of the tone down the leading edge. Each alert is its own section, so
+/// the list rounds the corners as it does every section; a bar on the edge
+/// survives that clip where a full border was cut at the corners.
 struct AlertEdge: View {
     let alert: SiteAlert
 
-    /// Nil for an ordinary alert: no border at all, so the ringed ones stand out.
+    /// Nil for an ordinary alert: no bar at all, so the marked ones stand out.
     static func stroke(_ alert: SiteAlert) -> Color? {
         if alert.isAlert { return SR.error }
         if alert.isWarning || alert.isConnections { return SR.warn }
@@ -116,17 +127,13 @@ struct AlertEdge: View {
     }
 
     var body: some View {
-        // Rounder than the list clips its sections on any iOS, so the edge
-        // is never cut at the corners — a smaller clip only squares it off.
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        shape
-            .fill(SR.Glass.rowFill)
-            .overlay {
+        Rectangle()
+            .fill(SR.Notes.card)
+            .overlay(alignment: .leading) {
                 if let tone = Self.stroke(alert) {
-                    shape
-                        .fill(tone.opacity(alert.read ? 0.03 : 0.07))
-                    shape
-                        .strokeBorder(tone.opacity(alert.read ? 0.55 : 1), lineWidth: 2)
+                    Rectangle()
+                        .fill(tone.opacity(alert.read ? 0.55 : 1))
+                        .frame(width: 3)
                 }
             }
     }
@@ -209,8 +216,8 @@ struct AlertRoutingScreen: View {
                      is collected on the next background refresh or when you open \
                      the app.
                      """)
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
                     .srGlassRow()
                     .padding(.vertical, 8)
             }
@@ -331,8 +338,8 @@ struct RouteDetail: View {
                         SRSectionLabel(text: "Deliver to")
                     } footer: {
                         Text(route.description)
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia(15))
+                            .foregroundStyle(SR.inkSecondary)
                             .srGlassRow()
                             .padding(.vertical, 8)
                     }
@@ -355,8 +362,8 @@ struct RouteDetail: View {
                         SRSectionLabel(text: "How often")
                     } footer: {
                         Text("A floor applies to the whole category, in both channels. Health ships at three hours: the figures move all day and a phone that says so all day is a phone you switch off.")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
+                            .font(SR.Text.marginalia(15))
+                            .foregroundStyle(SR.inkSecondary)
                             .srGlassRow()
                             .padding(.vertical, 8)
                     }

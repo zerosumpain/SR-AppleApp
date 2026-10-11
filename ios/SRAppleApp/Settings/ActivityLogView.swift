@@ -82,8 +82,8 @@ struct ActivityLogScreen: View {
 
             SRSection(isLast: true) {
                 Text("Kept for the last \(GateEvent.maxStored) changes. Hours before the first line are not counted, not assumed.")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             }
@@ -115,8 +115,11 @@ struct ActivityLogScreen: View {
 
         return VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top, spacing: 22) {
+                // The page's one reading that answers its title, ringed
+                // once there is one.
                 Figure(value: duty.map { String(format: "%.0f%%", $0 * 100) } ?? "—",
-                       label: "Of the time, GPS on")
+                       label: "Of the time, GPS on",
+                       ringed: duty != nil)
                 Figure(value: hours(spans.armed), label: "Asleep")
             }
             HStack(alignment: .top, spacing: 22) {
@@ -134,8 +137,8 @@ struct ActivityLogScreen: View {
 
             if !outbox.state.location.motion.enabled {
                 Text("The motion gate is off, so GPS never sleeps and this will read 100%. Turn it on in section C of the settings.")
-                    .font(SR.mono(12))
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(15))
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -201,8 +204,8 @@ struct ActivityLogScreen: View {
         VStack(alignment: .leading, spacing: 18) {
             if events.isEmpty {
                 Text("Nothing in this window.")
-                    .font(SR.body(15))
-                    .foregroundStyle(SR.inkMuted)
+                    .font(SR.Text.marginalia(16))
+                    .foregroundStyle(SR.inkSecondary)
             } else {
                 SRLedger {
                     ForEach(events) { event in
@@ -216,8 +219,8 @@ struct ActivityLogScreen: View {
                 cleared = true
             }
             Text("Clearing resets the duty cycle above with it — the figures are derived from these lines, not stored separately.")
-                .font(SR.mono(12))
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.marginalia(15))
+                .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -261,7 +264,9 @@ struct ActivityLogScreen: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SR.paper)
+        // Card stock in the ruled ledger, the hairline between showing
+        // through, so the log reads as a stack of index cards.
+        .background(SR.Notes.card)
         .accessibilityElement(children: .combine)
     }
 

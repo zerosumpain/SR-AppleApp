@@ -231,9 +231,9 @@ struct DaydreamFollowSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("TAKE IT FURTHER")
-                .font(SR.Text.label())
-                .tracking(1.2)
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
+                .foregroundStyle(SR.Notes.pen)
                 .accessibilityAddTraits(.isHeader)
             if let booking = follow.bookingUrl, let url = URL(string: booking) {
                 Button { openURL(url) } label: {
@@ -283,8 +283,8 @@ struct DaydreamFollowSection: View {
                         .font(SR.Text.bodyMedium(16))
                         .foregroundStyle(SR.ink)
                     Text(offer.cost)
-                        .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkMuted)
+                        .font(SR.Text.marginalia(15))
+                        .foregroundStyle(SR.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -292,7 +292,13 @@ struct DaydreamFollowSection: View {
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: SR.tapTarget, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(open == offer.kind ? SR.accentInk : SR.line, lineWidth: 1))
+            // Boxed in pen like the note's own choices; petrol while open.
+            .overlay {
+                SRInkBox(seed: seedFor(offer.label))
+                    .stroke(open == offer.kind ? SR.accentInk : SR.inkSecondary.opacity(0.5),
+                            style: .ink(open == offer.kind ? 1.5 : 1.2))
+                    .accessibilityHidden(true)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -392,7 +398,7 @@ struct DaydreamFollowSection: View {
                 .lineLimit(3...6)
                 .font(SR.Text.body(15))
                 .padding(10)
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
                 .accessibilityIdentifier("daydream-follow-watch-text")
             Text("It checks every 6 hours unless you say otherwise. Setting it up takes about a minute.")
                 .font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted).fixedSize(horizontal: false, vertical: true)
@@ -416,7 +422,7 @@ struct DaydreamFollowSection: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
             if let draft = message.draft {
                 Text(draft.status == "sent" ? "Sent to \(draft.to)" : draft.status == "discarded" ? "Gmail draft discarded" : "In your Gmail drafts, to \(draft.to)")
                     .font(SR.Text.mono()).foregroundStyle(SR.inkSecondary)
@@ -521,10 +527,7 @@ struct DaydreamFollowSection: View {
 
     private func panel<Content: View>(_ heading: String, id: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(heading)
-                .font(SR.Text.label())
-                .tracking(1.2)
-                .foregroundStyle(SR.accentInk)
+            SRNoteLabel(text: heading)
             content()
         }
         .padding(.vertical, 10)
@@ -533,7 +536,7 @@ struct DaydreamFollowSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SR.accentInk.opacity(0.06))
         .overlay(alignment: .leading) { Rectangle().fill(SR.accentInk).frame(width: 3) }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(id)
     }
@@ -541,8 +544,8 @@ struct DaydreamFollowSection: View {
     private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title.uppercased())
-                .font(SR.Text.label(12))
-                .tracking(1.1)
+                .font(SR.Text.kicker())
+                .tracking(SR.Notes.kickerTracking)
                 .foregroundStyle(SR.accentInk)
                 .frame(minHeight: SR.tapTarget)
                 .contentShape(Rectangle())
