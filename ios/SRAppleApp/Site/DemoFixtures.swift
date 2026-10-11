@@ -196,13 +196,15 @@ enum SRDemoFixtures {
             return today(clock)
         case ("GET", "api/native/daydream"):
             return daydreamFeed(scope: query["scope"], limit: Int(query["limit"] ?? "") ?? 5,
-                                detail: query["detail"] == "1", clock: clock)
+                                detail: query["detail"] == "1", staleOnly: query["stale"] == "1", clock: clock)
         case (_, "api/native/daydream/commissions"):
             return CommissionDemoFixtures.reply(method: method, query: query, body: body)
         case ("POST", "api/native/daydream/feedback"):
             return #"{"ok":true}"#
         case ("POST", "api/native/daydream/act"):
             return daydreamAct(body)
+        case ("POST", "api/native/daydream/shelf"):
+            return daydreamShelf(body)
         case ("POST", "api/native/daydream/follow"):
             return daydreamFollow(body)
         case ("GET", "api/native/health/summary"):

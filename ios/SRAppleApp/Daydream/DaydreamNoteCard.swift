@@ -16,6 +16,7 @@ struct DaydreamNoteCard: View {
     @ObservedObject private var store = DaydreamStore.shared
     @ObservedObject private var rulings = DaydreamRulings.shared
     @ObservedObject private var actions = DaydreamActions.shared
+    @ObservedObject private var shelf = DaydreamShelf.shared
     @Environment(\.openURL) private var openURL
     @State private var expanded = false
     /// "Change" reopens the choices over a verdict already given.
@@ -27,6 +28,9 @@ struct DaydreamNoteCard: View {
         SRCard {
             VStack(alignment: .leading, spacing: 12) {
                 kicker
+                if let stale = note.stale, shelf.isStale(note) {
+                    DaydreamStaleBanner(note: note, stale: stale)
+                }
                 title
                 if !note.summary.isEmpty { summary }
                 if !note.replaces.isEmpty { replacesLine }

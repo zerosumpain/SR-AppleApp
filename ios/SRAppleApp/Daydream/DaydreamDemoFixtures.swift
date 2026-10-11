@@ -37,6 +37,8 @@ extension SRDemoFixtures {
         var act: String? = nil
         /// "Take it further", as the detailed wire sends it (raw JSON).
         var follow: String? = nil
+        /// Past its date, as the detailed wire sends it (raw JSON).
+        var stale: String? = nil
     }
 
     static let demoNotes: [DemoNote] = [
@@ -129,6 +131,18 @@ extension SRDemoFixtures {
              "message": {"text": "Hello, does the Thursday easy-pace group still meet at 7? I'd like to join next week. Thanks, John", "subject": "Thursday easy run", "whatsapp": "https://wa.me/?text=Hello", "mailto": null, "email": null, "draft": null}}
             """#
         ),
+        DemoNote(
+            id: "demo-note-open-studios",
+            outcome: "research",
+            channel: "research",
+            title: "Open studios weekend at the old mill",
+            body: "The artists' studios at the old mill open to the public for one weekend, with a printmaking demonstration on the Saturday afternoon.\n\nNext: Put the Saturday afternoon in the diary.",
+            minutesAgo: 60 * 24 * 5,
+            next: "Put the Saturday afternoon in the diary.",
+            sources: ["Web search · “open studios weekend”"],
+            stage: "spotted",
+            stale: #"{"until": "", "basis": "date", "why": "The date it is about, last Saturday, has passed."}"#
+        ),
     ]
 
     /// The note as the plain feed sends it — Today's block and the Health
@@ -143,7 +157,7 @@ extension SRDemoFixtures {
     static func detailedNoteJSON(_ note: DemoNote, clock: DemoClock) -> String {
         let summary = SRDemoFixtures.summary(of: note.body)
         return """
-        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState)), "review": \(note.review ?? "null"), "act": \(note.act ?? "null"), "follow": \(note.follow ?? "null")}
+        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState)), "review": \(note.review ?? "null"), "act": \(note.act ?? "null"), "follow": \(note.follow ?? "null"), "stale": \(note.stale ?? "null")}
         """
     }
 
@@ -159,6 +173,13 @@ extension SRDemoFixtures {
         default:
             return #"{"ok": true, "status": "done", "label": "Added “Renewals: insurance, breakdown, domain” to your Home calendar on Mon 9 Nov", "calendar": "Home"}"#
         }
+    }
+
+    /// `POST api/native/daydream/shelf` — SYNTHETIC: the demo files nothing.
+    static func daydreamShelf(_ body: Data?) -> String {
+        let request = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        if request["op"] as? String == "keep" { return #"{"ok": true, "until": "2026-12-31"}"# }
+        return #"{"ok": true, "filed": 1}"#
     }
 
     /// `POST api/native/daydream/follow` — SYNTHETIC: the demo starts no run,
@@ -186,16 +207,17 @@ extension SRDemoFixtures {
 
     /// `GET api/native/daydream?scope=health&limit=5`, and the page's
     /// `?detail=1&limit=40`.
-    static func daydreamFeed(scope: String?, limit: Int, detail: Bool = false, clock: DemoClock) -> String {
+    static func daydreamFeed(scope: String?, limit: Int, detail: Bool = false, staleOnly: Bool = false, clock: DemoClock) -> String {
         let notes = demoNotes
             .filter { scope != "health" || $0.channel == "health" || $0.outcome == "health_plan" }
+            .filter { !staleOnly || $0.stale != nil }
             .prefix(max(0, limit))
         guard detail else {
             return "{\"notes\": \(list(notes.map { noteJSON($0, clock: clock) }))}"
         }
         let count = { (bucket: String) in notes.filter { $0.bucket == bucket }.count }
         return """
-        {"notes": \(list(notes.map { detailedNoteJSON($0, clock: clock) })), "pipeline": {"decide": \(count("decide")), "motion": \(count("motion")), "done": \(count("done"))}, "impact": \(demoImpact(clock))}
+        {"notes": \(list(notes.map { detailedNoteJSON($0, clock: clock) })), "pipeline": {"decide": \(count("decide")), "motion": \(count("motion")), "done": \(count("done"))}, "stale": \(demoNotes.filter { $0.stale != nil }.count), "impact": \(demoImpact(clock))}
         """
     }
 
