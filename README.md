@@ -364,6 +364,9 @@ ink band, component cards). The rules every screen follows:
   the bar until it is opened or dismissed.
 - **Settings live in More,** at the foot of the hub, with Daydream at its
   head. A phone with no More (four places or fewer) keeps the cog on Today.
+- **Wildmind sits beside Daydream in More** (owner only): a native page for
+  the valley of two Claude minds, with its map on an opaque card and the rest
+  in the same glass cards, section labels and stat tiles as every other screen.
 - **One filled control per screen,** in `SR.accentDeep` so its cream label
   holds 5:1; everything else is paper glass.
 - **The mark is `SRMark`:** `sr` in DM Mono Medium with a drawn accent dot and

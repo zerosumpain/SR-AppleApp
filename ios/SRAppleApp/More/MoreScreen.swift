@@ -26,6 +26,7 @@ struct MoreScreen: View {
     @ObservedObject private var tasks = FamilyTasksStore.shared
     @ObservedObject private var landgrab = LandgrabStore.shared
     @ObservedObject private var access = AccessStore.shared
+    @ObservedObject private var wildmind = WildmindStore.shared
     @EnvironmentObject private var router: Router
     @Environment(\.dynamicTypeSize) private var typeSize
     /// A 2×2 tile: half the width (~169pt on a 390pt phone) and a little
@@ -144,14 +145,15 @@ struct MoreScreen: View {
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, steps, tasks, landgrab, sync, settings
+        case daydream, wildmind, steps, tasks, landgrab, sync, settings
         case place(Router.Tab)
     }
 
     private var items: [Item] {
         var all: [Item] = []
-        // The daydream loop is the owner's, over the site.
-        if AccessStore.ownerSite { all.append(.daydream) }
+        // The daydream loop is the owner's, over the site, and so is the
+        // Wildmind valley beside it.
+        if AccessStore.ownerSite { all += [.daydream, .wildmind] }
         // The family's step board and task list: pages, not tabs, for
         // everyone with the family and the site credential.
         if access.familyBoards { all += [.steps, .tasks] }
@@ -210,6 +212,23 @@ struct MoreScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("more-daydream")
+        case .wildmind:
+            Button {
+                SRHaptic.tap()
+                router.more.append(Router.MorePage.wildmind)
+            } label: {
+                MoreCard(
+                    icon: "mountain.2",
+                    fill: SR.good,
+                    title: "Wildmind",
+                    blurb: "Two Claude minds in a valley, inventing whatever they need.",
+                    // The day of this life, once the page has been opened —
+                    // More does not ask the valley on its own.
+                    status: wildmind.answer?.snapshot?.time.day.map { "Day \($0)" }
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("more-wildmind")
         case .steps: familyCard(.steps)
         case .tasks: familyCard(.tasks)
         case .landgrab:
