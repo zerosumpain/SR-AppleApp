@@ -13,9 +13,14 @@ import SwiftUI
 /// pinched, panned and tapped, and it is polled only while it is on screen.
 ///
 /// The data is `GET api/native/wildmind` (`WildmindStore`); the words follow
-/// the site's rules (`WildmindWords`); the map is `WildmindMap`.
+/// the site's rules (`WildmindWords`); the map is `WildmindMap`. Under the
+/// heading, "Whisper to JKai" and the pages for what the map cannot show —
+/// Talk, Chronicle and Inventions (`WildmindPages.swift`), read from the
+/// owner-only lane.
 struct WildmindScreen: View {
     @ObservedObject private var store = WildmindStore.shared
+    /// "View as" hides the whisper button: the site refuses writes then.
+    @ObservedObject private var access = AccessStore.shared
     @Environment(\.scenePhase) private var scenePhase
     /// The person whose card is shown under the map.
     @State private var selected: String?
@@ -24,6 +29,7 @@ struct WildmindScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 header
+                if showsLinks { links }
                 content
             }
             .padding(.horizontal, SR.gutter)
@@ -70,6 +76,69 @@ struct WildmindScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    // MARK: - Talk, Chronicle, Inventions
+
+    /// Not for a phone the site refused: those pages would refuse it too.
+    private var showsLinks: Bool {
+        if case .refused = store.phase { return false }
+        return true
+    }
+
+    /// "Whisper to JKai" (not while viewing as someone else, when the site
+    /// refuses writes), then the three pages the valley's words live on.
+    private var links: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if access.viewingAs == nil {
+                NavigationLink(value: WildmindPage.talk(compose: true)) {
+                    SRButtonLabel(title: "Whisper to \(mainName)", icon: "ear", fill: true)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityIdentifier("wildmind-whisper")
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { pageLinks }
+                VStack(alignment: .leading, spacing: 10) { pageLinks }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("wildmind-links")
+    }
+
+    @ViewBuilder
+    private var pageLinks: some View {
+        pageLink("Talk", icon: "text.bubble", page: .talk(compose: false), id: "wildmind-open-talk")
+        pageLink("Chronicle", icon: "book", page: .chronicle, id: "wildmind-open-chronicle")
+        pageLink("Inventions", icon: "lightbulb", page: .inventions, id: "wildmind-open-inventions")
+    }
+
+    /// A small glass tile: the icon over the page's name. Three go across;
+    /// at the larger text sizes they stack.
+    private func pageLink(_ title: String, icon: String, page: WildmindPage, id: String) -> some View {
+        NavigationLink(value: page) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(SR.accent)
+                    .accessibilityHidden(true)
+                Text(title.uppercased())
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 76)
+            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(id)
     }
 
     // MARK: - What there is to show

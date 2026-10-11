@@ -8,8 +8,18 @@ name: Showcase screenshots
 # By hand, or on a pull request by adding the `showcase` label. Dark, as the
 # check ran it. The soft misses are listed on the run's summary page: each one
 # is a screen that no longer looks the way its test expects.
+#
+# By hand, `only` shoots a few screens instead of the whole walk: a comma-
+# separated list of ShowcaseTests method names, e.g.
+# `testShowcaseWildmind,testShowcaseWildmindTalk`. Empty runs every one.
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'ShowcaseTests methods to run, comma-separated (empty: all), e.g. testShowcaseWildmind,testShowcaseWildmindTalk'
+        required: false
+        default: ''
+        type: string
   pull_request:
     types: [labeled]
 concurrency:
@@ -41,12 +51,29 @@ jobs:
           fi
           xcodebuild build-for-testing -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee build.log
       - name: Shoot
+        env:
+          # Through the environment, never pasted into the script: the input
+          # is free text.
+          ONLY: ${{ github.event.inputs.only || '' }}
         run: |
           set -o pipefail
+          TESTS=()
+          IFS=',' read -ra NAMES <<< "$ONLY"
+          for NAME in "${NAMES[@]}"; do
+            NAME="$(printf '%s' "$NAME" | tr -d '[:space:]')"
+            [ -z "$NAME" ] && continue
+            if ! [[ "$NAME" =~ ^test[A-Za-z0-9_]+$ ]]; then
+              echo "::error::'$NAME' is not a ShowcaseTests method name"
+              exit 1
+            fi
+            TESTS+=("-only-testing:SRAppleAppUITests/ShowcaseTests/$NAME")
+          done
+          if [ ${#TESTS[@]} -eq 0 ]; then TESTS=("-only-testing:SRAppleAppUITests/ShowcaseTests"); fi
+          echo "Shooting: ${TESTS[*]}"
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl ui "$DEVICE_ID" appearance dark
           xcodebuild test-without-building -parallel-testing-enabled NO -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath DerivedData -resultBundlePath artifacts/Showcase.xcresult \
-            -only-testing:SRAppleAppUITests/ShowcaseTests | tee test.log
+            "${TESTS[@]}" | tee test.log
       - name: List soft misses
         if: ${{ !cancelled() }}
         run: |

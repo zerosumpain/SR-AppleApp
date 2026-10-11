@@ -180,6 +180,30 @@ final class WildmindTests: XCTestCase {
         XCTAssertNil(again.terrain)
     }
 
+    /// The owner lane's demo routes reach `WildmindDemoLane` through the
+    /// fixtures' front door, a POST body included; anything else under
+    /// `api/native/wildmind/` is still a 404.
+    func testTheDemoOwnerLaneIsRouted() throws {
+        let base = "https://strangeramblings.com/api/native/wildmind/"
+        WildmindDemoLane.shared.reset()
+        defer { WildmindDemoLane.shared.reset() }
+        for path in ["talk?limit=20", "chronicle?id=companion", "inventions", "whispers?limit=5"] {
+            let reply = SRDemoFixtures.reply(method: "GET", url: URL(string: base + path)!, body: nil)
+            XCTAssertEqual(reply.status, 200, path)
+        }
+        let talk = try JSONDecoder().decode(
+            WildmindTalkPage.self,
+            from: SRDemoFixtures.reply(method: "GET", url: URL(string: base + "talk?kinds=diary")!, body: nil).body
+        )
+        XCTAssertTrue(talk.entries.allSatisfy { $0.kind == .diary })
+        let sent = SRDemoFixtures.reply(method: "POST", url: URL(string: base + "whisper")!, body: Data(#"{"text":"Hello"}"#.utf8))
+        XCTAssertEqual(sent.status, 200)
+        XCTAssertEqual(try JSONDecoder().decode(WildmindWhisperAccepted.self, from: sent.body).pending, ["Hello"])
+        XCTAssertEqual(SRDemoFixtures.reply(method: "GET", url: URL(string: base + "whisper")!, body: nil).status, 404)
+        XCTAssertEqual(SRDemoFixtures.reply(method: "GET", url: URL(string: base + "talk/extra")!, body: nil).status, 404)
+        XCTAssertEqual(SRDemoFixtures.reply(method: "POST", url: URL(string: String(base.dropLast()))!, body: nil).status, 404)
+    }
+
     /// `?have=` goes into the query as it is, so only the site's own version
     /// shape is ever sent back.
     func testOnlyASafeVersionIsSentBack() {

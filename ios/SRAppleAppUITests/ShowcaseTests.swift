@@ -88,6 +88,102 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Wildmind, JKai")
     }
 
+    /// Talk, from "Whisper to JKai": the thread with the composer up, then a
+    /// whisper sent and heard — the demo valley hears it after two seconds,
+    /// and JKai's answering thought turns up linked under it.
+    @MainActor func testShowcaseWildmindTalk() {
+        let app = launch()
+        guard openWildmind(app) else { return }
+        let whisper = byId(app, "wildmind-whisper")
+        guard scroll(app, to: whisper) else { return soft(false, "no Whisper to JKai button on the Wildmind page") }
+        whisper.tap()
+        settle(app, on: byId(app, "wildmind-talk-screen"), seconds: 2)
+        let field = byId(app, "wildmind-whisper-field")
+        soft(field.waitForExistence(timeout: 10), "no whisper composer")
+        attach(app, "Showcase — Wildmind talk, composing")
+
+        guard field.exists else { return }
+        field.tap()
+        field.typeText("Wren could weave a lid for the basket.")
+        let send = byId(app, "wildmind-whisper-send")
+        soft(send.waitForExistence(timeout: 5) && send.isEnabled, "the whisper send button stayed off")
+        if send.exists { send.tap() }
+        // The demo's answer to a first whisper; it shows once JKai heard it.
+        let answer = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "That voice again")).firstMatch
+        soft(answer.waitForExistence(timeout: 25), "the sent whisper was never heard")
+        settle(app, seconds: 2)
+        attach(app, "Showcase — Wildmind talk, whisper heard")
+
+        // The thoughts alone, one opened to its goal and mood.
+        let thoughts = byId(app, "wildmind-talk-kind-thought")
+        if thoughts.waitForExistence(timeout: 5) {
+            thoughts.tap()
+            settle(app, seconds: 2)
+            let thought = app.descendants(matching: .any).matching(identifier: "wildmind-talk-thought").firstMatch
+            if thought.waitForExistence(timeout: 10) { thought.tap() }
+            settle(app)
+            attach(app, "Showcase — Wildmind talk, thoughts")
+        } else {
+            soft(false, "no Thought filter on Talk")
+        }
+    }
+
+    /// Chronicle: JKai's "Now" and timeline, then Wren's diary.
+    @MainActor func testShowcaseWildmindChronicle() {
+        let app = launch()
+        guard openWildmind(app) else { return }
+        let link = byId(app, "wildmind-open-chronicle")
+        guard scroll(app, to: link) else { return soft(false, "no Chronicle link on the Wildmind page") }
+        link.tap()
+        settle(app, on: byId(app, "wildmind-chronicle-now"), seconds: 2)
+        attach(app, "Showcase — Wildmind chronicle, JKai")
+
+        let timeline = byId(app, "wildmind-chronicle-timeline")
+        soft(scroll(app, to: timeline), "no timeline in the chronicle")
+        settle(app)
+        attach(app, "Showcase — Wildmind chronicle, timeline")
+
+        app.swipeDown()
+        app.swipeDown()
+        let wren = app.segmentedControls.buttons["Wren"]
+        if wren.waitForExistence(timeout: 5) {
+            wren.tap()
+            settle(app, on: byId(app, "wildmind-chronicle-now"), seconds: 2)
+            let diary = byId(app, "wildmind-chronicle-diary")
+            soft(scroll(app, to: diary), "no diary in Wren's chronicle")
+            settle(app)
+            attach(app, "Showcase — Wildmind chronicle, Wren's diary")
+        } else {
+            soft(false, "no Wren segment on the chronicle")
+        }
+    }
+
+    /// Inventions: the list with the refused ideas, then one opened.
+    @MainActor func testShowcaseWildmindInventions() {
+        let app = launch()
+        guard openWildmind(app) else { return }
+        let link = byId(app, "wildmind-open-inventions")
+        guard scroll(app, to: link) else { return soft(false, "no Inventions link on the Wildmind page") }
+        link.tap()
+        let basket = byId(app, "wildmind-invention-reed_basket")
+        settle(app, on: basket, seconds: 2)
+        attach(app, "Showcase — Wildmind inventions")
+
+        let refused = byId(app, "wildmind-inventions-refused")
+        if scroll(app, to: refused) {
+            settle(app)
+            attach(app, "Showcase — Wildmind inventions, refused ideas")
+        } else {
+            soft(false, "no refused ideas on Inventions")
+        }
+
+        guard scroll(app, to: basket) else { return soft(false, "no Reed basket to open") }
+        basket.tap()
+        settle(app, on: byId(app, "wildmind-invention-screen"), seconds: 2)
+        attach(app, "Showcase — Wildmind invention, Reed basket")
+    }
+
     // MARK: - Family
 
     /// The mini-map on Today, then the tab it opens: pins, today's lines, and
@@ -1212,6 +1308,21 @@ final class ShowcaseTests: XCTestCase {
         app.launchArguments = ["-SRDemo"] + extra
         app.launch()
         return app
+    }
+
+    /// More → Wildmind. False (with a soft miss) when the page did not open.
+    @MainActor private func openWildmind(_ app: XCUIApplication) -> Bool {
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        openTab(app, "More")
+        settle(app, on: byId(app, "more-screen"))
+        let tile = byId(app, "more-wildmind")
+        guard scroll(app, to: tile) else {
+            soft(false, "no Wildmind card in More")
+            return false
+        }
+        tile.tap()
+        settle(app, on: byId(app, "wildmind-screen"), seconds: 2)
+        return true
     }
 
     /// Back out of a room to the Games tab.

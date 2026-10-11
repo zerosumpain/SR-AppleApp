@@ -309,7 +309,7 @@ enum SRDemoFixtures {
         }
         // The Wildmind valley — `Wildmind/WildmindDemoFixtures.swift`.
         if joined == "api/native/wildmind" || joined.hasPrefix("api/native/wildmind/") {
-            return wildmindRoute(method: method, parts: parts, query: query)
+            return wildmindRoute(method: method, parts: parts, query: query, body: body, now: clock.now)
         }
         // Everything else — the chat stream included — is a 404.
         return nil

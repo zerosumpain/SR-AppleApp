@@ -367,6 +367,9 @@ ink band, component cards). The rules every screen follows:
 - **Wildmind sits beside Daydream in More** (owner only): a native page for
   the valley of two Claude minds, with its map on an opaque card and the rest
   in the same glass cards, section labels and stat tiles as every other screen.
+  From it: **Talk** (what JKai and Wren said, thought and wrote, read like a
+  chat thread, with a composer to whisper to JKai and see him hear it),
+  **Chronicle** (each life's now, timeline and diary) and **Inventions**.
 - **One filled control per screen,** in `SR.accentDeep` so its cream label
   holds 5:1; everything else is paper glass.
 - **The mark is `SRMark`:** `sr` in DM Mono Medium with a drawn accent dot and
