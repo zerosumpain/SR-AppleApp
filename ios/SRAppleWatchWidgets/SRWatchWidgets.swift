@@ -27,7 +27,7 @@ struct ShelfProvider: TimelineProvider {
     }
 }
 
-private let accent = Color(red: 0xE8 / 255, green: 0x86 / 255, blue: 0x3A / 255)
+private let accent = Color(token: SRTokens.Colour.accentOnDark.light)
 
 // MARK: - Readiness
 
