@@ -1301,6 +1301,35 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — a member: Today, Health, Family, Games and nothing else")
     }
 
+    // MARK: - Trips
+
+    /// The demo's Rome day, running now: the "Trip today" card on Today,
+    /// then the Day screen — Now/Next, the map, the timeline — and one stop.
+    @MainActor func testShowcaseTripDay() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        attach(app, "Showcase — Today, trip today")
+        guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
+        card.tap()
+        settle(app, on: byId(app, "trip-day-screen"), seconds: 3)
+        attach(app, "Showcase — Trip day")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Trip day, timeline")
+
+        let stop = byId(app, "trip-stop-3")
+        if scroll(app, to: stop) {
+            stop.tap()
+            settle(app)
+            attach(app, "Showcase — Trip stop")
+        } else {
+            soft(false, "no Pantheon row on the Day screen")
+        }
+    }
+
     // MARK: - Helpers
 
     @MainActor private func launch(_ extra: [String] = []) -> XCUIApplication {
