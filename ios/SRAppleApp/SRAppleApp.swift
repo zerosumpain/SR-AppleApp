@@ -38,6 +38,14 @@ import UIKit
         // the background, and this must already be listening to report its
         // update token.
         JourneyLive.shared.start()
+        // Trip stops' geofences: a crossing relaunches the app in the
+        // background and must find this delegate. It takes only the regions
+        // the location collector leaves free (`regionsReserved`).
+        if let location = companion?.location {
+            TripArrivals.shared.start { [weak location] in location?.regionsReserved ?? 1 + WatchedPlace.maximum }
+        } else {
+            TripArrivals.shared.start { 1 + WatchedPlace.maximum }
+        }
         // Before the first fix of a background relaunch, so a ride that woke
         // the app is marked from its start. A no-op until a bike is set up.
         BikePresence.shared.resume()

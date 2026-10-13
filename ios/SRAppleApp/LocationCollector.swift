@@ -496,6 +496,16 @@ import UIKit
     /// Whether close tracking is running now, for the settings screen.
     var outingLabel: String? { outbox.state.outing?.placeLabel }
 
+    /// Regions this collector may hold at once: the motion gate's anchor, and
+    /// the watched places it registers (`Outing.toRegister`). Trip arrival
+    /// detection (`TripArrivals`) shares the app's twenty with these and
+    /// takes only what is left, so a trip never evicts a family place.
+    var regionsReserved: Int {
+        let watched = outbox.state.sharing && outbox.state.closeTracking
+            ? min(outbox.state.watchedPlaces.count, WatchedPlace.maximum) : 0
+        return 1 + watched
+    }
+
     private func registerWatched() {
         guard outbox.state.sharing, outbox.state.closeTracking,
               CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else { return }
@@ -787,6 +797,10 @@ import UIKit
             note(.blocked, reason: "Could not watch a place · \(error.localizedDescription)")
             return
         }
+        // A trip stop's region is `TripArrivals`'s to handle. Region events
+        // reach every location manager in the app, and a trip stop that
+        // failed is no reason to wake the motion gate.
+        if let region, region.identifier.hasPrefix(TripArrivals.regionPrefix) { return }
         guard gate == .armed else { return }
         // The anchor did not take. Staying asleep now would mean staying asleep
         // for good, so come back up and say why.
