@@ -14,13 +14,15 @@ import ActivityKit
 struct SRLiveBundle: WidgetBundle {
     var body: some Widget {
         JourneyLiveActivity()
+        TripLiveActivity()
         FamilyStepsWidget()
         FamilyTasksWidget()
     }
 }
 
 // The site palette (`Theme.swift`), repeated: an extension cannot see the app.
-private enum Ink {
+// Internal, not private: the trip day's card (`TripLiveActivity.swift`) paints with it too.
+enum Ink {
     static let paper = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
     static let ink = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
     static let muted = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.65)
@@ -33,7 +35,7 @@ private enum Ink {
     static let line = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.18)
 }
 
-private extension Font {
+extension Font {
     /// Inter Display: the headline face. Falls back to a heavy system font if
     /// the file did not register, which reads close enough.
     static func display(_ size: CGFloat) -> Font { .custom("InterDisplay-ExtraBold", size: size, relativeTo: .headline) }
