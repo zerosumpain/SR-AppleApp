@@ -76,7 +76,7 @@ final class LiveShare: ObservableObject {
             .filter { $0.offset % every == 0 || $0.offset == detail.route.count - 1 }
             .map { [$0.element.lat, $0.element.lng] }
         let body = StartBody(
-            routeId: detail.id, routeName: detail.name, sport: detail.sport,
+            routeId: detail.source == PlannedRouteDetail.tripSource ? nil : detail.id, routeName: detail.name, sport: detail.sport,
             route: line, totalM: RouteNav.cumulative(detail.coordinates).last ?? detail.distanceM, share: withLink
         )
         do {

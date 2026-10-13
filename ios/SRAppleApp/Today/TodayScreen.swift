@@ -189,6 +189,13 @@ struct TodayScreen: View {
                 // The family's next moves live on the Family tab now, not
                 // here: one place for where everyone is going.
 
+                // A trip running today (in its own time zone): what is next
+                // and when to leave. Before one, a quieter line; with no
+                // trips at all, nothing. The owner's, like the planner (D2).
+                if access.current.owner && site.paired {
+                    TodayTripCard()
+                }
+
                 // Off unless asked for; over the SITE credential.
                 if access.familyBoards && site.paired {
                     if showSteps {
@@ -246,6 +253,8 @@ struct TodayScreen: View {
             }
         }
         .navigationTitle("Today")
+        // Trips push onto Today's own stack: no tab of their own.
+        .tripDestinations()
         // Inline, and the title itself is replaced by the `sr.` mark. There is
         // no headline on the page either: see `SRPageHeader` for why a large
         // title is not an option on this OS with a custom face, and the body
@@ -260,6 +269,7 @@ struct TodayScreen: View {
             await alerts.refresh()
             await connections.refresh()
             if companion.paired { await companion.sync() }
+            if access.current.owner { await TripStore.shared.refresh() }
         }
         .toolbar {
             // The date, where the page title used to carry it.
@@ -301,6 +311,7 @@ struct TodayScreen: View {
             // the first paint must not wait on a second server.
             Task { await family.load() }
             Task { await loadFamilyBoards() }
+            Task { await loadTrips() }
             await store.load()
             daydream.seed(store.payload?.daydream)
             await connections.reconcile(with: store.payload?.connections)
@@ -326,6 +337,7 @@ struct TodayScreen: View {
                 await store.load()
                     await family.load()
                 await loadFamilyBoards()
+                await loadTrips()
             }
         }
         // The companion just put new health data on the site: re-read, past
@@ -362,6 +374,16 @@ struct TodayScreen: View {
         // No card, but still read: every read reschedules this phone's
         // leave-by reminders.
         await FamilyForecastStore.shared.load()
+    }
+
+    /// Trips: refreshed on a foreground when online (every bundle on its
+    /// ETag, so an unchanged trip costs a 304), and the running day's Lock
+    /// Screen card and geofences brought up to date.
+    private func loadTrips() async {
+        guard access.current.owner && site.paired else { return }
+        await TripStore.shared.refreshIfStale()
+        TripLive.shared.refresh()
+        TripArrivals.shared.refresh()
     }
 
     // MARK: - Header
