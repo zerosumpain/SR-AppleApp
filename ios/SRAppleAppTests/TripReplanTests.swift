@@ -139,7 +139,7 @@ final class TripReplanTests: XCTestCase {
     /// v2.1: a light day ends 90 min earlier; a lunch-replacing wish must
     /// start inside the lunch window.
     func testLightDaysAndMealReplacingWishes() {
-        let rules = TripPaceRules.of(.normal)
+        let rules = TripReplan.solverRules(.normal)
         XCTAssertEqual(TripReplan.dayFrame(rules, ["2026-10-27": "light"], "2026-10-27", nil).dayEndMin, rules.dayEndMin - 90)
         XCTAssertEqual(TripReplan.dayFrame(rules, ["2026-10-27": "full"], "2026-10-27", nil).dayEndMin, rules.dayEndMin)
         XCTAssertEqual(TripReplan.dayFrame(rules, ["2026-10-27": "sideways"], "2026-10-27", nil).load, "normal")
@@ -150,9 +150,41 @@ final class TripReplanTests: XCTestCase {
         // Lunch 12:00–14:30 for 60 min: start by 13:30, may run to 14:30.
         XCTAssertEqual(TripReplan.wishWindows(wish, "2026-10-27", rules), [TripOpenRange(openMin: 720, closeMin: 870)])
         wish.replacesMeal = "dinner"
-        XCTAssertEqual(TripReplan.wishWindows(wish, "2026-10-27", rules), [TripOpenRange(openMin: 1140, closeMin: 1245)],
-                       "no dinner in the normal pace: 19:00–21:00 for 75 min")
+        XCTAssertEqual(TripReplan.wishWindows(wish, "2026-10-27", rules), [TripOpenRange(openMin: 1140, closeMin: 1275)],
+                       "v4 dinner for the normal pace: 19:00–21:30 for 75 min")
         XCTAssertEqual(TripReplan.wishItem(wish, "2026-10-27", [], rules).partOfDay, .any)
+    }
+
+    /// v4 (rules.ts): three meals every pace; back at the stay after dinner,
+    /// sightseeing still done by the pace's old day end.
+    func testEveryPacePlansThreeMeals() {
+        let normal = TripReplan.solverRules(.normal)
+        XCTAssertEqual(normal.breakfast.fromMin, 450)
+        XCTAssertEqual(normal.dinner.fromMin, 1140)
+        XCTAssertEqual(normal.activeEndMin, 19 * 60)
+        XCTAssertEqual(normal.dayEndMin, 21 * 60 + 30 + 60)
+        let relaxed = TripReplan.solverRules(.relaxed)
+        XCTAssertEqual(relaxed.dinner.durationSec, 90 * 60)
+        let packed = TripReplan.solverRules(.packed)
+        XCTAssertEqual(packed.dinner, TripPaceRules.of(.packed).dinner, "packed keeps its own dinner")
+        XCTAssertEqual(packed.dayEndMin, TripPaceRules.of(.packed).dayEndMin)
+    }
+
+    /// v4 (stages.ts): stages follow the meals and never go backwards.
+    func testStageOfIsTheSolvers() {
+        func st(_ id: String, _ kind: StopKind, _ at: Double, wish: String? = nil) -> PlannedStop {
+            PlannedStop(id: id, kind: kind, wishId: wish, title: id, location: nil, arriveMin: at, departMin: at + 30,
+                        waitSec: 0, locked: false, bookingId: nil, warnings: [])
+        }
+        let stops = [
+            st("stay:d:start", .stay, 500), st("meal:d:breakfast", .meal, 510), st("cafe", .wish, 700, wish: "cafe"),
+            st("pan", .wish, 840, wish: "pan"), st("stay:d:rest", .stay, 1080), st("meal:d:dinner", .meal, 1140),
+        ]
+        let stages = TripReplan.stageOf(stops) { TripReplan.mealOfStop($0, ["cafe": "lunch"]) }
+        XCTAssertEqual(stages, [.morning, .morning, .lunch, .afternoon, .afternoon, .evening])
+        let noMeals = [st("a", .wish, 600), st("b", .wish, 760), st("c", .wish, 700), st("d", .wish, 1100)]
+        XCTAssertEqual(TripReplan.stageOf(noMeals) { _ in nil }, [.morning, .afternoon, .afternoon, .evening],
+                       "c is early but stages never go backwards")
     }
 
     func testTaxiIsTheDriveRowPlusPickUp() {

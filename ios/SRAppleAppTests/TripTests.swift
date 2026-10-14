@@ -263,7 +263,7 @@ final class TripTests: XCTestCase {
 
     // MARK: v4 stages
 
-    /// The solver's stage wins; without one the spec's rule decides.
+    /// The solver's stages win; without them, its `stageOf` decides.
     func testStagesFollowTheMealsAndTheClock() {
         func st(_ id: String, _ kind: StopKind, _ at: Double, stage: String? = nil) -> PlannedStop {
             PlannedStop(id: id, kind: kind, wishId: kind == .wish ? id : nil, title: id, location: nil, arriveMin: at,
@@ -274,10 +274,11 @@ final class TripTests: XCTestCase {
             st("pan", .wish, 840), st("meal:d:dinner", .meal, 1150), st("stay:d:end", .stay, 1260),
         ], legs: [], warnings: [])
         XCTAssertEqual(TripStages.stages(day, wishes: []), [.morning, .morning, .lunch, .afternoon, .evening, .evening])
-        day.stops[3].stage = "evening"
-        XCTAssertEqual(TripStages.stages(day, wishes: [])[3], .evening)
+        // The solver's stages win when every stop has one.
+        for i in day.stops.indices { day.stops[i].stage = "evening" }
+        XCTAssertEqual(TripStages.stages(day, wishes: []), Array(repeating: .evening, count: 6))
         day.stops[3].stage = "teatime"
-        XCTAssertEqual(TripStages.stages(day, wishes: [])[3], .afternoon, "an unknown stage falls back to the rule")
+        XCTAssertEqual(TripStages.stages(day, wishes: [])[3], .afternoon, "an unknown stage: the whole day falls back to stageOf")
         XCTAssertEqual(TripStages.groups(day, wishes: []).map(\.stage), DayStage.allCases)
         XCTAssertEqual(TripStages.brief(day, [0, 1]), "col")
     }

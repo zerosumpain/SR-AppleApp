@@ -131,10 +131,13 @@ enum TripReplan {
         let pending = Array(body.suffix(from: h + 1).filter { !done.contains($0.id) && $0.kind != .stay && $0.kind != .transport })
         // v3: still before the first sight on an arrival day — rebuild the
         // landing, transfer and bag drop from the segment (a delay re-frames it).
+        // Done stops at the end of the history that were planned to start
+        // after now were skipped, not visited: they leave the day.
+        while h >= lead && h != at && done.contains(body[h].id) && body[h].arriveMin > input.nowMin { h -= 1 }
         let reframe = frame.arrival != nil && h < lead
         let fresh = reframe ? freshStart(frame, atMin: frame.dayStartMin, leaveEarlyForSlot: true) : nil
         var prefix = fresh?.prefixStops ?? Array(body.prefix(h + 1))
-        let stillThere = !prefix.isEmpty && (at >= 0 || prefix[prefix.count - 1].kind == .stay)
+        let stillThere = !prefix.isEmpty && (at >= 0 || isOpening(prefix[prefix.count - 1]))
         // Still at a stop (or the stay): set off once the visit and its
         // buffer are over, or now if that has passed.
         let bufferMin = prefix.last?.kind == .wish ? js.round(ctx.rules.bufferSec / 60) : 0
@@ -413,10 +416,15 @@ enum TripReplan {
         (s.kind == .stay && s.id.hasSuffix(":end")) || (s.kind == .transport && s.id.hasSuffix(":depart"))
     }
 
-    /// How many stops open the day (stay start, check-out, or a landing and bag drop).
+    private static func isOpening(_ s: PlannedStop) -> Bool {
+        s.kind == .stay || s.kind == .transport || (s.kind == .meal && s.id.hasSuffix(":breakfast"))
+    }
+
+    /// How many stops open the day: stay start, breakfast at the stay and
+    /// check-out, or a landing and bag drop.
     private static func leadingCount(_ body: [PlannedStop]) -> Int {
         var n = 0
-        while n < body.count && (body[n].kind == .stay || body[n].kind == .transport) { n += 1 }
+        while n < body.count && isOpening(body[n]) && !(body[n].kind == .meal && n == 0) { n += 1 }
         return n
     }
 
@@ -434,6 +442,9 @@ enum TripReplan {
         var dayEndMin: Double
         /// v2.1: "light", "normal" or "full".
         var load: String = "normal"
+        /// v4: sightseeing should finish by this minute; the day itself runs
+        /// to `dayEndMin`. Nil = `dayEndMin`.
+        var activeEndMin: Double? = nil
         /// v3: the day starts with a landing, transfer and bag drop.
         var arrival: ArrivalFrame? = nil
         /// v3: the day ends by leaving the stay for a flight or train.
@@ -455,7 +466,8 @@ enum TripReplan {
         let load = ["light", "normal", "full"].contains(raw) ? raw : "normal"
         var frame = DayFrame(
             date: date, stay: stay, dayStartMin: rules.dayStartMin,
-            dayEndMin: load == "light" ? rules.dayEndMin - lightDayEarlierMin : rules.dayEndMin, load: load
+            dayEndMin: load == "light" ? rules.dayEndMin - lightDayEarlierMin : rules.dayEndMin, load: load,
+            activeEndMin: load == "light" ? rules.activeEndMin - lightDayEarlierMin : rules.activeEndMin
         )
         if let stay, let arrives {
             let a = arrivalFrame(ctx, arrives, stay, date)
@@ -466,17 +478,58 @@ enum TripReplan {
             let d = departureFrame(ctx, leaves, stay)
             frame.departure = d
             frame.dayEndMin = min(frame.dayEndMin, d.leaveMin - stayHandlingMin)
+            frame.activeEndMin = min(frame.activeEndMin ?? frame.dayEndMin, frame.dayEndMin)
         }
         return frame
     }
 
     /// The v2.1 form, for callers without a context (tests).
-    static func dayFrame(_ rules: TripPaceRules, _ dayLoads: [String: String], _ date: String, _ stay: TripStay?) -> DayFrame {
+    static func dayFrame(_ rules: SolverRules, _ dayLoads: [String: String], _ date: String, _ stay: TripStay?) -> DayFrame {
         let raw = dayLoads[date] ?? "normal"
         let load = ["light", "normal", "full"].contains(raw) ? raw : "normal"
         return DayFrame(
             date: date, stay: stay, dayStartMin: rules.dayStartMin,
-            dayEndMin: load == "light" ? rules.dayEndMin - lightDayEarlierMin : rules.dayEndMin, load: load
+            dayEndMin: load == "light" ? rules.dayEndMin - lightDayEarlierMin : rules.dayEndMin, load: load,
+            activeEndMin: load == "light" ? rules.activeEndMin - lightDayEarlierMin : rules.activeEndMin
+        )
+    }
+
+    // MARK: - rules.ts
+
+    typealias MealWindow = TripPaceRules.Meal
+
+    /// The pace rules the solver works with (v4): three meals every pace, and
+    /// a day that ends back at the stay after dinner while sightseeing still
+    /// ends by the pace's old day end (`activeEndMin`).
+    struct SolverRules {
+        var dayStartMin: Double
+        var dayEndMin: Double
+        var bufferSec: Double
+        var walkLimitSec: Double
+        var breakfast: MealWindow
+        var lunch: MealWindow
+        var dinner: MealWindow
+        var activeEndMin: Double
+    }
+
+    static let breakfastWindow = MealWindow(fromMin: 7 * 60 + 30, toMin: 10 * 60, durationSec: 30 * 60)
+    private static let homeAfterDinnerMin = 60.0
+
+    static func solverRules(_ pace: TripPace) -> SolverRules {
+        let base = TripPaceRules.of(pace)
+        let normalDinner = MealWindow(fromMin: 19 * 60, toMin: 21 * 60 + 30, durationSec: 75 * 60)
+        let own: MealWindow?
+        switch pace {
+        case .relaxed: own = MealWindow(fromMin: 19 * 60 + 30, toMin: 21 * 60 + 30, durationSec: 90 * 60)
+        case .normal: own = normalDinner
+        case .packed: own = nil // keeps its own
+        }
+        let dinner = own ?? base.dinner ?? normalDinner
+        return SolverRules(
+            dayStartMin: base.dayStartMin,
+            dayEndMin: max(base.dayEndMin, base.dinner != nil ? base.dayEndMin : dinner.toMin + homeAfterDinnerMin),
+            bufferSec: base.bufferSec, walkLimitSec: base.walkLimitSec,
+            breakfast: breakfastWindow, lunch: base.lunch, dinner: dinner, activeEndMin: base.dayEndMin
         )
     }
 
@@ -701,7 +754,9 @@ enum TripReplan {
     static func stayPoint(_ stayId: String) -> String { "stay:\(stayId)" }
 
     final class SolverContext {
-        let rules: TripPaceRules
+        let rules: SolverRules
+        /// v4: wishes that replace a meal, by wish id.
+        let replaces: [String: String]
         /// Allowed modes, walk always, canonical order (walk, cycle, drive, transit).
         let modes: [TravelMode]
         let matrix: TravelMatrix
@@ -724,7 +779,10 @@ enum TripReplan {
                 if let at = t.to.location { locations["transport:\(t.id):to"] = at }
             }
             self.transport = transport
-            rules = TripPaceRules.of(trip.pace)
+            rules = solverRules(trip.pace)
+            var replaces: [String: String] = [:]
+            for w in wishes { if let meal = w.replacesMeal, !meal.isEmpty { replaces[w.id] = meal } }
+            self.replaces = replaces
             modes = TravelMode.canonical.filter { $0 == .walk || trip.modes.contains($0) }
             self.matrix = matrix
             self.index = index
@@ -858,13 +916,29 @@ enum TripReplan {
         return out
     }
 
-    enum MealKind: String { case lunch, dinner }
+    enum MealKind: String { case breakfast, lunch, dinner }
 
-    static func mealItem(_ date: String, _ kind: MealKind, _ rules: TripPaceRules) -> Item? {
-        guard let w = kind == .lunch ? rules.lunch : rules.dinner else { return nil }
+    static func mealWindow(_ rules: SolverRules, _ kind: MealKind) -> MealWindow {
+        switch kind {
+        case .breakfast: return rules.breakfast
+        case .lunch: return rules.lunch
+        case .dinner: return rules.dinner
+        }
+    }
+
+    static func mealTitle(_ kind: MealKind) -> String {
+        switch kind {
+        case .breakfast: return "Breakfast"
+        case .lunch: return "Lunch"
+        case .dinner: return "Dinner"
+        }
+    }
+
+    static func mealItem(_ date: String, _ kind: MealKind, _ rules: SolverRules) -> Item? {
+        let w = mealWindow(rules, kind)
         return Item(
             serial: nextSerial(), id: "meal:\(date):\(kind.rawValue)", kind: .meal, wishId: nil,
-            title: kind == .lunch ? "Lunch" : "Dinner", point: nil, location: nil,
+            title: mealTitle(kind), point: nil, location: nil,
             durationMin: js.round(w.durationSec / 60), fixedStartMin: nil, locked: false, bookingId: nil,
             priority: nil, partOfDay: .any, windows: [TripOpenRange(openMin: w.fromMin, closeMin: w.toMin)],
             baseWarnings: [], sortHint: 0
@@ -872,6 +946,7 @@ enum TripReplan {
     }
 
     static func mealKindOf(_ stopId: String) -> MealKind? {
+        if stopId.hasSuffix(":breakfast") { return .breakfast }
         if stopId.hasSuffix(":lunch") { return .lunch }
         if stopId.hasSuffix(":dinner") { return .dinner }
         return nil
@@ -900,7 +975,7 @@ enum TripReplan {
 
     /// An already-planned stop as an item, keeping its planned visit length.
     /// A locked stop keeps its planned start as a hard start.
-    static func itemFromStop(_ stop: PlannedStop, _ date: String, _ wishes: [String: TripWish], _ bookings: [TripBooking], _ rules: TripPaceRules) -> Item {
+    static func itemFromStop(_ stop: PlannedStop, _ date: String, _ wishes: [String: TripWish], _ bookings: [TripBooking], _ rules: SolverRules) -> Item {
         let startMin = stop.arriveMin + js.round(stop.waitSec / 60)
         let durationMin = max(0, stop.departMin - startMin)
         if stop.kind == .meal {
@@ -931,12 +1006,9 @@ enum TripReplan {
 
     static let defaultVisitMin = 60.0
 
-    /// Dinner window for a wish that replaces dinner when the pace plans none.
-    static let fallbackDinner = TripPaceRules.Meal(fromMin: 19 * 60, toMin: 21 * 60, durationSec: 75 * 60)
-
     /// The meal window a meal-replacing wish must start in.
-    static func replacedMealWindow(_ rules: TripPaceRules, _ kind: MealKind) -> (fromMin: Double, latestStartMin: Double) {
-        let w = (kind == .lunch ? rules.lunch : rules.dinner) ?? fallbackDinner
+    static func replacedMealWindow(_ rules: SolverRules, _ kind: MealKind) -> (fromMin: Double, latestStartMin: Double) {
+        let w = mealWindow(rules, kind)
         return (w.fromMin, w.toMin - js.round(w.durationSec / 60))
     }
 
@@ -944,7 +1016,7 @@ enum TripReplan {
 
     /// Opening windows for a wish on a date; a meal-replacing wish is
     /// narrowed to start inside its meal window (it may run on past it).
-    static func wishWindows(_ wish: TripWish, _ date: String, _ rules: TripPaceRules?) -> [TripOpenRange]? {
+    static func wishWindows(_ wish: TripWish, _ date: String, _ rules: SolverRules?) -> [TripOpenRange]? {
         let windows = windowsOn(wish.facts, date)
         guard let kind = mealKind(wish), let rules else { return windows }
         let meal = replacedMealWindow(rules, kind)
@@ -976,7 +1048,7 @@ enum TripReplan {
         return defaultVisitMin
     }
 
-    static func wishItem(_ wish: TripWish, _ date: String, _ bookings: [TripBooking], _ rules: TripPaceRules? = nil) -> Item {
+    static func wishItem(_ wish: TripWish, _ date: String, _ bookings: [TripBooking], _ rules: SolverRules? = nil) -> Item {
         let booking = bookedSlot(wish.id, bookings)
         let windows = wishWindows(wish, date, rules)
         var fixedStartMin: Double?
@@ -1182,6 +1254,8 @@ enum TripReplan {
         var waitMin: Double
         var overrunMin: Double
         var endMin: Double
+        /// v4: when the last sightseeing stop (not a meal or an evening wish) ends.
+        var lastActiveMin: Double = 0
         var issues: [Issue]
         var cost: Double
     }
@@ -1215,6 +1289,13 @@ enum TripReplan {
         )
     }
 
+    static func breakfastWarnings(_ atMin: Double) -> [String] {
+        atMin < breakfastWindow.fromMin ? ["Early breakfast at \(fmtMin(atMin))"] : []
+    }
+
+    /// Dinner moves near the stay when it would otherwise mean waiting longer than this.
+    static let dinnerNearStayAfterMin = 60.0
+
     static func freshStart(_ frame: DayFrame, atMin: Double, leaveEarlyForSlot: Bool) -> SimStart {
         // v3: an arrival day starts at the landing — transport stop,
         // transfer, bag drop or check-in — then sets off at the day's start.
@@ -1224,20 +1305,33 @@ enum TripReplan {
                 fromStopId: a.stayStop.id, departMin: max(atMin, frame.dayStartMin)
             )
         }
-        let start = stayStartStop(frame, atMin: atMin)
-        // A departure day: "Check out" follows the stay start.
-        if let start, let stay = frame.stay, frame.departure?.checkOut == true {
-            let by = stay.checkOutMin ?? 0
-            let checkOut = PlannedStop(
-                id: "stay:\(frame.date):checkout", kind: .stay, wishId: nil, title: "Check out of \(stay.name)",
-                location: stay.location, arriveMin: atMin, departMin: atMin + stayHandlingMin, waitSec: 0,
-                locked: false, bookingId: nil,
-                warnings: atMin + stayHandlingMin > by ? ["Check-out is by \(fmtMin(by))"] : []
+        // v4: breakfast at the stay just before setting off at `atMin`;
+        // on a departure day "Check out" follows it.
+        let bf = js.round(breakfastWindow.durationSec / 60)
+        let start = stayStartStop(frame, atMin: frame.stay != nil ? atMin - bf : atMin)
+        if let start, let stay = frame.stay {
+            let breakfast = PlannedStop(
+                id: "meal:\(frame.date):breakfast", kind: .meal, wishId: nil, title: "Breakfast", location: stay.location,
+                arriveMin: atMin - bf, departMin: atMin, waitSec: 0, locked: false, bookingId: nil,
+                warnings: breakfastWarnings(atMin - bf)
             )
+            var prefixStops = [start, breakfast]
+            var prefixLegs = [legOf(start.id, breakfast.id, zeroLeg)]
+            if frame.departure?.checkOut == true {
+                let by = stay.checkOutMin ?? 0
+                let checkOut = PlannedStop(
+                    id: "stay:\(frame.date):checkout", kind: .stay, wishId: nil, title: "Check out of \(stay.name)",
+                    location: stay.location, arriveMin: atMin, departMin: atMin + stayHandlingMin, waitSec: 0,
+                    locked: false, bookingId: nil,
+                    warnings: atMin + stayHandlingMin > by ? ["Check-out is by \(fmtMin(by))"] : []
+                )
+                prefixLegs.append(legOf(breakfast.id, checkOut.id, zeroLeg))
+                prefixStops.append(checkOut)
+            }
+            let last = prefixStops[prefixStops.count - 1]
             return SimStart(
-                prefixStops: [start, checkOut], prefixLegs: [legOf(start.id, checkOut.id, zeroLeg)],
-                fromPoint: stayPoint(stay.id), fromStopId: checkOut.id, departMin: checkOut.departMin,
-                leaveEarlyForSlot: leaveEarlyForSlot
+                prefixStops: prefixStops, prefixLegs: prefixLegs, fromPoint: stayPoint(stay.id),
+                fromStopId: last.id, departMin: last.departMin, leaveEarlyForSlot: leaveEarlyForSlot
             )
         }
         return SimStart(
@@ -1268,20 +1362,28 @@ enum TripReplan {
         var t = start.departMin
         var travelMin = 0.0
         var waitMin = 0.0
+        var restMin = 0.0
         var cost = 0.0
         let bufferMin = js.round(ctx.rules.bufferSec / 60)
         var first = true
 
-        // A booked first stop we would miss from the normal start: leave earlier.
+        // A booked first stop we would miss from the normal start: leave
+        // earlier (the whole opening — stay start, breakfast, check-out — moves).
         if start.leaveEarlyForSlot, let head = items.first, let fixed = head.fixedStartMin,
-           let headPoint = head.point, let from = point, stops.last?.kind == .stay,
-           stops.last?.id.hasSuffix(":start") == true {
+           let headPoint = head.point, let from = point, stops.first?.kind == .stay,
+           stops.first?.id.hasSuffix(":start") == true {
             let legMin = js.ceil(chooseLeg(ctx, from, headPoint).durationSec / 60)
             let latest = fixed - legMin
             if latest < t {
+                let shift = latest - t
                 t = latest
-                stops[stops.count - 1].arriveMin = latest
-                stops[stops.count - 1].departMin = latest
+                for k in stops.indices {
+                    stops[k].arriveMin += shift
+                    stops[k].departMin += shift
+                    if stops[k].kind == .meal && stops[k].id.hasSuffix(":breakfast") {
+                        stops[k].warnings = breakfastWarnings(stops[k].arriveMin)
+                    }
+                }
             }
         }
 
@@ -1306,10 +1408,32 @@ enum TripReplan {
         }
 
         for item in items {
-            let target = item.point ?? point
-            let legMin = travel(target, item.id)
-            travelMin += legMin
-            let arrive = t + legMin
+            // v4: with a long gap before dinner, have it near the stay (go
+            // back, rest, eat nearby) rather than wait where the last sight was.
+            let dinnerAtStay = item.kind == .meal && item.id.hasSuffix(":dinner") && frame.stay != nil
+                && (item.windows.map { !$0.isEmpty && $0[0].openMin - t > dinnerNearStayAfterMin } ?? false)
+            let target = dinnerAtStay ? frame.stay.map { stayPoint($0.id) } : (item.point ?? point)
+            let arrive: Double
+            if dinnerAtStay, let stay = frame.stay, let windows = item.windows {
+                // Back to the stay for free time, then dinner nearby when it opens.
+                let restId = "stay:\(frame.date):rest"
+                let legMin = travel(target, restId)
+                travelMin += legMin
+                let atStay = t + legMin
+                let open = windows[0].openMin
+                stops.append(PlannedStop(
+                    id: restId, kind: .stay, wishId: nil, title: "Free time at \(stay.name)", location: stay.location,
+                    arriveMin: atStay, departMin: max(atStay, open), waitSec: 0, locked: false, bookingId: nil, warnings: []
+                ))
+                restMin += max(0, open - atStay)
+                legs.append(legOf(restId, item.id, zeroLeg))
+                prevStopId = restId
+                arrive = max(atStay, open)
+            } else {
+                let legMin = travel(target, item.id)
+                travelMin += legMin
+                arrive = t + legMin
+            }
             var begin = arrive
             var warnings = item.baseWarnings
             let what: String? = item.kind == .meal ? item.title.lowercased() : item.replacesMeal?.rawValue
@@ -1359,6 +1483,8 @@ enum TripReplan {
                 if miss > 0 { cost += Cost.partOfDayMiss + min(miss, Cost.partOfDayMaxMin) * Cost.partOfDayPerMin }
             }
             waitMin += max(0, begin - arrive)
+            // Free time before dinner is the evening's rest, not a wasted wait.
+            if item.kind == .meal && item.id.hasSuffix(":dinner") { restMin += max(0, begin - arrive) }
             // Re-planning holds a locked stop's planned times: the slot never
             // moves, and lateness shows only as the "Booked for …" warning.
             var shownArrive = arrive
@@ -1368,7 +1494,7 @@ enum TripReplan {
             }
             // A locked stop being re-timed keeps its planned end, even when late.
             let depart = item.fixedEndMin.map { max($0, begin) } ?? begin + item.durationMin
-            let location = item.location ?? prevLocation
+            let location = dinnerAtStay ? frame.stay?.location : (item.location ?? prevLocation)
             stops.append(PlannedStop(
                 id: item.id, kind: item.kind == .meal ? .meal : .wish, wishId: item.wishId, title: item.title,
                 location: location, arriveMin: shownArrive, departMin: depart, waitSec: (begin - shownArrive) * 60,
@@ -1410,15 +1536,77 @@ enum TripReplan {
             }
         }
         if frame.stay == nil { warnings.append("No stay booked for this night") }
-        let overrunMin = max(0, endMin - frame.dayEndMin)
-        if overrunMin > 0 {
+        let endOverrun = max(0, endMin - frame.dayEndMin)
+        if endOverrun > 0 {
             warnings.append(frame.stay != nil
                 ? "Back at the stay \(fmtMin(endMin)) — later than \(fmtMin(frame.dayEndMin))"
                 : "Runs to \(fmtMin(endMin)) — later than \(fmtMin(frame.dayEndMin))")
         }
-        cost += travelMin * Cost.travelPerMin + waitMin * Cost.waitPerMin + overrunMin * Cost.overrunPerMin
-        return Simulation(stops: stops, legs: legs, warnings: warnings, travelMin: travelMin, waitMin: waitMin,
-                          overrunMin: overrunMin, endMin: endMin, issues: issues, cost: cost)
+        // v4: sightseeing (not meals, not evening wishes) should end by the
+        // active end; dinner and the evening run on to the day's end.
+        let activeIds = Set(items.filter { $0.kind == .wish && $0.partOfDay != .evening && $0.replacesMeal == nil }.map(\.id))
+        let lastActive = stops.reduce(0.0) { m, s in activeIds.contains(s.id) ? max(m, s.departMin) : m }
+        let activeEnd = frame.activeEndMin ?? frame.dayEndMin
+        let activeOverrun = max(0, lastActive - activeEnd)
+        if activeOverrun > 0 && endOverrun == 0 {
+            warnings.append("Sightseeing runs to \(fmtMin(lastActive)) — later than \(fmtMin(activeEnd))")
+        }
+        let overrunMin = max(endOverrun, activeOverrun)
+        cost += travelMin * Cost.travelPerMin + (waitMin - restMin) * Cost.waitPerMin + overrunMin * Cost.overrunPerMin
+        return Simulation(stops: withStages(stops, ctx.replaces), legs: legs, warnings: warnings, travelMin: travelMin,
+                          waitMin: waitMin, overrunMin: overrunMin, endMin: endMin, lastActiveMin: lastActive,
+                          issues: issues, cost: cost)
+    }
+
+    // MARK: - stages.ts
+
+    /// A stop's meal: meal stops by id suffix, wishes that replace one via `replaces`.
+    static func mealOfStop(_ stop: PlannedStop, _ replaces: [String: String]) -> String? {
+        if stop.kind == .meal {
+            if stop.id.hasSuffix(":breakfast") { return "breakfast" }
+            if stop.id.hasSuffix(":lunch") { return "lunch" }
+            if stop.id.hasSuffix(":dinner") { return "dinner" }
+            return nil
+        }
+        guard stop.kind == .wish, let id = stop.wishId else { return nil }
+        return replaces[id]
+    }
+
+    /// Without a lunch or dinner stop, these times split the day.
+    static let stageLunchFromMin = 12.0 * 60
+    static let stageEveningFromMin = 18.0 * 60
+
+    /// The stage of every stop, in order. Stages never go backwards.
+    static func stageOf(_ stops: [PlannedStop], _ mealOf: (PlannedStop) -> String?) -> [DayStage] {
+        let lunch = stops.firstIndex { mealOf($0) == "lunch" } ?? -1
+        let dinner = stops.firstIndex { mealOf($0) == "dinner" } ?? -1
+        func order(_ s: DayStage) -> Int { DayStage.allCases.firstIndex(of: s) ?? 0 }
+        var current = DayStage.morning
+        return stops.enumerated().map { i, s in
+            let meal = mealOf(s)
+            var stage: DayStage
+            if meal == "lunch" { stage = .lunch }
+            else if meal == "dinner" { stage = .evening }
+            else if meal == "breakfast" { stage = .morning }
+            else if dinner >= 0 && i > dinner { stage = .evening }
+            else if lunch >= 0 && i > lunch {
+                stage = dinner < 0 && s.arriveMin >= stageEveningFromMin ? .evening : .afternoon
+            } else if lunch >= 0 { stage = .morning }
+            else if dinner < 0 && s.arriveMin >= stageEveningFromMin { stage = .evening }
+            else if s.arriveMin >= stageLunchFromMin { stage = .afternoon }
+            else { stage = .morning }
+            if order(stage) < order(current) { stage = current }
+            current = stage
+            return stage
+        }
+    }
+
+    /// The same stops with `stage` set.
+    static func withStages(_ stops: [PlannedStop], _ replaces: [String: String]) -> [PlannedStop] {
+        let stages = stageOf(stops) { mealOfStop($0, replaces) }
+        var out = stops
+        for i in out.indices { out[i].stage = stages[i].rawValue }
+        return out
     }
 
     static func toPlannedDay(_ frame: DayFrame, _ sim: Simulation) -> PlannedDay {
