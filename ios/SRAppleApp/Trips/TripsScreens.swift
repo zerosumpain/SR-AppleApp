@@ -435,7 +435,7 @@ struct TripScreen: View {
                 }
             }
 
-            if let profile = bundle.profile {
+            if let profile = bundle.knownProfile {
                 TripProfileSection(profile: profile)
             }
 

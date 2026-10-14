@@ -211,7 +211,6 @@ struct TripDayScreen: View {
                     .padding(.top, 8)
             }
         }
-        .opacity(0.92)
     }
 
     @ViewBuilder
@@ -794,17 +793,22 @@ struct TripStopRow: View {
     let booking: TripBooking?
     let isNext: Bool
     let isHere: Bool
+    /// Inside the evening band: light on dark.
+    @Environment(\.tripOnDark) private var onDark
+
+    private var ink: Color { onDark ? SR.cream : SR.ink }
+    private var muted: Color { onDark ? SR.creamOnDark : SR.inkMuted }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(TripFormat.time(stop.arriveMin))
                     .font(SR.Text.mono(13))
-                    .foregroundStyle(isNext || isHere ? SR.accentDeep : SR.ink)
+                    .foregroundStyle(isNext || isHere ? (onDark ? SR.accentOnDark : SR.accentDeep) : ink)
                 if stop.departMin - stop.arriveMin >= 1 {
                     Text(TripFormat.time(stop.departMin))
                         .font(SR.Text.mono(12))
-                        .foregroundStyle(SR.inkMuted)
+                        .foregroundStyle(muted)
                 }
             }
             .frame(minWidth: 48, alignment: .trailing)
@@ -814,13 +818,13 @@ struct TripStopRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(stop.title)
                     .font(SR.Text.title(16))
-                    .foregroundStyle(mark?.skipped == true ? SR.inkMuted : SR.ink)
+                    .foregroundStyle(mark?.skipped == true ? muted : ink)
                     .strikethrough(mark?.skipped == true)
                     .fixedSize(horizontal: false, vertical: true)
                 ForEach(lines, id: \.self) { line in
                     Text(line)
                         .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkMuted)
+                        .foregroundStyle(muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 ForEach(stop.warnings, id: \.self) { warning in
@@ -840,7 +844,7 @@ struct TripStopRow: View {
     @ViewBuilder
     private var status: some View {
         if mark?.skipped == true {
-            Image(systemName: "forward.circle").foregroundStyle(SR.inkMuted).accessibilityLabel("Skipped")
+            Image(systemName: "forward.circle").foregroundStyle(muted).accessibilityLabel("Skipped")
         } else if mark?.leftAt != nil {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(SR.good).accessibilityLabel("Done")
         } else if isHere {
@@ -869,18 +873,19 @@ struct TripStopRow: View {
 
 struct TripLegRow: View {
     let leg: PlannedLeg
+    @Environment(\.tripOnDark) private var onDark
 
     var body: some View {
         HStack(spacing: 12) {
             Color.clear.frame(minWidth: 48, maxHeight: 1)
             Image(systemName: TripFormat.symbol(leg.mode))
                 .font(.system(size: 12))
-                .foregroundStyle(SR.inkMuted)
+                .foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)
                 .frame(width: 22)
                 .accessibilityHidden(true)
             Text(text)
                 .font(SR.Text.mono(12))
-                .foregroundStyle(SR.inkMuted)
+                .foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)

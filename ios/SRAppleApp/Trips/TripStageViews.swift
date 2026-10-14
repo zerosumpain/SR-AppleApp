@@ -1,27 +1,24 @@
 import SwiftUI
 
-// v4: the four stages of a day, each with its own look — the trip designer
-// studio's bands, on the phone. Paint from the SR palette only (no new
-// hues): a warm accent morning, an olive lunch, a teal afternoon, an ink
-// evening. The site studio was not built when this was drawn; when it is,
-// these should be matched to its tokens.
+// v4: the four stages of a day, each with its own look — the site's trip
+// studio (`/trips/[id]`), matched on the phone:
+//
+//   Breakfast & morning  paper with a petrol dot grain and a petrol rule down
+//                        the left; a mono, tracked petrol heading
+//   Lunch                an orange wash under an orange top rule; an orange
+//                        display heading
+//   Afternoon            a hatched band; an ink display heading, underlined
+//   Dinner & evening     dark ink, an orange heading and light text
+//
+// All from the SR palette: accent (orange), accent ink (petrol), ink, paper.
 
-struct TripStageStyle {
-    let symbol: String
-    /// The heading's colour, and the band's edge.
-    let tone: Color
-    /// The band's wash under its stops.
-    let wash: Color
-    /// The heading strip: filled (evening) or quiet.
-    let filledHeader: Bool
+/// Rows inside the evening band draw light on dark.
+private struct TripOnDarkKey: EnvironmentKey { static let defaultValue = false }
 
-    static func of(_ stage: DayStage) -> TripStageStyle {
-        switch stage {
-        case .morning: return TripStageStyle(symbol: "sunrise", tone: SR.accentDeep, wash: SR.accent.opacity(0.07), filledHeader: false)
-        case .lunch: return TripStageStyle(symbol: "fork.knife", tone: SR.good, wash: SR.good.opacity(0.09), filledHeader: false)
-        case .afternoon: return TripStageStyle(symbol: "sun.max", tone: SR.accentInk, wash: SR.accentInk.opacity(0.07), filledHeader: false)
-        case .evening: return TripStageStyle(symbol: "moon.stars", tone: SR.ink, wash: SR.ink.opacity(0.06), filledHeader: true)
-        }
+extension EnvironmentValues {
+    var tripOnDark: Bool {
+        get { self[TripOnDarkKey.self] }
+        set { self[TripOnDarkKey.self] = newValue }
     }
 }
 
@@ -33,47 +30,126 @@ struct TripStageBand<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        let style = TripStageStyle.of(stage)
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: style.symbol).accessibilityHidden(true)
-                Text(stage.label.uppercased())
-                    .font(SR.Text.sectionTitle(13))
-                    .tracking(1.2)
-                Spacer(minLength: 8)
-                if let trailing {
-                    Text(trailing).font(SR.Text.mono())
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            heading
+            if empty {
+                Text("Free — nothing planned.")
+                    .font(SR.Text.secondary(14))
+                    .foregroundStyle(stage == .evening ? SR.creamOnDark : SR.inkMuted)
+            } else {
+                content
             }
-            .foregroundStyle(style.filledHeader ? SR.cream : style.tone)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(style.filledHeader ? AnyShapeStyle(SR.band) : AnyShapeStyle(style.wash))
-            .accessibilityAddTraits(.isHeader)
-            VStack(alignment: .leading, spacing: 0) {
-                if empty {
-                    Text("Nothing planned — free time")
-                        .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkMuted)
-                        .padding(.vertical, 10)
-                } else {
-                    content
-                }
-            }
-            .padding(.horizontal, 10)
-            .background(style.wash)
         }
-        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { ground }
         .overlay(alignment: .leading) {
-            Rectangle().fill(style.filledHeader ? SR.band : style.tone).frame(width: 3)
+            if stage == .morning { Rectangle().fill(SR.accentInk).frame(width: 4) }
         }
-        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .overlay(alignment: .top) {
+            if stage == .lunch { Rectangle().fill(SR.accent).frame(height: 3) }
+        }
+        .overlay {
+            if stage != .evening { Rectangle().stroke(SR.line, lineWidth: 1) }
+        }
+        .environment(\.tripOnDark, stage == .evening)
         .accessibilityIdentifier("trip-stage-\(stage.rawValue)")
+    }
+
+    @ViewBuilder
+    private var heading: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            switch stage {
+            case .morning:
+                Text(stage.label.uppercased())
+                    .font(SR.Text.mono(13))
+                    .tracking(1.6)
+                    .foregroundStyle(SR.accentInk)
+            case .lunch:
+                Text(stage.label)
+                    .font(SR.Text.display(22))
+                    .foregroundStyle(SR.accent)
+            case .afternoon:
+                Text(stage.label)
+                    .font(SR.Text.display(22))
+                    .foregroundStyle(SR.ink)
+                    .underline(true, color: SR.ink)
+            case .evening:
+                Text(stage.label)
+                    .font(SR.Text.display(22))
+                    .foregroundStyle(SR.accentOnDark)
+            }
+            if let trailing {
+                Text(trailing)
+                    .font(SR.Text.mono(12))
+                    .foregroundStyle(stage == .evening ? SR.creamOnDark : SR.inkSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder
+    private var ground: some View {
+        switch stage {
+        case .morning:
+            ZStack {
+                SR.paper
+                TripGrain(color: SR.accentInk.opacity(0.22), spacing: 9, kind: .dots)
+            }
+        case .lunch:
+            SR.accent.opacity(0.13)
+        case .afternoon:
+            ZStack {
+                SR.paper
+                TripGrain(color: SR.ink.opacity(0.09), spacing: 9, kind: .hatch)
+            }
+        case .evening:
+            SR.band
+        }
+    }
+}
+
+/// The studio's textures: a dot grain or a diagonal hatch, drawn once.
+struct TripGrain: View {
+    enum Kind { case dots, hatch }
+    let color: Color
+    let spacing: CGFloat
+    let kind: Kind
+
+    var body: some View {
+        Canvas { context, size in
+            switch kind {
+            case .dots:
+                var y: CGFloat = spacing / 2
+                while y < size.height {
+                    var x: CGFloat = spacing / 2
+                    while x < size.width {
+                        context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 1.6, height: 1.6)), with: .color(color))
+                        x += spacing
+                    }
+                    y += spacing
+                }
+            case .hatch:
+                var path = Path()
+                var x: CGFloat = -size.height
+                while x < size.width {
+                    path.move(to: CGPoint(x: x, y: size.height))
+                    path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                    x += spacing
+                }
+                context.stroke(path, with: .color(color), lineWidth: 1)
+            }
+        }
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 }
 
 /// A day's four stages in brief, for the trip's days list: one line each,
-/// in its stage's colour.
+/// marked in its stage's colour.
 struct TripStageStrip: View {
     let day: PlannedDay
     let wishes: [TripWish]
@@ -81,13 +157,8 @@ struct TripStageStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(TripStages.groups(day, wishes: wishes), id: \.stage) { group in
-                let style = TripStageStyle.of(group.stage)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: style.symbol)
-                        .font(.system(size: 11))
-                        .foregroundStyle(style.tone)
-                        .frame(width: 16)
-                        .accessibilityHidden(true)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    TripStageMark(stage: group.stage)
                     Text(TripStages.brief(day, group.indexes))
                         .font(SR.Text.secondary(13))
                         .foregroundStyle(SR.inkSecondary)
@@ -99,5 +170,23 @@ struct TripStageStrip: View {
         }
         .padding(.leading, 36)
         .padding(.bottom, 6)
+    }
+}
+
+/// A small swatch of a stage's treatment, for lists.
+struct TripStageMark: View {
+    let stage: DayStage
+
+    var body: some View {
+        Group {
+            switch stage {
+            case .morning: Rectangle().fill(SR.accentInk)
+            case .lunch: Rectangle().fill(SR.accent)
+            case .afternoon: ZStack { SR.paper; TripGrain(color: SR.ink.opacity(0.5), spacing: 3, kind: .hatch) }.overlay(Rectangle().stroke(SR.ink.opacity(0.5), lineWidth: 1))
+            case .evening: Rectangle().fill(SR.band)
+            }
+        }
+        .frame(width: 10, height: 10)
+        .accessibilityHidden(true)
     }
 }

@@ -116,6 +116,8 @@ struct Trip: Codable, Hashable, Identifiable {
     /// or "full" (missing = normal). Strings, so a new load never fails a
     /// bundle; `TripReplan` reads unknown values as normal.
     var dayLoads: [String: String]? = nil
+    /// v3: what the planner knows about the travellers, when the trip carries it.
+    var profile: TravellerProfile? = nil
 }
 
 /// Accommodation for a run of nights. Each day starts and ends here.
@@ -341,6 +343,10 @@ struct TripBundle: Codable, Hashable {
     var profile: TravellerProfile? = nil
 
     var segments: [TransportSegment] { transport ?? [] }
+
+    /// The profile wherever the site sends it: on the trip (where it is
+    /// stored) or beside it.
+    var knownProfile: TravellerProfile? { profile ?? trip.profile }
 }
 
 enum TripEventKind: String, Codable, Hashable {

@@ -231,6 +231,17 @@ final class TripTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(ConverseResult.self, from: Data(converse.utf8)).research?.first?.tool, "flight_lookup")
     }
 
+    /// The profile is stored on the trip; read from there or beside it.
+    func testTheProfileIsReadFromTheTrip() throws {
+        var bundle = TripDemo.bundle(now: Date())
+        let profile = try XCTUnwrap(bundle.profile)
+        bundle.profile = nil
+        XCTAssertNil(bundle.knownProfile)
+        bundle.trip.profile = profile
+        let data = try JSONEncoder().encode(bundle)
+        XCTAssertEqual(try JSONDecoder().decode(TripBundle.self, from: data).knownProfile, profile)
+    }
+
     /// A stop kind a later server adds (or v3's `transport`) never fails a day.
     func testNewStopKindsDecode() throws {
         let stop = #"{"id":"transport:t1:to","kind":"transport","wishId":null,"title":"Rome Fiumicino","location":null,"arriveMin":685,"departMin":725,"waitSec":0,"locked":false,"bookingId":null,"warnings":[]}"#
