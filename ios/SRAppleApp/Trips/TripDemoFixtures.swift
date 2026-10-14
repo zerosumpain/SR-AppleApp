@@ -99,7 +99,9 @@ enum TripDemo {
         let trip = Trip(
             id: tripId, ownerEmail: "alex@example.com", title: "Rome long weekend", destination: "Rome, Italy",
             timeZone: zone, startDate: start, endDate: end, pace: .normal, modes: [.walk, .transit, .taxi],
-            status: .active, notes: nil
+            status: .active, notes: nil,
+            // The arrival day is an easy one: an early flight.
+            dayLoads: [start: "light"]
         )
         let stay = TripStay(
             id: "stay-demo", name: "The demo hotel", address: "Via dell'Esempio 1, Rome", location: hotel,
@@ -162,7 +164,7 @@ enum TripDemo {
         let day = PlannedDay(date: today, stayId: stay.id, stops: stops, legs: guided, warnings: [])
         let plan = TripPlanVersion(
             id: "demo-plan-3", version: 3, createdAt: checked,
-            plan: SolvedPlan(days: [day], dropped: [DroppedWish(wishId: "w-castel", reason: "Did not fit; no other day had room")], warnings: [], score: 0),
+            plan: SolvedPlan(days: [arrivalDay(start, checked), day], dropped: [DroppedWish(wishId: "w-castel", reason: "Did not fit; no other day had room")], warnings: [], score: 0),
             changes: []
         )
         var withGuides = wishes
@@ -181,7 +183,8 @@ enum TripDemo {
         return TripBundle(
             trip: trip, stays: [stay], wishes: withGuides, bookings: bookings, plan: plan,
             matrices: [today: matrixAll], etag: "demo-3",
-            messages: messages(now: now), guide: tripGuide(checked), tripMatrix: matrixAll
+            messages: messages(now: now), guide: tripGuide(checked), tripMatrix: matrixAll,
+            transport: flights(start, end, checked), profile: profile(checked)
         )
     }
 
@@ -237,11 +240,82 @@ enum TripDemo {
                         planVersion: ops > 0 ? 3 : nil, surface: "phone", createdAt: TripStore.iso(now.addingTimeInterval(-ago * 60)))
         }
         return [
+            m("demo-msg-0a", .user, "Our flight leaves Newcastle at 07:35 on the first day.", ago: 2000),
+            {
+                var reply = m("demo-msg-0b", .assistant, "That lands at Fiumicino about 11:25 Rome time. With 40 minutes to get out and a taxi in, you're at the hotel near 12:50 — too early for the room, so I've put in a bag drop and then lunch nearby, and kept the afternoon easy.", ops: 3, ago: 1999)
+                reply.research = [
+                    ResearchStep(tool: "flight_lookup", summary: "Looked up the 07:35 Newcastle → Rome flight on the first day",
+                                 sources: [TripSource(url: "https://example.org/flights/demo", title: "Made-up flight timetable")]),
+                    ResearchStep(tool: "travel_time", summary: "Taxi from Fiumicino to the hotel: about 45 min", sources: []),
+                ]
+                return reply
+            }(),
             m("demo-msg-1", .user, "Can we fit the Trevi Fountain in after the Pantheon today?", ago: 300),
             m("demo-msg-2", .assistant, "Yes — it's a 12 minute walk from the Pantheon, so it slots in straight after. I've moved the Spanish Steps to follow it and kept your Colosseum slot where it is.", ops: 2, ago: 299),
             m("demo-msg-3", .user, "And a taxi up to the Borghese gardens rather than the walk?", ago: 120),
             m("demo-msg-4", .assistant, "Done: a taxi from the rank at the Spanish Steps, about 8 minutes. The gardens close at dusk, so the end of the visit may be in the dark.", ops: 1, ago: 119),
         ]
+    }
+
+    /// Day one: the 07:35 from Newcastle lands, a taxi in, bags left at the
+    /// hotel before check-in, then lunch and an easy afternoon.
+    private static func arrivalDay(_ date: String, _ checked: String) -> PlannedDay {
+        let fco = TripLatLng(lat: 41.8003, lng: 12.2389)
+        func stop(_ id: String, _ kind: StopKind, _ title: String, _ at: TripLatLng, _ a: Double, _ d: Double, wish: String? = nil) -> PlannedStop {
+            PlannedStop(id: id, kind: kind, wishId: wish, title: title, location: at, arriveMin: a, departMin: d,
+                        waitSec: 0, locked: false, bookingId: nil, warnings: [])
+        }
+        let stops = [
+            stop("transport:demo-out:to", .transport, "Rome Fiumicino (FCO)", fco, 685, 725),
+            stop("stay:\(date):bags", .stay, "Drop bags", hotel, 770, 780),
+            stop("meal:\(date):lunch", .meal, "Lunch", monti, 795, 855),
+            stop("w-navona", .wish, "Piazza Navona", TripLatLng(lat: 41.8992, lng: 12.4731), 880, 920, wish: nil),
+            stop("stay:\(date):end", .stay, "The demo hotel", hotel, 935, 935),
+        ]
+        var legs: [PlannedLeg] = (0..<(stops.count - 1)).map { i in
+            let a = stops[i].location ?? hotel, b = stops[i + 1].location ?? hotel
+            return PlannedLeg(fromStopId: stops[i].id, toStopId: stops[i + 1].id, mode: i == 0 ? .taxi : .walk,
+                              durationSec: max(60, (stops[i + 1].arriveMin - stops[i].departMin) * 60),
+                              distanceM: distance(a, b).rounded(), estimated: true, line: line(a, b))
+        }
+        legs[0].guidance = LegGuidance(
+            summary: "45 min by taxi from the rank outside Terminal 3", steps: [], transit: nil,
+            booking: LegGuidance.Booking(how: "Follow the taxi signs to the official rank; white cars only. A fixed fare covers the centre (made up).",
+                                         links: [GuideLink(label: "Taxi app (made up)", url: "https://example.org/taxi")], phone: nil),
+            tips: ["Ignore anyone offering a ride inside the terminal"], costText: "Fixed fare about €55 (made up)",
+            source: "model", generatedAt: checked
+        )
+        return PlannedDay(date: date, stayId: "stay-demo", stops: stops, legs: legs, warnings: [])
+    }
+
+    private static func flights(_ start: String, _ end: String, _ checked: String) -> [TransportSegment] {
+        let ncl = TransportSegment.End(name: "Newcastle", code: "NCL", location: TripLatLng(lat: 55.0375, lng: -1.6917), timeZone: "Europe/London")
+        let fco = TransportSegment.End(name: "Rome Fiumicino", code: "FCO", location: TripLatLng(lat: 41.8003, lng: 12.2389), timeZone: zone)
+        return [
+            TransportSegment(id: "demo-out", kind: "flight", direction: "outbound", carrier: "Demo Air", number: "DM 735",
+                             from: ncl, to: fco, departDate: start, departMin: 7 * 60 + 35, arriveDate: start, arriveMin: 11 * 60 + 25,
+                             confidence: "researched", status: "landed", delayMin: nil, bookingRef: "DEMO7Q",
+                             sources: [TripSource(url: "https://example.org/flights/demo", title: "Made-up flight timetable")], checkedAt: checked),
+            TransportSegment(id: "demo-back", kind: "flight", direction: "return", carrier: "Demo Air", number: "DM 736",
+                             from: fco, to: ncl, departDate: end, departMin: 16 * 60 + 10, arriveDate: end, arriveMin: 18 * 60 + 5,
+                             confidence: "stated", status: nil, delayMin: nil, bookingRef: "DEMO7Q", sources: [], checkedAt: nil),
+        ]
+    }
+
+    private static func profile(_ at: String) -> TravellerProfile {
+        TravellerProfile(
+            travellers: [
+                TravellerProfile.Traveller(name: "Alex", relation: nil, notes: []),
+                TravellerProfile.Traveller(name: "Sam", relation: "child", notes: ["Gets tired after long walks"]),
+            ],
+            preferences: [
+                TravellerProfile.Known(text: "Prefers walking to taxis in a city centre", source: "memory", ref: nil),
+                TravellerProfile.Known(text: "Likes a long lunch", source: "conversation", ref: nil),
+            ],
+            constraints: [TravellerProfile.Known(text: "No early starts", source: "memory", ref: nil)],
+            history: ["Florence two years ago: too much in one day"],
+            gatheredAt: at
+        )
     }
 
     static func converse(_ said: String) -> ConverseResult {

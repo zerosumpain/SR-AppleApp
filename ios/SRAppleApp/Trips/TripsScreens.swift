@@ -207,12 +207,21 @@ enum TripWords {
     /// added by an off-plan "stay here"): a wish with no wish behind it.
     static func isHere(_ stop: PlannedStop) -> Bool { stop.id.hasPrefix("here:") && stop.wishId == nil }
 
+    /// "Drop bags": the stay before check-in on an arrival day (v3). Said
+    /// plainly — it is a stop, not a sight.
+    static func isDropBags(_ stop: PlannedStop) -> Bool {
+        stop.title.caseInsensitiveCompare("Drop bags") == .orderedSame || stop.id.hasSuffix(":bags")
+    }
+
     static func symbol(_ stop: PlannedStop) -> String {
         if isHere(stop) { return "cup.and.saucer" }
+        if isDropBags(stop) { return "suitcase.rolling" }
         switch stop.kind {
         case .stay: return "bed.double"
         case .meal: return "fork.knife"
         case .wish: return stop.locked ? "lock" : "mappin"
+        case .transport: return "airplane"
+        case .unknown: return "mappin"
         }
     }
 }
@@ -421,6 +430,10 @@ struct TripScreen: View {
                 }
             }
 
+            if let profile = bundle.profile {
+                TripProfileSection(profile: profile)
+            }
+
             if let plan = bundle.plan, !(plan.plan.dropped.isEmpty && plan.plan.warnings.isEmpty) {
                 Section {
                     ForEach(plan.plan.dropped, id: \.wishId) { dropped in
@@ -446,5 +459,49 @@ struct TripScreen: View {
         let visits = day.stops.filter { $0.kind != .stay }.count
         guard let first = day.stops.first, let last = day.stops.last else { return "Nothing planned" }
         return "\(visits) stop\(visits == 1 ? "" : "s") · \(TripFormat.time(first.departMin))–\(TripFormat.time(last.arriveMin))"
+    }
+}
+
+/// "What I know about you": the planner's picture of the people travelling,
+/// read-only, each item with where it came from. Corrected by saying so in
+/// Edit plan.
+struct TripProfileSection: View {
+    let profile: TravellerProfile
+
+    var body: some View {
+        Section {
+            ForEach(profile.travellers, id: \.name) { t in
+                SRRow(title: t.name + (t.relation.map { " · \($0)" } ?? ""),
+                      subtitle: t.notes.isEmpty ? nil : t.notes.joined(separator: " · "), icon: "person")
+                    .srPlainRow()
+            }
+            ForEach(profile.constraints, id: \.self) { k in
+                SRRow(title: k.text, subtitle: Self.source(k), icon: "exclamationmark.shield", tone: SR.warn).srPlainRow()
+            }
+            ForEach(profile.preferences, id: \.self) { k in
+                SRRow(title: k.text, subtitle: Self.source(k), icon: "heart").srPlainRow()
+            }
+            ForEach(profile.history, id: \.self) { h in
+                SRRow(title: h, subtitle: "Past trips", icon: "clock.arrow.circlepath", tone: SR.inkMuted).srPlainRow()
+            }
+            Text("To change any of this, say so in Edit plan.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .padding(.vertical, 6)
+                .srPlainRow()
+        } header: {
+            SRSectionLabel(text: "What I know about you")
+        }
+        .accessibilityIdentifier("trip-profile")
+    }
+
+    static func source(_ k: TravellerProfile.Known) -> String {
+        switch k.source {
+        case "memory": return "From your memory"
+        case "knowledge": return "From your notes"
+        case "family": return "From the family"
+        case "conversation": return "You said so"
+        default: return k.source
+        }
     }
 }

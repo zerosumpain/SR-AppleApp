@@ -211,8 +211,17 @@ struct TripBooking: Codable, Hashable, Identifiable {
 
 // MARK: - The solved plan
 
+/// `transport` is v3's arrival/departure point (an airport, a station);
+/// a kind this version does not know decodes as `unknown`, so a newer
+/// server's stop never fails a saved trip.
 enum StopKind: String, Codable, Hashable {
-    case wish, meal, stay
+    case wish, meal, stay, transport
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = StopKind(rawValue: raw) ?? .unknown
+    }
 }
 
 struct PlannedStop: Codable, Hashable, Identifiable {
@@ -322,6 +331,14 @@ struct TripBundle: Codable, Hashable {
     var guide: TripGuide? = nil
     /// v2: every point of the trip, for an offline pull-forward.
     var tripMatrix: TravelMatrix? = nil
+    /// v3: flights and trains there and back. The site has not fixed the
+    /// field's name yet, so both likely names are read; `segments` is the one to use.
+    var transport: [TransportSegment]? = nil
+    var transportSegments: [TransportSegment]? = nil
+    /// v3: what the planner already knows about the people travelling.
+    var profile: TravellerProfile? = nil
+
+    var segments: [TransportSegment] { transport ?? transportSegments ?? [] }
 }
 
 enum TripEventKind: String, Codable, Hashable {
@@ -642,6 +659,8 @@ struct TripMessage: Codable, Hashable, Identifiable {
     /// "site" or "phone".
     var surface: String
     var createdAt: String
+    /// v3: what the planner looked up for this reply.
+    var research: [ResearchStep]? = nil
 }
 
 /// `POST /api/native/trips/:id/converse` → one turn's answer.
@@ -657,6 +676,8 @@ struct ConverseResult: Codable, Hashable {
     var quickReplies: [String]
     var planVersion: Int?
     var changes: [String]
+    /// v3: what the planner looked up this turn.
+    var research: [ResearchStep]? = nil
 }
 
 struct ConverseBody: Codable {
@@ -732,4 +753,91 @@ struct TripReplanOption: Codable, Hashable, Identifiable {
     var dropped: [String]
     var moved: [Moved]
     var explanation: String
+}
+
+// MARK: - v3: getting there and back, what the planner knows, its research
+
+/// A source the planner or the research cited.
+struct TripSource: Codable, Hashable {
+    var url: String
+    var title: String?
+}
+
+/// A flight, train or similar to, from or between places on the trip.
+struct TransportSegment: Codable, Hashable, Identifiable {
+    struct End: Codable, Hashable {
+        var name: String
+        /// "NCL", "FCO".
+        var code: String?
+        var location: TripLatLng?
+        var timeZone: String
+    }
+
+    var id: String
+    /// "flight", "train", "coach", "ferry" or "car".
+    var kind: String
+    /// "outbound", "return" or "internal".
+    var direction: String
+    var carrier: String?
+    /// "LS1235".
+    var number: String?
+    var from: End
+    var to: End
+    /// Local to `from.timeZone`.
+    var departDate: String
+    var departMin: Double
+    /// Local to `to.timeZone`.
+    var arriveDate: String
+    var arriveMin: Double
+    /// "stated", "researched" or "live".
+    var confidence: String
+    /// "scheduled", "delayed", "departed", "landed" or "cancelled".
+    var status: String?
+    var delayMin: Double?
+    var bookingRef: String?
+    var sources: [TripSource]
+    var checkedAt: String?
+
+    /// `TRANSPORT_LEADS`: leaving the terminal, and arriving before departure.
+    var leads: (exitMin: Double, checkInLeadMin: Double) {
+        switch kind {
+        case "flight": return (40, 120)
+        case "train": return (10, 20)
+        case "coach": return (10, 15)
+        case "ferry": return (30, 60)
+        default: return (0, 0)
+        }
+    }
+}
+
+/// What the planner already knows about the people travelling: from the
+/// owner's memory, knowledge search and the family roster. Every item says
+/// where it came from.
+struct TravellerProfile: Codable, Hashable {
+    struct Traveller: Codable, Hashable {
+        var name: String
+        var relation: String?
+        var notes: [String]
+    }
+
+    struct Known: Codable, Hashable {
+        var text: String
+        /// "memory", "knowledge", "family" or "conversation".
+        var source: String
+        var ref: String?
+    }
+
+    var travellers: [Traveller]
+    var preferences: [Known]
+    var constraints: [Known]
+    var history: [String]
+    var gatheredAt: String
+}
+
+/// One thing the planner looked up during a turn.
+struct ResearchStep: Codable, Hashable {
+    var tool: String
+    /// "Looked up LS1235 Newcastle → Rome on 27 Oct".
+    var summary: String
+    var sources: [TripSource]
 }

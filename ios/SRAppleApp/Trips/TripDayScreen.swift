@@ -76,7 +76,8 @@ struct TripDayScreen: View {
         let marks = store.marks(tripId)
         let progress = TripProgress.of(day: day, marks: marks, nowMin: nowMin, clock: clock)
         let missed = TripWords.missedSlots(day: day, progress: isToday ? progress : nil, nowMin: isToday ? nowMin : nil)
-        let nextIndex = isToday ? progress.next : day.stops.firstIndex { $0.kind != .stay }
+        // Another day: its first stage (on an arrival day, the transfer).
+        let nextIndex = isToday ? progress.next : (day.stops.count > 1 ? 1 : nil)
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 notes(bundle)
@@ -98,6 +99,10 @@ struct TripDayScreen: View {
                 } else {
                     dayHeader(day, clock: clock, past: date < clock.localDate(now))
                 }
+                // Arriving today: the flight or train is the day's first stage.
+                ForEach(bundle.segments.filter { $0.arriveDate == date && $0.direction != "return" }) { segment in
+                    TripTransportCard(segment: segment, arriving: true)
+                }
                 if let next = nextIndex, next > 0, next < day.stops.count, let leg = day.leg(before: next) {
                     TripNextStageCard(
                         leg: leg, from: day.stops[next - 1], to: day.stops[next],
@@ -105,8 +110,17 @@ struct TripDayScreen: View {
                     )
                     TripStopGuideCard(stop: day.stops[next], bundle: bundle)
                 }
+                // Leaving today: the flight or train is the day's last stage.
+                ForEach(bundle.segments.filter { $0.departDate == date && $0.direction != "outbound" }) { segment in
+                    TripTransportCard(segment: segment, arriving: false)
+                }
                 rest(bundle, day, marks: marks, progress: isToday ? progress : nil)
                 mapCard(day, progress: progress)
+                NavigationLink(value: TripRef(tripId: tripId)) {
+                    Label("All days of \(bundle.trip.title)", systemImage: "calendar")
+                        .font(SR.Text.label(13))
+                }
+                .accessibilityIdentifier("trip-all-days")
                 TripSavedLine(refreshedAt: store.refreshedAt, online: network.online, queued: queue.count(for: tripId))
                     .padding(.top, 4)
             }
@@ -509,6 +523,18 @@ struct TripLinkButtons: View {
         return url
     }
 
+    struct SourceLink: Hashable {
+        let title: String
+        let url: URL
+    }
+
+    /// Sources as links, unsafe schemes dropped, each titled.
+    static func sourceLinks(_ sources: [TripSource]) -> [SourceLink] {
+        sources.compactMap { s in
+            safeURL(s.url).map { SourceLink(title: s.title ?? $0.host() ?? s.url, url: $0) }
+        }
+    }
+
     static func telURL(_ phone: String) -> URL? {
         let digits = phone.filter { $0.isNumber || $0 == "+" }
         return digits.isEmpty ? nil : URL(string: "tel:\(digits)")
@@ -581,6 +607,95 @@ struct TripCorrections: View {
             }
         }
     }
+}
+
+// MARK: - Getting there and back
+
+/// A flight or train as a stage of the day: number, times in each end's own
+/// zone, status and delay, the booking reference, and how sure the times are.
+struct TripTransportCard: View {
+    let segment: TransportSegment
+    /// Arriving today (the first stage) or leaving (the last).
+    let arriving: Bool
+
+    var body: some View {
+        SRCard(accented: segment.status == "delayed" || segment.status == "cancelled") {
+            VStack(alignment: .leading, spacing: 10) {
+                SRSectionLabel(text: arriving ? "Arriving" : "Leaving", trailing: statusLine, prominent: true)
+                HStack(spacing: 8) {
+                    Image(systemName: symbol).foregroundStyle(SR.accent).accessibilityHidden(true)
+                    Text([segment.number, segment.carrier].compactMap { $0 }.joined(separator: " · ").ifEmpty(segment.kind.capitalized))
+                        .font(SR.Text.title(17))
+                        .foregroundStyle(SR.ink)
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    end(segment.from, minutes: segment.departMin, label: "Departs")
+                    Image(systemName: "arrow.right").foregroundStyle(SR.inkMuted).padding(.top, 18).accessibilityHidden(true)
+                    end(segment.to, minutes: segment.arriveMin + (segment.delayMin ?? 0), label: segment.delayMin.map { $0 > 0 ? "Arrives (late)" : "Arrives" } ?? "Arrives")
+                }
+                if let ref = segment.bookingRef {
+                    Label("Booking ref \(ref)", systemImage: "ticket")
+                        .font(SR.Text.mono(13))
+                        .foregroundStyle(SR.accentInk)
+                        .textSelection(.enabled)
+                }
+                Text(confidenceLine)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                ForEach(TripLinkButtons.sourceLinks(segment.sources), id: \.url) { link in
+                    Link(link.title, destination: link.url)
+                        .font(SR.Text.secondary(13))
+                }
+            }
+        }
+        .accessibilityIdentifier("trip-transport")
+    }
+
+    private func end(_ e: TransportSegment.End, minutes: Double, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased()).font(SR.Text.label()).foregroundStyle(SR.inkMuted)
+            Text(TripFormat.time(minutes)).font(SR.Text.display(22)).foregroundStyle(SR.ink)
+            Text([e.code, e.name].compactMap { $0 }.joined(separator: " · "))
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var symbol: String {
+        switch segment.kind {
+        case "flight": return arriving ? "airplane.arrival" : "airplane.departure"
+        case "train": return "train.side.front.car"
+        case "coach": return "bus.fill"
+        case "ferry": return "ferry.fill"
+        default: return "car.fill"
+        }
+    }
+
+    private var statusLine: String? {
+        switch segment.status {
+        case "delayed": return segment.delayMin.map { "\(Int($0)) min late" } ?? "Delayed"
+        case "cancelled": return "Cancelled"
+        case "landed": return "Landed"
+        case "departed": return "Departed"
+        case "scheduled": return "On time"
+        default: return nil
+        }
+    }
+
+    private var confidenceLine: String {
+        switch segment.confidence {
+        case "live": return "Live status"
+        case "researched": return "Times found online — check your booking"
+        default: return "Times as you gave them"
+        }
+    }
+}
+
+private extension String {
+    func ifEmpty(_ other: String) -> String { isEmpty ? other : self }
 }
 
 // MARK: - Off the plan
@@ -721,6 +836,7 @@ struct TripStopRow: View {
     private var lines: [String] {
         var out: [String] = []
         if TripWords.isHere(stop) { out.append("Your stop — not on the original plan") }
+        if TripWords.isDropBags(stop) { out.append("Leave the bags at the stay — the room comes later") }
         if let wait = TripWords.wait(stop) { out.append(wait) }
         if let booking, booking.status == .booked {
             out.append("Booked" + (booking.reference.map { " · ref \($0)" } ?? ""))

@@ -200,7 +200,8 @@ struct TripConverseSheet: View {
                 last = result
                 session.append(TripMessage(
                     id: "local-\(UUID().uuidString)", role: .assistant, text: result.reply, ops: result.applied,
-                    planVersion: result.planVersion, surface: "phone", createdAt: TripStore.iso(Date())
+                    planVersion: result.planVersion, surface: "phone", createdAt: TripStore.iso(Date()),
+                    research: result.research
                 ))
                 SRHaptic.ok()
                 // The planner changed the plan: show the server's version now.
@@ -297,6 +298,9 @@ struct TripMessageBubble: View {
                             .font(SR.Text.mono(11))
                             .foregroundStyle(SR.inkMuted)
                     }
+                    if let research = message.research, !research.isEmpty {
+                        TripResearchList(steps: research)
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -305,5 +309,39 @@ struct TripMessageBubble: View {
             }
             .accessibilityElement(children: .combine)
         }
+    }
+}
+
+/// "What I looked up": the planner's research for a reply, folded away
+/// until asked for, each step with its sources.
+struct TripResearchList: View {
+    let steps: [ResearchStep]
+    @State private var open = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $open) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(step.summary)
+                            .font(SR.Text.secondary(13))
+                            .foregroundStyle(SR.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(TripLinkButtons.sourceLinks(step.sources), id: \.url) { link in
+                            Link(link.title, destination: link.url)
+                                .font(SR.Text.mono(12))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            Text(steps.count == 1 ? "What I looked up" : "What I looked up (\(steps.count))")
+                .font(SR.Text.label(12))
+                .foregroundStyle(SR.inkMuted)
+        }
+        .tint(SR.inkMuted)
+        .accessibilityIdentifier("trip-research")
     }
 }

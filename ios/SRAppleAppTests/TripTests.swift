@@ -218,6 +218,38 @@ final class TripTests: XCTestCase {
         XCTAssertNil(TripLinkButtons.safeURL("sms:123"))
     }
 
+    // MARK: v3
+
+    func testV3ShapesDecode() throws {
+        let segment = #"{"id":"t1","kind":"flight","direction":"outbound","carrier":"Jet2","number":"LS1235","from":{"name":"Newcastle","code":"NCL","location":null,"timeZone":"Europe/London"},"to":{"name":"Rome Fiumicino","code":"FCO","location":{"lat":41.8,"lng":12.24},"timeZone":"Europe/Rome"},"departDate":"2026-10-27","departMin":455,"arriveDate":"2026-10-27","arriveMin":685,"confidence":"researched","status":null,"delayMin":null,"bookingRef":"ABC123","sources":[{"url":"https://example.org/f","title":null}],"checkedAt":null}"#
+        let t = try JSONDecoder().decode(TransportSegment.self, from: Data(segment.utf8))
+        XCTAssertEqual(t.number, "LS1235")
+        XCTAssertEqual(t.leads.exitMin, 40)
+        let profile = #"{"travellers":[{"name":"John","relation":null,"notes":[]}],"preferences":[{"text":"Prefers walking","source":"memory","ref":"m1"}],"constraints":[],"history":[],"gatheredAt":"2026-10-14T05:00:00.000Z"}"#
+        XCTAssertEqual(try JSONDecoder().decode(TravellerProfile.self, from: Data(profile.utf8)).preferences.first?.source, "memory")
+        let converse = #"{"reply":"Lands 11:25.","applied":[],"rejected":[],"quickReplies":[],"planVersion":null,"changes":[],"research":[{"tool":"flight_lookup","summary":"Looked up LS1235","sources":[]}]}"#
+        XCTAssertEqual(try JSONDecoder().decode(ConverseResult.self, from: Data(converse.utf8)).research?.first?.tool, "flight_lookup")
+    }
+
+    /// A stop kind a later server adds (or v3's `transport`) never fails a day.
+    func testNewStopKindsDecode() throws {
+        let stop = #"{"id":"transport:t1:to","kind":"transport","wishId":null,"title":"Rome Fiumicino","location":null,"arriveMin":685,"departMin":725,"waitSec":0,"locked":false,"bookingId":null,"warnings":[]}"#
+        XCTAssertEqual(try JSONDecoder().decode(PlannedStop.self, from: Data(stop.utf8)).kind, .transport)
+        let odd = stop.replacingOccurrences(of: "\"transport\"", with: "\"teleport\"")
+        XCTAssertEqual(try JSONDecoder().decode(PlannedStop.self, from: Data(odd.utf8)).kind, .unknown)
+    }
+
+    /// The demo's arrival day: the flight lands, bags are dropped, lunch.
+    func testTheDemoArrivalDay() throws {
+        let bundle = TripDemo.bundle(now: Date())
+        let first = try XCTUnwrap(bundle.plan?.plan.days.first)
+        XCTAssertEqual(first.stops.first?.kind, .transport)
+        XCTAssertTrue(first.stops.contains(where: TripWords.isDropBags))
+        XCTAssertEqual(bundle.segments.first?.arriveDate, first.date)
+        XCTAssertEqual(bundle.trip.dayLoads?[first.date], "light")
+        XCTAssertNotNil(bundle.profile)
+    }
+
     // MARK: Off the plan
 
     func testIdleAndBehindNeedEvidence() throws {

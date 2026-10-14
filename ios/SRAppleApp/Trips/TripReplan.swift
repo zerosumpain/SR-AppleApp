@@ -434,7 +434,9 @@ enum TripReplan {
     static func toItems(_ stops: [PlannedStop], _ day: PlannedDay, _ wishes: [TripWish], _ bookings: [TripBooking], _ ctx: SolverContext) -> [Item] {
         var byId: [String: TripWish] = [:]
         for w in wishes { byId[w.id] = w }
-        return stops.filter { $0.kind != .stay }.map { itemFromStop($0, day.date, byId, bookings, ctx.rules) }
+        // Transport stops are fixed points like stays (provisional, as above).
+        return stops.filter { $0.kind != .stay && $0.kind != .transport && $0.kind != .unknown }
+            .map { itemFromStop($0, day.date, byId, bookings, ctx.rules) }
     }
 
     // MARK: - calendar.ts
@@ -699,7 +701,10 @@ enum TripReplan {
         switch stop.kind {
         case .stay: return stayId.map(stayPoint)
         case .wish: return stop.wishId ?? stop.id
-        case .meal: return nil
+        case .meal, .unknown: return nil
+        // v3 (provisional until the solver frames transport): an airport or
+        // station stop is its own matrix point, `transport:<id>:from|to`.
+        case .transport: return stop.id
         }
     }
 

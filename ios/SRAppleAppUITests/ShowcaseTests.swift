@@ -1342,6 +1342,33 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Day one: the 07:35 from Newcastle landing, the taxi in, bags dropped
+    /// before check-in, lunch — and the trip's "What I know about you".
+    @MainActor func testShowcaseTripArrivalDay() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
+        card.tap()
+        settle(app, on: byId(app, "trip-day-screen"))
+        let all = byId(app, "trip-all-days")
+        guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
+        all.tap()
+        let profile = byId(app, "trip-profile")
+        settle(app)
+        attach(app, "Showcase — Trip, days")
+        if scroll(app, to: profile) { attach(app, "Showcase — Trip, what I know about you") }
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'trip-day-2'")).firstMatch
+        guard scroll(app, to: first) else { return soft(false, "no first day row") }
+        first.tap()
+        settle(app, on: byId(app, "trip-transport"), seconds: 2)
+        attach(app, "Showcase — Trip, arrival day")
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Trip, arrival day, scrolled")
+    }
+
     /// Off the plan: a coffee after the Pantheon, the planner's view and
     /// three ways on, at the top of the Day screen.
     @MainActor func testShowcaseTripOffPlan() {
