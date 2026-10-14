@@ -58,3 +58,46 @@ enum TripStages {
         return names.count <= 2 ? names.joined(separator: ", ") : "\(names[0]), \(names[1]) +\(names.count - 2)"
     }
 }
+
+/// v5: how full a day is — active (non-meal, non-free) minutes against the
+/// day's capacity. The server sends it (`bundle.fullness`); a day it has not
+/// covered (an older server, a day re-planned on the phone) gets the same
+/// measure worked out here.
+enum TripFullness {
+    /// The bands, as the server draws them.
+    static func band(_ pct: Double) -> String {
+        switch pct {
+        case ..<10: return "empty"
+        case ..<50: return "light"
+        case ..<85: return "balanced"
+        case ...100: return "full"
+        default: return "overfull"
+        }
+    }
+
+    static func word(_ band: String) -> String {
+        switch band {
+        case "empty": return "free"
+        case "light": return "light"
+        case "balanced": return "balanced"
+        case "full": return "full"
+        case "overfull": return "too full"
+        default: return band
+        }
+    }
+
+    static func of(_ day: PlannedDay, bundle: TripBundle) -> DayFullness {
+        // A day the phone re-planned is measured afresh; otherwise the server's.
+        if bundle.day(day.date) == day, let given = bundle.fullness?[day.date] { return given }
+        let rules = TripReplan.solverRules(bundle.trip.pace)
+        let frame = TripReplan.dayFrame(rules, bundle.trip.dayLoads ?? [:], day.date, nil)
+        let lunchMin = rules.lunch.durationSec / 60
+        let capacity = max(1, (frame.activeEndMin ?? frame.dayEndMin) - frame.dayStartMin - lunchMin)
+        let replacing = Set(bundle.wishes.filter { ($0.replacesMeal ?? "").isEmpty == false }.map(\.id))
+        let active = day.stops
+            .filter { $0.kind == .wish && !replacing.contains($0.wishId ?? "") }
+            .reduce(0.0) { $0 + max(0, $1.departMin - $1.arriveMin - $1.waitSec / 60) }
+        let pct = (active / capacity * 100).rounded()
+        return DayFullness(activeMin: active, capacityMin: capacity, pct: pct, band: band(pct))
+    }
+}

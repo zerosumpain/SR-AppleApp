@@ -41,8 +41,12 @@ struct TripDayScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { SRHaptic.tap(); editing = true } label: { Text("Edit plan").font(SR.Text.label(13)) }
-                    .accessibilityIdentifier("trip-edit-plan")
+                // v5: the creator and parents change the plan; anyone else
+                // may still ask the planner for advice.
+                Button { SRHaptic.tap(); editing = true } label: {
+                    Text(store.bundles[tripId]?.can.canEdit == false ? "Ask" : "Edit plan").font(SR.Text.label(13))
+                }
+                .accessibilityIdentifier("trip-edit-plan")
             }
         }
         .sheet(isPresented: $editing) {
@@ -161,10 +165,12 @@ struct TripDayScreen: View {
                 .font(SR.Text.secondary(13))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button { SRHaptic.tap(); editing = true } label: {
-                SRButtonLabel(title: "Edit plan", icon: "bubble.left.and.text.bubble.right")
+            if store.bundles[tripId]?.can.canEdit != false {
+                Button { SRHaptic.tap(); editing = true } label: {
+                    SRButtonLabel(title: "Edit plan", icon: "bubble.left.and.text.bubble.right")
+                }
+                .srButton(.prominent)
             }
-            .srButton(.prominent)
         }
         .padding(SR.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,6 +207,8 @@ struct TripDayScreen: View {
                         ForEach(group.indexes, id: \.self) { index in
                             stopRow(bundle, day, index, marks: marks, progress: progress)
                         }
+                        // v5: what the family suggests for this stage, and ideas that fit it.
+                        TripSlotPanel(tripId: tripId, day: day, stage: group.stage, indexes: group.indexes, bundle: bundle)
                     }
                 }
             }
@@ -894,6 +902,10 @@ struct TripLegRow: View {
 
     private var text: String {
         var out = TripFormat.leg(leg)
+        // v5: the other ways, said briefly: "· taxi 9′ · transit 18′".
+        for alt in (leg.alternatives ?? []).filter({ $0.mode != leg.mode && $0.mode != .unknown }).prefix(2) {
+            out += " · \(TripLegPicker.name(alt.mode).lowercased()) \(Int((alt.durationSec / 60).rounded()))′"
+        }
         if let m = leg.distanceM { out += m < 1000 ? " · \(Int((m / 10).rounded()) * 10) m" : String(format: " · %.1f km", m / 1000) }
         if leg.estimated { out += " · estimate" }
         return out

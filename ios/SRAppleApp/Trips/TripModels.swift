@@ -101,7 +101,10 @@ enum PartOfDay: String, Codable, Hashable {
 
 struct Trip: Codable, Hashable, Identifiable {
     var id: String
-    var ownerEmail: String
+    /// v5: who made the trip, by family roster id and name. The creator's
+    /// email is never on the wire, and the phone has no field to hold one.
+    var createdById: String? = nil
+    var createdByName: String? = nil
     var title: String
     var destination: String
     /// IANA zone, e.g. `Europe/Rome`. Every local time in the trip is in it.
@@ -257,6 +260,8 @@ struct PlannedLeg: Codable, Hashable {
     var line: [TripLatLng]?
     /// v2: how to actually do this leg. Null until guidance is generated.
     var guidance: LegGuidance? = nil
+    /// v5: other ways of doing this leg, for the mode picker.
+    var alternatives: [LegAlternative]? = nil
 }
 
 struct PlannedDay: Codable, Hashable, Identifiable {
@@ -342,7 +347,16 @@ struct TripBundle: Codable, Hashable {
     /// on the bundle yet; shown when the site adds it.
     var profile: TravellerProfile? = nil
 
+    /// v5: what this caller may do with the trip. Absent from an older
+    /// server, which only ever served the owner: everything.
+    var access: TripAccess? = nil
+    /// v5: suggestions — pending, and the last twenty decided.
+    var suggestions: [TripSuggestion]? = nil
+    /// v5: how full each day is, by local date.
+    var fullness: [String: DayFullness]? = nil
+
     var segments: [TransportSegment] { transport ?? [] }
+    var can: TripAccess { access ?? .owner }
 
     /// The profile wherever the site sends it: on the trip (where it is
     /// stored) or beside it.
@@ -540,7 +554,7 @@ extension PlannedStop {
 
 extension PlannedLeg {
     private enum Keys: String, CodingKey {
-        case fromStopId, toStopId, mode, durationSec, distanceM, estimated, line, guidance
+        case fromStopId, toStopId, mode, durationSec, distanceM, estimated, line, guidance, alternatives
     }
 
     func encode(to encoder: Encoder) throws {
@@ -554,6 +568,7 @@ extension PlannedLeg {
         try c.encode(line, forKey: .line)
         // Optional in the contract (`guidance?:`): left out rather than null.
         try c.encodeIfPresent(guidance, forKey: .guidance)
+        try c.encodeIfPresent(alternatives, forKey: .alternatives)
     }
 }
 
@@ -823,25 +838,21 @@ struct TransportSegment: Codable, Hashable, Identifiable {
 /// What the planner already knows about the people travelling: from the
 /// owner's memory, knowledge search and the family roster. Every item says
 /// where it came from.
+///
+/// v5: the phone only ever holds WHO is travelling. Memories (preferences,
+/// constraints, history and their sources) never reach the app — the server
+/// strips them, and this type has nowhere to put them even if one slipped.
 struct TravellerProfile: Codable, Hashable {
     struct Traveller: Codable, Hashable {
         var name: String
         var relation: String?
-        var notes: [String]
-    }
-
-    struct Known: Codable, Hashable {
-        var text: String
-        /// "memory", "knowledge", "family" or "conversation".
-        var source: String
-        var ref: String?
+        /// v5: age in years, when known.
+        var age: Double? = nil
+        /// v5: the family roster id, when a family member.
+        var personId: String? = nil
     }
 
     var travellers: [Traveller]
-    var preferences: [Known]
-    var constraints: [Known]
-    var history: [String]
-    var gatheredAt: String
 }
 
 /// One thing the planner looked up during a turn.
@@ -850,4 +861,176 @@ struct ResearchStep: Codable, Hashable {
     /// "Looked up LS1235 Newcastle → Rome on 27 Oct".
     var summary: String
     var sources: [TripSource]
+}
+
+// MARK: - v5: family trips, suggestions, fullness, leg alternatives
+
+/// What the caller may do with a trip.
+struct TripAccess: Codable, Hashable {
+    /// Created the trip: edits freely.
+    var canEdit: Bool
+    /// A parent: approves or rejects suggestions (and may edit).
+    var canApprove: Bool
+    /// Any family member: may suggest something for a slot.
+    var canSuggest: Bool
+    /// "creator", "parent" or "member".
+    var role: String
+
+    /// What an older (owner-only) server implied.
+    static let owner = TripAccess(canEdit: true, canApprove: true, canSuggest: true, role: "creator")
+}
+
+/// A wish as the planner drafts it: a place to find, not yet a place.
+struct WishDraft: Codable, Hashable {
+    var title: String
+    var placeQuery: String?
+    /// "must" or "nice".
+    var priority: String
+    var durationMin: Double?
+    /// "morning", "afternoon", "evening" or "any".
+    var partOfDay: String
+    var fixedDate: String?
+    var fixedStartMin: Double?
+    var note: String?
+    var replacesMeal: String? = nil
+    /// From an idea: the place already found on the map.
+    var place: TripPlace? = nil
+
+    private enum Keys: String, CodingKey {
+        case title, placeQuery, priority, durationMin, partOfDay, fixedDate, fixedStartMin, note, replacesMeal, place
+    }
+
+    init(title: String, placeQuery: String?, priority: String, durationMin: Double?, partOfDay: String,
+         fixedDate: String?, fixedStartMin: Double?, note: String?, replacesMeal: String? = nil, place: TripPlace? = nil) {
+        self.title = title
+        self.placeQuery = placeQuery
+        self.priority = priority
+        self.durationMin = durationMin
+        self.partOfDay = partOfDay
+        self.fixedDate = fixedDate
+        self.fixedStartMin = fixedStartMin
+        self.note = note
+        self.replacesMeal = replacesMeal
+        self.place = place
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        title = try c.decode(String.self, forKey: .title)
+        placeQuery = try c.decodeIfPresent(String.self, forKey: .placeQuery)
+        priority = (try? c.decodeIfPresent(String.self, forKey: .priority)) ?? "nice"
+        durationMin = try? c.decodeIfPresent(Double.self, forKey: .durationMin)
+        partOfDay = (try? c.decodeIfPresent(String.self, forKey: .partOfDay)) ?? "any"
+        fixedDate = try? c.decodeIfPresent(String.self, forKey: .fixedDate)
+        fixedStartMin = try? c.decodeIfPresent(Double.self, forKey: .fixedStartMin)
+        note = try? c.decodeIfPresent(String.self, forKey: .note)
+        replacesMeal = try? c.decodeIfPresent(String.self, forKey: .replacesMeal)
+        place = try? c.decodeIfPresent(TripPlace.self, forKey: .place)
+    }
+
+    /// `string | null` fields as null; the optional ones left out when unset.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(title, forKey: .title)
+        try c.encode(placeQuery, forKey: .placeQuery)
+        try c.encode(priority, forKey: .priority)
+        try c.encode(durationMin, forKey: .durationMin)
+        try c.encode(partOfDay, forKey: .partOfDay)
+        try c.encode(fixedDate, forKey: .fixedDate)
+        try c.encode(fixedStartMin, forKey: .fixedStartMin)
+        try c.encode(note, forKey: .note)
+        try c.encodeIfPresent(replacesMeal, forKey: .replacesMeal)
+        try c.encodeIfPresent(place, forKey: .place)
+    }
+}
+
+/// A family member's proposal for a slot, waiting for a parent.
+struct TripSuggestion: Codable, Hashable, Identifiable {
+    var id: String
+    var tripId: String
+    var byId: String
+    var byName: String
+    var date: String
+    /// A `DayStage` raw value.
+    var stage: String
+    var wish: WishDraft
+    var note: String?
+    var fitText: String?
+    /// "pending", "approved", "rejected" or "withdrawn".
+    var status: String
+    var decidedById: String?
+    var decidedAt: String?
+    var createdAt: String
+
+    var pending: Bool { status == "pending" }
+}
+
+/// How full a day is: active minutes against the day's capacity.
+struct DayFullness: Codable, Hashable {
+    var activeMin: Double
+    var capacityMin: Double
+    /// 0–100+, rounded. Over 100 = overfull.
+    var pct: Double
+    /// "empty", "light", "balanced", "full" or "overfull".
+    var band: String
+}
+
+/// One way of doing a leg, for the mode picker.
+struct LegAlternative: Codable, Hashable {
+    var mode: TravelMode
+    var durationSec: Double
+    var estimated: Bool
+}
+
+/// `GET …/route`: one leg in a chosen mode, drawn for the phone (display only).
+struct TripRoute: Codable, Hashable {
+    var line: [TripLatLng]
+    var durationSec: Double
+    var distanceM: Double?
+    var estimated: Bool
+    var guidance: LegGuidance?
+}
+
+// MARK: - Ideas for a slot ("Make a suggestion")
+
+struct IdeaVerdict: Codable, Hashable {
+    var fits: Bool
+    var arriveMin: Double?
+    var departMin: Double?
+    var landedStage: String?
+    var legInMin: Double?
+    var legOutMin: Double?
+    var pushesOut: [String]?
+    var reason: String?
+}
+
+/// One idea that fits (or nearly fits) a gap, with the wish to add.
+struct TripIdea: Codable, Hashable, Identifiable {
+    var title: String
+    var why: String
+    /// The planner's own estimate of the fit.
+    var fit: String
+    var wish: WishDraft
+    var verdict: IdeaVerdict?
+
+    var id: String { title }
+}
+
+/// `POST …/ideas` → what fits a slot.
+struct TripIdeasReply: Codable {
+    struct Rejected: Codable, Hashable {
+        var title: String
+        var reason: String
+    }
+
+    var ideas: [TripIdea]
+    var rejected: [Rejected]?
+    var note: String?
+}
+
+/// `POST /api/native/trips` `{ text }` → the new trip and the planner's first turn.
+struct TripCreated: Codable {
+    var id: String
+    var reply: String?
+    var quickReplies: [String]?
 }

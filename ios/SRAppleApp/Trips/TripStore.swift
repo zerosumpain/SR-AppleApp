@@ -178,7 +178,8 @@ final class TripStore: ObservableObject {
 
     /// The list, then every trip that is not over, each on its ETag.
     func refresh() async {
-        guard AccessStore.ownerSite || SRDemo.isOn, !loading else { return }
+        // v5: every family member with a site pairing sees the family's trips.
+        guard SiteClient.shared.isPaired || SRDemo.isOn, !loading else { return }
         loading = true
         defer { loading = false }
         await TripEventQueue.shared.flush()
@@ -336,6 +337,74 @@ final class TripStore: ObservableObject {
         await fetch(tripId)
         TripArrivals.shared.refresh()
         TripLive.shared.refresh()
+    }
+
+    // MARK: v5: the family's trips
+
+    /// A new trip from its opening message: made on the server, then read
+    /// so it opens at once. Nil and a sentence when it could not be made.
+    func create(from text: String) async -> (id: String?, failure: String?) {
+        do {
+            let made = try await TripsAPI.create(text: text)
+            await refresh()
+            await fetch(made.id)
+            return (made.id, nil)
+        } catch {
+            return (nil, "Not made: \(error.localizedDescription)")
+        }
+    }
+
+    /// Suggest an idea for a slot (any family member). The bundle is re-read
+    /// so the suggestion shows in its slot.
+    func suggest(_ wish: WishDraft, tripId: String, date: String, stage: DayStage, note: String?, fitText: String?) async -> String? {
+        do {
+            try await TripsAPI.suggest(trip: tripId, date: date, stage: stage, wish: wish, note: note, fitText: fitText)
+            await fetch(tripId)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Approve, reject or withdraw a suggestion. An approval changes the
+    /// plan on the server, so the server's version is adopted.
+    /// Nil when done cleanly; otherwise the sentence to show — a failure, or
+    /// the server's warning about an approval that went through.
+    func decide(_ suggestion: TripSuggestion, action: String, tripId: String) async -> String? {
+        do {
+            let decided = try await TripsAPI.decide(trip: tripId, suggestion: suggestion.id, action: action)
+            if action == "approve" { await adoptServerPlan(tripId) } else { await fetch(tripId) }
+            return decided.warning
+        } catch {
+            await fetch(tripId)
+            return error.localizedDescription
+        }
+    }
+
+    /// "Add this" (an editor): straight into the plan. A parent adds it as
+    /// an approved suggestion — the server's one path for a slot's addition;
+    /// the trip's creator, who may not be a parent, asks the planner to.
+    func add(_ idea: TripIdea, tripId: String, date: String, stage: DayStage) async -> String? {
+        let access = bundles[tripId]?.can ?? .owner
+        do {
+            if access.canApprove {
+                let made = try await TripsAPI.suggest(trip: tripId, date: date, stage: stage, wish: idea.wish, note: nil, fitText: idea.fit)
+                if let made {
+                    let decided = try await TripsAPI.decide(trip: tripId, suggestion: made.id, action: "approve")
+                    if let warning = decided.warning {
+                        await adoptServerPlan(tripId)
+                        return warning
+                    }
+                }
+            } else {
+                let day = clock(tripId).map { TripFormat.day(date, zone: $0.zone) } ?? date
+                _ = try await TripsAPI.converse("Add \(idea.title) on \(day), \(stage.label.lowercased()).", trip: tripId)
+            }
+            await adoptServerPlan(tripId)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// The server took an `option-applied`: remember which version stored it.

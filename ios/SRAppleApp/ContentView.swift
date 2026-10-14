@@ -14,6 +14,8 @@ final class Router: ObservableObject {
     enum Tab: String, Hashable { case today, chat, health, family, games, news, flows, more }
 
     @Published var tab: Tab = .today
+    /// Today's own stack: Trips push onto it (no tab of their own).
+    @Published var today = NavigationPath()
     @Published var chat = NavigationPath()
     @Published var health = NavigationPath()
     @Published var family = NavigationPath()
@@ -93,6 +95,15 @@ final class Router: ObservableObject {
         } else {
             show(.today)
         }
+    }
+
+    /// A trip day, or the list — from Today's trip card, and from a trip
+    /// notification. Pushed onto Today's own stack.
+    func openTrips(day: TripDayRef? = nil) {
+        var path = NavigationPath()
+        if let day { path.append(day) } else { path.append(TripsListRef()) }
+        today = path
+        tab = .today
     }
 
     /// Every site connection that needs the owner — the banner's chevron, and
@@ -264,7 +275,7 @@ struct ContentView: View {
 
     private var tabs: some View {
         TabView(selection: tabBinding) {
-            NavigationStack {
+            NavigationStack(path: $router.today) {
                 TodayScreen(companion: companion, alerts: alerts, site: site, family: family)
                     .srConnectionsBanner(connections) { router.openConnections() }
             }

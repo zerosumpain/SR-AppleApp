@@ -191,8 +191,8 @@ struct TodayScreen: View {
 
                 // A trip running today (in its own time zone): what is next
                 // and when to leave. Before one, a quieter line; with no
-                // trips at all, nothing. The owner's, like the planner (D2).
-                if access.current.owner && site.paired {
+                // trips at all, nothing. Every family member's (v5).
+                if site.paired && (access.current.owner || access.current.family) {
                     TodayTripCard()
                 }
 
@@ -269,7 +269,7 @@ struct TodayScreen: View {
             await alerts.refresh()
             await connections.refresh()
             if companion.paired { await companion.sync() }
-            if access.current.owner { await TripStore.shared.refresh() }
+            if access.current.owner || access.current.family { await TripStore.shared.refresh() }
         }
         .toolbar {
             // The date, where the page title used to carry it.
@@ -380,7 +380,7 @@ struct TodayScreen: View {
     /// ETag, so an unchanged trip costs a 304), and the running day's Lock
     /// Screen card and geofences brought up to date.
     private func loadTrips() async {
-        guard access.current.owner && site.paired else { return }
+        guard site.paired && (access.current.owner || access.current.family) else { return }
         await TripStore.shared.refreshIfStale()
         TripLive.shared.refresh()
         TripArrivals.shared.refresh()

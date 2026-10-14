@@ -1320,11 +1320,20 @@ final class ShowcaseTests: XCTestCase {
         settle(app)
         attach(app, "Showcase — Trip day, timeline")
 
-        // v4: the rest of the day in its four stages.
+        // v4: the rest of the day in its four stages; v5: a suggestion waiting
+        // in the afternoon, and ideas for a slot.
         let afternoon = byId(app, "trip-stage-afternoon")
         if scroll(app, to: afternoon) {
             settle(app)
-            attach(app, "Showcase — Trip day, stages")
+            attach(app, "Showcase — Trip day, stages and a suggestion")
+            let suggest = byId(app, "trip-suggest-afternoon")
+            if scroll(app, to: suggest) {
+                suggest.tap()
+                settle(app, on: byId(app, "trip-idea-take"), seconds: 2)
+                attach(app, "Showcase — Trip day, make a suggestion")
+            } else {
+                soft(false, "no Make a suggestion in the afternoon")
+            }
         } else {
             soft(false, "no stage bands on the Day screen")
         }
@@ -1352,7 +1361,7 @@ final class ShowcaseTests: XCTestCase {
     }
 
     /// Day one: the 07:35 from Newcastle landing, the taxi in, bags dropped
-    /// before check-in, lunch — and the trip's "What I know about you".
+    /// before check-in, lunch — and the trip's day timeline and travellers.
     @MainActor func testShowcaseTripArrivalDay() {
         let app = launch()
         soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
@@ -1364,10 +1373,8 @@ final class ShowcaseTests: XCTestCase {
         let all = byId(app, "trip-all-days")
         guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
         all.tap()
-        let profile = byId(app, "trip-profile")
-        settle(app)
-        attach(app, "Showcase — Trip, days")
-        if scroll(app, to: profile) { attach(app, "Showcase — Trip, what I know about you") }
+        settle(app, on: byId(app, "trip-timeline"))
+        attach(app, "Showcase — Trip, timeline and travellers")
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'trip-day-2'")).firstMatch
         guard scroll(app, to: first) else { return soft(false, "no first day row") }
         first.tap()
@@ -1376,6 +1383,33 @@ final class ShowcaseTests: XCTestCase {
         app.swipeUp()
         settle(app)
         attach(app, "Showcase — Trip, arrival day, scrolled")
+    }
+
+    /// v5: a new trip from the Trips list, by talking to the planner.
+    @MainActor func testShowcaseTripNew() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
+        card.tap()
+        settle(app, on: byId(app, "trip-day-screen"))
+        let all = byId(app, "trip-all-days")
+        guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
+        all.tap()
+        settle(app)
+        let trips = byId(app, "trip-all-trips")
+        guard scroll(app, to: trips, swipes: 12) else { return soft(false, "no All trips link") }
+        trips.tap()
+        settle(app, on: byId(app, "trips-screen"))
+        let new = byId(app, "trip-new-button")
+        if new.waitForExistence(timeout: 5) {
+            new.tap()
+            settle(app, on: byId(app, "trip-new"))
+            attach(app, "Showcase — New trip")
+        } else {
+            soft(false, "no New trip button on the Trips list")
+        }
     }
 
     /// Off the plan: a coffee after the Pantheon, the planner's view and
