@@ -78,7 +78,36 @@ enum TripReplan {
 
     /// Up to three ways to carry on from now, best first: shift, drop nices,
     /// swap or reorder. Identical days are offered once.
-    static func replanDay(_ input: Input) -> [ReplanOption] {
+    /// Where the person is in today's plan, as the re-planners see it
+    /// (`situation` in replan.ts).
+    struct Situation {
+        var ctx: SolverContext
+        var frame: DayFrame
+        var done: Set<String>
+        var prefix: [PlannedStop]
+        var pending: [PlannedStop]
+        var at: Int
+        var leave: Double
+        var start: SimStart
+        /// Pending stops as items: missed slots removed, locked stops held.
+        var items: [Item]
+        var missed: [Item]
+        var missedWarnings: [String]
+        var missedIds: [String]
+        var oldEnd: Double
+
+        /// Earliest arrival at an item going straight there from `start`.
+        func direct(_ item: Item) -> Double {
+            guard let point = item.point else { return leave }
+            if let position = start.fromPosition {
+                return leave + js.ceil(legFromPosition(ctx, position, point).durationSec / 60)
+            }
+            guard let from = start.fromPoint else { return leave }
+            return leave + js.ceil(chooseLeg(ctx, from, point).durationSec / 60)
+        }
+    }
+
+    static func situation(_ input: Input) -> Situation {
         let day = input.day
         let c = input.context
         let ctx = SolverContext(c.trip, c.stays, c.wishes, c.matrix)
@@ -95,7 +124,7 @@ enum TripReplan {
             while h + 1 < body.count && done.contains(body[h + 1].id) { h += 1 }
         }
         var prefix = Array(body.prefix(h + 1))
-        let pending = body.suffix(from: h + 1).filter { !done.contains($0.id) && $0.kind != .stay }
+        let pending = Array(body.suffix(from: h + 1).filter { !done.contains($0.id) && $0.kind != .stay })
         let stillThere = !prefix.isEmpty && (at >= 0 || prefix[prefix.count - 1].kind == .stay)
         // Still at a stop (or the stay): set off once the visit and its
         // buffer are over, or now if that has passed.
@@ -107,33 +136,65 @@ enum TripReplan {
 
         var start = startAfter(prefix, day, departMin: leave)
         if let position = input.position, at < 0 { start.fromPosition = position }
-        var items = toItems(Array(pending), day, c.wishes, c.bookings, ctx)
+        let all = toItems(pending, day, c.wishes, c.bookings, ctx)
 
+        var sit = Situation(
+            ctx: ctx, frame: frame, done: done, prefix: prefix, pending: pending, at: at, leave: leave,
+            start: start, items: [], missed: [], missedWarnings: [], missedIds: [], oldEnd: oldEnd
+        )
         // Missed slots: a locked stop we cannot reach within the grace even
         // going straight there leaves today's plan, is listed in every
         // option's `dropped`, and every option's day carries a warning.
-        let begin = start
-        func direct(_ item: Item) -> Double {
-            guard let point = item.point else { return leave }
-            if let position = begin.fromPosition {
-                return leave + js.ceil(legFromPosition(ctx, position, point).durationSec / 60)
-            }
-            guard let from = begin.fromPoint else { return leave }
-            return leave + js.ceil(chooseLeg(ctx, from, point).durationSec / 60)
-        }
-        let missed = items.filter { i in
+        let missed = all.filter { i in
             guard i.locked, let fixed = i.fixedStartMin else { return false }
-            return direct(i) > fixed + missedSlotGraceMin
+            return sit.direct(i) > fixed + missedSlotGraceMin
         }
         let missedSerials = Set(missed.map(\.serial))
-        items = items.filter { !missedSerials.contains($0.serial) }.map { i in
+        sit.items = all.filter { !missedSerials.contains($0.serial) }.map { i in
             guard i.locked, let planned = pending.first(where: { $0.id == i.id }) else { return i }
             var held = i
             held.heldArriveMin = planned.arriveMin
             return held
         }
-        let missedWarnings = missed.map { "Missed your \(fmtMin($0.fixedStartMin ?? 0)) \($0.title) slot" }
-        let missedIds = missed.map { $0.wishId ?? $0.id }
+        sit.missed = missed
+        sit.missedWarnings = missed.map { "Missed your \(fmtMin($0.fixedStartMin ?? 0)) \($0.title) slot" }
+        sit.missedIds = missed.map { $0.wishId ?? $0.id }
+        return sit
+    }
+
+    /// Make a sequence work without reordering it: drop the nices squeezing a
+    /// slot, then any closed on arrival, then the lowest value — but only
+    /// while a drop buys more than the nice is worth.
+    static func settle(_ ctx: SolverContext, _ frame: DayFrame, _ start: SimStart, _ seq: [Item])
+        -> (seq: [Item], sim: Simulation, gone: [Item], moved: [(Item, Item)]) {
+        let first = repair(ctx, frame, start, seq, dropFirst: true)
+        var current = first.seq
+        var sim = first.sim
+        var gone = first.dropped
+        var moved = first.moved
+        while hasProblems(sim) {
+            let candidates = current.filter(droppable)
+            if candidates.isEmpty { break }
+            let closed = js.sorted(candidates.filter { cand in
+                sim.issues.contains { $0.itemId == cand.id && $0.kind == .closed }
+            }, by: byLowestValue)
+            guard let victim = closed.first ?? js.sorted(candidates, by: byLowestValue).first else { break }
+            let next = repair(ctx, frame, start, current.filter { $0.serial != victim.serial }, dropFirst: true)
+            if next.sim.cost + Cost.droppedNice * Double(next.dropped.count + 1) >= sim.cost { break }
+            gone.append(victim)
+            current = next.seq
+            sim = next.sim
+            gone += next.dropped
+            moved = next.moved
+        }
+        return (current, sim, gone, moved)
+    }
+
+    static func replanDay(_ input: Input) -> [ReplanOption] {
+        let sit = situation(input)
+        let ctx = sit.ctx, frame = sit.frame, pending = sit.pending, begin = sit.start, items = sit.items
+        let missed = sit.missed, missedWarnings = sit.missedWarnings, missedIds = sit.missedIds, oldEnd = sit.oldEnd
+        func direct(_ item: Item) -> Double { sit.direct(item) }
 
         struct Scored { var option: ReplanOption; var score: Double }
         var options: [Scored] = []
@@ -186,25 +247,8 @@ enum TripReplan {
         // 2. Drop nices until the day works: those squeezing a slot first,
         // then any closed on arrival, then the lowest value.
         if hasProblems(shift.sim) || !shift.moved.isEmpty {
-            let first = repairSeq(items, true)
-            var current = first.seq
-            var sim = first.sim
-            var gone: [Item] = first.dropped
-            var moved = first.moved
-            while hasProblems(sim) {
-                let candidates = current.filter(droppable)
-                if candidates.isEmpty { break }
-                let closed = js.sorted(candidates.filter { cand in
-                    sim.issues.contains { $0.itemId == cand.id && $0.kind == .closed }
-                }, by: byLowestValue)
-                guard let victim = closed.first ?? js.sorted(candidates, by: byLowestValue).first else { break }
-                gone.append(victim)
-                let next = repairSeq(current.filter { $0.serial != victim.serial }, true)
-                current = next.seq
-                sim = next.sim
-                gone += next.dropped
-                moved = next.moved
-            }
+            let settled = settle(ctx, frame, begin, items)
+            let sim = settled.sim, gone = settled.gone, moved = settled.moved
             if !gone.isEmpty {
                 let names = gone.map(\.title)
                 make(
@@ -427,7 +471,7 @@ enum TripReplan {
         case .walk: return 4.8
         case .cycle: return 15
         case .transit: return 18
-        case .drive: return 20
+        case .drive, .taxi, .unknown: return 20
         }
     }
 
@@ -443,7 +487,7 @@ enum TripReplan {
         let metres = js.round(haversineM(a, b) * networkFactor)
         if metres == 0 { return (0, 0) }
         let travel = metres / ((kmh(mode) * 1000) / 3600)
-        let overhead = mode == .transit ? transitOverheadSec : 0
+        let overhead = mode == .transit ? transitOverheadSec : mode == .taxi ? TravelMode.taxiPickupSec : 0
         return (js.round(travel + overhead), metres)
     }
 
@@ -485,7 +529,7 @@ enum TripReplan {
             for s in stays { locations[stayPoint(s.id)] = s.location }
             for w in wishes { if let place = w.place { locations[w.id] = place.location } }
             rules = TripPaceRules.of(trip.pace)
-            modes = TravelMode.allCases.filter { $0 == .walk || trip.modes.contains($0) }
+            modes = TravelMode.canonical.filter { $0 == .walk || trip.modes.contains($0) }
             self.matrix = matrix
             self.index = index
             self.locations = locations
@@ -497,6 +541,17 @@ enum TripReplan {
         return v
     }
 
+    /// Taxi time from a drive time: the drive plus the wait for pick-up.
+    static func taxiSec(_ driveSec: Double) -> Double { driveSec + TravelMode.taxiPickupSec }
+
+    /// One mode between matrix indices. Taxi is derived from the drive row
+    /// (a matrix never has taxi rows); nil = no route.
+    static func modeSeconds(_ matrix: TravelMatrix, _ mode: TravelMode, _ i: Int, _ j: Int) -> (seconds: Double, metres: Double?, estimated: Bool)? {
+        let row: TravelMode = mode == .taxi ? .drive : mode
+        guard let sec = cell(matrix.seconds, row, i, j) else { return nil }
+        return (mode == .taxi ? taxiSec(sec) : sec, cell(matrix.metres, row, i, j), matrix.estimated[row.rawValue] ?? false)
+    }
+
     /// Walk when the walk is within the pace's limit, else the fastest
     /// allowed mode with a route, else an estimated walk.
     static func chooseLeg(_ ctx: SolverContext, _ from: String, _ to: String) -> LegChoice {
@@ -506,9 +561,8 @@ enum TripReplan {
         var choice: LegChoice?
         if let i = ctx.index[from], let j = ctx.index[to] {
             func of(_ mode: TravelMode) -> LegChoice? {
-                guard let sec = cell(ctx.matrix.seconds, mode, i, j) else { return nil }
-                return LegChoice(mode: mode, durationSec: sec, distanceM: cell(ctx.matrix.metres, mode, i, j),
-                                 estimated: ctx.matrix.estimated[mode.rawValue] ?? false)
+                guard let m = modeSeconds(ctx.matrix, mode, i, j) else { return nil }
+                return LegChoice(mode: mode, durationSec: m.seconds, distanceM: m.metres, estimated: m.estimated)
             }
             if let walk = of(.walk), walk.durationSec <= ctx.rules.walkLimitSec {
                 choice = walk
@@ -655,6 +709,107 @@ enum TripReplan {
             baseWarnings: wish.map { wishWarnings($0, bookings, windows) } ?? [],
             sortHint: wish?.sortHint ?? 0
         )
+    }
+
+    static let defaultVisitMin = 60.0
+
+    /// The booked booking for a wish: earliest date and time, then id.
+    static func bookedSlot(_ wishId: String, _ bookings: [TripBooking]) -> TripBooking? {
+        js.sorted(bookings.filter { $0.wishId == wishId && $0.status == .booked && $0.date != nil && $0.startMin != nil }) { a, b in
+            let d = js.compare(a.date ?? "", b.date ?? "")
+            if d != 0 { return d }
+            return js.cmp(a.startMin ?? 0, b.startMin ?? 0) ?? js.compare(a.id, b.id)
+        }.first
+    }
+
+    /// The date a wish is pinned to: its booked slot's, else its fixed date.
+    static func pinnedDate(_ wish: TripWish, _ bookings: [TripBooking]) -> String? {
+        bookedSlot(wish.id, bookings)?.date ?? wish.fixedDate
+    }
+
+    static func visitMin(_ wish: TripWish, _ booking: TripBooking?) -> Double {
+        if let d = wish.durationSec, d > 0 { return js.round(d / 60) }
+        if let t = wish.facts?.typicalVisitSec, t > 0 { return js.round(t / 60) }
+        if let b = booking, let s = b.startMin, let e = b.endMin, e > s { return e - s }
+        return defaultVisitMin
+    }
+
+    static func wishItem(_ wish: TripWish, _ date: String, _ bookings: [TripBooking]) -> Item {
+        let booking = bookedSlot(wish.id, bookings)
+        let windows = windowsOn(wish.facts, date)
+        var fixedStartMin: Double?
+        var bookingId: String?
+        if let booking, booking.date == date {
+            fixedStartMin = booking.startMin
+            bookingId = booking.id
+        } else if wish.fixedDate == date, let fixed = wish.fixedStartMin {
+            fixedStartMin = fixed
+        }
+        return Item(
+            serial: nextSerial(), id: wish.id, kind: .wish, wishId: wish.id, title: wish.title, point: wish.id,
+            location: wish.place?.location, durationMin: visitMin(wish, booking), fixedStartMin: fixedStartMin,
+            locked: fixedStartMin != nil || wish.locked, bookingId: bookingId, priority: wish.priority,
+            partOfDay: wish.partOfDay, windows: windows, baseWarnings: wishWarnings(wish, bookings, windows),
+            sortHint: wish.sortHint
+        )
+    }
+
+    // MARK: - trip.ts: the offline pull-forward
+
+    /// A later-day wish this close on foot (seconds) can be pulled into now.
+    static let pullForwardWalkSec = 15.0 * 60
+
+    struct PullCandidate: Equatable {
+        var wishId: String
+        var from: String
+        var walkSec: Double
+    }
+
+    /// Later-day wishes (not locked or pinned, open today) within
+    /// `pullForwardWalkSec` on foot of `position`, nearest first.
+    static func pullForwardCandidates(_ wishes: [TripWish], _ bookings: [TripBooking], today: String,
+                                      laterDays: [PlannedDay], position: TripLatLng) -> [PullCandidate] {
+        var byId: [String: TripWish] = [:]
+        for w in wishes { byId[w.id] = w }
+        var out: [(PullCandidate, Double)] = []
+        for day in laterDays where js.compare(day.date, today) > 0 {
+            for s in day.stops {
+                guard let id = s.wishId, let wish = byId[id], let place = wish.place,
+                      !s.locked, !wish.locked, pinnedDate(wish, bookings) == nil else { continue }
+                if let w = windowsOn(wish.facts, today), w.isEmpty { continue }
+                let walkSec = estimateLeg(position, place.location, .walk).seconds
+                if walkSec > pullForwardWalkSec { continue }
+                out.append((PullCandidate(wishId: wish.id, from: day.date, walkSec: walkSec), wish.sortHint))
+            }
+        }
+        return js.sorted(out) { a, b in
+            js.cmp(a.0.walkSec, b.0.walkSec) ?? js.cmp(a.1, b.1) ?? js.compare(a.0.wishId, b.0.wishId)
+        }.map(\.0)
+    }
+
+    /// Today with `wishIds` done first, from now: the same pieces as
+    /// `replanDay` (missed-slot rule, held locked stops, settle). The day the
+    /// wish left is re-fitted by the server; offline the phone only removes it.
+    static func pullForwardDay(_ input: Input, wishIds: [String], without: [String] = [])
+        -> (day: PlannedDay, dropped: [String], gone: [Item]) {
+        let sit = situation(input)
+        var byId: [String: TripWish] = [:]
+        for w in input.context.wishes { byId[w.id] = w }
+        let already = sit.items.filter { wishIds.contains($0.wishId ?? "") }
+        let alreadySerials = Set(already.map(\.serial))
+        let pulled = wishIds
+            .filter { id in !already.contains { $0.wishId == id } }
+            .compactMap { byId[$0] }
+            .map { wishItem($0, sit.frame.date, input.context.bookings) }
+        let rest = sit.items.filter {
+            !alreadySerials.contains($0.serial) && $0.kind != .meal && !without.contains($0.wishId ?? "")
+        }
+        let meals = sit.items.filter { $0.kind == .meal }
+        let placed = withMeals(sit.ctx, sit.frame, sit.start, already + pulled + rest, meals).seq
+        let settled = settle(sit.ctx, sit.frame, sit.start, placed)
+        var day = toPlannedDay(sit.frame, settled.sim)
+        day.warnings = sit.missedWarnings + day.warnings
+        return (day, sit.missedIds + settled.gone.map { $0.wishId ?? $0.id }, settled.gone)
     }
 
     // MARK: - order.ts
@@ -867,8 +1022,13 @@ enum TripReplan {
             let c: LegChoice
             if first, let position = start.fromPosition, let to {
                 c = legFromPosition(ctx, position, to)
-            } else if let point, let to {
-                c = chooseLeg(ctx, point, to)
+            } else if let to {
+                if let point {
+                    c = chooseLeg(ctx, point, to)
+                } else {
+                    // From a meal (no matrix point): estimated from where it was.
+                    c = prevLocation.map { legFromPosition(ctx, $0, to) } ?? zeroLeg
+                }
             } else {
                 c = zeroLeg
             }

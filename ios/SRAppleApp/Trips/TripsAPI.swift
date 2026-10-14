@@ -64,13 +64,32 @@ enum TripsAPI {
     }
 
     static func replan(_ request: TripReplanBody, trip id: String) async throws -> [ReplanOption] {
+        try await replanReply(request, trip: id).options
+    }
+
+    /// The whole answer: day options, and with scope "trip" the trip options
+    /// and the planner's narrative.
+    static func replanReply(_ request: TripReplanBody, trip id: String) async throws -> TripReplanReply {
         let body = try JSONEncoder().encode(request)
         let (data, http) = try await exchange(path(id) + "/replan", method: "POST", body: body)
         try check(http, data)
         do {
-            return try JSONDecoder().decode(TripReplanReply.self, from: data).options
+            return try JSONDecoder().decode(TripReplanReply.self, from: data)
         } catch {
             throw Failure.refused(200, "The server's options were unreadable.")
+        }
+    }
+
+    /// One turn of the planning conversation ("Edit plan"). Never queued:
+    /// a conversation needs the planner to answer.
+    static func converse(_ text: String, trip id: String) async throws -> ConverseResult {
+        let body = try JSONEncoder().encode(ConverseBody(text: text))
+        let (data, http) = try await exchange(path(id) + "/converse", method: "POST", body: body)
+        try check(http, data)
+        do {
+            return try JSONDecoder().decode(ConverseResult.self, from: data)
+        } catch {
+            throw Failure.refused(200, "The planner's answer was unreadable.")
         }
     }
 

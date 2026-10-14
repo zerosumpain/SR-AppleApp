@@ -50,7 +50,8 @@ enum TripDirections {
         case .transit: return MKLaunchOptionsDirectionsModeTransit
         // Maps has no cycling launch mode to ask for: its default opens on
         // the person's own preferred mode, which for a cyclist is cycling.
-        case .cycle: return MKLaunchOptionsDirectionsModeDefault
+        case .cycle, .unknown: return MKLaunchOptionsDirectionsModeDefault
+        case .taxi: return MKLaunchOptionsDirectionsModeDriving
         }
     }
 

@@ -93,6 +93,16 @@ enum SRDemo {
         #endif
     }
 
+    /// `-SRDemoOffPlan` as well: the Rome trip day has left the Pantheon for
+    /// a café, so the showcase can photograph the off-plan card.
+    static var isOffPlanShot: Bool {
+        #if DEBUG
+        return isShowcase && ProcessInfo.processInfo.arguments.contains("-SRDemoOffPlan")
+        #else
+        return false
+        #endif
+    }
+
     /// What demo mode may use: everything, as the owner, unless a member.
     static var access: AppAccess {
         isMember ? AppAccess(family: true, games: true) : .everything

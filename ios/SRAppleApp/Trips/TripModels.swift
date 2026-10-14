@@ -25,8 +25,25 @@ struct TripLatLng: Codable, Hashable {
     var lng: Double
 }
 
-enum TravelMode: String, Codable, CaseIterable, Hashable {
-    case walk, cycle, drive, transit
+/// `taxi` (v2) is a drive leg the person does not drive: drive-matrix time
+/// plus `pickupSec`, with guidance on how to get one in that city.
+///
+/// A mode this version does not know (a later server's) decodes as
+/// `unknown` instead of failing the whole bundle — a trip stays readable
+/// offline whatever the server adds. Shown as a plain leg; never re-sent.
+enum TravelMode: String, Codable, Hashable {
+    case walk, cycle, drive, transit, taxi
+    case unknown
+
+    /// `TRAVEL_MODES`: the canonical order the solver walks modes in.
+    static let canonical: [TravelMode] = [.walk, .cycle, .drive, .transit, .taxi]
+    /// `TAXI_PICKUP_SEC`.
+    static let taxiPickupSec = 8.0 * 60
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = TravelMode(rawValue: raw) ?? .unknown
+    }
 }
 
 enum TripPace: String, Codable, Hashable {
@@ -163,6 +180,8 @@ struct TripWish: Codable, Hashable, Identifiable {
     var facts: TripFacts?
     var note: String?
     var sortHint: Double
+    /// v2: what to know when you're there.
+    var guide: StopGuide? = nil
 }
 
 enum BookingStatus: String, Codable, Hashable {
@@ -216,6 +235,8 @@ struct PlannedLeg: Codable, Hashable {
     var estimated: Bool
     /// Simplified line for drawing, ≤ 300 points. Null until routed.
     var line: [TripLatLng]?
+    /// v2: how to actually do this leg. Null until guidance is generated.
+    var guidance: LegGuidance? = nil
 }
 
 struct PlannedDay: Codable, Hashable, Identifiable {
@@ -289,6 +310,12 @@ struct TripBundle: Codable, Hashable {
     /// Per day: that day's stops and its stay only.
     var matrices: [String: TravelMatrix]
     var etag: String
+    /// v2: the planning conversation, last 50 (absent from a v1 server).
+    var messages: [TripMessage]? = nil
+    /// v2: city-level know-how.
+    var guide: TripGuide? = nil
+    /// v2: every point of the trip, for an offline pull-forward.
+    var tripMatrix: TravelMatrix? = nil
 }
 
 enum TripEventKind: String, Codable, Hashable {
@@ -332,6 +359,10 @@ struct TripReplanBody: Codable {
     var position: TripLatLng?
     var atStopId: String?
     var doneStopIds: [String]
+    /// v2: "day" (default) or "trip".
+    var scope: String? = nil
+    /// v2: what the phone saw.
+    var observation: Observation? = nil
 }
 
 struct ReplanOption: Codable, Hashable, Identifiable {
@@ -347,6 +378,10 @@ struct ReplanOption: Codable, Hashable, Identifiable {
 
 struct TripReplanReply: Codable {
     var options: [ReplanOption]
+    /// v2, scope "trip".
+    var tripOptions: [TripReplanOption]? = nil
+    /// v2: what is happening and what the planner would do.
+    var narrative: String? = nil
 }
 
 // MARK: - Free-form JSON
@@ -472,7 +507,7 @@ extension PlannedStop {
 
 extension PlannedLeg {
     private enum Keys: String, CodingKey {
-        case fromStopId, toStopId, mode, durationSec, distanceM, estimated, line
+        case fromStopId, toStopId, mode, durationSec, distanceM, estimated, line, guidance
     }
 
     func encode(to encoder: Encoder) throws {
@@ -484,6 +519,8 @@ extension PlannedLeg {
         try c.encode(distanceM, forKey: .distanceM)
         try c.encode(estimated, forKey: .estimated)
         try c.encode(line, forKey: .line)
+        // Optional in the contract (`guidance?:`): left out rather than null.
+        try c.encodeIfPresent(guidance, forKey: .guidance)
     }
 }
 
@@ -515,7 +552,7 @@ extension TripEvent {
 }
 
 extension TripReplanBody {
-    private enum Keys: String, CodingKey { case date, nowMin, position, atStopId, doneStopIds }
+    private enum Keys: String, CodingKey { case date, nowMin, position, atStopId, doneStopIds, scope, observation }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
@@ -524,5 +561,169 @@ extension TripReplanBody {
         try c.encode(position, forKey: .position)
         try c.encode(atStopId, forKey: .atStopId)
         try c.encode(doneStopIds, forKey: .doneStopIds)
+        // `scope?:` and `observation?:` are optional, not nullable.
+        try c.encodeIfPresent(scope, forKey: .scope)
+        try c.encodeIfPresent(observation, forKey: .observation)
     }
+}
+
+// MARK: - v2: guidance, the planning conversation, going off-plan
+
+/// A link the phone can open: a URL, `tel:`, or an app's universal link.
+struct GuideLink: Codable, Hashable {
+    var label: String
+    var url: String
+}
+
+/// How to do one leg, for someone standing at the start of it.
+struct LegGuidance: Codable, Hashable {
+    struct Transit: Codable, Hashable {
+        var line: String
+        /// "bus", "tram", "metro", "train", "ferry" or "other". A String, so
+        /// a new vehicle never fails the bundle.
+        var vehicle: String
+        var fromStop: String
+        var toStop: String
+        var stops: Double?
+        /// Local minutes of the next few departures, when known.
+        var departuresMin: [Double]
+    }
+
+    struct Booking: Codable, Hashable {
+        var how: String
+        var links: [GuideLink]
+        var phone: String?
+    }
+
+    var summary: String
+    var steps: [String]
+    var transit: [Transit]?
+    var booking: Booking?
+    var tips: [String]
+    var costText: String?
+    /// "router", "model" or "mixed".
+    var source: String
+    var generatedAt: String
+}
+
+/// What to know at a stop: entry, tickets, dress code, what not to miss.
+struct StopGuide: Codable, Hashable {
+    var summary: String
+    var tips: [String]
+    var links: [GuideLink]
+    var generatedAt: String
+}
+
+/// City-level know-how, made once per trip.
+struct TripGuide: Codable, Hashable {
+    var gettingAround: String
+    var taxi: LegGuidance.Booking?
+    var transitTickets: String?
+    var tips: [String]
+    var generatedAt: String
+}
+
+/// One turn of the planning conversation.
+struct TripMessage: Codable, Hashable, Identifiable {
+    enum Role: String, Codable, Hashable { case user, assistant, event }
+
+    var id: String
+    var role: Role
+    var text: String
+    /// `TripOp`s, kept as JSON: the phone only shows them.
+    var ops: [TripJSON]
+    var planVersion: Int?
+    /// "site" or "phone".
+    var surface: String
+    var createdAt: String
+}
+
+/// `POST /api/native/trips/:id/converse` → one turn's answer.
+struct ConverseResult: Codable, Hashable {
+    struct Rejected: Codable, Hashable {
+        var op: TripJSON
+        var reason: String
+    }
+
+    var reply: String
+    var applied: [TripJSON]
+    var rejected: [Rejected]
+    var quickReplies: [String]
+    var planVersion: Int?
+    var changes: [String]
+}
+
+struct ConverseBody: Codable {
+    var text: String
+}
+
+enum OffPlanKind: String, Codable, Hashable {
+    case behind
+    case offRoute = "off-route"
+    case unplannedStop = "unplanned-stop"
+    case outOfOrder = "out-of-order"
+    case idle
+}
+
+/// What the phone saw that made it think the person is off the plan.
+struct Observation: Codable, Hashable {
+    struct Place: Codable, Hashable {
+        var name: String?
+        var location: TripLatLng
+    }
+
+    var kind: OffPlanKind
+    var place: Place?
+    /// Local minute the condition started.
+    var sinceMin: Double
+    /// "walking", "cycling", "automotive", "stationary" or "unknown".
+    var motion: String
+    var stopId: String?
+
+    private enum Keys: String, CodingKey { case kind, place, sinceMin, motion, stopId }
+
+    init(kind: OffPlanKind, place: Place?, sinceMin: Double, motion: String, stopId: String?) {
+        self.kind = kind
+        self.place = place
+        self.sinceMin = sinceMin
+        self.motion = motion
+        self.stopId = stopId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        kind = try c.decode(OffPlanKind.self, forKey: .kind)
+        place = try c.decodeIfPresent(Place.self, forKey: .place)
+        sinceMin = try c.decode(Double.self, forKey: .sinceMin)
+        motion = try c.decode(String.self, forKey: .motion)
+        stopId = try c.decodeIfPresent(String.self, forKey: .stopId)
+    }
+
+    /// Nullable fields go up as null.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(place, forKey: .place)
+        try c.encode(sinceMin, forKey: .sinceMin)
+        try c.encode(motion, forKey: .motion)
+        try c.encode(stopId, forKey: .stopId)
+    }
+}
+
+/// A whole-trip re-plan from now: today and every later day.
+struct TripReplanOption: Codable, Hashable, Identifiable {
+    struct Moved: Codable, Hashable {
+        var wishId: String
+        var from: String?
+        var to: String
+    }
+
+    var id: String
+    var label: String
+    /// "carry-on", "resolve-rest", "pull-forward" or "stay-here".
+    var kind: String
+    var days: [PlannedDay]
+    var dropped: [String]
+    var moved: [Moved]
+    var explanation: String
 }

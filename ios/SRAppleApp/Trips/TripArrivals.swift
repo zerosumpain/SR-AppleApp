@@ -69,7 +69,7 @@ final class TripArrivals: NSObject, CLLocationManagerDelegate {
     }
 
     /// Today's stops still to come, in plan order, as regions. The morning's
-    /// stay is skipped: you start there.
+    /// stay is watched for its exit only.
     private static func wanted(store: TripStore, now: Date, budget: Int) -> [CLCircularRegion] {
         guard budget > 0, let running = store.running(now: now) else { return [] }
         let tripId = running.bundle.trip.id
@@ -77,14 +77,15 @@ final class TripArrivals: NSObject, CLLocationManagerDelegate {
         let marks = store.marks(tripId)
         var regions: [CLCircularRegion] = []
         for (i, stop) in day.stops.enumerated() where regions.count < budget {
-            if i == 0 && stop.kind == .stay { continue }
             guard let at = stop.location, marks[stop.id]?.done != true else { continue }
             let region = CLCircularRegion(
                 center: CLLocationCoordinate2D(latitude: at.lat, longitude: at.lng),
                 radius: radiusM,
                 identifier: identifier(trip: tripId, date: day.date, stop: stop.id)
             )
-            region.notifyOnEntry = true
+            // The morning's stay is watched for LEAVING only: you start
+            // there, and its exit is what says the day has begun.
+            region.notifyOnEntry = !(i == 0 && stop.kind == .stay)
             region.notifyOnExit = true
             regions.append(region)
         }
@@ -126,8 +127,16 @@ final class TripArrivals: NSObject, CLLocationManagerDelegate {
         guard let key = Self.parse(identifier),
               let day = TripStore.shared.day(key.trip, key.date),
               let stop = day.stops.first(where: { $0.id == key.stop }) else { return }
-        guard let mark = TripStore.shared.marks(key.trip)[stop.id],
-              let arrived = mark.arrivedAt, mark.leftAt == nil, !mark.skipped else { return }
+        let mark = TripStore.shared.marks(key.trip)[stop.id]
+        // Leaving the morning's stay starts the day: nothing records arriving there.
+        if stop.kind == .stay, day.index(of: stop.id) == 0 {
+            if mark?.leftAt == nil {
+                TripStore.shared.record(.left, tripId: key.trip, stop: stop, at: now, detail: ["detected": .bool(true)])
+                refresh(now: now)
+            }
+            return
+        }
+        guard let mark, let arrived = mark.arrivedAt, mark.leftAt == nil, !mark.skipped else { return }
         if now.timeIntervalSince(arrived) < Self.passingBySec && !mark.corrected {
             TripStore.shared.clear(stop.id, tripId: key.trip)
             return

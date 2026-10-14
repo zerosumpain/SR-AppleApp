@@ -38,6 +38,7 @@ struct TripAttributes: ActivityAttributes {
             case "cycle": how = "cycle"
             case "drive": how = "drive"
             case "transit": how = "by transit"
+            case "taxi": how = "by taxi"
             default: how = legMode
             }
             return "\(legMinutes) min \(how)"
@@ -57,6 +58,7 @@ struct TripAttributes: ActivityAttributes {
             case "cycle": return "bicycle"
             case "drive": return "car.fill"
             case "transit": return "tram.fill"
+            case "taxi": return "car.side.fill"
             default: return "mappin.and.ellipse"
             }
         }

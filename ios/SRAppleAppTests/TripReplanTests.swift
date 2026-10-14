@@ -4,7 +4,7 @@ import XCTest
 /// The phone's port of the trip solver (`Trips/TripReplan.swift`) against
 /// SR-Main's own answers. `Fixtures/TripCases/*.json` are copied verbatim
 /// from SR-Main `src/lib/trips/solver/fixtures/cases/` (feat/trips-solver,
-/// c1100734): each holds the solver's input and the output the TypeScript
+/// d7313eb3): each holds the solver's input and the output the TypeScript
 /// gave. Every case must come back identical — same stops, same minutes,
 /// same legs, same warnings, same labels, same order.
 ///
@@ -60,7 +60,84 @@ final class TripReplanTests: XCTestCase {
     }
 
     func testEverySharedCaseIsBundled() {
-        XCTAssertEqual(caseFiles().count, 11, "the eleven shared cases from SR-Main should all be in the test bundle")
+        XCTAssertEqual(caseFiles().count, 11, "the eleven replan/retime cases from SR-Main should all be in the test bundle")
+        XCTAssertEqual(tripCaseFiles().count, 5, "and the five replanTrip cases")
+    }
+
+    // MARK: replanTrip cases (server-side)
+    //
+    // `replanTrip` is not ported — it needs `solveTrip`. These check the
+    // parts of its answers the phone's port DOES produce: every carry-on
+    // option's today is `replanDay`'s best (taxi legs included), and a
+    // pull-forward's today is `pullForwardCandidates` + `pullForwardDay`.
+
+    private struct TripInput: Decodable {
+        let trip: Trip
+        let stays: [TripStay]
+        let wishes: [TripWish]
+        let bookings: [TripBooking]
+        let matrix: TravelMatrix
+        let day: PlannedDay
+        let nowMin: Double
+        let position: TripLatLng?
+        let atStopId: String?
+        let doneStopIds: [String]
+        let observation: Observation?
+        let plannedDays: [PlannedDay]
+    }
+
+    private struct TripCase: Decodable {
+        let name: String
+        let input: TripInput
+        let expected: [TripReplanOption]
+    }
+
+    private func tripCaseFiles() -> [URL] {
+        let bundle = Bundle(for: TripReplanTests.self)
+        let all = (bundle.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
+            + (bundle.urls(forResourcesWithExtension: "json", subdirectory: "TripCases") ?? [])
+        var seen = Set<String>()
+        return all.filter { $0.lastPathComponent.hasPrefix("trip-") && seen.insert($0.lastPathComponent).inserted }
+    }
+
+    func testTheTripCasesAgreeWhereThePortReaches() throws {
+        for url in tripCaseFiles() {
+            let c = try JSONDecoder().decode(TripCase.self, from: Data(contentsOf: url))
+            let i = c.input
+            let context = TripReplan.Context(trip: i.trip, stays: i.stays, wishes: i.wishes, bookings: i.bookings, matrix: i.matrix)
+            let input = TripReplan.Input(context: context, day: i.day, nowMin: i.nowMin, position: i.position,
+                                         atStopId: i.atStopId, doneStopIds: i.doneStopIds)
+            if let carry = c.expected.first(where: { $0.kind == "carry-on" }) {
+                let best = try XCTUnwrap(TripReplan.replanDay(input).first, c.name)
+                XCTAssertEqual(try canonical(best.day), try canonical(carry.days[0]), "\(c.name): carry-on today")
+                XCTAssertEqual(best.dropped, carry.dropped, c.name)
+            }
+            if let pull = c.expected.first(where: { $0.kind == "pull-forward" }), let obs = i.observation {
+                let pulledId = pull.moved.first { $0.to == i.day.date }?.wishId ?? obs.stopId ?? ""
+                let without = pull.moved.filter { $0.from == i.day.date }.map(\.wishId)
+                var here = input
+                if obs.kind == .outOfOrder {
+                    here.position = obs.place?.location ?? i.position
+                } else {
+                    let place = try XCTUnwrap(obs.place?.location)
+                    let later = i.plannedDays.filter { $0.date > i.day.date }
+                    let first = TripReplan.pullForwardCandidates(i.wishes, i.bookings, today: i.day.date, laterDays: later, position: place).first
+                    XCTAssertEqual(first?.wishId, pulledId, "\(c.name): candidate")
+                    if TripReplan.situation(input).at < 0 { here.position = place }
+                }
+                let got = TripReplan.pullForwardDay(here, wishIds: [pulledId], without: without)
+                XCTAssertEqual(try canonical(got.day), try canonical(pull.days[0]), "\(c.name): pull-forward today")
+            }
+        }
+    }
+
+    func testTaxiIsTheDriveRowPlusPickUp() {
+        let matrix = TravelMatrix(points: ["a", "b"], seconds: ["drive": [[0, 600], [600, 0]]], metres: ["drive": [[0, 4000], [4000, 0]]], estimated: ["drive": false])
+        XCTAssertEqual(TripReplan.modeSeconds(matrix, .taxi, 0, 1)?.seconds, 600 + 8 * 60)
+        XCTAssertEqual(TripReplan.modeSeconds(matrix, .taxi, 0, 1)?.metres, 4000)
+        XCTAssertNil(TripReplan.modeSeconds(matrix, .transit, 0, 1))
+        let a = TripLatLng(lat: 41.89, lng: 12.47), b = TripLatLng(lat: 41.91, lng: 12.49)
+        XCTAssertEqual(TripReplan.estimateLeg(a, b, .taxi).seconds - TripReplan.estimateLeg(a, b, .drive).seconds, 480, accuracy: 1)
     }
 
     func testEverySharedCaseReplaysIdentically() throws {

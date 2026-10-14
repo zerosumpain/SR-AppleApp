@@ -168,6 +168,93 @@ final class TripTests: XCTestCase {
         XCTAssertEqual(clock.date("2026-10-27", minutes: 860).map(clock.minutes), 860)
     }
 
+    // MARK: v2
+
+    /// A mode a later server adds must not fail the whole bundle offline.
+    func testAnUnknownModeDecodesSafely() throws {
+        let json = #"{"fromStopId":"a","toStopId":"b","mode":"hovercraft","durationSec":60,"distanceM":null,"estimated":true,"line":null}"#
+        let leg = try JSONDecoder().decode(PlannedLeg.self, from: Data(json.utf8))
+        XCTAssertEqual(leg.mode, .unknown)
+        XCTAssertNil(leg.guidance)
+        let taxi = try JSONDecoder().decode(PlannedLeg.self, from: Data(json.replacingOccurrences(of: "hovercraft", with: "taxi").utf8))
+        XCTAssertEqual(taxi.mode, .taxi)
+        XCTAssertEqual(TripFormat.leg(taxi), "1 min by taxi")
+    }
+
+    /// The contract's v2 shapes, verbatim.
+    func testV2ShapesDecode() throws {
+        let guidance = #"{"summary":"Bus 64 from Largo Argentina, 4 stops","steps":[],"transit":[{"line":"64","vehicle":"bus","fromStop":"Largo Argentina","toStop":"San Pietro","stops":4,"departuresMin":[862,874]}],"booking":null,"tips":["Validate on board"],"costText":"€1.50","source":"router","generatedAt":"2026-10-27T10:00:00.000Z"}"#
+        let g = try JSONDecoder().decode(LegGuidance.self, from: Data(guidance.utf8))
+        XCTAssertEqual(g.transit?.first?.departuresMin, [862, 874])
+        let converse = #"{"reply":"Done.","applied":[{"op":"removeWish","id":"w1"}],"rejected":[{"op":{"op":"research","wishIds":[],"depth":"brief"},"reason":"nothing to research"}],"quickReplies":["Anything else?"],"planVersion":4,"changes":["Dropped the Steps"]}"#
+        let c = try JSONDecoder().decode(ConverseResult.self, from: Data(converse.utf8))
+        XCTAssertEqual(c.planVersion, 4)
+        XCTAssertEqual(c.rejected.first?.reason, "nothing to research")
+        let option = #"{"id":"pull-forward:w2","label":"Fit in X now","kind":"pull-forward","days":[],"dropped":[],"moved":[{"wishId":"w2","from":"2026-10-28","to":"2026-10-27"}],"explanation":"Close by."}"#
+        XCTAssertEqual(try JSONDecoder().decode(TripReplanOption.self, from: Data(option.utf8)).moved.first?.from, "2026-10-28")
+    }
+
+    /// `scope` and `observation` are optional (left out), the observation's
+    /// own nullable fields are null.
+    func testATripReplanRequestEncodes() throws {
+        var body = TripReplanBody(date: "2026-10-27", nowMin: 600, position: nil, atStopId: nil, doneStopIds: [])
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any])
+        XCTAssertNil(object["scope"])
+        XCTAssertNil(object["observation"])
+        body.scope = "trip"
+        body.observation = Observation(kind: .unplannedStop, place: nil, sinceMin: 590, motion: "stationary", stopId: nil)
+        object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any])
+        XCTAssertEqual(object["scope"] as? String, "trip")
+        let observation = try XCTUnwrap(object["observation"] as? [String: Any])
+        XCTAssertEqual(observation["kind"] as? String, "unplanned-stop")
+        XCTAssertTrue(observation["place"] is NSNull)
+    }
+
+    /// Only https, http and tel links from model-written guidance open.
+    func testGuideLinksAreFiltered() {
+        XCTAssertNotNil(TripLinkButtons.safeURL("https://example.org/taxi"))
+        XCTAssertNotNil(TripLinkButtons.safeURL("tel:+390600000"))
+        XCTAssertNil(TripLinkButtons.safeURL("javascript:alert(1)"))
+        XCTAssertNil(TripLinkButtons.safeURL("sms:123"))
+    }
+
+    // MARK: Off the plan
+
+    func testIdleAndBehindNeedEvidence() throws {
+        let clock = TripClock("Europe/Rome")
+        let day = Self.day()
+        let quiet = TripProgress.of(day: day, marks: [:], nowMin: 700, clock: clock)
+        XCTAssertTrue(TripOffPlanRules.detect(day: day, marks: [:], progress: quiet, nowMin: 700, fixes: [], dwell: nil, clock: clock).isEmpty,
+                      "nothing recorded and no fix: no prompt")
+        let marks = [
+            "stay:2026-10-27:start": TripStopMark(leftAt: clock.date("2026-10-27", minutes: 548)),
+            "pantheon": TripStopMark(arrivedAt: clock.date("2026-10-27", minutes: 560)),
+        ]
+        let at = TripProgress.of(day: day, marks: marks, nowMin: 630, clock: clock)
+        let kinds = TripOffPlanRules.detect(day: day, marks: marks, progress: at, nowMin: 630, fixes: [], dwell: nil, clock: clock)
+            .map(\.observation.kind)
+        XCTAssertEqual(Set(kinds), [.behind, .idle])
+    }
+
+    func testAnUnplannedStopIsFarFromEveryStop() {
+        let clock = TripClock("Europe/Rome")
+        let day = Self.day()
+        let p = TripProgress.of(day: day, marks: [:], nowMin: 600, clock: clock)
+        let far = TripOffPlanRules.Dwell(at: TripLatLng(lat: 41.91, lng: 12.50), sinceMin: 585)
+        let near = TripOffPlanRules.Dwell(at: TripLatLng(lat: 41.8987, lng: 12.4769), sinceMin: 585)
+        XCTAssertEqual(TripOffPlanRules.detect(day: day, marks: [:], progress: p, nowMin: 600, fixes: [], dwell: far, clock: clock)
+            .map(\.observation.kind), [.unplannedStop])
+        XCTAssertTrue(TripOffPlanRules.detect(day: day, marks: [:], progress: p, nowMin: 600, fixes: [], dwell: near, clock: clock).isEmpty)
+        XCTAssertTrue(TripOffPlanRules.detect(day: day, marks: [:], progress: p, nowMin: 590, fixes: [], dwell: far, clock: clock).isEmpty,
+                      "under twelve minutes is a pause, not a stop")
+    }
+
+    func testDistanceToALeg() {
+        let line = [TripLatLng(lat: 41.9, lng: 12.48), TripLatLng(lat: 41.9, lng: 12.49)]
+        XCTAssertLessThan(TripOffPlanRules.distanceToLine(TripLatLng(lat: 41.9, lng: 12.485), line), 1)
+        XCTAssertEqual(TripOffPlanRules.distanceToLine(TripLatLng(lat: 41.9036, lng: 12.485), line), 400, accuracy: 10)
+    }
+
     // MARK: Fixture
 
     private static func day() -> PlannedDay {

@@ -384,6 +384,7 @@ struct TodayScreen: View {
         await TripStore.shared.refreshIfStale()
         TripLive.shared.refresh()
         TripArrivals.shared.refresh()
+        TripOffPlan.shared.refresh()
     }
 
     // MARK: - Header

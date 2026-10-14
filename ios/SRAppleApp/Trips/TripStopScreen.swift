@@ -61,7 +61,27 @@ struct TripStopScreen: View {
             .padding(.vertical, 12)
             .srPlainRow()
 
-            gettingThere(day, index)
+            gettingThere(bundle, day, index)
+
+            if let guide = wish?.guide {
+                Section {
+                    Text(guide.summary)
+                        .font(SR.Text.body(15))
+                        .foregroundStyle(SR.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 4)
+                        .srPlainRow()
+                    ForEach(guide.tips, id: \.self) { tip in
+                        Label(tip, systemImage: "checkmark.circle")
+                            .font(SR.Text.secondary(14))
+                            .foregroundStyle(SR.inkSecondary)
+                            .srPlainRow()
+                    }
+                    ForEach(guide.links.filter { TripLinkButtons.safeURL($0.url) != nil }, id: \.url) { link in
+                        if let url = TripLinkButtons.safeURL(link.url) { linkRow(link.label, url) }
+                    }
+                } header: { SRSectionLabel(text: "Worth knowing") }
+            }
 
             if let booking {
                 Section {
@@ -99,61 +119,24 @@ struct TripStopScreen: View {
                 }
             }
 
-            Section {
-                corrections(stop)
-            } header: { SRSectionLabel(text: "Correct the day") }
+            // Read-only, like the Day screen: corrections are a long press
+            // on the day's list, and changes go through Edit plan.
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }
 
     @ViewBuilder
-    private func gettingThere(_ day: PlannedDay, _ index: Int) -> some View {
+    private func gettingThere(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int) -> some View {
         if let leg = day.leg(before: index) {
-            let stop = day.stops[index]
             Section {
-                factRow("From \(day.stops[index - 1].title)", TripFormat.leg(leg) + (leg.estimated ? " (estimate)" : ""))
-                if TripDirections.followsInApp(leg),
-                   let route = TripDirections.route(for: leg, from: day.stops[index - 1], to: stop, tripId: ref.tripId, date: ref.date) {
-                    Button { SRHaptic.tap(); following = route } label: { Label("Walk there", systemImage: "figure.walk") }
-                        .srPlainRow()
-                }
-                Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: leg.mode) } label: {
-                    Label("Directions in Maps", systemImage: "map")
-                }
+                TripNextStageCard(
+                    leg: leg, from: day.stops[index - 1], to: day.stops[index],
+                    bundle: bundle, date: ref.date, following: $following
+                )
                 .srPlainRow()
-                if leg.mode == .transit, TripDirections.hasCitymapper {
-                    Button { SRHaptic.tap(); TripDirections.openInCitymapper(stop) } label: {
-                        Label("Open in Citymapper", systemImage: "tram")
-                    }
-                    .srPlainRow()
-                }
+                .padding(.vertical, 6)
             } header: { SRSectionLabel(text: "Getting there") }
-        }
-    }
-
-    @ViewBuilder
-    private func corrections(_ stop: PlannedStop) -> some View {
-        let mark = store.marks(ref.tripId)[stop.id]
-        if mark?.arrivedAt == nil {
-            Button { store.record(.arrived, tripId: ref.tripId, stop: stop, corrected: true) } label: {
-                Label("I'm here", systemImage: "mappin.circle")
-            }.srPlainRow()
-        }
-        if mark?.arrivedAt != nil && mark?.leftAt == nil {
-            Button { store.record(.left, tripId: ref.tripId, stop: stop, corrected: true) } label: {
-                Label("I've left", systemImage: "figure.walk.departure")
-            }.srPlainRow()
-        }
-        if mark?.skipped != true && mark?.leftAt == nil && stop.kind == .wish {
-            Button { store.record(.skipped, tripId: ref.tripId, stop: stop, corrected: true) } label: {
-                Label("Skip it", systemImage: "forward")
-            }.srPlainRow()
-        }
-        if let mark {
-            Button(role: .destructive) { store.clear(stop.id, tripId: ref.tripId) } label: {
-                Label(mark.skipped ? "Not skipped after all" : "Not been yet", systemImage: "arrow.uturn.backward")
-            }.srPlainRow()
         }
     }
 

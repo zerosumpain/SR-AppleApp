@@ -286,6 +286,9 @@ final class TripStore: ObservableObject {
         TripEventQueue.shared.add(event, trip: tripId, basePlanVersion: bundles[tripId]?.plan?.version ?? 0)
         Task { await TripEventQueue.shared.flush() }
         TripLive.shared.refresh()
+        // An arrival, a departure or a skip can be what puts someone off
+        // the plan (out of order, behind).
+        TripOffPlan.shared.check()
     }
 
     /// Undo a mark the phone got wrong — "not here yet", "not skipped".
@@ -308,6 +311,31 @@ final class TripStore: ObservableObject {
         if let day = TripJSON.from(option.day) { detail["day"] = day }
         record(.optionApplied, tripId: tripId, stop: nil, detail: detail)
         TripArrivals.shared.refresh()
+    }
+
+    /// A whole-trip option (v2): every day it carries becomes the phone's
+    /// version, and `option-applied` goes up with `detail.days`.
+    func apply(_ option: TripReplanOption, tripId: String) {
+        var days = local.days[tripId] ?? [:]
+        for day in option.days {
+            days[day.date] = LocalDay(day: day, appliedAt: Date(), label: option.label, acceptedVersion: nil)
+        }
+        local.days[tripId] = days
+        persistLocal()
+        var detail: [String: TripJSON] = ["optionId": .string(option.id), "label": .string(option.label)]
+        if let all = TripJSON.from(option.days) { detail["days"] = all }
+        record(.optionApplied, tripId: tripId, stop: nil, detail: detail)
+        TripArrivals.shared.refresh()
+    }
+
+    /// After a conversation turn changed the plan: the server's version is
+    /// now the one to show, so the phone's own versions of days give way.
+    func adoptServerPlan(_ tripId: String) async {
+        local.days[tripId] = nil
+        persistLocal()
+        await fetch(tripId)
+        TripArrivals.shared.refresh()
+        TripLive.shared.refresh()
     }
 
     /// The server took an `option-applied`: remember which version stored it.
@@ -390,7 +418,10 @@ final class TripEventQueue: ObservableObject {
                 lastError = nil
                 let appliedDates = batch
                     .filter { $0.event.kind == .optionApplied && reply.accepted.contains($0.event.clientId) }
-                    .compactMap { $0.event.detail?["day"]?.decode(PlannedDay.self)?.date }
+                    .flatMap { item -> [String] in
+                        if let day = item.event.detail?["day"]?.decode(PlannedDay.self) { return [day.date] }
+                        return item.event.detail?["days"]?.decode([PlannedDay].self)?.map(\.date) ?? []
+                    }
                 if !appliedDates.isEmpty {
                     TripStore.shared.accepted(planVersion: reply.planVersion, tripId: head.tripId, dates: appliedDates)
                 }

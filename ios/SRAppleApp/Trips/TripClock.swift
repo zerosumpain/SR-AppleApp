@@ -99,6 +99,8 @@ enum TripFormat {
         case .cycle: return "cycle"
         case .drive: return "drive"
         case .transit: return "by transit"
+        case .taxi: return "by taxi"
+        case .unknown: return "travel"
         }
     }
 
@@ -113,6 +115,8 @@ enum TripFormat {
         case .cycle: return "bicycle"
         case .drive: return "car.fill"
         case .transit: return "tram.fill"
+        case .taxi: return "car.side.fill"
+        case .unknown: return "arrow.right"
         }
     }
 

@@ -25,7 +25,10 @@ extension SRDemoFixtures {
             let sent = (try? JSONDecoder().decode(TripEventsBody.self, from: body ?? Data()))?.events.map(\.clientId) ?? []
             return TripDemo.json(TripEventsReply(accepted: sent, planVersion: 3))
         case ("POST", 5) where parts[4] == "replan":
-            return #"{"options":[]}"#
+            return #"{"options":[],"tripOptions":[],"narrative":null}"#
+        case ("POST", 5) where parts[4] == "converse":
+            let said = (try? JSONDecoder().decode(ConverseBody.self, from: body ?? Data()))?.text ?? ""
+            return TripDemo.json(TripDemo.converse(said))
         default:
             return nil
         }
@@ -77,7 +80,9 @@ enum TripDemo {
             "stay:\(date):start": TripStopMark(arrivedAt: nil, leftAt: at(-172)),
             "w-colosseum": TripStopMark(arrivedAt: at(-148), leftAt: at(-88)),
             "meal:\(date):lunch": TripStopMark(arrivedAt: at(-74), leftAt: at(-32)),
-            "w-pantheon": TripStopMark(arrivedAt: at(-18)),
+            "w-pantheon": SRDemo.isOffPlanShot
+                ? TripStopMark(arrivedAt: at(-18), leftAt: at(-14))
+                : TripStopMark(arrivedAt: at(-18)),
         ]
     }
 
@@ -93,7 +98,7 @@ enum TripDemo {
 
         let trip = Trip(
             id: tripId, ownerEmail: "alex@example.com", title: "Rome long weekend", destination: "Rome, Italy",
-            timeZone: zone, startDate: start, endDate: end, pace: .normal, modes: [.walk, .transit],
+            timeZone: zone, startDate: start, endDate: end, pace: .normal, modes: [.walk, .transit, .taxi],
             status: .active, notes: nil
         )
         let stay = TripStay(
@@ -138,7 +143,7 @@ enum TripDemo {
                  warnings: ["Gardens close at dusk — the later part may be in the dark"]),
             stop("stay:\(today):end", .stay, nil, "The demo hotel", hotel, 180, 180),
         ]
-        let modes: [TravelMode] = [.transit, .walk, .walk, .walk, .walk, .walk, .transit]
+        let modes: [TravelMode] = [.transit, .walk, .walk, .walk, .walk, .taxi, .transit]
         let legs: [PlannedLeg] = (0..<(stops.count - 1)).map { i in
             let from = stops[i], to = stops[i + 1]
             let metres = distance(from.location ?? hotel, to.location ?? hotel)
@@ -149,15 +154,140 @@ enum TripDemo {
                 line: line(from.location ?? hotel, to.location ?? hotel)
             )
         }
-        let day = PlannedDay(date: today, stayId: stay.id, stops: stops, legs: legs, warnings: [])
+        var guided = legs
+        guided[3].guidance = walkGuidance(checked)
+        guided[5].guidance = taxiGuidance(checked)
+        guided[6].guidance = transitGuidance(a + 155, checked)
+        guided[0].guidance = transitGuidance(a - 172, checked)
+        let day = PlannedDay(date: today, stayId: stay.id, stops: stops, legs: guided, warnings: [])
         let plan = TripPlanVersion(
             id: "demo-plan-3", version: 3, createdAt: checked,
             plan: SolvedPlan(days: [day], dropped: [DroppedWish(wishId: "w-castel", reason: "Did not fit; no other day had room")], warnings: [], score: 0),
             changes: []
         )
+        var withGuides = wishes
+        withGuides[1].guide = StopGuide(
+            summary: "Free to look in from the portico; inside needs a timed ticket. The dome's oculus is open to the sky.",
+            tips: ["Shoulders and knees covered", "Queue moves fastest in the first hour", "Look straight up from the centre of the floor"],
+            links: [GuideLink(label: "Tickets (made up)", url: "https://example.org/tickets/pantheon")],
+            generatedAt: checked
+        )
+        withGuides[2].guide = StopGuide(
+            summary: "Busy at every hour. The steps on the right-hand side are usually quieter.",
+            tips: ["A coin over the left shoulder, with the right hand", "Mind your pockets in the crowd"],
+            links: [], generatedAt: checked
+        )
+        let matrixAll = matrix(wishes: wishes, stay: stay)
         return TripBundle(
-            trip: trip, stays: [stay], wishes: wishes, bookings: bookings, plan: plan,
-            matrices: [today: matrix(wishes: wishes, stay: stay)], etag: "demo-3"
+            trip: trip, stays: [stay], wishes: withGuides, bookings: bookings, plan: plan,
+            matrices: [today: matrixAll], etag: "demo-3",
+            messages: messages(now: now), guide: tripGuide(checked), tripMatrix: matrixAll
+        )
+    }
+
+    // MARK: Guidance and the conversation (all made up)
+
+    private static func walkGuidance(_ at: String) -> LegGuidance {
+        LegGuidance(
+            summary: "12 min walk via Via del Seminario", steps: [
+                "Leave Piazza della Rotonda by the north-east corner",
+                "Via del Seminario to Piazza di Sant'Ignazio",
+                "Via delle Muratte to the fountain",
+            ],
+            transit: nil, booking: nil, tips: ["Flat all the way; cobbles in places"], costText: nil,
+            source: "mixed", generatedAt: at
+        )
+    }
+
+    private static func taxiGuidance(_ at: String) -> LegGuidance {
+        LegGuidance(
+            summary: "8 min by taxi from the rank at Piazza di Spagna", steps: [],
+            transit: nil,
+            booking: LegGuidance.Booking(
+                how: "There is a taxi rank at the foot of the Spanish Steps. Only take the white licensed cars; a city app can book one too.",
+                links: [GuideLink(label: "Taxi app (made up)", url: "https://example.org/taxi")], phone: nil
+            ),
+            tips: ["Fares inside the walls are fixed-ish; ask before you set off"], costText: "About €10–12 (made up)",
+            source: "model", generatedAt: at
+        )
+    }
+
+    private static func transitGuidance(_ from: Double, _ at: String) -> LegGuidance {
+        LegGuidance(
+            summary: "Bus 64 back to the hotel, 6 stops", steps: [],
+            transit: [LegGuidance.Transit(line: "64", vehicle: "bus", fromStop: "Demo stop A", toStop: "Demo stop B",
+                                          stops: 6, departuresMin: [from + 4, from + 12, from + 20])],
+            booking: nil, tips: ["Validate the ticket on board"], costText: "€1.50 (made up)",
+            source: "router", generatedAt: at
+        )
+    }
+
+    private static func tripGuide(_ at: String) -> TripGuide {
+        TripGuide(
+            gettingAround: "The centre is walkable; buses fill the gaps and taxis wait at the big squares.",
+            taxi: LegGuidance.Booking(how: "White licensed cars only, from a rank or an app.", links: [GuideLink(label: "Taxi app (made up)", url: "https://example.org/taxi")], phone: nil),
+            transitTickets: "Buy a 100-minute ticket at a tabacchi before boarding (made up)",
+            tips: ["Most churches ask for covered shoulders and knees"], generatedAt: at
+        )
+    }
+
+    private static func messages(now: Date) -> [TripMessage] {
+        func m(_ id: String, _ role: TripMessage.Role, _ text: String, ops: Int = 0, ago: Double) -> TripMessage {
+            TripMessage(id: id, role: role, text: text, ops: Array(repeating: .object(["op": .string("updateWish")]), count: ops),
+                        planVersion: ops > 0 ? 3 : nil, surface: "phone", createdAt: TripStore.iso(now.addingTimeInterval(-ago * 60)))
+        }
+        return [
+            m("demo-msg-1", .user, "Can we fit the Trevi Fountain in after the Pantheon today?", ago: 300),
+            m("demo-msg-2", .assistant, "Yes — it's a 12 minute walk from the Pantheon, so it slots in straight after. I've moved the Spanish Steps to follow it and kept your Colosseum slot where it is.", ops: 2, ago: 299),
+            m("demo-msg-3", .user, "And a taxi up to the Borghese gardens rather than the walk?", ago: 120),
+            m("demo-msg-4", .assistant, "Done: a taxi from the rank at the Spanish Steps, about 8 minutes. The gardens close at dusk, so the end of the visit may be in the dark.", ops: 1, ago: 119),
+        ]
+    }
+
+    static func converse(_ said: String) -> ConverseResult {
+        ConverseResult(
+            reply: "In the demo nothing changes, but on a real trip I would re-plan the rest of today around that.",
+            applied: [], rejected: [],
+            quickReplies: ["Make the rest of today lighter", "What's near here?"],
+            planVersion: nil, changes: []
+        )
+    }
+
+    /// `-SRDemoOffPlan`: a coffee off the plan after the Pantheon, with the
+    /// planner's view and three ways on.
+    @MainActor
+    static func seedOffPlan(into offPlan: TripOffPlan) {
+        guard SRDemo.isOffPlanShot else { return }
+        let now = Date()
+        let clock = TripClock(zone)
+        let date = clock.localDate(now)
+        let a = anchor(now)
+        let b = bundle(now: now)
+        guard let today = b.day(date) else { return }
+        let context = TripReplan.Context(trip: b.trip, stays: b.stays, wishes: b.wishes, bookings: b.bookings, matrix: b.matrices[date]!)
+        let trevi = today.index(of: "w-trevi") ?? 4
+        let stay = TripReplan.retimeDay(today, fromIndex: trevi, startMin: a + 20, context: context)
+        var lighter = today
+        lighter.stops.removeAll { $0.id == "w-steps" }
+        let dropped = TripReplan.retimeDay(lighter, fromIndex: trevi, startMin: a + 5, context: context)
+        let observation = Observation(
+            kind: .unplannedStop, place: Observation.Place(name: "a café on Via della Palombella", location: TripLatLng(lat: 41.8979, lng: 12.4762)),
+            sinceMin: a - 14, motion: "stationary", stopId: nil
+        )
+        offPlan.adoptDemo(
+            TripOffPlan.Prompt(
+                id: "demo-offplan", tripId: tripId, date: date, observation: observation,
+                headline: TripOffPlanRules.headline(observation, day: today, nowMin: a), slotAtRisk: false
+            ),
+            narrative: "Looks like a coffee stop. The Trevi Fountain is 10 minutes away and nothing after it is booked, so there's room to sit a while.",
+            choices: [
+                .trip(TripReplanOption(id: "carry-on", label: "Carry on to the Trevi Fountain now", kind: "carry-on", days: [today], dropped: [], moved: [],
+                                       explanation: "Leave in the next few minutes and the afternoon runs as planned.")),
+                .trip(TripReplanOption(id: "stay-here", label: "Stay 20 min more, push the rest back", kind: "stay-here", days: [stay], dropped: [], moved: [],
+                                       explanation: "Everything after shifts later; back at the hotel a little after planned.")),
+                .trip(TripReplanOption(id: "drop:w-steps", label: "Stay, and drop the Spanish Steps", kind: "resolve-rest", days: [dropped], dropped: ["w-steps"], moved: [],
+                                       explanation: "Keeps the evening the same; the Steps can go on another day.")),
+            ]
         )
     }
 

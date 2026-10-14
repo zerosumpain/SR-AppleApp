@@ -203,7 +203,12 @@ enum TripWords {
         return "Wait \(TripFormat.duration(minutes: minutes)) before it starts"
     }
 
+    /// A stop the person made that the plan did not have (`here:<date>:<min>`,
+    /// added by an off-plan "stay here"): a wish with no wish behind it.
+    static func isHere(_ stop: PlannedStop) -> Bool { stop.id.hasPrefix("here:") && stop.wishId == nil }
+
     static func symbol(_ stop: PlannedStop) -> String {
+        if isHere(stop) { return "cup.and.saucer" }
         switch stop.kind {
         case .stay: return "bed.double"
         case .meal: return "fork.knife"

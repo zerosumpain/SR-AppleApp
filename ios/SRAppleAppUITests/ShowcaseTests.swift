@@ -1320,14 +1320,39 @@ final class ShowcaseTests: XCTestCase {
         settle(app)
         attach(app, "Showcase — Trip day, timeline")
 
-        let stop = byId(app, "trip-stop-3")
+        // The Borghese gardens: its leg is the taxi.
+        let stop = byId(app, "trip-stop-6")
         if scroll(app, to: stop) {
             stop.tap()
             settle(app)
-            attach(app, "Showcase — Trip stop")
+            attach(app, "Showcase — Trip stop, by taxi")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            settle(app, on: byId(app, "trip-day-screen"))
         } else {
-            soft(false, "no Pantheon row on the Day screen")
+            soft(false, "no Borghese row on the Day screen")
         }
+
+        let edit = byId(app, "trip-edit-plan")
+        if edit.waitForExistence(timeout: 5) {
+            edit.tap()
+            settle(app, on: byId(app, "trip-converse"), seconds: 2)
+            attach(app, "Showcase — Trip, edit plan")
+        } else {
+            soft(false, "no Edit plan button")
+        }
+    }
+
+    /// Off the plan: a coffee after the Pantheon, the planner's view and
+    /// three ways on, at the top of the Day screen.
+    @MainActor func testShowcaseTripOffPlan() {
+        let app = launch(["-SRDemoOffPlan"])
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
+        card.tap()
+        settle(app, on: byId(app, "trip-offplan"), seconds: 3)
+        attach(app, "Showcase — Trip, off the plan")
     }
 
     // MARK: - Helpers
