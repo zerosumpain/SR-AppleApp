@@ -220,9 +220,12 @@ struct TripSlotPanel: View {
     private func take(_ idea: TripIdea) {
         busy = idea.id
         Task {
-            let failure = can.canEdit || can.canApprove
-                ? await store.add(idea, tripId: tripId, date: day.date, stage: stage)
-                : await store.suggest(idea.wish, tripId: tripId, date: day.date, stage: stage, note: idea.why, fitText: idea.fit)
+            let failure: String?
+            if can.canEdit || can.canApprove {
+                failure = await store.add(idea, tripId: tripId, date: day.date, stage: stage)
+            } else {
+                failure = await store.suggest(idea.wish, tripId: tripId, date: day.date, stage: stage, note: idea.why, fitText: idea.fit)
+            }
             busy = nil
             if let failure {
                 SRHaptic.bad()

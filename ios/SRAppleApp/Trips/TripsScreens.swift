@@ -71,7 +71,7 @@ struct TodayTripCard: View {
     }
 
     /// One reliable tap target: the whole card, rounded as the glass is.
-    private func target<Label: View>(id: String, action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
+    private func target<Content: View>(id: String, action: @escaping () -> Void, @ViewBuilder label: () -> Content) -> some View {
         Button {
             SRHaptic.tap()
             action()
