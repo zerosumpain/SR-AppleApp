@@ -63,6 +63,12 @@ struct TripDayScreen: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 notes(bundle, isToday: isToday)
+                let missed = TripWords.missedSlots(
+                    day: day, progress: isToday ? progress : nil, nowMin: isToday ? clock.minutes(now) : nil
+                )
+                if !missed.isEmpty {
+                    missedCard(missed, canReplan: isToday)
+                }
                 if isToday {
                     if progress.showsBehind {
                         behindBanner(progress)
@@ -110,6 +116,37 @@ struct TripDayScreen: View {
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// A missed booking is the one thing on the day that cannot be caught
+    /// up by walking faster: said first, in the error colour, with the way
+    /// to re-plan the rest one tap away.
+    private func missedCard(_ lines: [String], canReplan: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(lines, id: \.self) { line in
+                Label(line, systemImage: "exclamationmark.octagon.fill")
+                    .font(SR.Text.title(16))
+                    .foregroundStyle(SR.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("A booked slot cannot be moved. Check the booking for a later entry, or re-plan the rest of the day without it.")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if canReplan {
+                Button {
+                    SRHaptic.tap()
+                    options = TripOptionsRequest(tripId: tripId, date: date, reason: .behind, nowMin: nil, position: TripPosition.latest)
+                } label: { SRButtonLabel(title: "Re-plan the rest", icon: "arrow.triangle.branch") }
+                    .srButton(.prominent)
+            }
+        }
+        .padding(SR.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) { Capsule().fill(SR.error).frame(width: 3).padding(.vertical, 14) }
+        .srGlassCard(.paper)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("trip-missed-slot")
     }
 
     private func behindBanner(_ progress: TripProgress) -> some View {

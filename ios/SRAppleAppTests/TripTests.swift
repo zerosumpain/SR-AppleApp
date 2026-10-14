@@ -145,6 +145,20 @@ final class TripTests: XCTestCase {
         XCTAssertNil(TripWords.wait(stop))
     }
 
+    /// A locked stop not reached by its start plus the solver's 30-minute
+    /// grace is a missed slot, in the solver's words; a day's own warning is
+    /// shown as it is.
+    func testMissedSlotsAreSaid() {
+        var day = Self.day()
+        day.stops[1].locked = true
+        let clock = TripClock("Europe/Rome")
+        let progress = TripProgress.of(day: day, marks: [:], nowMin: 600, clock: clock)
+        XCTAssertEqual(TripWords.missedSlots(day: day, progress: progress, nowMin: 589), [])
+        XCTAssertEqual(TripWords.missedSlots(day: day, progress: progress, nowMin: 600), ["Missed your 09:20 Pantheon slot"])
+        day.warnings = ["Missed your 09:30 Colosseum slot", "Back at the stay 19:40 — later than 19:00"]
+        XCTAssertEqual(TripWords.missedSlots(day: day, progress: nil, nowMin: nil), ["Missed your 09:30 Colosseum slot"])
+    }
+
     func testTimesAreLocalAndWrap() {
         XCTAssertEqual(TripFormat.time(860), "14:20")
         XCTAssertEqual(TripFormat.time(1450), "00:10")

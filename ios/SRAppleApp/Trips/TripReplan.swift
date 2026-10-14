@@ -2,7 +2,7 @@ import Foundation
 
 // Re-timing and re-planning the rest of a trip day ON THE PHONE, with no
 // signal: a Swift port of SR-Main's solver (`src/lib/trips/solver/`,
-// branch feat/trips-solver) — `retimeDay` and `replanDay` and exactly the
+// branch feat/trips-solver, c1100734) — `retimeDay` and `replanDay` and exactly the
 // parts of `timing.ts`, `items.ts`, `matrix.ts`, `order.ts`, `hours.ts`,
 // `estimate.ts` and `calendar.ts` they use. `solveTrip` (whole-trip planning)
 // stays on the server.
@@ -106,41 +106,91 @@ enum TripReplan {
         }
 
         var start = startAfter(prefix, day, departMin: leave)
-        let items = toItems(Array(pending), day, c.wishes, c.bookings, ctx)
         if let position = input.position, at < 0 { start.fromPosition = position }
+        var items = toItems(Array(pending), day, c.wishes, c.bookings, ctx)
+
+        // Missed slots: a locked stop we cannot reach within the grace even
+        // going straight there leaves today's plan, is listed in every
+        // option's `dropped`, and every option's day carries a warning.
+        let begin = start
+        func direct(_ item: Item) -> Double {
+            guard let point = item.point else { return leave }
+            if let position = begin.fromPosition {
+                return leave + js.ceil(legFromPosition(ctx, position, point).durationSec / 60)
+            }
+            guard let from = begin.fromPoint else { return leave }
+            return leave + js.ceil(chooseLeg(ctx, from, point).durationSec / 60)
+        }
+        let missed = items.filter { i in
+            guard i.locked, let fixed = i.fixedStartMin else { return false }
+            return direct(i) > fixed + missedSlotGraceMin
+        }
+        let missedSerials = Set(missed.map(\.serial))
+        items = items.filter { !missedSerials.contains($0.serial) }.map { i in
+            guard i.locked, let planned = pending.first(where: { $0.id == i.id }) else { return i }
+            var held = i
+            held.heldArriveMin = planned.arriveMin
+            return held
+        }
+        let missedWarnings = missed.map { "Missed your \(fmtMin($0.fixedStartMin ?? 0)) \($0.title) slot" }
+        let missedIds = missed.map { $0.wishId ?? $0.id }
 
         struct Scored { var option: ReplanOption; var score: Double }
         var options: [Scored] = []
         func make(_ id: String, _ kind: ReplanOption.Kind, _ label: String, _ sim: Simulation, _ dropped: [String]) {
-            let planned = toPlannedDay(frame, sim)
+            var planned = toPlannedDay(frame, sim)
+            planned.warnings = missedWarnings + planned.warnings
             let end = planned.stops.last?.departMin ?? 0
             options.append(Scored(
-                option: ReplanOption(id: id, label: label, kind: kind, day: planned, dropped: dropped, endsLaterMin: end - oldEnd),
+                option: ReplanOption(id: id, label: label, kind: kind, day: planned, dropped: missedIds + dropped, endsLaterMin: end - oldEnd),
                 score: sim.cost + Double(dropped.count) * Cost.droppedNice
             ))
         }
+        func repairSeq(_ seq: [Item], _ dropFirst: Bool) -> Repaired {
+            repair(ctx, frame, begin, seq, dropFirst: dropFirst)
+        }
+        func movedNote(_ moved: [(Item, Item)]) -> String {
+            guard !moved.isEmpty else { return "" }
+            var anchors: [String] = []
+            for (_, anchor) in moved where !anchors.contains(anchor.title) { anchors.append(anchor.title) }
+            let names = moved.map { $0.0.kind == .meal ? $0.0.title.lowercased() : $0.0.title }
+            return ", \(joinNames(names)) after the \(joinNames(anchors)) slot"
+        }
 
-        // 1. Shift: same order, re-timed from now.
-        let shift = simulate(ctx, frame, start, items)
-        let firstPending = pending.first
-        let firstNew = firstPending.flatMap { p in shift.stops.first { $0.id == p.id } }
+        // 1. Shift: same order, re-timed from now; whatever no longer fits
+        // before a slot moves to just after it.
+        let shift = repairSeq(items, false)
+        let firstFree = pending.first { p in !p.locked && shift.sim.stops.contains { $0.id == p.id } }
+        let firstNew = firstFree.flatMap { p in shift.sim.stops.first { $0.id == p.id } }
         let delay: Double = {
-            guard let p = firstPending, let n = firstNew else { return 0 }
+            guard let p = firstFree, let n = firstNew else { return 0 }
             return n.arriveMin - p.arriveMin
         }()
-        make(
-            "shift", .shift,
-            delay > 0 ? "Push everything back \(js.num(delay)) min"
-                : delay < 0 ? "Bring everything forward \(js.num(-delay)) min"
-                : "Keep the plan as it is",
-            shift, []
-        )
+        let lateSlot = items.first { i in
+            i.locked && shift.sim.issues.contains { $0.itemId == i.id && $0.kind == .lateForSlot }
+        }
+        let shiftLabel: String
+        if !missed.isEmpty {
+            shiftLabel = "Carry on without the missed \(joinNames(missed.map(\.title))) slot"
+        } else if let late = lateSlot {
+            shiftLabel = "Go straight to the \(late.title) — about \(js.num(direct(late) - (late.fixedStartMin ?? 0))) min late"
+        } else if delay > 0 {
+            shiftLabel = "Push \(items.contains { $0.locked } ? "the rest" : "everything") back \(js.num(delay)) min"
+        } else if delay < 0 {
+            shiftLabel = "Bring everything forward \(js.num(-delay)) min"
+        } else {
+            shiftLabel = "Keep the plan as it is"
+        }
+        make("shift", .shift, shiftLabel + movedNote(shift.moved), shift.sim, [])
 
-        // 2. Drop nices until the day works.
-        if hasProblems(shift) {
-            var current = items
-            var sim = shift
-            var gone: [Item] = []
+        // 2. Drop nices until the day works: those squeezing a slot first,
+        // then any closed on arrival, then the lowest value.
+        if hasProblems(shift.sim) || !shift.moved.isEmpty {
+            let first = repairSeq(items, true)
+            var current = first.seq
+            var sim = first.sim
+            var gone: [Item] = first.dropped
+            var moved = first.moved
             while hasProblems(sim) {
                 let candidates = current.filter(droppable)
                 if candidates.isEmpty { break }
@@ -149,39 +199,44 @@ enum TripReplan {
                 }, by: byLowestValue)
                 guard let victim = closed.first ?? js.sorted(candidates, by: byLowestValue).first else { break }
                 gone.append(victim)
-                current = current.filter { $0.serial != victim.serial }
-                sim = simulate(ctx, frame, start, current)
+                let next = repairSeq(current.filter { $0.serial != victim.serial }, true)
+                current = next.seq
+                sim = next.sim
+                gone += next.dropped
+                moved = next.moved
             }
             if !gone.isEmpty {
                 let names = gone.map(\.title)
                 make(
                     "drop:" + gone.map(\.id).joined(separator: ","), .drop,
-                    "Drop \(joinNames(names)) (nice-to-have\(names.count > 1 ? "s" : ""))",
+                    "Drop \(joinNames(names)) (nice-to-have\(names.count > 1 ? "s" : ""))\(movedNote(moved))",
                     sim, gone.map { $0.wishId ?? $0.id }
                 )
             }
         }
 
-        // 3. Re-order what is left (meals re-slotted, anchors stay put).
+        // 3. Re-order what is left (meals re-slotted, locked stops stay put).
         let wishItems = items.filter { $0.kind == .wish }
         let meals = items.filter { $0.kind == .meal }
         if wishItems.count > 1 {
-            let cost: SequenceCost = { seq in withMeals(ctx, frame, start, seq, meals).sim.cost }
+            let cost: SequenceCost = { seq in withMeals(ctx, frame, begin, seq, meals).sim.cost }
             let ordered = orderDay(wishItems, cost)
-            let (seq, sim) = withMeals(ctx, frame, start, ordered, meals)
+            let placed = withMeals(ctx, frame, begin, ordered, meals).seq
+            let repaired = repairSeq(placed, false)
+            let seq = repaired.seq, sim = repaired.sim
             let before = wishItems.map(\.id)
-            let after = ordered.map(\.id)
-            let sameSequence = items.map(\.id).joined(separator: "|") == seq.map(\.id).joined(separator: "|")
-            if sim.cost < shift.cost && !sameSequence {
-                let swapped = before.count >= 2 && before[0] == after[1] && before[1] == after[0]
+            let after = seq.filter { $0.kind == .wish }.map(\.id)
+            let sameSequence = shift.seq.map(\.id).joined(separator: "|") == seq.map(\.id).joined(separator: "|")
+            if sim.cost < shift.sim.cost && !sameSequence {
+                let swapped = before.count >= 2 && after.count >= 2 && before[0] == after[1] && before[1] == after[0]
                     && before.dropFirst(2).joined(separator: "|") == after.dropFirst(2).joined(separator: "|")
                 if swapped {
                     make("swap", .swap, "Swap the next two", sim, [])
                 } else if before.joined(separator: "|") == after.joined(separator: "|") {
-                    let moved = sim.stops.filter { s in s.kind == .meal && meals.contains { $0.id == s.id } }
-                    let label = moved.isEmpty
+                    let movedMeals = sim.stops.filter { s in s.kind == .meal && meals.contains { $0.id == s.id } }
+                    let label = movedMeals.isEmpty
                         ? "Reorder the rest of the day"
-                        : "Move " + joinNames(moved.map { "\($0.title.lowercased()) to \(fmtMin($0.arriveMin + js.round($0.waitSec / 60)))" })
+                        : "Move " + joinNames(movedMeals.map { "\($0.title.lowercased()) to \(fmtMin($0.arriveMin + js.round($0.waitSec / 60)))" })
                     make("reorder", .reorder, label, sim, [])
                 } else {
                     make("reorder", .reorder, "Reorder the rest of the day", sim, [])
@@ -205,6 +260,61 @@ enum TripReplan {
         return out
     }
 
+    /// A booked/locked stop more than this late is a missed slot.
+    static let missedSlotGraceMin = 30.0
+
+    struct Repaired {
+        var seq: [Item]
+        var sim: Simulation
+        var dropped: [Item]
+        /// (moved stop, the locked stop it now follows).
+        var moved: [(Item, Item)]
+    }
+
+    /// Make a sequence respect its locked stops: while one would be late
+    /// because of unlocked stops since the previous locked stop, drop the
+    /// lowest-value nice among them (`dropFirst`) or move the last sight to
+    /// just after it. Late with nothing before it to remove, it stays.
+    static func repair(_ ctx: SolverContext, _ frame: DayFrame, _ start: SimStart, _ seq: [Item], dropFirst: Bool) -> Repaired {
+        var current = seq
+        var dropped: [Item] = []
+        var moved: [(Item, Item)] = []
+        for _ in 0..<(4 * seq.count + 4) {
+            let sim = simulate(ctx, frame, start, current)
+            var fixed = false
+            var prevLocked = -1
+            for k in current.indices {
+                let item = current[k]
+                if !item.locked { continue }
+                let late = sim.issues.contains { $0.itemId == item.id && $0.kind == .lateForSlot }
+                let between = current[(prevLocked + 1)..<k].filter { !$0.locked }
+                if late && !between.isEmpty {
+                    let nice = dropFirst ? js.sorted(between.filter(droppable), by: byLowestValue).first : nil
+                    if let nice {
+                        current = current.filter { $0.serial != nice.serial }
+                        dropped.append(nice)
+                    } else {
+                        // Move the last sight rather than a meal: a meal after
+                        // the slot would only run late.
+                        let sights = between.filter { $0.kind == .wish }
+                        let pool = sights.isEmpty ? Array(between) : sights
+                        let mover = pool[pool.count - 1]
+                        var rest = current.filter { $0.serial != mover.serial }
+                        let at = rest.firstIndex { $0.serial == item.serial } ?? (rest.count - 1)
+                        rest.insert(mover, at: at + 1)
+                        current = rest
+                        moved.append((mover, item))
+                    }
+                    fixed = true
+                    break
+                }
+                prevLocked = k
+            }
+            if !fixed { return Repaired(seq: current, sim: sim, dropped: dropped, moved: moved) }
+        }
+        return Repaired(seq: current, sim: simulate(ctx, frame, start, current), dropped: dropped, moved: moved)
+    }
+
     private static func kindRank(_ kind: ReplanOption.Kind) -> Int {
         switch kind {
         case .shift: return 0
@@ -225,7 +335,10 @@ enum TripReplan {
 
     private static func isEndStay(_ s: PlannedStop) -> Bool { s.kind == .stay && s.id.hasSuffix(":end") }
 
-    private static func hasProblems(_ sim: Simulation) -> Bool { sim.overrunMin > 0 || !sim.issues.isEmpty }
+    /// Problems dropping a nice can fix (lateness for a slot is `repair`'s job).
+    private static func hasProblems(_ sim: Simulation) -> Bool {
+        sim.overrunMin > 0 || sim.issues.contains { $0.kind != .lateForSlot }
+    }
 
     // MARK: - replan.ts helpers
 
@@ -452,6 +565,10 @@ enum TripReplan {
         var location: TripLatLng?
         var durationMin: Double
         var fixedStartMin: Double?
+        /// Hard end (a locked stop being re-timed keeps its planned end).
+        var fixedEndMin: Double? = nil
+        /// Re-planning only: show this planned arrival for a locked stop.
+        var heldArriveMin: Double? = nil
         var locked: Bool
         var bookingId: String?
         var priority: TripPriority?
@@ -522,7 +639,8 @@ enum TripReplan {
             let meal = mealKindOf(stop.id).flatMap { mealItem(date, $0, rules) }
             return Item(
                 serial: nextSerial(), id: stop.id, kind: .meal, wishId: nil, title: stop.title, point: nil, location: nil,
-                durationMin: durationMin, fixedStartMin: stop.locked ? startMin : nil, locked: stop.locked, bookingId: nil,
+                durationMin: durationMin, fixedStartMin: stop.locked ? startMin : nil, fixedEndMin: stop.locked ? stop.departMin : nil,
+                locked: stop.locked, bookingId: nil,
                 priority: nil, partOfDay: .any, windows: meal?.windows, baseWarnings: [], sortHint: 0
             )
         }
@@ -531,7 +649,8 @@ enum TripReplan {
         return Item(
             serial: nextSerial(), id: stop.id, kind: .wish, wishId: stop.wishId, title: stop.title,
             point: stop.wishId ?? stop.id, location: stop.location, durationMin: durationMin,
-            fixedStartMin: stop.locked ? startMin : nil, locked: stop.locked, bookingId: stop.bookingId,
+            fixedStartMin: stop.locked ? startMin : nil, fixedEndMin: stop.locked ? stop.departMin : nil,
+            locked: stop.locked, bookingId: stop.bookingId,
             priority: wish?.priority, partOfDay: wish?.partOfDay ?? .any, windows: windows,
             baseWarnings: wish.map { wishWarnings($0, bookings, windows) } ?? [],
             sortHint: wish?.sortHint ?? 0
@@ -811,12 +930,20 @@ enum TripReplan {
                 let miss = begin < from ? from - begin : begin >= to ? begin - to + 1 : 0
                 if miss > 0 { cost += Cost.partOfDayMiss + min(miss, Cost.partOfDayMaxMin) * Cost.partOfDayPerMin }
             }
-            waitMin += begin - arrive
-            let depart = begin + item.durationMin
+            waitMin += max(0, begin - arrive)
+            // Re-planning holds a locked stop's planned times: the slot never
+            // moves, and lateness shows only as the "Booked for …" warning.
+            var shownArrive = arrive
+            if let held = item.heldArriveMin, let fixed = item.fixedStartMin {
+                begin = fixed
+                shownArrive = held
+            }
+            // A locked stop being re-timed keeps its planned end, even when late.
+            let depart = item.fixedEndMin.map { max($0, begin) } ?? begin + item.durationMin
             let location = item.location ?? prevLocation
             stops.append(PlannedStop(
                 id: item.id, kind: item.kind == .meal ? .meal : .wish, wishId: item.wishId, title: item.title,
-                location: location, arriveMin: arrive, departMin: depart, waitSec: (begin - arrive) * 60,
+                location: location, arriveMin: shownArrive, departMin: depart, waitSec: (begin - shownArrive) * 60,
                 locked: item.locked, bookingId: item.bookingId, warnings: warnings
             ))
             prevStopId = item.id

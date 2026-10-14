@@ -70,6 +70,11 @@ struct TodayTripCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 SRSectionLabel(text: "Trip today", trailing: bundle.trip.destination, prominent: true)
                 if let day, let progress {
+                    ForEach(TripWords.missedSlots(day: day, progress: progress, nowMin: TripClock(bundle.trip.timeZone).minutes(now)), id: \.self) { line in
+                        Label(line, systemImage: "exclamationmark.octagon.fill")
+                            .font(SR.Text.title(15))
+                            .foregroundStyle(SR.error)
+                    }
                     TripNextLines(day: day, progress: progress, bundle: bundle)
                 } else {
                     Text("No plan for today yet — it is planned on the site.")
@@ -166,6 +171,24 @@ enum TripWords {
         stop.departMin - stop.arriveMin < 1
             ? TripFormat.time(stop.arriveMin)
             : "\(TripFormat.time(stop.arriveMin))–\(TripFormat.time(stop.departMin))"
+    }
+
+    /// Missed booked or locked slots: the solver's own day warnings ("Missed
+    /// your 09:30 Colosseum slot", put first by `replanDay`), and — on the
+    /// running day — any locked stop not reached by its start plus the
+    /// solver's grace, said in the same words before anything is re-planned.
+    static func missedSlots(day: PlannedDay, progress: TripProgress?, nowMin: Double?) -> [String] {
+        var out = day.warnings.filter { $0.hasPrefix("Missed your ") }
+        guard let progress, let nowMin, let from = progress.currentIndex else { return out }
+        let done = Set(progress.doneStopIds)
+        for (i, stop) in day.stops.enumerated() where i >= from && stop.locked && !done.contains(stop.id) {
+            if case .at(let here) = progress.phase, here == i { continue }
+            let start = stop.arriveMin + js.round(stop.waitSec / 60)
+            guard nowMin > start + TripReplan.missedSlotGraceMin else { continue }
+            let line = "Missed your \(TripFormat.time(start)) \(stop.title) slot"
+            if !out.contains(line) { out.append(line) }
+        }
+        return out
     }
 
     /// Over this, a wait is time to spend, not time to stand in a queue.

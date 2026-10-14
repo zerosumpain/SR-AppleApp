@@ -4,7 +4,7 @@ import XCTest
 /// The phone's port of the trip solver (`Trips/TripReplan.swift`) against
 /// SR-Main's own answers. `Fixtures/TripCases/*.json` are copied verbatim
 /// from SR-Main `src/lib/trips/solver/fixtures/cases/` (feat/trips-solver,
-/// 609dcfd6): each holds the solver's input and the output the TypeScript
+/// c1100734): each holds the solver's input and the output the TypeScript
 /// gave. Every case must come back identical — same stops, same minutes,
 /// same legs, same warnings, same labels, same order.
 ///
@@ -60,7 +60,7 @@ final class TripReplanTests: XCTestCase {
     }
 
     func testEverySharedCaseIsBundled() {
-        XCTAssertEqual(caseFiles().count, 8, "the eight shared cases from SR-Main should all be in the test bundle")
+        XCTAssertEqual(caseFiles().count, 11, "the eleven shared cases from SR-Main should all be in the test bundle")
     }
 
     func testEverySharedCaseReplaysIdentically() throws {
@@ -92,6 +92,24 @@ final class TripReplanTests: XCTestCase {
     }
 
     // MARK: JavaScript semantics the port depends on
+
+    /// The bug c1100734 fixed: no option may move a booked or locked stop.
+    func testNoOptionMovesALockedStop() throws {
+        for url in caseFiles() where url.lastPathComponent.hasPrefix("replan-") {
+            let c = try JSONDecoder().decode(Case<[ReplanOption]>.self, from: Data(contentsOf: url))
+            let got = TripReplan.replanDay(TripReplan.Input(
+                context: c.input.context, day: c.input.day, nowMin: try XCTUnwrap(c.input.nowMin),
+                position: c.input.position, atStopId: c.input.atStopId, doneStopIds: c.input.doneStopIds ?? []
+            ))
+            for option in got {
+                for stop in option.day.stops where stop.locked && stop.id != c.input.atStopId {
+                    guard let planned = c.input.day.stops.first(where: { $0.id == stop.id }) else { continue }
+                    XCTAssertEqual(stop.arriveMin, planned.arriveMin, "\(c.name): \(option.label) moved \(stop.title)")
+                    XCTAssertEqual(stop.departMin, planned.departMin, "\(c.name): \(option.label) moved \(stop.title)")
+                }
+            }
+        }
+    }
 
     func testRoundingIsJavaScripts() {
         XCTAssertEqual(js.round(2.5), 3)
