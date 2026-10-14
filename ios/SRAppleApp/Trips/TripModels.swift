@@ -101,7 +101,10 @@ enum PartOfDay: String, Codable, Hashable {
 
 struct Trip: Codable, Hashable, Identifiable {
     var id: String
-    var ownerEmail: String
+    /// v5: who made the trip, by family roster id and name. The creator's
+    /// email is never on the wire, and the phone has no field to hold one.
+    var createdById: String? = nil
+    var createdByName: String? = nil
     var title: String
     var destination: String
     /// IANA zone, e.g. `Europe/Rome`. Every local time in the trip is in it.

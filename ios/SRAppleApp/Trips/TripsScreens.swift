@@ -454,6 +454,11 @@ struct TripScreen: View {
                 Text("\(TripFormat.range(bundle.trip.startDate, bundle.trip.endDate, zone: clock.zone)) · \(bundle.trip.pace.rawValue) pace")
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkSecondary)
+                if let maker = bundle.trip.createdByName {
+                    Text(bundle.can.role == "creator" ? "Your trip" : "\(maker)'s trip")
+                        .font(SR.Text.mono(12))
+                        .foregroundStyle(SR.inkMuted)
+                }
             }
             .padding(.vertical, 12)
             .srPlainRow()

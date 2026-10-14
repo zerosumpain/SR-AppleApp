@@ -278,6 +278,15 @@ final class TripTests: XCTestCase {
         XCTAssertTrue(bundle.can.canSuggest)
     }
 
+    /// v5: the creator's email is not on the wire; a trip decodes without it.
+    func testATripDecodesWithoutAnOwnerEmail() throws {
+        let json = #"{"id":"t1","createdById":"p1","createdByName":"Alex","title":"Rome","destination":"Rome","timeZone":"Europe/Rome","startDate":"2026-10-27","endDate":"2026-10-30","pace":"normal","modes":["walk"],"status":"planned","notes":null}"#
+        let trip = try JSONDecoder().decode(Trip.self, from: Data(json.utf8))
+        XCTAssertEqual(trip.createdByName, "Alex")
+        let back = String(decoding: try JSONEncoder().encode(trip), as: UTF8.self)
+        XCTAssertFalse(back.contains("ownerEmail"))
+    }
+
     func testASuggestionDecodes() throws {
         let json = #"{"id":"s1","tripId":"t1","byId":"p2","byName":"Sam","date":"2026-10-28","stage":"afternoon","wish":{"title":"Gelato","placeQuery":"gelateria","priority":"nice","durationMin":20,"partOfDay":"afternoon","fixedDate":"2026-10-28","fixedStartMin":null,"note":null},"note":null,"fitText":"Fits","status":"pending","decidedById":null,"decidedAt":null,"createdAt":"2026-10-14T10:00:00.000Z"}"#
         let s = try JSONDecoder().decode(TripSuggestion.self, from: Data(json.utf8))

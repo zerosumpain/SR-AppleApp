@@ -368,12 +368,15 @@ final class TripStore: ObservableObject {
 
     /// Approve, reject or withdraw a suggestion. An approval changes the
     /// plan on the server, so the server's version is adopted.
+    /// Nil when done cleanly; otherwise the sentence to show — a failure, or
+    /// the server's warning about an approval that went through.
     func decide(_ suggestion: TripSuggestion, action: String, tripId: String) async -> String? {
         do {
-            try await TripsAPI.decide(trip: tripId, suggestion: suggestion.id, action: action)
+            let decided = try await TripsAPI.decide(trip: tripId, suggestion: suggestion.id, action: action)
             if action == "approve" { await adoptServerPlan(tripId) } else { await fetch(tripId) }
-            return nil
+            return decided.warning
         } catch {
+            await fetch(tripId)
             return error.localizedDescription
         }
     }
@@ -386,7 +389,13 @@ final class TripStore: ObservableObject {
         do {
             if access.canApprove {
                 let made = try await TripsAPI.suggest(trip: tripId, date: date, stage: stage, wish: idea.wish, note: nil, fitText: idea.fit)
-                if let made { try await TripsAPI.decide(trip: tripId, suggestion: made.id, action: "approve") }
+                if let made {
+                    let decided = try await TripsAPI.decide(trip: tripId, suggestion: made.id, action: "approve")
+                    if let warning = decided.warning {
+                        await adoptServerPlan(tripId)
+                        return warning
+                    }
+                }
             } else {
                 let day = clock(tripId).map { TripFormat.day(date, zone: $0.zone) } ?? date
                 _ = try await TripsAPI.converse("Add \(idea.title) on \(day), \(stage.label.lowercased()).", trip: tripId)

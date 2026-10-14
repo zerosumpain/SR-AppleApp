@@ -108,7 +108,7 @@ enum TripDemo {
         let checked = TripStore.iso(now.addingTimeInterval(-2 * 86_400))
 
         let trip = Trip(
-            id: tripId, ownerEmail: "alex@example.com", title: "Rome long weekend", destination: "Rome, Italy",
+            id: tripId, createdById: "demo-alex", createdByName: "Alex", title: "Rome long weekend", destination: "Rome, Italy",
             timeZone: zone, startDate: start, endDate: end, pace: .normal, modes: [.walk, .transit, .taxi],
             status: .active, notes: nil,
             // The arrival day is an easy one: an early flight.

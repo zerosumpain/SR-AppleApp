@@ -155,13 +155,23 @@ enum TripsAPI {
         return Self.suggestion(in: data)
     }
 
-    /// "approve", "reject" or "withdraw".
+    /// `POST …/suggestions/:sid` → what happened to it.
+    struct Decided: Decodable {
+        var suggestionId: String?
+        var status: String?
+        var planVersion: Int?
+        /// Said when the approval went through but something is worth knowing.
+        var warning: String?
+    }
+
+    /// "approve", "reject" or "withdraw". 409 when someone decided first.
     @discardableResult
-    static func decide(trip id: String, suggestion sid: String, action: String) async throws -> TripSuggestion? {
+    static func decide(trip id: String, suggestion sid: String, action: String) async throws -> Decided {
         let body = try JSONEncoder().encode(["action": action])
         let (data, http) = try await exchange(path(id) + "/suggestions/" + escape(sid), method: "POST", body: body)
+        if http.statusCode == 409 { throw Failure.refused(409, "Someone has already decided that one.") }
         try check(http, data)
-        return Self.suggestion(in: data)
+        return (try? JSONDecoder().decode(Decided.self, from: data)) ?? Decided()
     }
 
     /// The answer is a suggestion, or `{ suggestion }`; either is read, and
