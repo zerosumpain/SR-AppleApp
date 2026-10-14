@@ -335,10 +335,16 @@ final class SiteClient {
     /// a 401 throws (`expired`), as it does everywhere else. For a write that
     /// carries its own headers and must read a refusal's — the Wildmind
     /// whisper sends an `Idempotency-Key` and reads `retry-after` off a 429.
+    ///
+    /// `timeout`: for a call that legitimately takes longer than the
+    /// session's 30 s (trips: starting a planner job on a server too old to
+    /// run it in the background; an approval that re-solves the plan).
     func exchange(
-        _ path: String, method: String = "POST", body: Data? = nil, headers: [String: String] = [:]
+        _ path: String, method: String = "POST", body: Data? = nil, headers: [String: String] = [:],
+        timeout: TimeInterval? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         var req = try request(path, method: method, body: body)
+        if let timeout { req.timeoutInterval = timeout }
         for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else {

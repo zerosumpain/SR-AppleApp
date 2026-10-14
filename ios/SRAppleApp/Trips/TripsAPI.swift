@@ -71,6 +71,12 @@ enum TripsAPI {
     /// and the planner's narrative.
     static func replanReply(_ request: TripReplanBody, trip id: String) async throws -> TripReplanReply {
         let body = try JSONEncoder().encode(request)
+        // Trip scope asks the planner (a narrative, whole-trip options): a
+        // job. Day scope is the solver alone and answers at once.
+        if request.scope == "trip" {
+            return try await run(path(id) + "/replan", body: body, as: TripReplanReply.self,
+                                 unreadable: "The server's options were unreadable.")
+        }
         let (data, http) = try await exchange(path(id) + "/replan", method: "POST", body: body)
         try check(http, data)
         do {
@@ -83,14 +89,8 @@ enum TripsAPI {
     /// One turn of the planning conversation ("Edit plan"). Never queued:
     /// a conversation needs the planner to answer.
     static func converse(_ text: String, trip id: String) async throws -> ConverseResult {
-        let body = try JSONEncoder().encode(ConverseBody(text: text))
-        let (data, http) = try await exchange(path(id) + "/converse", method: "POST", body: body)
-        try check(http, data)
-        do {
-            return try JSONDecoder().decode(ConverseResult.self, from: data)
-        } catch {
-            throw Failure.refused(200, "The planner's answer was unreadable.")
-        }
+        try await run(path(id) + "/converse", body: try JSONEncoder().encode(ConverseBody(text: text)),
+                      as: ConverseResult.self, unreadable: "The planner's answer was unreadable.")
     }
 
     // MARK: - v5: family trips
@@ -98,14 +98,8 @@ enum TripsAPI {
     /// A new trip from its opening message ("Rome, 27–30 Oct, staying near
     /// Campo de' Fiori…"). Any family member may; they become its creator.
     static func create(text: String) async throws -> TripCreated {
-        let body = try JSONEncoder().encode(ConverseBody(text: text))
-        let (data, http) = try await exchange("api/native/trips", method: "POST", body: body)
-        try check(http, data)
-        do {
-            return try JSONDecoder().decode(TripCreated.self, from: data)
-        } catch {
-            throw Failure.refused(200, "The new trip's answer was unreadable.")
-        }
+        try await run("api/native/trips", body: try JSONEncoder().encode(ConverseBody(text: text)),
+                      as: TripCreated.self, unreadable: "The new trip's answer was unreadable.")
     }
 
     private struct IdeasAsk: Encodable {
@@ -117,14 +111,105 @@ enum TripsAPI {
 
     /// Ideas that fit a slot of a day — "Make a suggestion". Nothing is saved.
     static func ideas(trip id: String, date: String, stage: DayStage, after: String?, before: String?) async throws -> TripIdeasReply {
-        let body = try JSONEncoder().encode(IdeasAsk(date: date, stage: stage.rawValue, afterStopId: after, beforeStopId: before))
-        let (data, http) = try await exchange(path(id) + "/ideas", method: "POST", body: body)
-        try check(http, data)
-        do {
-            return try JSONDecoder().decode(TripIdeasReply.self, from: data)
-        } catch {
-            throw Failure.refused(200, "The planner's ideas were unreadable.")
+        try await run(path(id) + "/ideas", body: try ideasBody(date: date, stage: stage, after: after, before: before),
+                      as: TripIdeasReply.self, unreadable: "The planner's ideas were unreadable.")
+    }
+
+    static func ideasBody(date: String, stage: DayStage, after: String?, before: String?) throws -> Data {
+        try JSONEncoder().encode(IdeasAsk(date: date, stage: stage.rawValue, afterStopId: after, beforeStopId: before))
+    }
+
+    // MARK: - v6: planner calls run as jobs
+    //
+    // The planner's calls (ideas, the conversation, a new trip, a whole-trip
+    // re-plan) take 40–90 s; the app's requests time out at 30 s and
+    // Cloudflare cuts a request at ~100 s. So each is STARTED with
+    // `"async": true` — the server answers 202 `{ job }` at once — and its
+    // result is collected by short polls of `GET /api/native/trips/jobs/:id`
+    // every two seconds. A server too old for jobs simply answers 200 with
+    // the result, which is read the same way.
+
+    enum Started: Equatable {
+        case job(String)
+        case result(Data)
+    }
+
+    /// Poll interval, and when to give up on a job.
+    static let pollEvery: UInt64 = 2_000_000_000
+    static let giveUpAfter: TimeInterval = 180
+    /// The starting request: long enough for an old server to do the work
+    /// itself, short of Cloudflare's cut.
+    static let startTimeout: TimeInterval = 95
+
+    private struct JobStarted: Decodable {
+        struct Job: Decodable { let id: String }
+        let job: Job
+    }
+
+    private struct JobPolled<T: Decodable>: Decodable {
+        struct Job: Decodable {
+            let status: String
+            let error: String?
+            let result: T?
         }
+        let job: Job
+    }
+
+    /// POST `body` with `"async": true` added.
+    static func start(_ route: String, body: Data) async throws -> Started {
+        var object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        object["async"] = true
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let (reply, http) = try await exchange(route, method: "POST", body: data, timeout: startTimeout)
+        if http.statusCode == 202, let started = try? JSONDecoder().decode(JobStarted.self, from: reply) {
+            return .job(started.job.id)
+        }
+        try check(http, reply)
+        return .result(reply)
+    }
+
+    /// The result of a started call: read at once, or polled until done.
+    /// A network blip while polling is retried (the phone may be waking from
+    /// the background); a job the server has forgotten (a deploy restarted
+    /// it) is said plainly.
+    static func result<T: Decodable>(_ started: Started, as type: T.Type, since: Date, unreadable: String) async throws -> T {
+        switch started {
+        case .result(let data):
+            do { return try JSONDecoder().decode(T.self, from: data) } catch { throw Failure.refused(200, unreadable) }
+        case .job(let id):
+            while true {
+                try Task.checkCancellation()
+                if Date().timeIntervalSince(since) > giveUpAfter {
+                    throw Failure.refused(504, "That took too long — try again.")
+                }
+                do {
+                    let (data, http) = try await exchange("api/native/trips/jobs/" + escape(id), method: "GET")
+                    if http.statusCode == 404 { throw Failure.refused(404, "That got lost in an update — try again.") }
+                    try check(http, data)
+                    guard let polled = try? JSONDecoder().decode(JobPolled<T>.self, from: data) else {
+                        throw Failure.refused(200, unreadable)
+                    }
+                    switch polled.job.status {
+                    case "done":
+                        guard let result = polled.job.result else { throw Failure.refused(200, unreadable) }
+                        return result
+                    case "failed":
+                        throw Failure.refused(500, polled.job.error ?? "The planner couldn't finish that — try again.")
+                    default:
+                        break
+                    }
+                } catch Failure.offline {
+                    // Keep polling: a connection lost mid-job is the usual blip.
+                }
+                try await Task.sleep(nanoseconds: pollEvery)
+            }
+        }
+    }
+
+    /// Start and collect in one.
+    static func run<T: Decodable>(_ route: String, body: Data, as type: T.Type, unreadable: String) async throws -> T {
+        let since = Date()
+        return try await result(try await start(route, body: body), as: type, since: since, unreadable: unreadable)
     }
 
     private struct SuggestBody: Encodable {
@@ -150,7 +235,7 @@ enum TripsAPI {
     @discardableResult
     static func suggest(trip id: String, date: String, stage: DayStage, wish: WishDraft, note: String?, fitText: String?) async throws -> TripSuggestion? {
         let body = try JSONEncoder().encode(SuggestBody(date: date, stage: stage.rawValue, wish: wish, note: note, fitText: fitText))
-        let (data, http) = try await exchange(path(id) + "/suggestions", method: "POST", body: body)
+        let (data, http) = try await exchange(path(id) + "/suggestions", method: "POST", body: body, timeout: 60)
         try check(http, data)
         return Self.suggestion(in: data)
     }
@@ -168,7 +253,8 @@ enum TripsAPI {
     @discardableResult
     static func decide(trip id: String, suggestion sid: String, action: String) async throws -> Decided {
         let body = try JSONEncoder().encode(["action": action])
-        let (data, http) = try await exchange(path(id) + "/suggestions/" + escape(sid), method: "POST", body: body)
+        // Approving adds the wish and re-solves the plan: give it time.
+        let (data, http) = try await exchange(path(id) + "/suggestions/" + escape(sid), method: "POST", body: body, timeout: 90)
         if http.statusCode == 409 { throw Failure.refused(409, "Someone has already decided that one.") }
         try check(http, data)
         return (try? JSONDecoder().decode(Decided.self, from: data)) ?? Decided()
@@ -190,7 +276,7 @@ enum TripsAPI {
             URLQueryItem(name: "mode", value: mode.rawValue), URLQueryItem(name: "date", value: date),
         ]
         let query = q.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B") ?? ""
-        let (data, http) = try await exchange(path(id) + "/route?" + query, method: "GET")
+        let (data, http) = try await exchange(path(id) + "/route?" + query, method: "GET", timeout: 60)
         try check(http, data)
         do {
             return try JSONDecoder().decode(TripRoute.self, from: data)
@@ -224,11 +310,11 @@ enum TripsAPI {
     /// `SiteClient.exchange`, with its failures sorted into the four this
     /// lane distinguishes.
     private static func exchange(
-        _ path: String, method: String, body: Data? = nil, headers: [String: String] = [:]
+        _ path: String, method: String, body: Data? = nil, headers: [String: String] = [:], timeout: TimeInterval? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         guard await SiteClient.shared.isPaired else { throw Failure.unpaired }
         do {
-            return try await SiteClient.shared.exchange(path, method: method, body: body, headers: headers)
+            return try await SiteClient.shared.exchange(path, method: method, body: body, headers: headers, timeout: timeout)
         } catch let error as SiteError {
             if case .unpaired = error { throw Failure.unpaired }
             if error.status == 401 { throw error }

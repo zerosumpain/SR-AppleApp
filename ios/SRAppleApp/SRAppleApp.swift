@@ -49,6 +49,8 @@ import UIKit
         // Off the plan: significant-change and visit wake-ups while a trip
         // day runs, so a relaunch for one must find this delegate too.
         TripOffPlan.shared.start()
+        // A planner job started before the app was closed: collect it.
+        TripJobs.shared.resume()
         // Before the first fix of a background relaunch, so a ride that woke
         // the app is marked from its start. A no-op until a bike is set up.
         BikePresence.shared.resume()

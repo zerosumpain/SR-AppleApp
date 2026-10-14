@@ -66,6 +66,7 @@ struct TripDayScreen: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            TripJobs.shared.resume()
             TripLive.shared.refresh()
             TripOffPlan.shared.requestFix()
             Task { await store.refreshIfStale() }
