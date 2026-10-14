@@ -4,7 +4,7 @@ import XCTest
 /// The phone's port of the trip solver (`Trips/TripReplan.swift`) against
 /// SR-Main's own answers. `Fixtures/TripCases/*.json` are copied verbatim
 /// from SR-Main `src/lib/trips/solver/fixtures/cases/` (feat/trips-solver,
-/// d7313eb3): each holds the solver's input and the output the TypeScript
+/// acb49b80): each holds the solver's input and the output the TypeScript
 /// gave. Every case must come back identical — same stops, same minutes,
 /// same legs, same warnings, same labels, same order.
 ///
@@ -60,8 +60,10 @@ final class TripReplanTests: XCTestCase {
     }
 
     func testEverySharedCaseIsBundled() {
-        XCTAssertEqual(caseFiles().count, 11, "the eleven replan/retime cases from SR-Main should all be in the test bundle")
+        XCTAssertEqual(caseFiles().count, 13, "the thirteen replan/retime cases from SR-Main should all be in the test bundle")
         XCTAssertEqual(tripCaseFiles().count, 5, "and the five replanTrip cases")
+        // The two solve-*.json cases are solveTrip's — server-side, not ported
+        // (fitDay and day assignment stay on the site). Bundled, not replayed.
     }
 
     // MARK: replanTrip cases (server-side)
@@ -129,6 +131,25 @@ final class TripReplanTests: XCTestCase {
                 XCTAssertEqual(try canonical(got.day), try canonical(pull.days[0]), "\(c.name): pull-forward today")
             }
         }
+    }
+
+    /// v2.1: a light day ends 90 min earlier; a lunch-replacing wish must
+    /// start inside the lunch window.
+    func testLightDaysAndMealReplacingWishes() {
+        let rules = TripPaceRules.of(.normal)
+        XCTAssertEqual(TripReplan.dayFrame(rules, ["2026-10-27": "light"], "2026-10-27", nil).dayEndMin, rules.dayEndMin - 90)
+        XCTAssertEqual(TripReplan.dayFrame(rules, ["2026-10-27": "full"], "2026-10-27", nil).dayEndMin, rules.dayEndMin)
+        XCTAssertEqual(TripReplan.dayFrame(rules, ["2026-10-27": "sideways"], "2026-10-27", nil).load, "normal")
+        var wish = TripWish(id: "w", title: "Trattoria", place: nil, priority: .nice, durationSec: 3600, partOfDay: .evening,
+                            fixedDate: nil, fixedStartMin: nil, locked: false, suggested: false, skipped: false,
+                            facts: nil, note: nil, sortHint: 0)
+        wish.replacesMeal = "lunch"
+        // Lunch 12:00–14:30 for 60 min: start by 13:30, may run to 14:30.
+        XCTAssertEqual(TripReplan.wishWindows(wish, "2026-10-27", rules), [TripOpenRange(openMin: 720, closeMin: 870)])
+        wish.replacesMeal = "dinner"
+        XCTAssertEqual(TripReplan.wishWindows(wish, "2026-10-27", rules), [TripOpenRange(openMin: 1140, closeMin: 1245)],
+                       "no dinner in the normal pace: 19:00–21:00 for 75 min")
+        XCTAssertEqual(TripReplan.wishItem(wish, "2026-10-27", [], rules).partOfDay, .any)
     }
 
     func testTaxiIsTheDriveRowPlusPickUp() {

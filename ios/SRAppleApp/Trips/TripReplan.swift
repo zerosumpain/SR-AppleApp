@@ -391,15 +391,25 @@ enum TripReplan {
         var stay: TripStay?
         var dayStartMin: Double
         var dayEndMin: Double
+        /// v2.1: "light", "normal" or "full".
+        var load: String = "normal"
+    }
+
+    /// A light day ends this much earlier than the pace's day end.
+    static let lightDayEarlierMin = 90.0
+
+    /// The frame for a date under the pace and that date's load (items.ts).
+    static func dayFrame(_ rules: TripPaceRules, _ dayLoads: [String: String], _ date: String, _ stay: TripStay?) -> DayFrame {
+        let raw = dayLoads[date] ?? "normal"
+        let load = ["light", "normal", "full"].contains(raw) ? raw : "normal"
+        return DayFrame(
+            date: date, stay: stay, dayStartMin: rules.dayStartMin,
+            dayEndMin: load == "light" ? rules.dayEndMin - lightDayEarlierMin : rules.dayEndMin, load: load
+        )
     }
 
     static func frameFor(_ ctx: SolverContext, _ day: PlannedDay, _ stays: [TripStay]) -> DayFrame {
-        DayFrame(
-            date: day.date,
-            stay: stays.first { $0.id == day.stayId },
-            dayStartMin: ctx.rules.dayStartMin,
-            dayEndMin: ctx.rules.dayEndMin
-        )
+        dayFrame(ctx.rules, ctx.dayLoads, day.date, stays.first { $0.id == day.stayId })
     }
 
     /// The matrix point we are at after a run of stops (meals sit where the stop before was).
@@ -521,6 +531,8 @@ enum TripReplan {
         let index: [String: Int]
         let locations: [String: TripLatLng]
         var cache: [String: LegChoice] = [:]
+        /// v2.1: per-date load; missing = normal.
+        let dayLoads: [String: String]
 
         init(_ trip: Trip, _ stays: [TripStay], _ wishes: [TripWish], _ matrix: TravelMatrix) {
             var index: [String: Int] = [:]
@@ -533,6 +545,7 @@ enum TripReplan {
             self.matrix = matrix
             self.index = index
             self.locations = locations
+            dayLoads = trip.dayLoads ?? [:]
         }
     }
 
@@ -631,6 +644,8 @@ enum TripReplan {
         var windows: [TripOpenRange]?
         var baseWarnings: [String]
         var sortHint: Double
+        /// v2.1: this wish is that day's lunch or dinner.
+        var replacesMeal: MealKind? = nil
     }
 
     private static var serials = 0
@@ -699,19 +714,44 @@ enum TripReplan {
             )
         }
         let wish = stop.wishId.flatMap { wishes[$0] }
-        let windows = wish.flatMap { windowsOn($0.facts, date) }
+        let windows = wish.flatMap { wishWindows($0, date, rules) }
+        let replaces = wish.flatMap(mealKind)
         return Item(
             serial: nextSerial(), id: stop.id, kind: .wish, wishId: stop.wishId, title: stop.title,
             point: stop.wishId ?? stop.id, location: stop.location, durationMin: durationMin,
             fixedStartMin: stop.locked ? startMin : nil, fixedEndMin: stop.locked ? stop.departMin : nil,
             locked: stop.locked, bookingId: stop.bookingId,
-            priority: wish?.priority, partOfDay: wish?.partOfDay ?? .any, windows: windows,
-            baseWarnings: wish.map { wishWarnings($0, bookings, windows) } ?? [],
-            sortHint: wish?.sortHint ?? 0
+            priority: wish?.priority, partOfDay: replaces != nil ? .any : (wish?.partOfDay ?? .any), windows: windows,
+            baseWarnings: wish.map { wishWarnings($0, bookings, replaces != nil ? windowsOn($0.facts, date) : windows) } ?? [],
+            sortHint: wish?.sortHint ?? 0, replacesMeal: replaces
         )
     }
 
     static let defaultVisitMin = 60.0
+
+    /// Dinner window for a wish that replaces dinner when the pace plans none.
+    static let fallbackDinner = TripPaceRules.Meal(fromMin: 19 * 60, toMin: 21 * 60, durationSec: 75 * 60)
+
+    /// The meal window a meal-replacing wish must start in.
+    static func replacedMealWindow(_ rules: TripPaceRules, _ kind: MealKind) -> (fromMin: Double, latestStartMin: Double) {
+        let w = (kind == .lunch ? rules.lunch : rules.dinner) ?? fallbackDinner
+        return (w.fromMin, w.toMin - js.round(w.durationSec / 60))
+    }
+
+    static func mealKind(_ wish: TripWish) -> MealKind? { wish.replacesMeal.flatMap(MealKind.init(rawValue:)) }
+
+    /// Opening windows for a wish on a date; a meal-replacing wish is
+    /// narrowed to start inside its meal window (it may run on past it).
+    static func wishWindows(_ wish: TripWish, _ date: String, _ rules: TripPaceRules?) -> [TripOpenRange]? {
+        let windows = windowsOn(wish.facts, date)
+        guard let kind = mealKind(wish), let rules else { return windows }
+        let meal = replacedMealWindow(rules, kind)
+        let slot = TripOpenRange(openMin: meal.fromMin, closeMin: meal.latestStartMin + visitMin(wish, nil))
+        guard let windows else { return [slot] }
+        return windows
+            .map { TripOpenRange(openMin: max($0.openMin, slot.openMin), closeMin: min($0.closeMin, slot.closeMin)) }
+            .filter { $0.closeMin > $0.openMin }
+    }
 
     /// The booked booking for a wish: earliest date and time, then id.
     static func bookedSlot(_ wishId: String, _ bookings: [TripBooking]) -> TripBooking? {
@@ -734,9 +774,9 @@ enum TripReplan {
         return defaultVisitMin
     }
 
-    static func wishItem(_ wish: TripWish, _ date: String, _ bookings: [TripBooking]) -> Item {
+    static func wishItem(_ wish: TripWish, _ date: String, _ bookings: [TripBooking], _ rules: TripPaceRules? = nil) -> Item {
         let booking = bookedSlot(wish.id, bookings)
-        let windows = windowsOn(wish.facts, date)
+        let windows = wishWindows(wish, date, rules)
         var fixedStartMin: Double?
         var bookingId: String?
         if let booking, booking.date == date {
@@ -749,8 +789,9 @@ enum TripReplan {
             serial: nextSerial(), id: wish.id, kind: .wish, wishId: wish.id, title: wish.title, point: wish.id,
             location: wish.place?.location, durationMin: visitMin(wish, booking), fixedStartMin: fixedStartMin,
             locked: fixedStartMin != nil || wish.locked, bookingId: bookingId, priority: wish.priority,
-            partOfDay: wish.partOfDay, windows: windows, baseWarnings: wishWarnings(wish, bookings, windows),
-            sortHint: wish.sortHint
+            partOfDay: mealKind(wish) != nil ? .any : wish.partOfDay, windows: windows,
+            baseWarnings: wishWarnings(wish, bookings, mealKind(wish) != nil ? windowsOn(wish.facts, date) : windows),
+            sortHint: wish.sortHint, replacesMeal: mealKind(wish)
         )
     }
 
@@ -800,7 +841,7 @@ enum TripReplan {
         let pulled = wishIds
             .filter { id in !already.contains { $0.wishId == id } }
             .compactMap { byId[$0] }
-            .map { wishItem($0, sit.frame.date, input.context.bookings) }
+            .map { wishItem($0, sit.frame.date, input.context.bookings, sit.ctx.rules) }
         let rest = sit.items.filter {
             !alreadySerials.contains($0.serial) && $0.kind != .meal && !without.contains($0.wishId ?? "")
         }
@@ -1044,7 +1085,7 @@ enum TripReplan {
             let arrive = t + legMin
             var begin = arrive
             var warnings = item.baseWarnings
-            let what: String? = item.kind == .meal ? item.title.lowercased() : nil
+            let what: String? = item.kind == .meal ? item.title.lowercased() : item.replacesMeal?.rawValue
             if let fixed = item.fixedStartMin {
                 if arrive <= fixed {
                     begin = fixed

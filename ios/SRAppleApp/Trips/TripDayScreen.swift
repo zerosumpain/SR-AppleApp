@@ -86,6 +86,13 @@ struct TripDayScreen: View {
                 if !missed.isEmpty {
                     missedCard(missed)
                 }
+                if bundle.trip.dayLoads?[date] == "light" {
+                    Label("Easy day", systemImage: "leaf")
+                        .font(SR.Text.label(13))
+                        .foregroundStyle(SR.good)
+                        .accessibilityLabel("Easy day: planned light, ending earlier")
+                        .accessibilityIdentifier("trip-easy-day")
+                }
                 if isToday {
                     TripHereCard(day: day, progress: progress, nowMin: nowMin, clock: clock)
                 } else {

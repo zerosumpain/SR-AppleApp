@@ -112,6 +112,10 @@ struct Trip: Codable, Hashable, Identifiable {
     var modes: [TravelMode]
     var status: TripStatus
     var notes: String?
+    /// v2.1: how full each day should be, by local date: "light", "normal"
+    /// or "full" (missing = normal). Strings, so a new load never fails a
+    /// bundle; `TripReplan` reads unknown values as normal.
+    var dayLoads: [String: String]? = nil
 }
 
 /// Accommodation for a run of nights. Each day starts and ends here.
@@ -182,6 +186,8 @@ struct TripWish: Codable, Hashable, Identifiable {
     var sortHint: Double
     /// v2: what to know when you're there.
     var guide: StopGuide? = nil
+    /// v2.1: this wish IS that day's "lunch" or "dinner".
+    var replacesMeal: String? = nil
 }
 
 enum BookingStatus: String, Codable, Hashable {
