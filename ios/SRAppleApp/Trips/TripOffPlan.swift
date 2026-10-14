@@ -143,6 +143,9 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
     func check(now: Date = Date()) {
         guard started, !SRDemo.isOn, let r = runningDay(now: now) else { return }
         let store = TripStore.shared
+        // v5: its options change the plan, which only the creator and the
+        // parents may; anyone else is not prompted.
+        guard store.bundles[r.tripId]?.can.canEdit != false else { return }
         guard let progress = store.progress(r.tripId, r.date, now: now) else { return }
         let nowMin = r.clock.minutes(now)
         let recent = fixes

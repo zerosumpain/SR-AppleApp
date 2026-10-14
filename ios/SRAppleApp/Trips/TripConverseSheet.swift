@@ -26,6 +26,16 @@ struct TripConverseSheet: View {
     @State private var options: TripOptionsRequest?
     @FocusState private var typing: Bool
 
+    /// What this person may do with the trip.
+    private var can: TripAccess { store.bundles[tripId]?.can ?? .owner }
+
+    /// For someone who can ask but not change.
+    static let adviceStarters = [
+        "What's good near here for kids?",
+        "Is there time for an ice cream this afternoon?",
+        "What should I pack for tomorrow?",
+    ]
+
     /// What to say when there is nothing yet to follow up.
     static let starters = [
         "We're running about 20 minutes late",
@@ -40,7 +50,9 @@ struct TripConverseSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if messages.isEmpty {
-                            Text("Tell the planner what to change. It answers here, and the plan updates behind this sheet.")
+                            Text(can.canEdit
+                                 ? "Tell the planner what to change. It answers here, and the plan updates behind this sheet."
+                                 : "Ask the planner anything about the trip.")
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -73,7 +85,22 @@ struct TripConverseSheet: View {
             }
             .safeAreaInset(edge: .bottom) { composer }
             .srPaper()
-            .navigationTitle("Edit plan")
+            .navigationTitle(can.canEdit ? "Edit plan" : "Ask the planner")
+            .safeAreaInset(edge: .top) {
+                // v5: someone who can't change this trip gets advice, said plainly.
+                if !can.canEdit {
+                    Label("Advice only — the plan is changed by whoever made the trip or a parent. To propose something, use “Make a suggestion” on a day.",
+                          systemImage: "info.circle")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, SR.gutter)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.bar)
+                        .accessibilityIdentifier("trip-advice-only")
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
@@ -125,7 +152,8 @@ struct TripConverseSheet: View {
     }
 
     private var quickReplies: some View {
-        let replies = (last?.quickReplies.isEmpty == false ? last?.quickReplies : nil) ?? Self.starters
+        let replies = (last?.quickReplies.isEmpty == false ? last?.quickReplies : nil)
+            ?? (can.canEdit ? Self.starters : Self.adviceStarters)
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(replies, id: \.self) { reply in
@@ -148,6 +176,7 @@ struct TripConverseSheet: View {
                 .font(SR.Text.secondary(13))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if can.canEdit {
             Text("On this phone, now:").font(SR.Text.label()).foregroundStyle(SR.inkMuted)
             HStack(spacing: 8) {
                 Menu {
@@ -166,6 +195,7 @@ struct TripConverseSheet: View {
             }
             .srButton(.regular)
             .controlSize(.small)
+            }
         }
         .accessibilityIdentifier("trip-converse-offline")
     }
@@ -205,13 +235,13 @@ struct TripConverseSheet: View {
                 ))
                 SRHaptic.ok()
                 // The planner changed the plan: show the server's version now.
-                if result.planVersion != nil || !result.applied.isEmpty {
+                if can.canEdit && (result.planVersion != nil || !result.applied.isEmpty) {
                     await store.adoptServerPlan(tripId)
                 }
             } catch {
                 SRHaptic.bad()
                 failure = (error as? TripsAPI.Failure) == .ownerOnly
-                    ? "Trips are owner-only for now."
+                    ? "This trip isn't shared with you."
                     : "Not sent: \(error.localizedDescription). Nothing was saved to send later."
             }
         }

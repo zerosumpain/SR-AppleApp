@@ -7,7 +7,7 @@ import Foundation
 /// `ownerOnly` so the screen can say so calmly instead of showing an error.
 enum TripsAPI {
     enum Failure: Error, Equatable {
-        /// 403: trips are the owner's for now.
+        /// 403: not in the family (v5: every family member sees every trip).
         case ownerOnly
         /// No site pairing on this phone.
         case unpaired
@@ -93,7 +93,109 @@ enum TripsAPI {
         }
     }
 
+    // MARK: - v5: family trips
+
+    /// A new trip from its opening message ("Rome, 27–30 Oct, staying near
+    /// Campo de' Fiori…"). Any family member may; they become its creator.
+    static func create(text: String) async throws -> TripCreated {
+        let body = try JSONEncoder().encode(ConverseBody(text: text))
+        let (data, http) = try await exchange("api/native/trips", method: "POST", body: body)
+        try check(http, data)
+        do {
+            return try JSONDecoder().decode(TripCreated.self, from: data)
+        } catch {
+            throw Failure.refused(200, "The new trip's answer was unreadable.")
+        }
+    }
+
+    private struct IdeasAsk: Encodable {
+        let date: String
+        let stage: String
+        let afterStopId: String?
+        let beforeStopId: String?
+    }
+
+    /// Ideas that fit a slot of a day — "Make a suggestion". Nothing is saved.
+    static func ideas(trip id: String, date: String, stage: DayStage, after: String?, before: String?) async throws -> TripIdeasReply {
+        let body = try JSONEncoder().encode(IdeasAsk(date: date, stage: stage.rawValue, afterStopId: after, beforeStopId: before))
+        let (data, http) = try await exchange(path(id) + "/ideas", method: "POST", body: body)
+        try check(http, data)
+        do {
+            return try JSONDecoder().decode(TripIdeasReply.self, from: data)
+        } catch {
+            throw Failure.refused(200, "The planner's ideas were unreadable.")
+        }
+    }
+
+    private struct SuggestBody: Encodable {
+        let date: String
+        let stage: String
+        let wish: WishDraft
+        let note: String?
+        let fitText: String?
+
+        private enum Keys: String, CodingKey { case date, stage, wish, note, fitText }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(date, forKey: .date)
+            try c.encode(stage, forKey: .stage)
+            try c.encode(wish, forKey: .wish)
+            try c.encodeIfPresent(note, forKey: .note)
+            try c.encodeIfPresent(fitText, forKey: .fitText)
+        }
+    }
+
+    /// Suggest something for a slot; it waits for a parent.
+    @discardableResult
+    static func suggest(trip id: String, date: String, stage: DayStage, wish: WishDraft, note: String?, fitText: String?) async throws -> TripSuggestion? {
+        let body = try JSONEncoder().encode(SuggestBody(date: date, stage: stage.rawValue, wish: wish, note: note, fitText: fitText))
+        let (data, http) = try await exchange(path(id) + "/suggestions", method: "POST", body: body)
+        try check(http, data)
+        return Self.suggestion(in: data)
+    }
+
+    /// "approve", "reject" or "withdraw".
+    @discardableResult
+    static func decide(trip id: String, suggestion sid: String, action: String) async throws -> TripSuggestion? {
+        let body = try JSONEncoder().encode(["action": action])
+        let (data, http) = try await exchange(path(id) + "/suggestions/" + escape(sid), method: "POST", body: body)
+        try check(http, data)
+        return Self.suggestion(in: data)
+    }
+
+    /// The answer is a suggestion, or `{ suggestion }`; either is read, and
+    /// neither is required — the bundle is re-read after any decision.
+    private static func suggestion(in data: Data) -> TripSuggestion? {
+        struct Wrapped: Decodable { let suggestion: TripSuggestion }
+        return (try? JSONDecoder().decode(Wrapped.self, from: data).suggestion)
+            ?? (try? JSONDecoder().decode(TripSuggestion.self, from: data))
+    }
+
+    /// A leg drawn in another mode (display only: the plan is unchanged).
+    static func route(trip id: String, date: String, from: String, to: String, mode: TravelMode) async throws -> TripRoute {
+        var q = URLComponents()
+        q.queryItems = [
+            URLQueryItem(name: "from", value: from), URLQueryItem(name: "to", value: to),
+            URLQueryItem(name: "mode", value: mode.rawValue), URLQueryItem(name: "date", value: date),
+        ]
+        let query = q.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B") ?? ""
+        let (data, http) = try await exchange(path(id) + "/route?" + query, method: "GET")
+        try check(http, data)
+        do {
+            return try JSONDecoder().decode(TripRoute.self, from: data)
+        } catch {
+            throw Failure.refused(200, "That route was unreadable.")
+        }
+    }
+
     // MARK: - Plumbing
+
+    private static func escape(_ part: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/%?#")
+        return part.addingPercentEncoding(withAllowedCharacters: allowed) ?? part
+    }
 
     /// Ids are the server's own (url-safe), escaped all the same: a `/` in
     /// one would otherwise address a different route.
@@ -153,7 +255,7 @@ enum TripsAPI {
 extension TripsAPI.Failure: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .ownerOnly: return "Trips are owner-only for now."
+        case .ownerOnly: return "Trips are for the family — this phone isn't in the Family Circle."
         case .unpaired: return "Connect this iPhone to Strange Ramblings first."
         case .refused(_, let sentence): return sentence
         case .offline(let why): return why

@@ -26,6 +26,17 @@ extension SRDemoFixtures {
             return TripDemo.json(TripEventsReply(accepted: sent, planVersion: 3))
         case ("POST", 5) where parts[4] == "replan":
             return #"{"options":[],"tripOptions":[],"narrative":null}"#
+        case ("POST", 3):
+            return #"{"id":"demo-rome","reply":"A long weekend — lovely. Who's coming, and where are you staying?","quickReplies":["Two adults and Sam, 9","Near Campo de' Fiori"]}"#
+        case ("POST", 5) where parts[4] == "ideas":
+            return TripDemo.json(TripDemo.ideas())
+        case ("POST", 5) where parts[4] == "suggestions":
+            return TripDemo.json(TripDemo.suggestion(clock.now))
+        case ("POST", 6) where parts[4] == "suggestions":
+            return #"{"ok":true}"#
+        case ("GET", 5) where parts[4].hasPrefix("route"):
+            return TripDemo.json(TripRoute(line: [TripLatLng(lat: 41.8986, lng: 12.4769), TripLatLng(lat: 41.9001, lng: 12.4800), TripLatLng(lat: 41.9009, lng: 12.4833)],
+                                           durationSec: 540, distanceM: 2600, estimated: true, guidance: nil))
         case ("POST", 5) where parts[4] == "converse":
             let said = (try? JSONDecoder().decode(ConverseBody.self, from: body ?? Data()))?.text ?? ""
             return TripDemo.json(TripDemo.converse(said))
@@ -157,6 +168,15 @@ enum TripDemo {
             )
         }
         var guided = legs
+        // v5: the other ways of each leg, for the mode picker.
+        for i in guided.indices {
+            let walkSec = guided[i].mode == .walk ? guided[i].durationSec : guided[i].durationSec * 2.5
+            guided[i].alternatives = [
+                LegAlternative(mode: .walk, durationSec: walkSec.rounded(), estimated: true),
+                LegAlternative(mode: .taxi, durationSec: (walkSec / 4 + 480).rounded(), estimated: true),
+                LegAlternative(mode: .transit, durationSec: (walkSec / 2 + 300).rounded(), estimated: true),
+            ]
+        }
         guided[3].guidance = walkGuidance(checked)
         guided[5].guidance = taxiGuidance(checked)
         guided[6].guidance = transitGuidance(a + 155, checked)
@@ -184,7 +204,11 @@ enum TripDemo {
             trip: trip, stays: [stay], wishes: withGuides, bookings: bookings, plan: plan,
             matrices: [today: matrixAll], etag: "demo-3",
             messages: messages(now: now), guide: tripGuide(checked), tripMatrix: matrixAll,
-            transport: flights(start, end, checked), profile: profile(checked)
+            transport: flights(start, end, checked), profile: profile(checked),
+            access: .owner,
+            suggestions: [suggestion(now)],
+            fullness: [start: DayFullness(activeMin: 100, capacityMin: 360, pct: 28, band: "light"),
+                       today: DayFullness(activeMin: 260, capacityMin: 480, pct: 54, band: "balanced")]
         )
     }
 
@@ -303,20 +327,40 @@ enum TripDemo {
         ]
     }
 
+    /// Who is travelling — names and ages only. No memories, ever.
     private static func profile(_ at: String) -> TravellerProfile {
-        TravellerProfile(
-            travellers: [
-                TravellerProfile.Traveller(name: "Alex", relation: nil, notes: []),
-                TravellerProfile.Traveller(name: "Sam", relation: "child", notes: ["Gets tired after long walks"]),
-            ],
-            preferences: [
-                TravellerProfile.Known(text: "Prefers walking to taxis in a city centre", source: "memory", ref: nil),
-                TravellerProfile.Known(text: "Likes a long lunch", source: "conversation", ref: nil),
-            ],
-            constraints: [TravellerProfile.Known(text: "No early starts", source: "memory", ref: nil)],
-            history: ["Florence two years ago: too much in one day"],
-            gatheredAt: at
+        TravellerProfile(travellers: [
+            TravellerProfile.Traveller(name: "Alex", relation: nil, age: 41, personId: "demo-alex"),
+            TravellerProfile.Traveller(name: "Sam", relation: "child", age: 9, personId: "demo-sam"),
+        ])
+    }
+
+    /// Sam's idea for this afternoon, waiting for a parent.
+    static func suggestion(_ now: Date) -> TripSuggestion {
+        let today = TripClock(zone).localDate(now)
+        return TripSuggestion(
+            id: "demo-sugg-1", tripId: tripId, byId: "demo-sam", byName: "Sam", date: today, stage: "afternoon",
+            wish: WishDraft(title: "Gelato near the Trevi Fountain", placeQuery: "gelateria Trevi", priority: "nice",
+                            durationMin: 20, partOfDay: "afternoon", fixedDate: today, fixedStartMin: nil, note: nil),
+            note: "We walk right past it", fitText: "Fits after the fountain — about 20 minutes",
+            status: "pending", decidedById: nil, decidedAt: nil, createdAt: TripStore.iso(now.addingTimeInterval(-1800))
         )
+    }
+
+    /// "Make a suggestion" for a slot: three made-up ideas that fit.
+    static func ideas() -> TripIdeasReply {
+        func idea(_ title: String, _ why: String, _ fit: String, _ minutes: Double) -> TripIdea {
+            TripIdea(title: title, why: why, fit: fit,
+                     wish: WishDraft(title: title, placeQuery: title, priority: "nice", durationMin: minutes, partOfDay: "any",
+                                     fixedDate: nil, fixedStartMin: nil, note: nil),
+                     verdict: IdeaVerdict(fits: true, arriveMin: nil, departMin: nil, landedStage: nil, legInMin: 6,
+                                          legOutMin: 8, pushesOut: [], reason: nil))
+        }
+        return TripIdeasReply(ideas: [
+            idea("A demo bookshop", "Quiet, and on the way", "Fits: 6 min there, 30 min inside, 8 min on", 30),
+            idea("A demo gelateria", "Sam asked for ice cream", "Fits: 20 minutes, right by the next stop", 20),
+            idea("A demo garden", "Shade and a bench after the walk", "Fits: 40 minutes, back on time", 40),
+        ], rejected: [], note: nil)
     }
 
     static func converse(_ said: String) -> ConverseResult {

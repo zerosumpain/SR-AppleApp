@@ -130,6 +130,10 @@ struct TripStopScreen: View {
     private func gettingThere(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int) -> some View {
         if let leg = day.leg(before: index) {
             Section {
+                // v5: the leg in, in the mode you'd rather (display only).
+                TripLegPicker(tripId: ref.tripId, date: ref.date, leg: leg, from: day.stops[index - 1], to: day.stops[index])
+                    .srPlainRow()
+                    .padding(.vertical, 6)
                 TripNextStageCard(
                     leg: leg, from: day.stops[index - 1], to: day.stops[index],
                     bundle: bundle, date: ref.date, following: $following

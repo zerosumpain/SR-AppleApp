@@ -225,8 +225,12 @@ final class TripTests: XCTestCase {
         let t = try JSONDecoder().decode(TransportSegment.self, from: Data(segment.utf8))
         XCTAssertEqual(t.number, "LS1235")
         XCTAssertEqual(t.leads.exitMin, 40)
-        let profile = #"{"travellers":[{"name":"John","relation":null,"notes":[]}],"preferences":[{"text":"Prefers walking","source":"memory","ref":"m1"}],"constraints":[],"history":[],"gatheredAt":"2026-10-14T05:00:00.000Z"}"#
-        XCTAssertEqual(try JSONDecoder().decode(TravellerProfile.self, from: Data(profile.utf8)).preferences.first?.source, "memory")
+        // v5: only travellers reach the phone; anything else is dropped on decode.
+        let profile = #"{"travellers":[{"name":"Sam","relation":"child","age":9,"personId":"p2"}],"preferences":[{"text":"Prefers walking","source":"memory","ref":"m1"}]}"#
+        let decoded = try JSONDecoder().decode(TravellerProfile.self, from: Data(profile.utf8))
+        XCTAssertEqual(decoded.travellers.first?.age, 9)
+        let reencoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        XCTAssertFalse(reencoded.contains("Prefers walking"), "a memory must not survive onto the phone's disk")
         let converse = #"{"reply":"Lands 11:25.","applied":[],"rejected":[],"quickReplies":[],"planVersion":null,"changes":[],"research":[{"tool":"flight_lookup","summary":"Looked up LS1235","sources":[]}]}"#
         XCTAssertEqual(try JSONDecoder().decode(ConverseResult.self, from: Data(converse.utf8)).research?.first?.tool, "flight_lookup")
     }
@@ -259,6 +263,55 @@ final class TripTests: XCTestCase {
         XCTAssertEqual(bundle.segments.first?.arriveDate, first.date)
         XCTAssertEqual(bundle.trip.dayLoads?[first.date], "light")
         XCTAssertNotNil(bundle.profile)
+    }
+
+    // MARK: v5 family trips
+
+    /// An older bundle (no `access`) was the owner's: everything allowed.
+    func testAccessDefaultsToTheOwner() throws {
+        var bundle = TripDemo.bundle(now: Date())
+        bundle.access = nil
+        XCTAssertTrue(bundle.can.canEdit && bundle.can.canApprove)
+        let member = #"{"canEdit":false,"canApprove":false,"canSuggest":true,"role":"member"}"#
+        bundle.access = try JSONDecoder().decode(TripAccess.self, from: Data(member.utf8))
+        XCTAssertFalse(bundle.can.canEdit)
+        XCTAssertTrue(bundle.can.canSuggest)
+    }
+
+    func testASuggestionDecodes() throws {
+        let json = #"{"id":"s1","tripId":"t1","byId":"p2","byName":"Sam","date":"2026-10-28","stage":"afternoon","wish":{"title":"Gelato","placeQuery":"gelateria","priority":"nice","durationMin":20,"partOfDay":"afternoon","fixedDate":"2026-10-28","fixedStartMin":null,"note":null},"note":null,"fitText":"Fits","status":"pending","decidedById":null,"decidedAt":null,"createdAt":"2026-10-14T10:00:00.000Z"}"#
+        let s = try JSONDecoder().decode(TripSuggestion.self, from: Data(json.utf8))
+        XCTAssertTrue(s.pending)
+        XCTAssertEqual(s.wish.durationMin, 20)
+    }
+
+    /// A draft's `string | null` fields go up as null.
+    func testAWishDraftWritesItsNulls() throws {
+        let draft = WishDraft(title: "Gelato", placeQuery: nil, priority: "nice", durationMin: nil, partOfDay: "any",
+                              fixedDate: nil, fixedStartMin: nil, note: nil)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as? [String: Any])
+        XCTAssertTrue(object["placeQuery"] is NSNull)
+        XCTAssertNil(object["replacesMeal"], "optional, so left out")
+    }
+
+    func testFullnessBands() {
+        XCTAssertEqual(TripFullness.band(5), "empty")
+        XCTAssertEqual(TripFullness.band(49), "light")
+        XCTAssertEqual(TripFullness.band(84), "balanced")
+        XCTAssertEqual(TripFullness.band(100), "full")
+        XCTAssertEqual(TripFullness.band(101), "overfull")
+        let bundle = TripDemo.bundle(now: Date())
+        let today = TripClock(bundle.trip.timeZone).localDate(Date())
+        let day = bundle.day(today)!
+        XCTAssertEqual(TripFullness.of(day, bundle: bundle).pct, 54, "the server's figure, for the server's day")
+        var moved = day
+        moved.stops.removeAll { $0.kind == .wish }
+        XCTAssertEqual(TripFullness.of(moved, bundle: bundle).band, "empty", "a phone-made day is measured here")
+    }
+
+    func testTravellersAreNamesAndAges() {
+        XCTAssertEqual(TripTravellersRow.line(.init(name: "Sam", relation: "child", age: 9, personId: nil)), "Sam, 9")
+        XCTAssertEqual(TripTravellersRow.line(.init(name: "Alex", relation: nil)), "Alex")
     }
 
     // MARK: v4 stages

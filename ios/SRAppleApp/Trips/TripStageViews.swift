@@ -36,9 +36,8 @@ struct TripStageBand<Content: View>: View {
                 Text("Free — nothing planned.")
                     .font(SR.Text.secondary(14))
                     .foregroundStyle(stage == .evening ? SR.creamOnDark : SR.inkMuted)
-            } else {
-                content
             }
+            content
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -188,5 +187,18 @@ struct TripStageMark: View {
         }
         .frame(width: 10, height: 10)
         .accessibilityHidden(true)
+    }
+}
+
+extension TripFullness {
+    /// From quiet to warning, in the SR palette.
+    static func colour(_ band: String) -> Color {
+        switch band {
+        case "empty": return SR.inkGhost
+        case "light": return SR.accentInk
+        case "balanced": return SR.good
+        case "full": return SR.accent
+        default: return SR.error
+        }
     }
 }
