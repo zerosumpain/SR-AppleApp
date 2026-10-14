@@ -1301,6 +1301,96 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — a member: Today, Health, Family, Games and nothing else")
     }
 
+    // MARK: - Trips
+
+    /// The demo's Rome day, running now: the "Trip today" card on Today,
+    /// then the Day screen — Now/Next, the map, the timeline — and one stop.
+    @MainActor func testShowcaseTripDay() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        attach(app, "Showcase — Today, trip today")
+        guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
+        card.tap()
+        settle(app, on: byId(app, "trip-day-screen"), seconds: 3)
+        attach(app, "Showcase — Trip day")
+
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Trip day, timeline")
+
+        // v4: the rest of the day in its four stages.
+        let afternoon = byId(app, "trip-stage-afternoon")
+        if scroll(app, to: afternoon) {
+            settle(app)
+            attach(app, "Showcase — Trip day, stages")
+        } else {
+            soft(false, "no stage bands on the Day screen")
+        }
+
+        // The Borghese gardens: its leg is the taxi.
+        let stop = byId(app, "trip-stop-6")
+        if scroll(app, to: stop) {
+            stop.tap()
+            settle(app)
+            attach(app, "Showcase — Trip stop, by taxi")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            settle(app, on: byId(app, "trip-day-screen"))
+        } else {
+            soft(false, "no Borghese row on the Day screen")
+        }
+
+        let edit = byId(app, "trip-edit-plan")
+        if edit.waitForExistence(timeout: 5) {
+            edit.tap()
+            settle(app, on: byId(app, "trip-converse"), seconds: 2)
+            attach(app, "Showcase — Trip, edit plan")
+        } else {
+            soft(false, "no Edit plan button")
+        }
+    }
+
+    /// Day one: the 07:35 from Newcastle landing, the taxi in, bags dropped
+    /// before check-in, lunch — and the trip's "What I know about you".
+    @MainActor func testShowcaseTripArrivalDay() {
+        let app = launch()
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
+        card.tap()
+        settle(app, on: byId(app, "trip-day-screen"))
+        let all = byId(app, "trip-all-days")
+        guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
+        all.tap()
+        let profile = byId(app, "trip-profile")
+        settle(app)
+        attach(app, "Showcase — Trip, days")
+        if scroll(app, to: profile) { attach(app, "Showcase — Trip, what I know about you") }
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'trip-day-2'")).firstMatch
+        guard scroll(app, to: first) else { return soft(false, "no first day row") }
+        first.tap()
+        settle(app, on: byId(app, "trip-transport"), seconds: 2)
+        attach(app, "Showcase — Trip, arrival day")
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Trip, arrival day, scrolled")
+    }
+
+    /// Off the plan: a coffee after the Pantheon, the planner's view and
+    /// three ways on, at the top of the Day screen.
+    @MainActor func testShowcaseTripOffPlan() {
+        let app = launch(["-SRDemoOffPlan"])
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
+        card.tap()
+        settle(app, on: byId(app, "trip-offplan"), seconds: 3)
+        attach(app, "Showcase — Trip, off the plan")
+    }
+
     // MARK: - Helpers
 
     @MainActor private func launch(_ extra: [String] = []) -> XCUIApplication {

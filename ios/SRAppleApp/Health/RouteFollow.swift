@@ -161,7 +161,9 @@ final class FollowSession: NSObject, ObservableObject, CLLocationManagerDelegate
             clientId: UUID().uuidString.lowercased(),
             name: detail.name,
             sport: detail.sport,
-            routeId: detail.id,
+            // A trip leg (`source: "trip"`) is a line drawn for the day, not a
+            // saved route Health knows: the walk is recorded, unlinked.
+            routeId: detail.source == PlannedRouteDetail.tripSource ? nil : detail.id,
             startedAt: Date().timeIntervalSince1970,
             finishedAt: Date().timeIntervalSince1970,
             track: [],

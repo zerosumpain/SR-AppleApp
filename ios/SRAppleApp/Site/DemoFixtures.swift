@@ -93,6 +93,16 @@ enum SRDemo {
         #endif
     }
 
+    /// `-SRDemoOffPlan` as well: the Rome trip day has left the Pantheon for
+    /// a café, so the showcase can photograph the off-plan card.
+    static var isOffPlanShot: Bool {
+        #if DEBUG
+        return isShowcase && ProcessInfo.processInfo.arguments.contains("-SRDemoOffPlan")
+        #else
+        return false
+        #endif
+    }
+
     /// What demo mode may use: everything, as the owner, unless a member.
     static var access: AppAccess {
         isMember ? AppAccess(family: true, games: true) : .everything
@@ -308,6 +318,10 @@ enum SRDemoFixtures {
         // The family step board and task list — `Family/FamilyBoardDemoFixtures.swift`.
         if joined.hasPrefix("api/native/family/") {
             return familyRoute(method: method, parts: parts, body: body, clock: clock)
+        }
+        // Trips — `Trips/TripDemoFixtures.swift`.
+        if joined == "api/native/trips" || joined.hasPrefix("api/native/trips/") {
+            return tripsRoute(method: method, parts: parts, body: body, clock: clock)
         }
         // Workflows — `FlowDemoFixtures.swift`.
         if joined == "api/native/workflows" || joined.hasPrefix("api/native/workflows/") {

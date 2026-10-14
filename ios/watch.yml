@@ -77,6 +77,8 @@ targets:
       - SRAppleLive
       # The activity's shape, shared with the app that reports its tokens.
       - path: SRAppleApp/Journey/JourneyAttributes.swift
+      # The trip day's card (`Trips/TripLive.swift` starts it), likewise.
+      - path: SRAppleApp/Trips/TripAttributes.swift
       # The family widgets' boards, rules, Keychain shelf and faces, shared
       # with the app that fills them.
       - path: SRAppleApp/Family/FamilyBoardModels.swift

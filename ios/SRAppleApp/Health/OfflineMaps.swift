@@ -77,27 +77,34 @@ final class OfflineMaps: ObservableObject {
     // MARK: Download and delete
 
     func download(_ detail: PlannedRouteDetail) {
-        if case .downloading = state(for: detail.id) { return }
-        let context = (try? JSONEncoder().encode(Context(routeId: detail.id, name: detail.name))) ?? Data()
+        download(id: detail.id, name: detail.name, line: detail.coordinates)
+    }
+
+    /// Any line's corridor, under any id — a saved route, or a trip day's
+    /// stops and legs (`trip:<tripId>:<date>`, see `TripDayMap`).
+    func download(id: String, name: String, line: [CLLocationCoordinate2D]) {
+        if case .downloading = state(for: id) { return }
+        guard !line.isEmpty else { return }
+        let context = (try? JSONEncoder().encode(Context(routeId: id, name: name))) ?? Data()
         let region = MLNShapeOfflineRegion(
             styleURL: SRMapStyle.url,
-            shape: Self.corridor(detail.coordinates),
+            shape: Self.corridor(line),
             fromZoomLevel: Self.minZoom,
             toZoomLevel: Self.maxZoom
         )
-        states[detail.id] = .downloading(0)
+        states[id] = .downloading(0)
         // A previous, partial pack for this route is replaced, not stacked.
-        if let old = packs[detail.id] {
+        if let old = packs[id] {
             MLNOfflineStorage.shared.removePack(old, withCompletionHandler: nil)
-            packs[detail.id] = nil
+            packs[id] = nil
         }
         MLNOfflineStorage.shared.addPack(for: region, withContext: context) { [weak self] pack, error in
             MainActor.assumeIsolated {
                 guard let pack else {
-                    self?.states[detail.id] = .failed(error?.localizedDescription ?? "Could not start the download.")
+                    self?.states[id] = .failed(error?.localizedDescription ?? "Could not start the download.")
                     return
                 }
-                self?.packs[detail.id] = pack
+                self?.packs[id] = pack
                 pack.resume()
             }
         }
