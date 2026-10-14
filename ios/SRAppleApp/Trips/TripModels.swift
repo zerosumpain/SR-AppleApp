@@ -1012,8 +1012,12 @@ struct TripIdea: Codable, Hashable, Identifiable {
     var fit: String
     var wish: WishDraft
     var verdict: IdeaVerdict?
+    /// v6: "planner" (the model's idea) or "nearby" (found on the map around
+    /// the gap when the planner had nothing that fitted).
+    var source: String? = nil
 
     var id: String { title }
+    var nearby: Bool { source == "nearby" }
 }
 
 /// `POST …/ideas` → what fits a slot.

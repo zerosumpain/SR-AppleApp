@@ -15,10 +15,17 @@ struct TripNewSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var network = TripNetwork.shared
+    /// Making a trip asks the planner: a job (v6), kept by `TripJobs`.
+    @ObservedObject private var jobs = TripJobs.shared
     @State private var draft = ""
-    @State private var sending = false
-    @State private var failure: String?
     @FocusState private var typing: Bool
+
+    private var key: String { TripJobs.createKey }
+    private var sending: Bool { jobs.isRunning(key) }
+    private var failure: String? {
+        if case .failed(let why) = jobs.states[key] { return "Not made: \(why)" }
+        return nil
+    }
 
     static let starters = [
         "A long weekend in Rome at the end of October",
@@ -35,13 +42,20 @@ struct TripNewSheet: View {
                         text: "Where to, when, and who's coming? Say it however it comes — I'll ask for anything I need, look up the journey, and draft a plan you can change.",
                         ops: [], planVersion: nil, surface: "phone", createdAt: ""
                     ))
-                    if sending {
+                    if case .running(let since, let asked) = jobs.states[key] {
                         TripMessageBubble(message: TripMessage(
-                            id: "new-trip-said", role: .user, text: draft, ops: [], planVersion: nil, surface: "phone", createdAt: ""
+                            id: "new-trip-said", role: .user, text: asked ?? "", ops: [], planVersion: nil, surface: "phone", createdAt: ""
                         ))
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Making the trip…").font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted)
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Making the trip… \(max(0, Int(context.date.timeIntervalSince(since)))) s")
+                                    .font(SR.Text.secondary(13))
+                                    .foregroundStyle(SR.inkMuted)
+                                    .monospacedDigit()
+                                Spacer(minLength: 4)
+                                Button("Cancel") { jobs.cancel(key) }.font(SR.Text.label(12))
+                            }
                         }
                     }
                     if let failure {
@@ -60,6 +74,13 @@ struct TripNewSheet: View {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
             }
             .onAppear { typing = true }
+            // Made: open it (also when it finished while this sheet was away).
+            .onChange(of: jobs.created[key]) { _, id in
+                guard let id else { return }
+                jobs.clear(key)
+                dismiss()
+                onCreated(id)
+            }
         }
         .accessibilityIdentifier("trip-new")
     }
@@ -108,20 +129,8 @@ struct TripNewSheet: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !sending else { return }
         SRHaptic.tap()
-        sending = true
-        failure = nil
-        Task {
-            let made = await store.create(from: text)
-            sending = false
-            if let id = made.id {
-                SRHaptic.ok()
-                dismiss()
-                onCreated(id)
-            } else {
-                SRHaptic.bad()
-                failure = made.failure
-            }
-        }
+        draft = ""
+        jobs.create(text)
     }
 }
 
@@ -138,13 +147,16 @@ struct TripSlotPanel: View {
     let bundle: TripBundle
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var network = TripNetwork.shared
+    @ObservedObject private var jobs = TripJobs.shared
     @Environment(\.tripOnDark) private var onDark
-    @State private var reply: TripIdeasReply?
-    @State private var loading = false
     @State private var busy: String?
     @State private var message: String?
 
     private var can: TripAccess { bundle.can }
+    /// The ask runs as a job (v6), kept by `TripJobs`: it survives this
+    /// view going away, the app going to the background, or a relaunch.
+    private var key: String { TripJobs.ideasKey(tripId, day.date, stage) }
+    private var reply: TripIdeasReply? { jobs.ideas[key] }
     private var muted: Color { onDark ? SR.creamOnDark : SR.inkMuted }
 
     private var pending: [TripSuggestion] {
@@ -163,17 +175,41 @@ struct TripSlotPanel: View {
                     TripIdeaCard(idea: idea, actionLabel: can.canEdit || can.canApprove ? "Add this" : "Suggest this",
                                  busy: busy == idea.id) { take(idea) }
                 }
-                if let note = reply.note {
-                    Text(note).font(SR.Text.secondary(13)).foregroundStyle(muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Button("Put the ideas away") { self.reply = nil }
+                if reply.ideas.isEmpty {
+                    nothingFitted(reply)
+                } else {
+                    if let note = reply.note {
+                        Text(note).font(SR.Text.secondary(13)).foregroundStyle(muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 14) {
+                        Button("Other ideas") { ask() }
+                        Button("Put the ideas away") { jobs.clear(key) }
+                    }
                     .font(SR.Text.label(12))
                     .foregroundStyle(muted)
-            } else if loading {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Looking for something that fits…").font(SR.Text.secondary(13)).foregroundStyle(muted)
+                }
+            } else if case .running(let since, _) = jobs.states[key] {
+                // Elapsed seconds, so a long think reads as progress, not a hang.
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Looking for something that fits… \(max(0, Int(context.date.timeIntervalSince(since)))) s")
+                            .font(SR.Text.secondary(13))
+                            .foregroundStyle(muted)
+                            .monospacedDigit()
+                        Spacer(minLength: 4)
+                        Button("Cancel") { jobs.cancel(key) }
+                            .font(SR.Text.label(12))
+                            .foregroundStyle(onDark ? SR.accentOnDark : SR.accentDeep)
+                    }
+                }
+                .accessibilityIdentifier("trip-suggest-running")
+            } else if case .failed(let why) = jobs.states[key] {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(why).font(SR.Text.secondary(13)).foregroundStyle(onDark ? SR.errorOnDark : SR.error)
+                        .fixedSize(horizontal: false, vertical: true)
+                    tryAgain
                 }
             } else if can.canSuggest || can.canEdit {
                 Button { ask() } label: {
@@ -193,6 +229,33 @@ struct TripSlotPanel: View {
         .padding(.vertical, 6)
     }
 
+    /// Nothing fitted: the server's note and each idea it turned down, with
+    /// why, then "Try again".
+    private func nothingFitted(_ reply: TripIdeasReply) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(reply.note ?? "Nothing found that fits this slot.")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(onDark ? SR.cream : SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(reply.rejected ?? [], id: \.self) { turned in
+                Text("\(turned.title) — \(turned.reason)")
+                    .font(SR.Text.secondary(12))
+                    .foregroundStyle(muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            tryAgain
+        }
+        .accessibilityIdentifier("trip-suggest-nothing")
+    }
+
+    private var tryAgain: some View {
+        Button { ask() } label: { SRButtonLabel(title: "Try again", icon: "arrow.clockwise") }
+            .srButton(.regular)
+            .controlSize(.small)
+            .disabled(!(network.online || SRDemo.isOn))
+            .accessibilityIdentifier("trip-suggest-retry")
+    }
+
     /// The stops either side of the slot, so the planner knows the gap.
     private var neighbours: (after: String?, before: String?) {
         guard let first = indexes.first, let last = indexes.last else { return (nil, nil) }
@@ -203,18 +266,9 @@ struct TripSlotPanel: View {
 
     private func ask() {
         SRHaptic.tap()
-        loading = true
         message = nil
         let around = neighbours
-        Task {
-            do {
-                reply = try await TripsAPI.ideas(trip: tripId, date: day.date, stage: stage, after: around.after, before: around.before)
-                if reply?.ideas.isEmpty == true && reply?.note == nil { message = "Nothing found that fits this slot." }
-            } catch {
-                message = error.localizedDescription
-            }
-            loading = false
-        }
+        jobs.askIdeas(tripId: tripId, date: day.date, stage: stage, after: around.after, before: around.before)
     }
 
     private func take(_ idea: TripIdea) {
@@ -232,7 +286,7 @@ struct TripSlotPanel: View {
                 message = failure
             } else {
                 SRHaptic.ok()
-                reply = nil
+                jobs.clear(key)
                 message = can.canEdit || can.canApprove ? nil : "Suggested — a parent will see it."
             }
         }
@@ -258,7 +312,17 @@ struct TripIdeaCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(idea.title).font(SR.Text.title(15)).foregroundStyle(onDark ? SR.cream : SR.ink)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(idea.title).font(SR.Text.title(15)).foregroundStyle(onDark ? SR.cream : SR.ink)
+                if idea.nearby {
+                    // Found on the map around the gap, not by the planner.
+                    Text("NEARBY")
+                        .font(SR.Text.label(10))
+                        .tracking(1)
+                        .foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)
+                        .accessibilityLabel("Found nearby")
+                }
+            }
             Text(idea.why).font(SR.Text.secondary(13)).foregroundStyle(onDark ? SR.creamOnDark : SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(idea.fit).font(SR.Text.mono(12)).foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)

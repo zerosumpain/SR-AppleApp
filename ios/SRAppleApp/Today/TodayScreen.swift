@@ -332,6 +332,8 @@ struct TodayScreen: View {
         .onDisappear { onScreen = false }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            // A planner job left running in the background: pick it up.
+            TripJobs.shared.resume()
             move.start()
             Task {
                 await store.load()

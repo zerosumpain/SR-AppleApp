@@ -303,6 +303,23 @@ final class TripTests: XCTestCase {
         XCTAssertNil(object["replacesMeal"], "optional, so left out")
     }
 
+    // MARK: v6 jobs
+
+    /// An idea says where it came from; the map's fallback is tagged.
+    func testIdeasSayWhereTheyCameFrom() throws {
+        let json = #"{"ideas":[{"title":"Bar del Fico","why":"Close","fit":"Fits","wish":{"title":"Bar del Fico","placeQuery":null,"priority":"nice","durationMin":30,"partOfDay":"any","fixedDate":null,"fixedStartMin":null,"note":null},"verdict":{"fits":true,"pushesOut":[]},"source":"nearby"}],"rejected":[{"title":"Too far","reason":"40 min away"}],"note":null,"research":[]}"#
+        let reply = try JSONDecoder().decode(TripIdeasReply.self, from: Data(json.utf8))
+        XCTAssertTrue(reply.ideas[0].nearby)
+        XCTAssertEqual(reply.rejected?.first?.reason, "40 min away")
+    }
+
+    /// Jobs are keyed per slot, per trip's conversation, and for a new trip.
+    func testJobKeys() {
+        XCTAssertEqual(TripJobs.ideasKey("t1", "2026-10-28", .lunch), "ideas|t1|2026-10-28|lunch")
+        XCTAssertEqual(TripJobs.converseKey("t1"), "converse|t1")
+        XCTAssertNotEqual(TripJobs.ideasKey("t1", "2026-10-28", .lunch), TripJobs.ideasKey("t1", "2026-10-28", .evening))
+    }
+
     func testFullnessBands() {
         XCTAssertEqual(TripFullness.band(5), "empty")
         XCTAssertEqual(TripFullness.band(49), "light")

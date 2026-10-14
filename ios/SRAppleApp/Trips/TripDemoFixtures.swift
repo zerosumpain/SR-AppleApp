@@ -349,17 +349,18 @@ enum TripDemo {
 
     /// "Make a suggestion" for a slot: three made-up ideas that fit.
     static func ideas() -> TripIdeasReply {
-        func idea(_ title: String, _ why: String, _ fit: String, _ minutes: Double) -> TripIdea {
+        func idea(_ title: String, _ why: String, _ fit: String, _ minutes: Double, nearby: Bool = false) -> TripIdea {
             TripIdea(title: title, why: why, fit: fit,
                      wish: WishDraft(title: title, placeQuery: title, priority: "nice", durationMin: minutes, partOfDay: "any",
                                      fixedDate: nil, fixedStartMin: nil, note: nil),
                      verdict: IdeaVerdict(fits: true, arriveMin: nil, departMin: nil, landedStage: nil, legInMin: 6,
-                                          legOutMin: 8, pushesOut: [], reason: nil))
+                                          legOutMin: 8, pushesOut: [], reason: nil),
+                     source: nearby ? "nearby" : "planner")
         }
         return TripIdeasReply(ideas: [
             idea("A demo bookshop", "Quiet, and on the way", "Fits: 6 min there, 30 min inside, 8 min on", 30),
             idea("A demo gelateria", "Sam asked for ice cream", "Fits: 20 minutes, right by the next stop", 20),
-            idea("A demo garden", "Shade and a bench after the walk", "Fits: 40 minutes, back on time", 40),
+            idea("A demo garden", "Shade and a bench after the walk", "Fits: 40 minutes, back on time", 40, nearby: true),
         ], rejected: [], note: nil)
     }
 

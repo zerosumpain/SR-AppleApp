@@ -18,11 +18,16 @@ struct TripConverseSheet: View {
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var network = TripNetwork.shared
     @State private var draft = ""
-    @State private var sending = false
-    /// This session's turns, until the refreshed bundle carries them.
-    @State private var session: [TripMessage] = []
-    @State private var last: ConverseResult?
-    @State private var failure: String?
+    /// The turn runs as a job (v6), kept by `TripJobs`: closing this sheet,
+    /// or the app going to the background, does not lose the answer.
+    @ObservedObject private var jobs = TripJobs.shared
+    private var key: String { TripJobs.converseKey(tripId) }
+    private var sending: Bool { jobs.isRunning(key) }
+    private var last: ConverseResult? { jobs.conversed[key] }
+    private var failure: String? {
+        if case .failed(let why) = jobs.states[key] { return "Not sent: \(why) Nothing was saved to send later." }
+        return nil
+    }
     @State private var options: TripOptionsRequest?
     @FocusState private var typing: Bool
 
@@ -64,10 +69,18 @@ struct TripConverseSheet: View {
                         if let last, !last.changes.isEmpty || !last.rejected.isEmpty {
                             changes(last)
                         }
-                        if sending {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("The planner is thinking…").font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted)
+                        if case .running(let since, _) = jobs.states[key] {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("The planner is thinking… \(max(0, Int(context.date.timeIntervalSince(since)))) s")
+                                        .font(SR.Text.secondary(13))
+                                        .foregroundStyle(SR.inkMuted)
+                                        .monospacedDigit()
+                                    Spacer(minLength: 4)
+                                    Button("Cancel") { jobs.cancel(key) }
+                                        .font(SR.Text.label(12))
+                                }
                             }
                             .id("thinking")
                         }
@@ -113,10 +126,20 @@ struct TripConverseSheet: View {
         .accessibilityIdentifier("trip-converse")
     }
 
+    /// What the server has stored, then — until the re-read trip carries
+    /// them — the words just sent and the planner's answer.
     private var messages: [TripMessage] {
         let saved = (store.bundles[tripId]?.messages ?? []).sorted { $0.createdAt < $1.createdAt }
-        let ids = Set(saved.map(\.id))
-        return saved + session.filter { !ids.contains($0.id) }
+        var out = saved
+        if case .running(let since, let asked?) = jobs.states[key], !saved.contains(where: { $0.role == .user && $0.text == asked }) {
+            out.append(TripMessage(id: "pending-ask", role: .user, text: asked, ops: [], planVersion: nil, surface: "phone",
+                                   createdAt: TripStore.iso(since)))
+        }
+        if let last, !saved.contains(where: { $0.role == .assistant && $0.text == last.reply }) {
+            out.append(TripMessage(id: "pending-reply", role: .assistant, text: last.reply, ops: last.applied,
+                                   planVersion: last.planVersion, surface: "phone", createdAt: "", research: last.research))
+        }
+        return out
     }
 
     // MARK: Composer
@@ -219,32 +242,7 @@ struct TripConverseSheet: View {
         guard !said.isEmpty, !sending else { return }
         SRHaptic.tap()
         draft = ""
-        failure = nil
-        let now = TripStore.iso(Date())
-        session.append(TripMessage(id: "local-\(UUID().uuidString)", role: .user, text: said, ops: [], planVersion: nil, surface: "phone", createdAt: now))
-        sending = true
-        Task {
-            defer { sending = false }
-            do {
-                let result = try await TripsAPI.converse(said, trip: tripId)
-                last = result
-                session.append(TripMessage(
-                    id: "local-\(UUID().uuidString)", role: .assistant, text: result.reply, ops: result.applied,
-                    planVersion: result.planVersion, surface: "phone", createdAt: TripStore.iso(Date()),
-                    research: result.research
-                ))
-                SRHaptic.ok()
-                // The planner changed the plan: show the server's version now.
-                if can.canEdit && (result.planVersion != nil || !result.applied.isEmpty) {
-                    await store.adoptServerPlan(tripId)
-                }
-            } catch {
-                SRHaptic.bad()
-                failure = (error as? TripsAPI.Failure) == .ownerOnly
-                    ? "This trip isn't shared with you."
-                    : "Not sent: \(error.localizedDescription). Nothing was saved to send later."
-            }
-        }
+        jobs.converse(said, tripId: tripId)
     }
 
     // MARK: Offline quick actions (the local solver)
