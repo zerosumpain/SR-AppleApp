@@ -32,7 +32,8 @@ enum TripPullForward {
 
         let context = TripReplan.Context(
             trip: b.trip, stays: b.stays, wishes: b.wishes, bookings: b.bookings,
-            matrix: b.tripMatrix ?? b.matrices[input.today] ?? TravelMatrix(points: [], seconds: [:], metres: [:], estimated: [:])
+            matrix: b.tripMatrix ?? b.matrices[input.today] ?? TravelMatrix(points: [], seconds: [:], metres: [:], estimated: [:]),
+            transport: b.segments
         )
         let replan = TripReplan.Input(
             context: context, day: today, nowMin: input.nowMin, position: input.position,

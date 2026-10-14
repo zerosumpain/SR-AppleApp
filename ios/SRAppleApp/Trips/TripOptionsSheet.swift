@@ -175,7 +175,8 @@ enum TripReplanning {
     static func context(_ bundle: TripBundle, date: String) -> TripReplan.Context {
         TripReplan.Context(
             trip: bundle.trip, stays: bundle.stays, wishes: bundle.wishes, bookings: bundle.bookings,
-            matrix: bundle.matrices[date] ?? TravelMatrix(points: [], seconds: [:], metres: [:], estimated: [:])
+            matrix: bundle.matrices[date] ?? TravelMatrix(points: [], seconds: [:], metres: [:], estimated: [:]),
+            transport: bundle.segments
         )
     }
 

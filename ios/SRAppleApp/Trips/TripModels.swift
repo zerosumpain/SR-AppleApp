@@ -331,14 +331,13 @@ struct TripBundle: Codable, Hashable {
     var guide: TripGuide? = nil
     /// v2: every point of the trip, for an offline pull-forward.
     var tripMatrix: TravelMatrix? = nil
-    /// v3: flights and trains there and back. The site has not fixed the
-    /// field's name yet, so both likely names are read; `segments` is the one to use.
+    /// v3: flights and trains there and back (absent from an older server).
     var transport: [TransportSegment]? = nil
-    var transportSegments: [TransportSegment]? = nil
-    /// v3: what the planner already knows about the people travelling.
+    /// v3: what the planner already knows about the people travelling. Not
+    /// on the bundle yet; shown when the site adds it.
     var profile: TravellerProfile? = nil
 
-    var segments: [TransportSegment] { transport ?? transportSegments ?? [] }
+    var segments: [TransportSegment] { transport ?? [] }
 }
 
 enum TripEventKind: String, Codable, Hashable {

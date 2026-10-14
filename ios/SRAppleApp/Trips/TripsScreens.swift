@@ -210,7 +210,7 @@ enum TripWords {
     /// "Drop bags": the stay before check-in on an arrival day (v3). Said
     /// plainly — it is a stop, not a sight.
     static func isDropBags(_ stop: PlannedStop) -> Bool {
-        stop.title.caseInsensitiveCompare("Drop bags") == .orderedSame || stop.id.hasSuffix(":bags")
+        stop.title.lowercased().hasPrefix("drop bags") || stop.id.hasSuffix(":bags")
     }
 
     static func symbol(_ stop: PlannedStop) -> String {

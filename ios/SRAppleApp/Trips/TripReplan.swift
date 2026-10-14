@@ -33,6 +33,8 @@ enum TripReplan {
         var wishes: [TripWish]
         var bookings: [TripBooking]
         var matrix: TravelMatrix
+        /// v3: flights and trains that frame the arrival and departure days.
+        var transport: [TransportSegment] = []
     }
 
     /// `ReplanInput`.
@@ -54,15 +56,17 @@ enum TripReplan {
         if day.stops.isEmpty {
             return PlannedDay(date: day.date, stayId: day.stayId, stops: [], legs: [], warnings: day.warnings)
         }
-        let ctx = SolverContext(input.trip, input.stays, input.wishes, input.matrix)
+        let ctx = SolverContext(input.trip, input.stays, input.wishes, input.matrix, input.transport)
         let frame = frameFor(ctx, day, input.stays)
         let body = day.stops.filter { !isEndStay($0) }
         let i = max(0, min(fromIndex, body.count))
         var start: SimStart
         var rest: [PlannedStop]
-        if i == 0, body.first?.kind == .stay, frame.stay != nil {
+        let lead = leadingCount(body)
+        if i < lead, frame.stay != nil {
+            // Re-time from the day's opening (stay start, or a landing and bag drop).
             start = freshStart(frame, atMin: startMin, leaveEarlyForSlot: false)
-            rest = Array(body.dropFirst())
+            rest = Array(body.suffix(from: lead))
         } else if i == 0 {
             start = SimStart(prefixStops: [], prefixLegs: [], fromPoint: nil, fromStopId: nil, departMin: startMin)
             rest = body
@@ -110,7 +114,7 @@ enum TripReplan {
     static func situation(_ input: Input) -> Situation {
         let day = input.day
         let c = input.context
-        let ctx = SolverContext(c.trip, c.stays, c.wishes, c.matrix)
+        let ctx = SolverContext(c.trip, c.stays, c.wishes, c.matrix, c.transport)
         let frame = frameFor(ctx, day, c.stays)
         let done = Set(input.doneStopIds)
         let body = day.stops.filter { !isEndStay($0) }
@@ -118,24 +122,41 @@ enum TripReplan {
 
         // Where we are in the day.
         let at = input.atStopId.flatMap { id in body.firstIndex { $0.id == id } } ?? -1
+        let lead = leadingCount(body)
         var h = at
         if at < 0 {
-            h = body.first?.kind == .stay ? 0 : -1
+            h = lead - 1
             while h + 1 < body.count && done.contains(body[h + 1].id) { h += 1 }
         }
-        var prefix = Array(body.prefix(h + 1))
-        let pending = Array(body.suffix(from: h + 1).filter { !done.contains($0.id) && $0.kind != .stay })
+        let pending = Array(body.suffix(from: h + 1).filter { !done.contains($0.id) && $0.kind != .stay && $0.kind != .transport })
+        // v3: still before the first sight on an arrival day — rebuild the
+        // landing, transfer and bag drop from the segment (a delay re-frames it).
+        let reframe = frame.arrival != nil && h < lead
+        let fresh = reframe ? freshStart(frame, atMin: frame.dayStartMin, leaveEarlyForSlot: true) : nil
+        var prefix = fresh?.prefixStops ?? Array(body.prefix(h + 1))
         let stillThere = !prefix.isEmpty && (at >= 0 || prefix[prefix.count - 1].kind == .stay)
         // Still at a stop (or the stay): set off once the visit and its
         // buffer are over, or now if that has passed.
         let bufferMin = prefix.last?.kind == .wish ? js.round(ctx.rules.bufferSec / 60) : 0
-        let leave = stillThere ? max(input.nowMin, prefix[prefix.count - 1].departMin + bufferMin) : input.nowMin
-        if stillThere && input.nowMin > prefix[prefix.count - 1].departMin {
+        let leave: Double
+        if let fresh {
+            leave = max(input.nowMin, fresh.departMin)
+        } else {
+            leave = stillThere ? max(input.nowMin, prefix[prefix.count - 1].departMin + bufferMin) : input.nowMin
+        }
+        if fresh == nil && stillThere && input.nowMin > prefix[prefix.count - 1].departMin {
             prefix[prefix.count - 1].departMin = input.nowMin
         }
 
-        var start = startAfter(prefix, day, departMin: leave)
-        if let position = input.position, at < 0 { start.fromPosition = position }
+        var start: SimStart
+        if var f = fresh {
+            f.prefixStops = prefix
+            f.departMin = leave
+            start = f
+        } else {
+            start = startAfter(prefix, day, departMin: leave)
+        }
+        if let position = input.position, at < 0, fresh == nil { start.fromPosition = position }
         let all = toItems(pending, day, c.wishes, c.bookings, ctx)
 
         var sit = Situation(
@@ -149,7 +170,12 @@ enum TripReplan {
             guard i.locked, let fixed = i.fixedStartMin else { return false }
             return sit.direct(i) > fixed + missedSlotGraceMin
         }
-        let missedSerials = Set(missed.map(\.serial))
+        // A meal whose whole window is over by the time we set off is
+        // skipped (a delayed landing, say), with a warning.
+        let lateMeals = all.filter { i in
+            i.kind == .meal && (i.windows.map { ws in ws.allSatisfy { $0.closeMin <= leave } } ?? false)
+        }
+        let missedSerials = Set(missed.map(\.serial)).union(lateMeals.map(\.serial))
         sit.items = all.filter { !missedSerials.contains($0.serial) }.map { i in
             guard i.locked, let planned = pending.first(where: { $0.id == i.id }) else { return i }
             var held = i
@@ -158,6 +184,10 @@ enum TripReplan {
         }
         sit.missed = missed
         sit.missedWarnings = missed.map { "Missed your \(fmtMin($0.fixedStartMin ?? 0)) \($0.title) slot" }
+            + lateMeals.map { m in
+                let closes = (m.windows ?? []).map(\.closeMin).max() ?? -Double.infinity
+                return "No time for \(m.title.lowercased()) — it's past \(fmtMin(closes)); grab something on the way"
+            }
         sit.missedIds = missed.map { $0.wishId ?? $0.id }
         return sit
     }
@@ -378,7 +408,17 @@ enum TripReplan {
         return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
     }
 
-    private static func isEndStay(_ s: PlannedStop) -> Bool { s.kind == .stay && s.id.hasSuffix(":end") }
+    /// The stops that close a day: back at the stay, then (v3) off to a flight or train.
+    private static func isEndStay(_ s: PlannedStop) -> Bool {
+        (s.kind == .stay && s.id.hasSuffix(":end")) || (s.kind == .transport && s.id.hasSuffix(":depart"))
+    }
+
+    /// How many stops open the day (stay start, check-out, or a landing and bag drop).
+    private static func leadingCount(_ body: [PlannedStop]) -> Int {
+        var n = 0
+        while n < body.count && (body[n].kind == .stay || body[n].kind == .transport) { n += 1 }
+        return n
+    }
 
     /// Problems dropping a nice can fix (lateness for a slot is `repair`'s job).
     private static func hasProblems(_ sim: Simulation) -> Bool {
@@ -394,12 +434,43 @@ enum TripReplan {
         var dayEndMin: Double
         /// v2.1: "light", "normal" or "full".
         var load: String = "normal"
+        /// v3: the day starts with a landing, transfer and bag drop.
+        var arrival: ArrivalFrame? = nil
+        /// v3: the day ends by leaving the stay for a flight or train.
+        var departure: DepartureFrame? = nil
     }
 
     /// A light day ends this much earlier than the pace's day end.
     static let lightDayEarlierMin = 90.0
 
-    /// The frame for a date under the pace and that date's load (items.ts).
+    /// The frame for a date under the pace, that date's load, and (v3) a
+    /// flight or train landing or leaving that day (items.ts `dayFrame`).
+    static func dayFrame(_ ctx: SolverContext, _ date: String, _ stay: TripStay?) -> DayFrame {
+        let rules = ctx.rules
+        // A flight or train landing or leaving this day frames it, and makes
+        // it a light day unless dayLoads says otherwise (978c4818).
+        let arrives = stay != nil ? arrivalOn(ctx, date) : nil
+        let leaves = stay != nil ? departureOn(ctx, date) : nil
+        let raw = ctx.dayLoads[date] ?? (arrives != nil || leaves != nil ? "light" : "normal")
+        let load = ["light", "normal", "full"].contains(raw) ? raw : "normal"
+        var frame = DayFrame(
+            date: date, stay: stay, dayStartMin: rules.dayStartMin,
+            dayEndMin: load == "light" ? rules.dayEndMin - lightDayEarlierMin : rules.dayEndMin, load: load
+        )
+        if let stay, let arrives {
+            let a = arrivalFrame(ctx, arrives, stay, date)
+            frame.arrival = a
+            frame.dayStartMin = max(rules.dayStartMin, a.stayStop.departMin)
+        }
+        if let stay, let leaves {
+            let d = departureFrame(ctx, leaves, stay)
+            frame.departure = d
+            frame.dayEndMin = min(frame.dayEndMin, d.leaveMin - stayHandlingMin)
+        }
+        return frame
+    }
+
+    /// The v2.1 form, for callers without a context (tests).
     static func dayFrame(_ rules: TripPaceRules, _ dayLoads: [String: String], _ date: String, _ stay: TripStay?) -> DayFrame {
         let raw = dayLoads[date] ?? "normal"
         let load = ["light", "normal", "full"].contains(raw) ? raw : "normal"
@@ -409,8 +480,111 @@ enum TripReplan {
         )
     }
 
+    // MARK: - transport.ts
+
+    /// Minutes for dropping bags, checking in or out, collecting bags.
+    static let stayHandlingMin = 15.0
+
+    struct ArrivalFrame {
+        var segmentId: String
+        var stop: PlannedStop
+        var leg: PlannedLeg
+        /// "Drop bags at …" or "Check in at …" (kind stay).
+        var stayStop: PlannedStop
+    }
+
+    struct DepartureFrame {
+        var segmentId: String
+        /// Leave the stay for the station or airport at this minute.
+        var leaveMin: Double
+        var leg: LegChoice
+        var stop: PlannedStop
+        /// A morning "Check out of …" stop, when the stay has a check-out time.
+        var checkOut: Bool
+    }
+
+    static func transportPoint(_ seg: TransportSegment, _ end: String) -> String { "transport:\(seg.id):\(end)" }
+
+    /// A transfer: the matrix when it has both ends, else an estimate by the mode rule.
+    static func transferLeg(_ ctx: SolverContext, _ from: String, _ to: String) -> LegChoice {
+        if ctx.index[from] != nil && ctx.index[to] != nil { return chooseLeg(ctx, from, to) }
+        guard let a = ctx.locations[from], let b = ctx.locations[to] else {
+            return LegChoice(mode: .walk, durationSec: 0, distanceM: nil, estimated: true)
+        }
+        let walk = estimateLeg(a, b, .walk)
+        if walk.seconds <= ctx.rules.walkLimitSec {
+            return LegChoice(mode: .walk, durationSec: walk.seconds, distanceM: walk.metres, estimated: true)
+        }
+        var best: LegChoice?
+        for mode in ctx.modes {
+            let e = estimateLeg(a, b, mode)
+            if best == nil || e.seconds < best!.durationSec {
+                best = LegChoice(mode: mode, durationSec: e.seconds, distanceM: e.metres, estimated: true)
+            }
+        }
+        return best ?? LegChoice(mode: .walk, durationSec: walk.seconds, distanceM: walk.metres, estimated: true)
+    }
+
+    private static func transportLabel(_ seg: TransportSegment) -> String {
+        let names = ["flight": "Flight", "train": "Train", "coach": "Coach", "ferry": "Ferry", "car": "Drive"]
+        let kind = names[seg.kind] ?? seg.kind.capitalized
+        return seg.number.map { "\(kind) \($0)" } ?? kind
+    }
+
+    private static func usable(_ s: TransportSegment) -> Bool { s.status != "cancelled" }
+
+    /// The segment that lands on this date (first by time, then id).
+    static func arrivalOn(_ ctx: SolverContext, _ date: String) -> TransportSegment? {
+        js.sorted(ctx.transport.filter { usable($0) && $0.direction != "return" && $0.arriveDate == date }) { a, b in
+            js.cmp(a.arriveMin, b.arriveMin) ?? (js.compare(a.id, b.id) < 0 ? -1 : 1)
+        }.first
+    }
+
+    /// The segment that leaves on this date (first by time, then id).
+    static func departureOn(_ ctx: SolverContext, _ date: String) -> TransportSegment? {
+        js.sorted(ctx.transport.filter { usable($0) && $0.direction != "outbound" && $0.departDate == date }) { a, b in
+            js.cmp(a.departMin, b.departMin) ?? (js.compare(a.id, b.id) < 0 ? -1 : 1)
+        }.first
+    }
+
+    static func arrivalFrame(_ ctx: SolverContext, _ seg: TransportSegment, _ stay: TripStay, _ date: String) -> ArrivalFrame {
+        let lands = seg.arriveMin + (seg.delayMin ?? 0)
+        let out = lands + seg.leads.exitMin
+        let stopId = "transport:\(seg.id):arrive"
+        let late = (seg.delayMin ?? 0) != 0 ? " (\(js.num(seg.delayMin ?? 0)) min late)" : ""
+        let stop = PlannedStop(
+            id: stopId, kind: .transport, wishId: nil, title: "\(transportLabel(seg)) lands at \(seg.to.name)\(late)",
+            location: seg.to.location, arriveMin: lands, departMin: out, waitSec: 0, locked: false, bookingId: nil, warnings: []
+        )
+        let c = transferLeg(ctx, transportPoint(seg, "to"), stayPoint(stay.id))
+        let atStay = out + js.ceil(c.durationSec / 60)
+        let early = stay.checkInMin == nil || atStay < (stay.checkInMin ?? 0)
+        let stayStop = PlannedStop(
+            id: "stay:\(date):\(early ? "bags" : "checkin")", kind: .stay, wishId: nil,
+            title: early ? "Drop bags at \(stay.name)" : "Check in at \(stay.name)", location: stay.location,
+            arriveMin: atStay, departMin: atStay + stayHandlingMin, waitSec: 0, locked: false, bookingId: nil,
+            warnings: early && stay.checkInMin != nil ? ["Check-in from \(fmtMin(stay.checkInMin ?? 0)) — any time this evening"] : []
+        )
+        let leg = PlannedLeg(fromStopId: stopId, toStopId: stayStop.id, mode: c.mode, durationSec: c.durationSec,
+                             distanceM: c.distanceM, estimated: c.estimated, line: nil)
+        return ArrivalFrame(segmentId: seg.id, stop: stop, leg: leg, stayStop: stayStop)
+    }
+
+    static func departureFrame(_ ctx: SolverContext, _ seg: TransportSegment, _ stay: TripStay) -> DepartureFrame {
+        let departs = seg.departMin + (seg.delayMin ?? 0)
+        let atTerminal = departs - seg.leads.checkInLeadMin
+        let c = transferLeg(ctx, stayPoint(stay.id), transportPoint(seg, "from"))
+        let leaveMin = atTerminal - js.ceil(c.durationSec / 60)
+        let stop = PlannedStop(
+            id: "transport:\(seg.id):depart", kind: .transport, wishId: nil,
+            title: "\(transportLabel(seg)) from \(seg.from.name) at \(fmtMin(departs))", location: seg.from.location,
+            arriveMin: atTerminal, departMin: departs, waitSec: 0, locked: false, bookingId: nil, warnings: []
+        )
+        return DepartureFrame(segmentId: seg.id, leaveMin: leaveMin, leg: c, stop: stop, checkOut: stay.checkOutMin != nil)
+    }
+
     static func frameFor(_ ctx: SolverContext, _ day: PlannedDay, _ stays: [TripStay]) -> DayFrame {
-        dayFrame(ctx.rules, ctx.dayLoads, day.date, stays.first { $0.id == day.stayId })
+        dayFrame(ctx, day.date, stays.first { $0.id == day.stayId })
     }
 
     /// The matrix point we are at after a run of stops (meals sit where the stop before was).
@@ -434,8 +608,8 @@ enum TripReplan {
     static func toItems(_ stops: [PlannedStop], _ day: PlannedDay, _ wishes: [TripWish], _ bookings: [TripBooking], _ ctx: SolverContext) -> [Item] {
         var byId: [String: TripWish] = [:]
         for w in wishes { byId[w.id] = w }
-        // Transport stops are fixed points like stays (provisional, as above).
-        return stops.filter { $0.kind != .stay && $0.kind != .transport && $0.kind != .unknown }
+        // Transport stops frame the day; they are never items.
+        return stops.filter { $0.kind != .stay && $0.kind != .transport }
             .map { itemFromStop($0, day.date, byId, bookings, ctx.rules) }
     }
 
@@ -536,13 +710,20 @@ enum TripReplan {
         var cache: [String: LegChoice] = [:]
         /// v2.1: per-date load; missing = normal.
         let dayLoads: [String: String]
+        /// v3: flights and trains that frame arrival and departure days.
+        let transport: [TransportSegment]
 
-        init(_ trip: Trip, _ stays: [TripStay], _ wishes: [TripWish], _ matrix: TravelMatrix) {
+        init(_ trip: Trip, _ stays: [TripStay], _ wishes: [TripWish], _ matrix: TravelMatrix, _ transport: [TransportSegment] = []) {
             var index: [String: Int] = [:]
             for (i, p) in matrix.points.enumerated() where index[p] == nil { index[p] = i }
             var locations: [String: TripLatLng] = [:]
             for s in stays { locations[stayPoint(s.id)] = s.location }
             for w in wishes { if let place = w.place { locations[w.id] = place.location } }
+            for t in transport {
+                if let at = t.from.location { locations["transport:\(t.id):from"] = at }
+                if let at = t.to.location { locations["transport:\(t.id):to"] = at }
+            }
+            self.transport = transport
             rules = TripPaceRules.of(trip.pace)
             modes = TravelMode.canonical.filter { $0 == .walk || trip.modes.contains($0) }
             self.matrix = matrix
@@ -702,9 +883,18 @@ enum TripReplan {
         case .stay: return stayId.map(stayPoint)
         case .wish: return stop.wishId ?? stop.id
         case .meal, .unknown: return nil
-        // v3 (provisional until the solver frames transport): an airport or
-        // station stop is its own matrix point, `transport:<id>:from|to`.
-        case .transport: return stop.id
+        // v3: `transport:<id>:arrive|depart` → the matrix point `transport:<id>:to|from`.
+        case .transport:
+            guard stop.id.hasPrefix("transport:") else { return nil }
+            if stop.id.hasSuffix(":arrive") {
+                let id = stop.id.dropFirst("transport:".count).dropLast(":arrive".count)
+                return id.isEmpty ? nil : "transport:\(id):to"
+            }
+            if stop.id.hasSuffix(":depart") {
+                let id = stop.id.dropFirst("transport:".count).dropLast(":depart".count)
+                return id.isEmpty ? nil : "transport:\(id):from"
+            }
+            return nil
         }
     }
 
@@ -1026,7 +1216,30 @@ enum TripReplan {
     }
 
     static func freshStart(_ frame: DayFrame, atMin: Double, leaveEarlyForSlot: Bool) -> SimStart {
+        // v3: an arrival day starts at the landing — transport stop,
+        // transfer, bag drop or check-in — then sets off at the day's start.
+        if let a = frame.arrival, let stay = frame.stay {
+            return SimStart(
+                prefixStops: [a.stop, a.stayStop], prefixLegs: [a.leg], fromPoint: stayPoint(stay.id),
+                fromStopId: a.stayStop.id, departMin: max(atMin, frame.dayStartMin)
+            )
+        }
         let start = stayStartStop(frame, atMin: atMin)
+        // A departure day: "Check out" follows the stay start.
+        if let start, let stay = frame.stay, frame.departure?.checkOut == true {
+            let by = stay.checkOutMin ?? 0
+            let checkOut = PlannedStop(
+                id: "stay:\(frame.date):checkout", kind: .stay, wishId: nil, title: "Check out of \(stay.name)",
+                location: stay.location, arriveMin: atMin, departMin: atMin + stayHandlingMin, waitSec: 0,
+                locked: false, bookingId: nil,
+                warnings: atMin + stayHandlingMin > by ? ["Check-out is by \(fmtMin(by))"] : []
+            )
+            return SimStart(
+                prefixStops: [start, checkOut], prefixLegs: [legOf(start.id, checkOut.id, zeroLeg)],
+                fromPoint: stayPoint(stay.id), fromStopId: checkOut.id, departMin: checkOut.departMin,
+                leaveEarlyForSlot: leaveEarlyForSlot
+            )
+        }
         return SimStart(
             prefixStops: start.map { [$0] } ?? [],
             prefixLegs: [],
@@ -1061,7 +1274,8 @@ enum TripReplan {
 
         // A booked first stop we would miss from the normal start: leave earlier.
         if start.leaveEarlyForSlot, let head = items.first, let fixed = head.fixedStartMin,
-           let headPoint = head.point, let from = point, stops.last?.kind == .stay {
+           let headPoint = head.point, let from = point, stops.last?.kind == .stay,
+           stops.last?.id.hasSuffix(":start") == true {
             let legMin = js.ceil(chooseLeg(ctx, from, headPoint).durationSec / 60)
             let latest = fixed - legMin
             if latest < t {
@@ -1172,12 +1386,29 @@ enum TripReplan {
             let legMin = travel(stayPoint(stay.id), endId)
             travelMin += legMin
             endMin = t + legMin
+            let dep = frame.departure
             stops.append(PlannedStop(
-                id: endId, kind: .stay, wishId: nil, title: stay.name, location: stay.location,
-                arriveMin: endMin, departMin: endMin, waitSec: 0, locked: false, bookingId: nil, warnings: []
+                id: endId, kind: .stay, wishId: nil, title: dep != nil ? "Collect bags at \(stay.name)" : stay.name,
+                location: stay.location, arriveMin: endMin,
+                departMin: dep.map { max(endMin + stayHandlingMin, $0.leaveMin) } ?? endMin,
+                waitSec: 0, locked: false, bookingId: nil, warnings: []
             ))
         }
         var warnings: [String] = []
+        if let dep = frame.departure, frame.stay != nil, let from = stops.last {
+            // v3: then off to the station or airport.
+            legs.append(legOf(from.id, dep.stop.id, dep.leg))
+            let reach = from.departMin + js.ceil(dep.leg.durationSec / 60)
+            var stop = dep.stop
+            stop.arriveMin = reach
+            stop.warnings = []
+            stops.append(stop)
+            if reach > dep.stop.arriveMin {
+                let parts = dep.stop.title.components(separatedBy: " from ")
+                let place = parts.count > 1 ? parts[1].components(separatedBy: " at ")[0] : "the terminal"
+                warnings.append("You'd reach \(place) at \(fmtMin(reach)) — later than \(fmtMin(dep.stop.arriveMin))")
+            }
+        }
         if frame.stay == nil { warnings.append("No stay booked for this night") }
         let overrunMin = max(0, endMin - frame.dayEndMin)
         if overrunMin > 0 {

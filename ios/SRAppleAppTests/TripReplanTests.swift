@@ -4,7 +4,7 @@ import XCTest
 /// The phone's port of the trip solver (`Trips/TripReplan.swift`) against
 /// SR-Main's own answers. `Fixtures/TripCases/*.json` are copied verbatim
 /// from SR-Main `src/lib/trips/solver/fixtures/cases/` (feat/trips-solver,
-/// d2609259): each holds the solver's input and the output the TypeScript
+/// 978c4818): each holds the solver's input and the output the TypeScript
 /// gave. Every case must come back identical — same stops, same minutes,
 /// same legs, same warnings, same labels, same order.
 ///
@@ -25,9 +25,10 @@ final class TripReplanTests: XCTestCase {
         let doneStopIds: [String]?
         let fromIndex: Int?
         let startMin: Double?
+        let transport: [TransportSegment]?
 
         var context: TripReplan.Context {
-            TripReplan.Context(trip: trip, stays: stays, wishes: wishes, bookings: bookings, matrix: matrix)
+            TripReplan.Context(trip: trip, stays: stays, wishes: wishes, bookings: bookings, matrix: matrix, transport: transport ?? [])
         }
     }
 
@@ -60,9 +61,9 @@ final class TripReplanTests: XCTestCase {
     }
 
     func testEverySharedCaseIsBundled() {
-        XCTAssertEqual(caseFiles().count, 13, "the thirteen replan/retime cases from SR-Main should all be in the test bundle")
-        XCTAssertEqual(tripCaseFiles().count, 5, "and the five replanTrip cases")
-        // The solve-*.json cases (three at d2609259) are solveTrip's — server-side, not ported
+        XCTAssertEqual(caseFiles().count, 14, "the fourteen replan/retime cases from SR-Main should all be in the test bundle")
+        XCTAssertEqual(tripCaseFiles().count, 6, "and the six replanTrip cases")
+        // The solve-*.json cases (four at 978c4818) are solveTrip's — server-side, not ported
         // (fitDay and day assignment stay on the site). Bundled, not replayed.
     }
 
@@ -86,6 +87,7 @@ final class TripReplanTests: XCTestCase {
         let doneStopIds: [String]
         let observation: Observation?
         let plannedDays: [PlannedDay]
+        let transport: [TransportSegment]?
     }
 
     private struct TripCase: Decodable {
@@ -106,7 +108,8 @@ final class TripReplanTests: XCTestCase {
         for url in tripCaseFiles() {
             let c = try JSONDecoder().decode(TripCase.self, from: Data(contentsOf: url))
             let i = c.input
-            let context = TripReplan.Context(trip: i.trip, stays: i.stays, wishes: i.wishes, bookings: i.bookings, matrix: i.matrix)
+            let context = TripReplan.Context(trip: i.trip, stays: i.stays, wishes: i.wishes, bookings: i.bookings, matrix: i.matrix,
+                                             transport: i.transport ?? [])
             let input = TripReplan.Input(context: context, day: i.day, nowMin: i.nowMin, position: i.position,
                                          atStopId: i.atStopId, doneStopIds: i.doneStopIds)
             if let carry = c.expected.first(where: { $0.kind == "carry-on" }) {

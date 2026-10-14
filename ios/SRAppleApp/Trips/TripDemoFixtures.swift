@@ -266,8 +266,8 @@ enum TripDemo {
                         waitSec: 0, locked: false, bookingId: nil, warnings: [])
         }
         let stops = [
-            stop("transport:demo-out:to", .transport, "Rome Fiumicino (FCO)", fco, 685, 725),
-            stop("stay:\(date):bags", .stay, "Drop bags", hotel, 770, 780),
+            stop("transport:demo-out:arrive", .transport, "Flight DM 735 lands at Rome Fiumicino", fco, 685, 725),
+            stop("stay:\(date):bags", .stay, "Drop bags at The demo hotel", hotel, 770, 785),
             stop("meal:\(date):lunch", .meal, "Lunch", monti, 795, 855),
             stop("w-navona", .wish, "Piazza Navona", TripLatLng(lat: 41.8992, lng: 12.4731), 880, 920, wish: nil),
             stop("stay:\(date):end", .stay, "The demo hotel", hotel, 935, 935),
@@ -338,7 +338,8 @@ enum TripDemo {
         let a = anchor(now)
         let b = bundle(now: now)
         guard let today = b.day(date) else { return }
-        let context = TripReplan.Context(trip: b.trip, stays: b.stays, wishes: b.wishes, bookings: b.bookings, matrix: b.matrices[date]!)
+        let context = TripReplan.Context(trip: b.trip, stays: b.stays, wishes: b.wishes, bookings: b.bookings,
+                                         matrix: b.matrices[date]!, transport: b.segments)
         let trevi = today.index(of: "w-trevi") ?? 4
         let stay = TripReplan.retimeDay(today, fromIndex: trevi, startMin: a + 20, context: context)
         var lighter = today
