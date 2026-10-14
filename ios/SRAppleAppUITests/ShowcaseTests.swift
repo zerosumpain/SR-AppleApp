@@ -1320,6 +1320,15 @@ final class ShowcaseTests: XCTestCase {
         settle(app)
         attach(app, "Showcase — Trip day, timeline")
 
+        // v4: the rest of the day in its four stages.
+        let afternoon = byId(app, "trip-stage-afternoon")
+        if scroll(app, to: afternoon) {
+            settle(app)
+            attach(app, "Showcase — Trip day, stages")
+        } else {
+            soft(false, "no stage bands on the Day screen")
+        }
+
         // The Borghese gardens: its leg is the taxi.
         let stop = byId(app, "trip-stop-6")
         if scroll(app, to: stop) {

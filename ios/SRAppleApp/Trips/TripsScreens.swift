@@ -401,11 +401,16 @@ struct TripScreen: View {
                 ForEach(days) { planned in
                     let day = store.day(tripId, planned.date) ?? planned
                     NavigationLink(value: TripDayRef(tripId: tripId, date: day.date)) {
-                        SRRow(
-                            title: TripFormat.day(day.date, zone: clock.zone) + (day.date == today ? " · today" : ""),
-                            subtitle: daySummary(day),
-                            icon: day.date == today ? "sun.max.fill" : "calendar"
-                        )
+                        VStack(alignment: .leading, spacing: 0) {
+                            SRRow(
+                                title: TripFormat.day(day.date, zone: clock.zone) + (day.date == today ? " · today" : "")
+                                    + (bundle.trip.dayLoads?[day.date] == "light" ? " · easy day" : ""),
+                                subtitle: daySummary(day),
+                                icon: day.date == today ? "sun.max.fill" : "calendar"
+                            )
+                            // v4: the day's four stages, in brief.
+                            TripStageStrip(day: day, wishes: bundle.wishes)
+                        }
                     }
                     .srPlainRow()
                     .accessibilityIdentifier("trip-day-\(day.date)")

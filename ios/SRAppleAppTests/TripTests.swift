@@ -250,6 +250,36 @@ final class TripTests: XCTestCase {
         XCTAssertNotNil(bundle.profile)
     }
 
+    // MARK: v4 stages
+
+    /// The solver's stage wins; without one the spec's rule decides.
+    func testStagesFollowTheMealsAndTheClock() {
+        func st(_ id: String, _ kind: StopKind, _ at: Double, stage: String? = nil) -> PlannedStop {
+            PlannedStop(id: id, kind: kind, wishId: kind == .wish ? id : nil, title: id, location: nil, arriveMin: at,
+                        departMin: at + 30, waitSec: 0, locked: false, bookingId: nil, warnings: [], stage: stage)
+        }
+        var day = PlannedDay(date: "d", stayId: "s", stops: [
+            st("stay:d:start", .stay, 540), st("col", .wish, 560), st("meal:d:lunch", .meal, 760),
+            st("pan", .wish, 840), st("meal:d:dinner", .meal, 1150), st("stay:d:end", .stay, 1260),
+        ], legs: [], warnings: [])
+        XCTAssertEqual(TripStages.stages(day, wishes: []), [.morning, .morning, .lunch, .afternoon, .evening, .evening])
+        day.stops[3].stage = "evening"
+        XCTAssertEqual(TripStages.stages(day, wishes: [])[3], .evening)
+        day.stops[3].stage = "teatime"
+        XCTAssertEqual(TripStages.stages(day, wishes: [])[3], .afternoon, "an unknown stage falls back to the rule")
+        XCTAssertEqual(TripStages.groups(day, wishes: []).map(\.stage), DayStage.allCases)
+        XCTAssertEqual(TripStages.brief(day, [0, 1]), "col")
+    }
+
+    func testAStageEncodesOnlyWhenSet() throws {
+        var stop = Self.day().stops[1]
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(stop)) as? [String: Any])
+        XCTAssertNil(object["stage"])
+        stop.stage = "lunch"
+        object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(stop)) as? [String: Any])
+        XCTAssertEqual(object["stage"] as? String, "lunch")
+    }
+
     // MARK: Off the plan
 
     func testIdleAndBehindNeedEvidence() throws {

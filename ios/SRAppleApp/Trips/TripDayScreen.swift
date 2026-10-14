@@ -194,23 +194,14 @@ struct TripDayScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             SRSectionLabel(text: progress == nil ? "The day" : "The rest of today", trailing: "\(day.stops.filter { $0.kind != .stay }.count) stops")
                 .padding(.bottom, 8)
-            ForEach(Array(day.stops.enumerated()), id: \.element.id) { index, stop in
-                NavigationLink(value: TripStopRef(tripId: tripId, date: date, stopId: stop.id)) {
-                    TripStopRow(
-                        stop: stop,
-                        mark: marks[stop.id],
-                        booking: bundle.booking(for: stop),
-                        isNext: progress?.next == index,
-                        isHere: progress?.phase == TripProgress.Phase.at(index)
-                    )
-                }
-                .buttonStyle(.plain)
-                // The person knows better than a geofence: a long press, not
-                // a control on the plan.
-                .contextMenu { TripCorrections(tripId: tripId, stop: stop) }
-                .accessibilityIdentifier("trip-stop-\(index)")
-                if let leg = day.leg(after: index) {
-                    TripLegRow(leg: leg)
+            // v4: the day in its four stages, each with its own look.
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(TripStages.groups(day, wishes: bundle.wishes), id: \.stage) { group in
+                    TripStageBand(stage: group.stage, trailing: span(day, group.indexes), empty: group.indexes.isEmpty) {
+                        ForEach(group.indexes, id: \.self) { index in
+                            stopRow(bundle, day, index, marks: marks, progress: progress)
+                        }
+                    }
                 }
             }
             ForEach(day.warnings.filter { !$0.hasPrefix("Missed your ") }, id: \.self) { warning in
@@ -221,6 +212,34 @@ struct TripDayScreen: View {
             }
         }
         .opacity(0.92)
+    }
+
+    @ViewBuilder
+    private func stopRow(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int, marks: [String: TripStopMark], progress: TripProgress?) -> some View {
+        let stop = day.stops[index]
+        NavigationLink(value: TripStopRef(tripId: tripId, date: date, stopId: stop.id)) {
+            TripStopRow(
+                stop: stop,
+                mark: marks[stop.id],
+                booking: bundle.booking(for: stop),
+                isNext: progress?.next == index,
+                isHere: progress?.phase == TripProgress.Phase.at(index)
+            )
+        }
+        .buttonStyle(.plain)
+        // The person knows better than a geofence: a long press, not a
+        // control on the plan.
+        .contextMenu { TripCorrections(tripId: tripId, stop: stop) }
+        .accessibilityIdentifier("trip-stop-\(index)")
+        if let leg = day.leg(after: index) {
+            TripLegRow(leg: leg)
+        }
+    }
+
+    /// "09:00–12:10" for a stage, from its first arrival to its last departure.
+    private func span(_ day: PlannedDay, _ indexes: [Int]) -> String? {
+        guard let first = indexes.first, let last = indexes.last else { return nil }
+        return "\(TripFormat.time(day.stops[first].arriveMin))–\(TripFormat.time(day.stops[last].departMin))"
     }
 
     private func mapCard(_ day: PlannedDay, progress: TripProgress) -> some View {

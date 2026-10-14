@@ -238,6 +238,9 @@ struct PlannedStop: Codable, Hashable, Identifiable {
     var locked: Bool
     var bookingId: String?
     var warnings: [String]
+    /// v4: "morning", "lunch", "afternoon" or "evening", set by the solver.
+    /// A String, so a new stage never fails a day; `TripStages` reads it.
+    var stage: String? = nil
 }
 
 struct PlannedLeg: Codable, Hashable {
@@ -508,7 +511,7 @@ extension PlannedDay {
 
 extension PlannedStop {
     private enum Keys: String, CodingKey {
-        case id, kind, wishId, title, location, arriveMin, departMin, waitSec, locked, bookingId, warnings
+        case id, kind, wishId, title, location, arriveMin, departMin, waitSec, locked, bookingId, warnings, stage
     }
 
     func encode(to encoder: Encoder) throws {
@@ -524,6 +527,8 @@ extension PlannedStop {
         try c.encode(locked, forKey: .locked)
         try c.encode(bookingId, forKey: .bookingId)
         try c.encode(warnings, forKey: .warnings)
+        // Optional in the contract (`stage?:`): left out rather than null.
+        try c.encodeIfPresent(stage, forKey: .stage)
     }
 }
 

@@ -270,7 +270,8 @@ enum TripDemo {
             stop("stay:\(date):bags", .stay, "Drop bags at The demo hotel", hotel, 770, 785),
             stop("meal:\(date):lunch", .meal, "Lunch", monti, 795, 855),
             stop("w-navona", .wish, "Piazza Navona", TripLatLng(lat: 41.8992, lng: 12.4731), 880, 920, wish: nil),
-            stop("stay:\(date):end", .stay, "The demo hotel", hotel, 935, 935),
+            stop("meal:\(date):dinner", .meal, "Dinner", TripLatLng(lat: 41.8957, lng: 12.4718), 1170, 1245),
+            stop("stay:\(date):end", .stay, "The demo hotel", hotel, 1250, 1250),
         ]
         var legs: [PlannedLeg] = (0..<(stops.count - 1)).map { i in
             let a = stops[i].location ?? hotel, b = stops[i + 1].location ?? hotel
