@@ -4,7 +4,7 @@ import XCTest
 /// The phone's port of the trip solver (`Trips/TripReplan.swift`) against
 /// SR-Main's own answers. `Fixtures/TripCases/*.json` are copied verbatim
 /// from SR-Main `src/lib/trips/solver/fixtures/cases/` (feat/trips-solver,
-/// acb49b80): each holds the solver's input and the output the TypeScript
+/// d2609259): each holds the solver's input and the output the TypeScript
 /// gave. Every case must come back identical — same stops, same minutes,
 /// same legs, same warnings, same labels, same order.
 ///
@@ -62,7 +62,7 @@ final class TripReplanTests: XCTestCase {
     func testEverySharedCaseIsBundled() {
         XCTAssertEqual(caseFiles().count, 13, "the thirteen replan/retime cases from SR-Main should all be in the test bundle")
         XCTAssertEqual(tripCaseFiles().count, 5, "and the five replanTrip cases")
-        // The two solve-*.json cases are solveTrip's — server-side, not ported
+        // The solve-*.json cases (three at d2609259) are solveTrip's — server-side, not ported
         // (fitDay and day assignment stay on the site). Bundled, not replayed.
     }
 

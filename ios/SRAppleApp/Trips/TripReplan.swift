@@ -177,8 +177,9 @@ enum TripReplan {
             if candidates.isEmpty { break }
             let closed = js.sorted(candidates.filter { cand in
                 sim.issues.contains { $0.itemId == cand.id && $0.kind == .closed }
-            }, by: byLowestValue)
-            guard let victim = closed.first ?? js.sorted(candidates, by: byLowestValue).first else { break }
+            }, by: byDropOrder)
+            // Unpinned nices go before nices pinned to today.
+            guard let victim = closed.first(where: { !$0.pinned }) ?? js.sorted(candidates, by: byDropOrder).first else { break }
             let next = repair(ctx, frame, start, current.filter { $0.serial != victim.serial }, dropFirst: true)
             if next.sim.cost + Cost.droppedNice * Double(next.dropped.count + 1) >= sim.cost { break }
             gone.append(victim)
@@ -333,7 +334,7 @@ enum TripReplan {
                 let late = sim.issues.contains { $0.itemId == item.id && $0.kind == .lateForSlot }
                 let between = current[(prevLocked + 1)..<k].filter { !$0.locked }
                 if late && !between.isEmpty {
-                    let nice = dropFirst ? js.sorted(between.filter(droppable), by: byLowestValue).first : nil
+                    let nice = dropFirst ? js.sorted(between.filter(droppable), by: byDropOrder).first : nil
                     if let nice {
                         current = current.filter { $0.serial != nice.serial }
                         dropped.append(nice)
@@ -646,6 +647,9 @@ enum TripReplan {
         var sortHint: Double
         /// v2.1: this wish is that day's lunch or dinner.
         var replacesMeal: MealKind? = nil
+        /// Pinned to this day (fixed date, fixed time or booked): outranks
+        /// unpinned wishes when something has to go.
+        var pinned = false
     }
 
     private static var serials = 0
@@ -710,7 +714,8 @@ enum TripReplan {
                 serial: nextSerial(), id: stop.id, kind: .meal, wishId: nil, title: stop.title, point: nil, location: nil,
                 durationMin: durationMin, fixedStartMin: stop.locked ? startMin : nil, fixedEndMin: stop.locked ? stop.departMin : nil,
                 locked: stop.locked, bookingId: nil,
-                priority: nil, partOfDay: .any, windows: meal?.windows, baseWarnings: [], sortHint: 0
+                priority: nil, partOfDay: .any, windows: meal?.windows, baseWarnings: [], sortHint: 0,
+                pinned: stop.locked
             )
         }
         let wish = stop.wishId.flatMap { wishes[$0] }
@@ -723,7 +728,9 @@ enum TripReplan {
             locked: stop.locked, bookingId: stop.bookingId,
             priority: wish?.priority, partOfDay: replaces != nil ? .any : (wish?.partOfDay ?? .any), windows: windows,
             baseWarnings: wish.map { wishWarnings($0, bookings, replaces != nil ? windowsOn($0.facts, date) : windows) } ?? [],
-            sortHint: wish?.sortHint ?? 0, replacesMeal: replaces
+            sortHint: wish?.sortHint ?? 0, replacesMeal: replaces,
+            pinned: stop.locked || (wish != nil && wish?.fixedDate == date)
+                || (stop.wishId.flatMap { bookedSlot($0, bookings)?.date } == date)
         )
     }
 
@@ -791,7 +798,8 @@ enum TripReplan {
             locked: fixedStartMin != nil || wish.locked, bookingId: bookingId, priority: wish.priority,
             partOfDay: mealKind(wish) != nil ? .any : wish.partOfDay, windows: windows,
             baseWarnings: wishWarnings(wish, bookings, mealKind(wish) != nil ? windowsOn(wish.facts, date) : windows),
-            sortHint: wish.sortHint, replacesMeal: mealKind(wish)
+            sortHint: wish.sortHint, replacesMeal: mealKind(wish),
+            pinned: fixedStartMin != nil || wish.fixedDate == date || booking?.date == date
         )
     }
 
@@ -1200,6 +1208,11 @@ enum TripReplan {
     /// Lowest value first: later-listed nices first, then id (descending).
     static func byLowestValue(_ a: Item, _ b: Item) -> Double {
         js.cmp(b.sortHint, a.sortHint) ?? js.compare(b.id, a.id)
+    }
+
+    /// Drop order: unpinned before pinned, then lowest value.
+    static func byDropOrder(_ a: Item, _ b: Item) -> Double {
+        js.cmp(a.pinned ? 1 : 0, b.pinned ? 1 : 0) ?? byLowestValue(a, b)
     }
 
     static func droppable(_ item: Item) -> Bool {
