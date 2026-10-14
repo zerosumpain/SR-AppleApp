@@ -114,7 +114,7 @@ enum TripsAPI {
     private static func exchange(
         _ path: String, method: String, body: Data? = nil, headers: [String: String] = [:]
     ) async throws -> (Data, HTTPURLResponse) {
-        guard SiteClient.shared.isPaired else { throw Failure.unpaired }
+        guard await SiteClient.shared.isPaired else { throw Failure.unpaired }
         do {
             return try await SiteClient.shared.exchange(path, method: method, body: body, headers: headers)
         } catch let error as SiteError {

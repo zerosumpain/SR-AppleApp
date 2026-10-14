@@ -17,7 +17,7 @@ import CoreLocation
 final class TripArrivals: NSObject, CLLocationManagerDelegate {
     static let shared = TripArrivals()
 
-    static let regionPrefix = "sr.trip."
+    nonisolated static let regionPrefix = "sr.trip."
     static let maximum = 15
     static let appLimit = 20
     /// Around a stop. iOS is unreliable under ~100 m.

@@ -227,7 +227,7 @@ enum TripReplanning {
     }
 
     /// "Back at 18:40 · 25 min later".
-    static func endsLine(_ option: ReplanOption) -> String {
+    nonisolated static func endsLine(_ option: ReplanOption) -> String {
         let end = option.day.stops.last.map { TripFormat.time($0.arriveMin) } ?? "—"
         let delta = Int(option.endsLaterMin.rounded())
         let change = delta == 0 ? "same as planned" : delta > 0 ? "\(delta) min later" : "\(-delta) min earlier"
