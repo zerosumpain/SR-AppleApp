@@ -54,9 +54,9 @@ final class TripJobs: ObservableObject {
 
     // MARK: Keys
 
-    static func ideasKey(_ tripId: String, _ date: String, _ stage: DayStage) -> String { "ideas|\(tripId)|\(date)|\(stage.rawValue)" }
-    static func converseKey(_ tripId: String) -> String { "converse|\(tripId)" }
-    static let createKey = "create"
+    nonisolated static func ideasKey(_ tripId: String, _ date: String, _ stage: DayStage) -> String { "ideas|\(tripId)|\(date)|\(stage.rawValue)" }
+    nonisolated static func converseKey(_ tripId: String) -> String { "converse|\(tripId)" }
+    nonisolated static let createKey = "create"
 
     func isRunning(_ key: String) -> Bool {
         if case .running = states[key] { return true }
