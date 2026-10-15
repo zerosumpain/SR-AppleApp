@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import Combine
 
 /// Family: where everyone is, and — a tap away — how their day has gone.
 ///
@@ -17,7 +18,10 @@ import MapKit
 /// with no day is somebody else's day, not a failure to load one.
 struct FamilyScreen: View {
     @ObservedObject var store: FamilyStore
-    @ObservedObject var companion: Companion
+    /// Held, not observed: only "paired" is drawn from it, mirrored below,
+    /// and observing it redrew this tab on every upload.
+    let companion: Companion
+    @State private var companionPaired: Bool?
     @EnvironmentObject private var router: Router
     @ObservedObject private var access = AccessStore.shared
     /// The travel desk's forecast: next moves and what looks off. Optional —
@@ -47,6 +51,7 @@ struct FamilyScreen: View {
             }
         }
         .srGround(.warm)
+        .onReceive(companion.$paired.removeDuplicates()) { companionPaired = $0 }
         .navigationTitle("Family")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -184,7 +189,7 @@ struct FamilyScreen: View {
 
     @ViewBuilder
     private var empty: some View {
-        if !companion.paired {
+        if !(companionPaired ?? companion.paired) {
             SREmpty(
                 title: "Not paired yet",
                 icon: "person.2",

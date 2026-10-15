@@ -7,7 +7,8 @@ import UserNotifications
 ///
 /// The site pushes an invite the moment it is sent (time-sensitive, opens the
 /// room). While the app is open `ContentView` also runs `setPolling(true)`,
-/// asking `GET /api/native/games` every five seconds for the lobby; an invite
+/// asking `GET /api/native/games` for the lobby (every five seconds on the
+/// Games screen, every minute elsewhere); an invite
 /// whose room id has not been seen before raises a LOCAL banner — unless the
 /// site says a push already reached this phone with it (`pushed`), in which
 /// case one ring was enough. A phone the push missed still rings from the poll.
@@ -19,10 +20,17 @@ final class GamesStore: ObservableObject {
     @Published private(set) var busy: String?
     @Published var message: String?
 
+    /// Every 5 s while the Games screen is on show, a minute anywhere else.
+    /// The site pushes invites, so the background poll is only a catch-up —
+    /// at 5 s on every tab it kept the radio awake and the phone warm.
     static let pollInterval: TimeInterval = 5
+    static let idlePollInterval: TimeInterval = 60
+    /// Set by the Games screen while it is on show.
+    private var watching = false
 
     private let client = SiteClient.shared
     private var pollTask: Task<Void, Never>?
+    private var inFlight = false
     /// Invite room ids already raised, kept across launches so a relaunch does
     /// not ring for the same invite twice.
     private var seen: Set<String>
@@ -39,13 +47,22 @@ final class GamesStore: ObservableObject {
     // MARK: - Loading and the poll
 
     func load() async {
-        guard !loading else { return }
-        loading = true
-        defer { loading = false }
+        guard !inFlight else { return }
+        inFlight = true
+        // The spinner is only drawn before the first lobby, so only then is
+        // `loading` published — not twice on every background poll.
+        let showsSpinner = lobby == nil
+        if showsSpinner { loading = true }
+        defer {
+            inFlight = false
+            if showsSpinner { loading = false }
+        }
         do {
             let next: GamesLobby = try await client.send("api/native/games")
-            lobby = next
-            message = nil
+            // Only publish a real change: `serverNow` moves on every read,
+            // and each publish redrew the whole tab view.
+            if !Self.same(lobby, next) { lobby = next }
+            if message != nil { message = nil }
             await announce(next.invites)
         } catch is CancellationError {
             return
@@ -58,6 +75,22 @@ final class GamesStore: ObservableObject {
         }
     }
 
+    /// The lobby with the server clock left out.
+    private static func same(_ a: GamesLobby?, _ b: GamesLobby) -> Bool {
+        guard let a else { return false }
+        return a.me == b.me && a.players == b.players && a.invites == b.invites && a.rooms == b.rooms
+    }
+
+    /// The Games screen came on show or went away: poll quickly only while
+    /// it is there, and read straight away when it arrives.
+    func setWatching(_ on: Bool) {
+        guard watching != on else { return }
+        watching = on
+        guard pollTask != nil else { return }
+        setPolling(false)
+        setPolling(true)
+    }
+
     /// On while the scene is active and games are allowed; off otherwise.
     func setPolling(_ on: Bool) {
         if on {
@@ -65,7 +98,8 @@ final class GamesStore: ObservableObject {
             pollTask = Task { [weak self] in
                 while !Task.isCancelled {
                     await self?.load()
-                    try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
+                    let every = (self?.watching ?? false) ? Self.pollInterval : Self.idlePollInterval
+                    try? await Task.sleep(nanoseconds: UInt64(every * 1_000_000_000))
                 }
             }
         } else {

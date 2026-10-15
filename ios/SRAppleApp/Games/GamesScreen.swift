@@ -127,6 +127,8 @@ struct GamesScreen: View {
             await store.askForNotificationsIfUndecided()
         }
         .srRefreshable { await store.load() }
+        .onAppear { store.setWatching(true) }
+        .onDisappear { store.setWatching(false) }
         .overlay {
             if store.loading && store.lobby == nil { ProgressView().tint(SR.accent) }
         }

@@ -48,13 +48,13 @@ final class WatchBridge: NSObject, ObservableObject {
         self.session = session
 
         if let companion {
-            bag["queue"] = companion.$queueCount.sink { [weak self] queued in
+            bag["queue"] = companion.$queueCount.removeDuplicates().sink { [weak self] queued in
                 self?.noteSync(queued: queued)
             }
-            bag["upload"] = companion.$lastUpload.sink { [weak self] last in
+            bag["upload"] = companion.$lastUpload.removeDuplicates().sink { [weak self] last in
                 self?.noteSync(lastUpload: last)
             }
-            bag["gate"] = companion.location.$gate.sink { [weak self] gate in
+            bag["gate"] = companion.location.$gate.removeDuplicates().sink { [weak self] gate in
                 self?.noteSync(gate: gate.rawValue)
             }
         }
@@ -95,11 +95,21 @@ final class WatchBridge: NSObject, ObservableObject {
     }
 
     private func noteSync(queued: Int? = nil, lastUpload: Date?? = nil, gate: String? = nil) {
+        let previous = sync
         sync = WatchSnapshot.Sync(
             queued: queued ?? sync.queued,
             lastUpload: lastUpload ?? sync.lastUpload,
             gate: gate ?? sync.gate
         )
+        // An upload alone tells the wrist something new at most every five
+        // minutes: location points go up every thirty seconds while moving,
+        // and a context on each one kept Bluetooth busy. The newer time still
+        // rides along with whatever is sent next.
+        if queued == nil, gate == nil, let was = previous.lastUpload, let now = sync.lastUpload,
+           now.timeIntervalSince(was) < 300, let sent = lastSent?.sync.lastUpload,
+           now.timeIntervalSince(sent) < 300 {
+            return
+        }
         setNeedsPublish()
     }
 

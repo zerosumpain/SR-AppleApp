@@ -54,23 +54,39 @@ struct TripDayMap: UIViewRepresentable {
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
+        let wantsUser = showsUser && !SRDemo.isOn
+        if map.showsUserLocation != wantsUser { map.showsUserLocation = wantsUser }
         context.coordinator.apply(self, to: map)
+    }
+
+    /// What is drawn, so an unchanged day is not redrawn. The day screen
+    /// refreshes every thirty seconds, and rebuilding every line and stop
+    /// layer on each tick kept the GPU busy for a picture that had not moved.
+    nonisolated fileprivate var drawn: String {
+        let marker = self.marker.map { "\($0.latitude),\($0.longitude)" } ?? "-"
+        return "\(day.hashValue)|\(doneIds.sorted().joined(separator: ","))|\(nextId ?? "-")|\(marker)"
     }
 
     final class Coordinator: NSObject, MLNMapViewDelegate {
         private var latest: TripDayMap?
         private var framedFor: String?
+        private var drawnKey: String?
 
         func apply(_ spec: TripDayMap, to map: MLNMapView) {
             latest = spec
             guard let style = map.style else { return }
-            draw(spec, on: style)
+            let key = spec.drawn
+            if key != drawnKey {
+                draw(spec, on: style)
+                drawnKey = key
+            }
             frame(spec, map)
         }
 
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             guard let spec = latest else { return }
             draw(spec, on: style)
+            drawnKey = spec.drawn
             frame(spec, mapView)
         }
 

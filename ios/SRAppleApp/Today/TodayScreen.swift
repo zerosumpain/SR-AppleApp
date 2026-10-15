@@ -137,7 +137,13 @@ final class TodayStore: ObservableObject {
 /// No "carry on" card for the last thread: the Chat tab is one tap away on the
 /// bar and opens on that list.
 struct TodayScreen: View {
-    @ObservedObject var companion: Companion
+    /// Held, not observed: it publishes on every upload and status line, and
+    /// each one redrew all of Today. The one value drawn from it is mirrored
+    /// in `companionPaired`.
+    let companion: Companion
+    @State private var companionPaired: Bool?
+    /// When Today last re-read past the site's cache after an upload.
+    @State private var freshAfterUpload = Date.distantPast
     @ObservedObject var alerts: AlertStore
     @ObservedObject var site: SitePairingModel
     @ObservedObject var family: FamilyStore
@@ -213,7 +219,7 @@ struct TodayScreen: View {
                     // The owner's QR. A member's phone pairs itself, and a
                     // member with neither chat nor news has nothing to pair.
                     connectCard
-                } else if !companion.paired && !access.current.owner {
+                } else if !(companionPaired ?? companion.paired) && !access.current.owner {
                     // Nobody knows who this is yet: the companion is where
                     // that answer comes from.
                     companionCard
@@ -344,9 +350,16 @@ struct TodayScreen: View {
         }
         // The companion just put new health data on the site: re-read, past
         // the site's cache, so recovery and readiness reflect it.
-        .onChange(of: companion.lastUpload) { _, _ in
+        //
+        // At most once in five minutes: location points upload every thirty
+        // seconds while moving, and re-reading the whole day past the cache
+        // on each one kept the radio busy for nothing.
+        .onReceive(companion.$lastUpload.removeDuplicates().dropFirst()) { _ in
+            guard onScreen, Date().timeIntervalSince(freshAfterUpload) > 300 else { return }
+            freshAfterUpload = Date()
             Task { await store.load(fresh: true) }
         }
+        .onReceive(companion.$paired.removeDuplicates()) { companionPaired = $0 }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }
         }

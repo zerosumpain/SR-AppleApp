@@ -3,6 +3,7 @@ import BackgroundTasks
 import UserNotifications
 import CoreSpotlight
 import UIKit
+import Combine
 
 @MainActor final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     var companion: Companion?
@@ -414,7 +415,10 @@ import UIKit
 /// what this phone holds. Re-read on every change to the registration and
 /// the companion pairing, so an approval swaps the whole window over.
 private struct EntryGate: View {
-    @ObservedObject var companion: Companion
+    /// Held, not observed: the gate only needs "paired", mirrored below.
+    /// Observed, every upload and status line re-ran the app's root.
+    let companion: Companion
+    @State private var companionPaired: Bool?
     let battery: BatteryMonitor
     @ObservedObject private var registration = RegistrationStore.shared
     /// The App Review demo: entered from Welcome's code box, left from
@@ -422,7 +426,13 @@ private struct EntryGate: View {
     @ObservedObject private var reviewDemo = ReviewDemo.shared
 
     var body: some View {
-        switch registration.entry(companionPaired: companion.paired) {
+        Group { gate }
+            .onReceive(companion.$paired.removeDuplicates()) { companionPaired = $0 }
+    }
+
+    @ViewBuilder
+    private var gate: some View {
+        switch registration.entry(companionPaired: companionPaired ?? companion.paired) {
         case .welcome:
             WelcomeScreen(registration: registration)
         case .reviewing(let status):

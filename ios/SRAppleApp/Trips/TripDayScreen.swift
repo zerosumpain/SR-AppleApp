@@ -21,8 +21,12 @@ struct TripDayScreen: View {
     @ObservedObject private var network = TripNetwork.shared
     @ObservedObject private var offPlan = TripOffPlan.shared
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
     @State private var following: PlannedRouteDetail?
     @State private var editing = false
+    /// On show, not covered by a pushed stop or a sheet: the map's blue dot
+    /// (its own GPS) runs only then.
+    @State private var onScreen = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -37,6 +41,8 @@ struct TripDayScreen: View {
             }
         }
         .srGround(.warm)
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
         .navigationTitle(store.clock(tripId).map { TripFormat.day(date, zone: $0.zone) } ?? "Day")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -120,8 +126,11 @@ struct TripDayScreen: View {
                     TripTransportCard(segment: segment, arriving: false)
                 }
                 rest(bundle, day, marks: marks, progress: isToday ? progress : nil)
-                mapCard(day, progress: progress)
-                NavigationLink(value: TripRef(tripId: tripId)) {
+                mapCard(day, progress: progress, showsUser: isToday && onScreen && scenePhase == .active)
+                // The trip is always the page beneath (from its days, or
+                // stacked there by `Router.openTrips`): go back to it rather
+                // than push a second copy on top.
+                Button { dismiss() } label: {
                     Label("All days of \(bundle.trip.title)", systemImage: "calendar")
                         .font(SR.Text.label(13))
                 }
@@ -250,13 +259,16 @@ struct TripDayScreen: View {
         return "\(TripFormat.time(day.stops[first].arriveMin))–\(TripFormat.time(day.stops[last].departMin))"
     }
 
-    private func mapCard(_ day: PlannedDay, progress: TripProgress) -> some View {
+    private func mapCard(_ day: PlannedDay, progress: TripProgress, showsUser: Bool) -> some View {
         let nextId = progress.next.flatMap { $0 < day.stops.count ? day.stops[$0].id : nil }
         return VStack(alignment: .leading, spacing: 8) {
             TripDayMap(
                 day: day,
                 doneIds: Set(progress.doneStopIds),
                 nextId: nextId,
+                // The blue dot runs the map's own GPS: only on the day you
+                // are actually out, not while reading next Tuesday's plan.
+                showsUser: showsUser,
                 marker: SRDemo.isOn ? TripDemo.here : nil
             )
             .frame(height: 240)
