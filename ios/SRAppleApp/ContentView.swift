@@ -104,13 +104,36 @@ final class Router: ObservableObject {
     /// A day lands with the list and its trip stacked beneath it, so Back
     /// walks day → trip → all trips. Pushing the day alone sent Back straight
     /// to Today, and there was no way into the trips list while a trip ran.
-    func openTrips(day: TripDayRef? = nil) {
+    ///
+    /// `start`: straight into "New trip" — Today's "Plan a trip", for someone
+    /// with no trips yet, who otherwise had no way in at all.
+    func openTrips(day: TripDayRef? = nil, start: Bool = false) {
         var path = NavigationPath()
-        path.append(TripsListRef())
+        path.append(TripsListRef(start: start && day == nil))
         if let day {
             path.append(TripRef(tripId: day.tripId))
             path.append(day)
         }
+        today = path
+        tab = .today
+    }
+
+    /// A tapped trip alert, the Lock Screen card, or an `sr://trips` link:
+    /// the day it names — or, naming none, the day running now — else the
+    /// trip, else the list. Before this a trip alert fell through to the
+    /// alerts inbox, which never holds one.
+    func openTrip(_ link: TripLink) {
+        let access = AccessStore.shared.current
+        guard access.owner || access.family else { show(.today); return }
+        guard let id = link.tripId else { openTrips(); return }
+        let running = TripStore.shared.running().flatMap { $0.bundle.trip.id == id ? $0.date : nil }
+        if let date = link.date ?? running {
+            openTrips(day: TripDayRef(tripId: id, date: date))
+            return
+        }
+        var path = NavigationPath()
+        path.append(TripsListRef())
+        path.append(TripRef(tripId: id))
         today = path
         tab = .today
     }
@@ -519,6 +542,11 @@ struct ContentView: View {
             // sr://family/steps, sr://family/tasks — a widget tapped, or a link.
             if let page = FamilyPage.from(url: url) {
                 router.openFamilyPage(page)
+                return
+            }
+            // sr://trips/<id>/<date> — the trip day's Lock Screen card.
+            if let trip = TripLink.from(url: url) {
+                router.openTrip(trip)
                 return
             }
             guard url.isFileURL else { return }

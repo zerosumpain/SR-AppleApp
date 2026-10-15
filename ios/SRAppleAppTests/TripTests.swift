@@ -23,6 +23,198 @@ final class TripTests: XCTestCase {
         XCTAssertEqual(state.leaveLine(now: Date(timeIntervalSince1970: 1_792_152_030)), "leave now")
     }
 
+    /// A tap on the card opens the trip (the app picks the running day).
+    func testTheCardLinksToItsTrip() {
+        let attributes = TripAttributes(tripId: "trip-rome", title: "Rome in October")
+        XCTAssertEqual(attributes.link?.absoluteString, "sr://trips/trip-rome")
+        XCTAssertEqual(attributes.link.flatMap(TripLink.from(url:)), TripLink(tripId: "trip-rome", date: nil))
+    }
+
+    // MARK: The map-led day
+
+    /// The map's numbers are the list's: visits only, from 1.
+    func testTheMapNumbersVisitsAsTheListDoes() {
+        let day = Self.mapDay()
+        XCTAssertEqual(TripMapScene.numbers(day), ["pantheon": 1, "trevi": 2])
+        let scene = TripMapScene.day(day, stages: Self.mapStages, done: [], nextId: "trevi", selectedId: nil)
+        let pin = scene.pins.first { $0.id == "trevi" }
+        XCTAssertEqual(pin?.badge.glyph, .number(2))
+        XCTAssertEqual(pin?.badge.fill, TripMapScene.stageColor(.afternoon))
+        XCTAssertEqual(pin?.top, true, "the next stop is drawn on top")
+        // The morning's and evening's stay are one place: one pin.
+        XCTAssertEqual(scene.pins.filter { $0.id.hasPrefix("stay:") }.count, 1)
+    }
+
+    /// A routed leg is drawn by its mode; one the router never drew is a
+    /// dashed guess, never a line that passes for a route.
+    func testAnUnroutedLegIsDrawnAsAGuess() {
+        let scene = TripMapScene.day(Self.mapDay(), stages: Self.mapStages, done: [], nextId: nil, selectedId: nil)
+        XCTAssertEqual(scene.lines.count, 3)
+        XCTAssertEqual(scene.lines[0].style, TripMapScene.legStyle(.walk, next: false))
+        XCTAssertEqual(scene.lines[1].style, TripMapScene.guess)
+    }
+
+    /// A proposed day is drawn over the plan as it stands, which goes dashed.
+    func testAPreviewKeepsThePlanAsAGhost() {
+        let day = Self.mapDay()
+        var proposed = day
+        proposed.stops.swapAt(1, 2)
+        let scene = TripMapScene.day(day, stages: Self.mapStages, done: [], nextId: "pantheon", selectedId: nil,
+                                     preview: proposed, previewStages: Self.mapStages)
+        XCTAssertEqual(scene.lines.filter { $0.style == TripMapScene.ghost }.count, 3)
+        XCTAssertEqual(scene.pins.first { $0.id == "trevi" }?.badge.glyph, .number(1), "the proposal renumbers")
+    }
+
+    /// v7: a meal with places to choose from draws them as small pins; the
+    /// meal itself has no place, so no pin of its own.
+    func testAMealWithOptionsDrawsThemAsPins() {
+        var day = Self.mapDay()
+        var meal = PlannedStop(id: "meal:2026-10-27:lunch", kind: .meal, wishId: nil, title: "Lunch", location: nil,
+                               arriveMin: 700, departMin: 760, waitSec: 0, locked: false, bookingId: nil, warnings: [])
+        meal.mealOptions = [Self.mealOption]
+        day.stops.insert(meal, at: 2)
+        day.legs.insert(day.legs[1], at: 1)
+        let stages: [DayStage] = [.morning, .morning, .lunch, .afternoon, .evening]
+        let pinId = TripMapScene.mealOptionPinId(stop: meal.id, option: "node/1")
+        let pin = TripMapScene.day(day, stages: stages, done: [], nextId: nil, selectedId: nil).pins.first { $0.id == pinId }
+        XCTAssertEqual(pin?.badge.glyph, .symbol("fork.knife"))
+        XCTAssertEqual(pin?.badge.fill, TripMapScene.stageColor(.lunch))
+        XCTAssertEqual(TripMapScene.mealOption(pinId: pinId)?.stopId, meal.id)
+        XCTAssertNil(TripMapScene.mealOption(pinId: "pantheon"))
+        XCTAssertTrue(meal.awaitsMealChoice)
+        XCTAssertEqual(meal.mealName, "lunch")
+        XCTAssertEqual(TripMapScene.numbers(day), ["pantheon": 1, "trevi": 2], "a meal is not numbered")
+    }
+
+    /// v7: choosing a place makes a wish that IS that meal, already placed.
+    func testChoosingAMealMakesAWishThatReplacesIt() {
+        let meal = PlannedStop(id: "meal:2026-10-27:dinner", kind: .meal, wishId: nil, title: "Dinner", location: nil,
+                               arriveMin: 1170, departMin: 1245, waitSec: 0, locked: false, bookingId: nil, warnings: [])
+        let idea = TripMealChoices.idea(Self.mealOption, meal: "dinner", stop: meal, date: "2026-10-27")
+        XCTAssertEqual(idea.wish.replacesMeal, "dinner")
+        XCTAssertEqual(idea.wish.fixedDate, "2026-10-27")
+        XCTAssertEqual(idea.wish.durationMin, 75)
+        XCTAssertEqual(idea.wish.place?.osmId, "node/1")
+    }
+
+    /// The v7 contract: a meal option and a photograph, as SR-Main sends them.
+    func testTheMealAndPhotoShapesDecode() throws {
+        let json = #"{"id":"node/1","name":"Armando","kind":"restaurant","cuisine":"Italian","place":{"name":"Armando","location":{"lat":41.9,"lng":12.47},"osmId":"node/1","address":null},"walkMin":2,"walkFrom":"Pantheon","openText":null,"openKnown":false,"website":null,"phone":null,"diet":["vegetarian"],"outdoorSeating":true,"wheelchair":null,"wikidata":"Q1","why":"Italian · 2 min walk","source":"OpenStreetMap"}"#
+        let option = try JSONDecoder().decode(MealOption.self, from: Data(json.utf8))
+        XCTAssertEqual(option.diet, ["vegetarian"])
+        let img = #"{"url":"https://upload.wikimedia.org/a.jpg","width":800,"height":533,"credit":"Jane Smith","license":"CC BY-SA 4.0","sourceUrl":"https://commons.wikimedia.org/wiki/File:A.jpg","wikidata":"Q99309"}"#
+        var photo = try JSONDecoder().decode(PlaceImage.self, from: Data(img.utf8))
+        XCTAssertEqual(photo.creditLine, "Photo: Jane Smith · CC BY-SA 4.0 · Wikimedia Commons")
+        photo.credit = nil
+        XCTAssertEqual(photo.creditLine, "Photo: Wikimedia Commons · CC BY-SA 4.0")
+        XCTAssertNotNil(TripPhotos.allowed("https://upload.wikimedia.org/a.jpg"))
+        XCTAssertNotNil(TripPhotos.allowed("https://thumb.wikimedia.org/wikipedia/commons/thumb/a.jpg/960px-a.jpg"))
+        XCTAssertNil(TripPhotos.allowed("https://evil.example/a.jpg"))
+    }
+
+    private static let mealOption = MealOption(
+        id: "node/1", name: "Armando", kind: "restaurant", cuisine: "Italian",
+        place: TripPlace(name: "Armando", location: TripLatLng(lat: 41.899, lng: 12.477), osmId: "node/1", address: nil),
+        walkMin: 2, walkFrom: "pantheon", openText: "Open 12:00–15:00", openKnown: true, website: nil, phone: nil,
+        diet: [], outdoorSeating: false, wheelchair: nil, wikidata: nil, why: "Italian · 2 min walk", source: "OpenStreetMap"
+    )
+
+    private static let mapStages: [DayStage] = [.morning, .morning, .afternoon, .evening]
+
+    /// The hotel, the Pantheon (walked, routed), Trevi (not routed), back.
+    private static func mapDay() -> PlannedDay {
+        let hotel = TripLatLng(lat: 41.895, lng: 12.474)
+        let pantheon = TripLatLng(lat: 41.8986, lng: 12.4769)
+        let trevi = TripLatLng(lat: 41.9009, lng: 12.4833)
+        func stop(_ id: String, _ kind: StopKind, _ at: TripLatLng, _ a: Double) -> PlannedStop {
+            PlannedStop(id: id, kind: kind, wishId: kind == .wish ? id : nil, title: id, location: at,
+                        arriveMin: a, departMin: a + 30, waitSec: 0, locked: false, bookingId: nil, warnings: [])
+        }
+        func leg(_ line: [TripLatLng]?) -> PlannedLeg {
+            PlannedLeg(fromStopId: "", toStopId: "", mode: .walk, durationSec: 600, distanceM: 800, estimated: line == nil, line: line)
+        }
+        return PlannedDay(
+            date: "2026-10-27", stayId: "h",
+            stops: [stop("stay:2026-10-27:start", .stay, hotel, 540), stop("pantheon", .wish, pantheon, 570),
+                    stop("trevi", .wish, trevi, 640), stop("stay:2026-10-27:end", .stay, hotel, 720)],
+            legs: [leg([hotel, pantheon]), leg(nil), leg(nil)], warnings: []
+        )
+    }
+
+    // MARK: Sense of place and getting ready (v7)
+
+    /// Rome on the Rome test trip's first day: sunrise, sunset and golden
+    /// hour to the minute of the published tables (CET, after the clocks go back).
+    func testTheSunInRome() throws {
+        let rome = try XCTUnwrap(TripSun.day("2026-10-27", at: TripLatLng(lat: 41.9, lng: 12.5), zone: TimeZone(identifier: "Europe/Rome")!))
+        XCTAssertEqual(rome.sunriseMin ?? 0, 6 * 60 + 36, accuracy: 3)
+        XCTAssertEqual(rome.sunsetMin ?? 0, 17 * 60 + 11, accuracy: 3)
+        XCTAssertEqual(rome.goldenMin ?? 0, 16 * 60 + 32, accuracy: 3)
+        let midsummer = try XCTUnwrap(TripSun.day("2026-06-21", at: TripLatLng(lat: 69.65, lng: 18.96), zone: TimeZone(identifier: "Europe/Oslo")!))
+        XCTAssertNil(midsummer.sunsetMin, "no sunset in the midnight sun")
+    }
+
+    func testTheWeatherSaysRainWhileYouAreOut() {
+        let day = TripForecast.Day(date: "d", highC: 19, lowC: 12, rain: 80, code: 61, hours: [
+            .init(min: 840, tempC: 18, rain: 20, code: 3), .init(min: 900, tempC: 17, rain: 60, code: 61),
+            .init(min: 960, tempC: 17, rain: 70, code: 61), .init(min: 1020, tempC: 16, rain: 55, code: 61),
+            .init(min: 1320, tempC: 14, rain: 90, code: 61),
+        ])
+        XCTAssertEqual(TripWeatherWords.line(day), "19° / 12° · Rain")
+        XCTAssertEqual(TripWeatherWords.rain(day, fromMin: 540, toMin: 1260), "Rain likely 15:00–18:00")
+        XCTAssertNil(TripWeatherWords.rain(day, fromMin: 540, toMin: 800))
+    }
+
+    func testPhotosGoToTheStopTheyWereTakenAt() {
+        let pan = TripLatLng(lat: 41.8986, lng: 12.4769), trevi = TripLatLng(lat: 41.9009, lng: 12.4833)
+        func stop(_ id: String, _ at: TripLatLng, _ a: Double, _ d: Double) -> PlannedStop {
+            PlannedStop(id: id, kind: .wish, wishId: id, title: id, location: at, arriveMin: a, departMin: d,
+                        waitSec: 0, locked: false, bookingId: nil, warnings: [])
+        }
+        let day = PlannedDay(date: "d", stayId: nil, stops: [stop("pantheon", pan, 600, 660), stop("trevi", trevi, 680, 720)], legs: [], warnings: [])
+        let got = TripStoryMatch.assign([
+            .init(id: "a", minute: 620, at: TripLatLng(lat: 41.8990, lng: 12.4770)),
+            .init(id: "b", minute: 700, at: TripLatLng(lat: 41.9008, lng: 12.4830)),
+            .init(id: "far", minute: 620, at: TripLatLng(lat: 41.95, lng: 12.6)),
+            .init(id: "both", minute: 670, at: nil),
+        ], to: day)
+        XCTAssertEqual(got["pantheon"], ["a"])
+        XCTAssertEqual(got["trevi"], ["b"])
+        XCTAssertFalse(got.values.flatMap { $0 }.contains("far"))
+        XCTAssertFalse(got.values.flatMap { $0 }.contains("both"), "no location while two stops ran: not guessed")
+    }
+
+    /// v7: a conversation turn's options and a guide's primer decode as SR-Main sends them.
+    func testOptionsAndPrimerDecode() throws {
+        let json = #"{"reply":"Two ideas","applied":[],"rejected":[],"quickReplies":[],"planVersion":4,"changes":[],"options":[{"id":"2026-10-28:afternoon:0","date":"2026-10-28","stage":"afternoon","title":"Galleria Spada","why":"Small and odd.","fit":"14:10–15:10 · 12 min walk in · 8 min on","indoor":true,"kidFriendly":null,"costText":"About €5","wish":{"title":"Galleria Spada","placeQuery":"Galleria Spada, Rome","priority":"nice","durationMin":60,"partOfDay":"afternoon","fixedDate":"2026-10-28","fixedStartMin":null,"note":"Idea","replacesMeal":null,"place":{"name":"Galleria Spada","location":{"lat":41.894,"lng":12.471},"osmId":"way/1","address":null}},"verdict":{"fits":true,"arriveMin":850,"departMin":910,"landedStage":"afternoon","legInMin":12,"legOutMin":8,"legInMode":"walk","legOutMode":"walk","pushesOut":[],"moves":[],"reason":null}}]}"#
+        let result = try JSONDecoder().decode(ConverseResult.self, from: Data(json.utf8))
+        XCTAssertEqual(result.options?.first?.title, "Galleria Spada")
+        XCTAssertEqual(result.options?.first?.wish.place?.osmId, "way/1")
+        XCTAssertEqual(result.options?.first?.verdict.fits, true)
+        let guide = #"{"gettingAround":"Walk.","taxi":null,"transitTickets":null,"tips":[],"generatedAt":"x","primer":{"customs":["Cover shoulders"],"money":"Cards","phrases":[{"local":"Grazie","meaning":"Thank you"}],"safety":null,"sources":[]},"neighbourhoods":[{"name":"Monti","line":"Village-like.","places":["Colosseum"]}]}"#
+        let decoded = try JSONDecoder().decode(TripGuide.self, from: Data(guide.utf8))
+        XCTAssertEqual(decoded.primer?.phrases.first?.local, "Grazie")
+        XCTAssertEqual(decoded.neighbourhoods?.first?.name, "Monti")
+    }
+
+    // MARK: Links
+
+    func testTripLinksFromURLs() {
+        XCTAssertEqual(TripLink.from(url: URL(string: "sr://trips")!), TripLink(tripId: nil, date: nil))
+        XCTAssertEqual(TripLink.from(url: URL(string: "sr://trips/abc/2026-10-27")!), TripLink(tripId: "abc", date: "2026-10-27"))
+        XCTAssertNil(TripLink.from(url: URL(string: "sr://family/steps")!))
+        XCTAssertNil(TripLink.from(url: URL(string: "https://trips/abc")!))
+    }
+
+    /// A tapped off-plan alert opens its day; with no trip id, the list —
+    /// never the alerts inbox, where a trip alert is not.
+    func testATripAlertOpensItsDay() {
+        XCTAssertEqual(TripLink.from(userInfo: ["category": TripLink.category, "tripId": "t1", "date": "2026-10-27"]),
+                       TripLink(tripId: "t1", date: "2026-10-27"))
+        XCTAssertEqual(TripLink.from(userInfo: ["category": TripLink.category]), TripLink(tripId: nil, date: nil))
+        XCTAssertEqual(TripLink.from(userInfo: ["tripId": "", "date": "2026-10-27"]), TripLink(tripId: nil, date: nil))
+    }
+
     func testTheContractsAttributesDecode() throws {
         let json = #"{"tripId":"trip-rome","title":"Rome in October"}"#
         let attributes = try JSONDecoder().decode(TripAttributes.self, from: Data(json.utf8))

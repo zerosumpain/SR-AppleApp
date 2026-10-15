@@ -282,6 +282,14 @@ import Combine
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
+        // "Off the plan?" / "A booking is at risk", raised on this phone by
+        // `TripOffPlan`: its day, where the ways to carry on are. It used to
+        // fall through to the alerts inbox, which never holds one.
+        if category == TripLink.category {
+            Self.pending.trip = TripLink.from(userInfo: response.notification.request.content.userInfo)
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
         // The family's step board or task list: a dethroning, the 4pm
         // standings, a task done, confirmed or sent back. The site sends
         // `url: sr://family/…` (and a `family-steps` / `family-tasks`
@@ -333,6 +341,8 @@ import Combine
     var gameKind: String?
     /// The step board or the task list, from a tapped family notification.
     var familyPage: FamilyPage?
+    /// A trip day, from a tapped trip alert.
+    var trip: TripLink?
     var openAlerts = false
     var openConnections = false
     var daydreamCommission: String?
@@ -356,6 +366,11 @@ import Combine
         if let familyPage {
             router.openFamilyPage(familyPage)
             self.familyPage = nil
+            tab = nil
+        }
+        if let trip {
+            router.openTrip(trip)
+            self.trip = nil
             tab = nil
         }
         if let tab { router.show(tab) }

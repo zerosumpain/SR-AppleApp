@@ -15,6 +15,8 @@ struct TripLiveActivity: Widget {
             LockScreenTrip(attributes: context.attributes, state: context.state, stale: context.isStale)
                 .activityBackgroundTint(Ink.paper)
                 .activitySystemActionForegroundColor(Ink.ink)
+                // A tap opens the day, not wherever the app was left.
+                .widgetURL(context.attributes.link)
         } dynamicIsland: { context in
             let state = context.state
             return DynamicIsland {
@@ -60,6 +62,7 @@ struct TripLiveActivity: Widget {
                 Image(systemName: state.symbol).foregroundStyle(Ink.accentOnDark)
             }
             .keylineTint(Ink.accentOnDark)
+            .widgetURL(context.attributes.link)
         }
     }
 }

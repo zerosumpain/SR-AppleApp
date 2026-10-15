@@ -154,9 +154,11 @@ enum TripDemo {
             stop("w-steps", .wish, "w-steps", "Spanish Steps", spanishSteps, 55, 80),
             stop("w-borghese", .wish, "w-borghese", "Villa Borghese gardens", borghese, 95, 155,
                  warnings: ["Gardens close at dusk — the later part may be in the dark"]),
-            stop("stay:\(today):end", .stay, nil, "The demo hotel", hotel, 180, 180),
+            // v7: dinner still to choose — three places near the gardens.
+            dinnerToChoose(today, a),
+            stop("stay:\(today):end", .stay, nil, "The demo hotel", hotel, 250, 250),
         ]
-        let modes: [TravelMode] = [.transit, .walk, .walk, .walk, .walk, .taxi, .transit]
+        let modes: [TravelMode] = [.transit, .walk, .walk, .walk, .walk, .taxi, .walk, .transit]
         let legs: [PlannedLeg] = (0..<(stops.count - 1)).map { i in
             let from = stops[i], to = stops[i + 1]
             let metres = distance(from.location ?? hotel, to.location ?? hotel)
@@ -179,7 +181,7 @@ enum TripDemo {
         }
         guided[3].guidance = walkGuidance(checked)
         guided[5].guidance = taxiGuidance(checked)
-        guided[6].guidance = transitGuidance(a + 155, checked)
+        guided[7].guidance = transitGuidance(a + 240, checked)
         guided[0].guidance = transitGuidance(a - 172, checked)
         let day = PlannedDay(date: today, stayId: stay.id, stops: stops, legs: guided, warnings: [])
         let plan = TripPlanVersion(
@@ -213,6 +215,30 @@ enum TripDemo {
     }
 
     // MARK: Guidance and the conversation (all made up)
+
+    /// Dinner with no place yet, and three (made-up) places to choose from.
+    private static func dinnerToChoose(_ date: String, _ a: Double) -> PlannedStop {
+        func option(_ id: String, _ name: String, _ cuisine: String, _ lat: Double, _ lng: Double, _ walk: Double, open: String?, diet: [String] = []) -> MealOption {
+            MealOption(
+                id: id, name: name, kind: "restaurant", cuisine: cuisine,
+                place: TripPlace(name: name, location: TripLatLng(lat: lat, lng: lng), osmId: id, address: "Via dell'Esempio (made up)"),
+                walkMin: walk, walkFrom: "Villa Borghese gardens", openText: open, openKnown: open != nil,
+                website: nil, phone: nil, diet: diet, outdoorSeating: id.hasSuffix("1"), wheelchair: nil, wikidata: nil,
+                why: "\(cuisine) · \(Int(walk)) min walk from Villa Borghese gardens · \(open ?? "hours not on record")",
+                source: "OpenStreetMap"
+            )
+        }
+        var dinner = PlannedStop(
+            id: "meal:\(date):dinner", kind: .meal, wishId: nil, title: "Dinner", location: nil,
+            arriveMin: a + 165, departMin: a + 240, waitSec: 0, locked: false, bookingId: nil, warnings: []
+        )
+        dinner.mealOptions = [
+            option("node/9000001", "Trattoria Demo", "Roman", 41.9093, 12.4823, 6, open: "Open 19:00–23:30"),
+            option("node/9000002", "Verde Esempio", "Vegetarian", 41.9079, 12.4800, 8, open: "Open 12:00–23:00", diet: ["vegetarian"]),
+            option("node/9000003", "Pizzeria Finta", "Pizza", 41.9101, 12.4770, 9, open: nil),
+        ]
+        return dinner
+    }
 
     private static func walkGuidance(_ at: String) -> LegGuidance {
         LegGuidance(

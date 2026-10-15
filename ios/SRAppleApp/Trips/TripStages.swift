@@ -75,6 +75,19 @@ enum TripFullness {
         }
     }
 
+    /// The day, said as a person would: "A full day". The number stays out
+    /// of sight — a bar shows it.
+    static func sentence(_ band: String) -> String {
+        switch band {
+        case "empty": return "A free day"
+        case "light": return "An easy day"
+        case "balanced": return "A good balance"
+        case "full": return "A full day"
+        case "overfull": return "Too full — something may slip"
+        default: return word(band).capitalized
+        }
+    }
+
     static func word(_ band: String) -> String {
         switch band {
         case "empty": return "free"

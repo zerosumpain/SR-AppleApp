@@ -249,7 +249,7 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
         content.body = prompt.headline + ". Open the day for ways to carry on."
         content.sound = prompt.slotAtRisk ? .default : nil
         content.threadIdentifier = "trip"
-        content.userInfo = ["category": "trip", "tripId": prompt.tripId, "date": prompt.date]
+        content.userInfo = ["category": TripLink.category, "tripId": prompt.tripId, "date": prompt.date]
         // Time-sensitive only when a booked slot would be missed: everything
         // else can wait for the next glance.
         content.interruptionLevel = prompt.observation.kind == .behind && prompt.slotAtRisk ? .timeSensitive : .active

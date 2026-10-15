@@ -1,18 +1,22 @@
 import SwiftUI
 import CoreLocation
 
-/// One day of a trip, READ-ONLY: the plan as it is, with no inputs on it.
+/// One day of a trip, READ-ONLY, MAP-LED (red team 2026-10-15, proposal A).
 ///
-/// What a person standing in Rome wants, top to bottom (trips spec v2,
-/// "Phone views"): anything that has gone wrong (off the plan, a missed
-/// booking); where they are and how long is left there, with a leave-by
-/// countdown; the NEXT STAGE — how to get there, by mode, with directions
-/// and what is useful to know; what to know at the next stop; then the rest
-/// of today as a quiet list, and the day on a map.
+/// The day is a map — numbered pins in the colours of the day's four parts,
+/// each leg drawn as it is travelled (dotted walk, petrol transit, solid
+/// ride, a faint dashed guess where nothing was routed) — with a drawer over
+/// it. Pulled down, the drawer is the glance a person standing in Rome
+/// wants: where they are, how long is left, when to leave and how to get to
+/// the next stop. Pulled up, it is the rest: anything gone wrong, the next
+/// stage by mode, what to know there, then the whole day in its four parts.
+///
+/// Tapping a pin brings up that stop; an off-plan choice is shown on the map
+/// over the current plan (a dashed ghost) before it is used.
 ///
 /// Changing the plan is "Edit plan": the planning conversation
-/// (`TripConverseSheet`), where running late, skipping and swapping live too.
-/// Everything here reads from the saved bundle, so it all works offline.
+/// (`TripConverseSheet`). Everything reads from the saved bundle, so it all
+/// works offline.
 struct TripDayScreen: View {
     let tripId: String
     let date: String
@@ -27,6 +31,14 @@ struct TripDayScreen: View {
     /// On show, not covered by a pushed stop or a sheet: the map's blue dot
     /// (its own GPS) runs only then.
     @State private var onScreen = false
+    @State private var detent: TripDrawerDetent?
+    @State private var covered: CGFloat = 230
+    /// A stop picked on the map (or "Show on the map").
+    @State private var selected: String?
+    /// An off-plan choice being looked at on the map, by its id.
+    @State private var previewing: String?
+    @State private var frameToken = 0
+    @State private var followToken = 0
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -64,6 +76,7 @@ struct TripDayScreen: View {
             FollowRouteScreen(detail: detail)
         }
         .task {
+            if let bundle = store.bundles[tripId] { TripWeatherStore.shared.refresh(bundle) }
             TripLive.shared.refresh()
             TripArrivals.shared.refresh()
             TripOffPlan.shared.refresh()
@@ -80,6 +93,8 @@ struct TripDayScreen: View {
         .accessibilityIdentifier("trip-day-screen")
     }
 
+    // MARK: The day
+
     private func content(_ bundle: TripBundle, _ day: PlannedDay, now: Date) -> some View {
         let clock = TripClock(bundle.trip.timeZone)
         let isToday = clock.localDate(now) == date
@@ -89,59 +104,248 @@ struct TripDayScreen: View {
         let missed = TripWords.missedSlots(day: day, progress: isToday ? progress : nil, nowMin: isToday ? nowMin : nil)
         // Another day: its first stage (on an arrival day, the transfer).
         let nextIndex = isToday ? progress.next : (day.stops.count > 1 ? 1 : nil)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                notes(bundle)
-                if isToday, let prompt = offPlan.prompt, prompt.tripId == tripId, prompt.date == date {
-                    TripOffPlanCard(prompt: prompt)
-                }
-                if !missed.isEmpty {
-                    missedCard(missed)
-                }
-                if bundle.trip.dayLoads?[date] == "light" {
-                    Label("Easy day", systemImage: "leaf")
-                        .font(SR.Text.label(13))
-                        .foregroundStyle(SR.good)
-                        .accessibilityLabel("Easy day: planned light, ending earlier")
-                        .accessibilityIdentifier("trip-easy-day")
-                }
-                if isToday {
+        let nextId = isToday ? nextIndex.flatMap { $0 < day.stops.count ? day.stops[$0].id : nil } : nil
+        let choice = previewChoice
+        let preview = choice.flatMap(previewDay)
+        let shown = preview ?? day
+        let picked = selected.flatMap { id in shown.stops.first { $0.id == id } }
+        // A meal's option picked on the map: the meal and the place.
+        let pickedMeal: (stop: PlannedStop, option: MealOption)? = selected.flatMap(TripMapScene.mealOption(pinId:)).flatMap { ref in
+            guard let stop = shown.stops.first(where: { $0.id == ref.stopId }),
+                  let option = stop.mealOptions?.first(where: { $0.id == ref.optionId }) else { return nil }
+            return (stop, option)
+        }
+        let scene = TripMapScene.day(
+            day, bundle: bundle, done: Set(progress.doneStopIds), nextId: nextId,
+            selectedId: picked?.id ?? (pickedMeal == nil ? nil : selected), preview: preview
+        )
+        // The glance over a big map on the day itself — unless something has
+        // gone wrong, which is said first and must not sit under the fold.
+        let alarmed = !missed.isEmpty || (isToday && offPlan.prompt.map { $0.tripId == tripId && $0.date == date } == true)
+        let drawerAt = Binding<TripDrawerDetent>(
+            get: { detent ?? (isToday && !alarmed ? .peek : .half) },
+            set: { detent = $0 }
+        )
+        return ZStack {
+            TripSceneMap(
+                scene: scene,
+                showsUser: isToday && onScreen && scenePhase == .active,
+                marker: SRDemo.isOn ? TripDemo.here : nil,
+                bottomInset: covered,
+                frameToken: frameToken,
+                focus: picked?.location ?? pickedMeal?.option.place.location,
+                followToken: followToken,
+                onTap: { pin in pick(pin?.id) }
+            )
+            .ignoresSafeArea(edges: .bottom)
+            .accessibilityLabel("Map of the day: \(day.stops.filter { $0.kind == .wish }.count) numbered stops")
+            .accessibilityIdentifier("trip-day-map")
+
+            mapControls(scene: scene, isToday: isToday)
+
+            TripDrawer(detent: drawerAt, covered: $covered) {
+                if let choice, let preview {
+                    previewBar(choice, preview: preview, day: day)
+                } else if let pickedMeal {
+                    TripMealPeek(
+                        tripId: tripId, day: shown, stop: pickedMeal.stop, option: pickedMeal.option, bundle: bundle,
+                        close: { pick(nil) }
+                    )
+                } else if let picked {
+                    TripStopPeek(
+                        stop: picked, day: preview ?? day, bundle: bundle, date: date, clock: clock,
+                        number: TripMapScene.numbers(preview ?? day)[picked.id],
+                        stage: stage(of: picked, in: preview ?? day, bundle),
+                        canOpen: preview == nil,
+                        following: $following,
+                        close: { pick(nil) }
+                    )
+                } else if isToday {
                     TripHereCard(day: day, progress: progress, nowMin: nowMin, clock: clock)
+                    if let next = nextIndex, next > 0, next < day.stops.count, let leg = day.leg(before: next) {
+                        TripLegGlance(leg: leg, from: day.stops[next - 1], to: day.stops[next], bundle: bundle, date: date, following: $following)
+                    }
+                    TripDaySky(tripId: tripId, date: date, bundle: bundle, fromMin: nowMin, toMin: day.stops.last?.arriveMin ?? 1320)
                 } else {
                     dayHeader(day, clock: clock, past: date < clock.localDate(now))
+                    TripDaySky(tripId: tripId, date: date, bundle: bundle,
+                               fromMin: day.stops.first?.departMin ?? 480, toMin: day.stops.last?.arriveMin ?? 1320)
                 }
-                // Arriving today: the flight or train is the day's first stage.
-                ForEach(bundle.segments.filter { $0.arriveDate == date && $0.direction != "return" }) { segment in
-                    TripTransportCard(segment: segment, arriving: true)
+            } content: {
+                VStack(alignment: .leading, spacing: 20) {
+                    notes(bundle)
+                    if isToday, let prompt = offPlan.prompt, prompt.tripId == tripId, prompt.date == date {
+                        TripOffPlanCard(prompt: prompt, previewing: previewing) { picked in look(at: picked) }
+                    }
+                    if !missed.isEmpty {
+                        missedCard(missed)
+                    }
+                    if bundle.trip.dayLoads?[date] == "light" {
+                        Label("Easy day", systemImage: "leaf")
+                            .font(SR.Text.label(13))
+                            .foregroundStyle(SR.good)
+                            .accessibilityLabel("Easy day: planned light, ending earlier")
+                            .accessibilityIdentifier("trip-easy-day")
+                    }
+                    // Arriving today: the flight or train is the day's first stage.
+                    ForEach(bundle.segments.filter { $0.arriveDate == date && $0.direction != "return" }) { segment in
+                        TripTransportCard(segment: segment, arriving: true)
+                    }
+                    if let next = nextIndex, next > 0, next < day.stops.count, let leg = day.leg(before: next) {
+                        TripNextStageCard(
+                            leg: leg, from: day.stops[next - 1], to: day.stops[next],
+                            bundle: bundle, date: date, following: $following
+                        )
+                        TripStopGuideCard(stop: day.stops[next], bundle: bundle)
+                    }
+                    // Leaving today: the flight or train is the day's last stage.
+                    ForEach(bundle.segments.filter { $0.departDate == date && $0.direction != "outbound" }) { segment in
+                        TripTransportCard(segment: segment, arriving: false)
+                    }
+                    rest(bundle, day, marks: marks, progress: isToday ? progress : nil)
+                    TripMapPackRow(tripId: tripId, day: day, title: "\(bundle.trip.title) · \(date)")
+                    // The trip is always the page beneath (from its days, or
+                    // stacked there by `Router.openTrips`): go back to it rather
+                    // than push a second copy on top.
+                    Button { dismiss() } label: {
+                        Label("All days of \(bundle.trip.title)", systemImage: "calendar")
+                            .font(SR.Text.label(13))
+                    }
+                    .accessibilityIdentifier("trip-all-days")
+                    TripSavedLine(refreshedAt: store.refreshedAt, online: network.online, queued: queue.count(for: tripId))
+                        .padding(.top, 4)
                 }
-                if let next = nextIndex, next > 0, next < day.stops.count, let leg = day.leg(before: next) {
-                    TripNextStageCard(
-                        leg: leg, from: day.stops[next - 1], to: day.stops[next],
-                        bundle: bundle, date: date, following: $following
-                    )
-                    TripStopGuideCard(stop: day.stops[next], bundle: bundle)
-                }
-                // Leaving today: the flight or train is the day's last stage.
-                ForEach(bundle.segments.filter { $0.departDate == date && $0.direction != "outbound" }) { segment in
-                    TripTransportCard(segment: segment, arriving: false)
-                }
-                rest(bundle, day, marks: marks, progress: isToday ? progress : nil)
-                mapCard(day, progress: progress, showsUser: isToday && onScreen && scenePhase == .active)
-                // The trip is always the page beneath (from its days, or
-                // stacked there by `Router.openTrips`): go back to it rather
-                // than push a second copy on top.
-                Button { dismiss() } label: {
-                    Label("All days of \(bundle.trip.title)", systemImage: "calendar")
-                        .font(SR.Text.label(13))
-                }
-                .accessibilityIdentifier("trip-all-days")
-                TripSavedLine(refreshedAt: store.refreshedAt, online: network.online, queued: queue.count(for: tripId))
-                    .padding(.top, 4)
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.vertical, 12)
         }
         .srRefreshable { await store.fetch(tripId) }
+        // A choice that has gone (applied, dismissed, re-worked) stops being shown.
+        .onChange(of: offPlan.choices.map(\.id)) { _, ids in
+            if let previewing, !ids.contains(previewing) { self.previewing = nil; frameToken += 1 }
+        }
+    }
+
+    // MARK: The map's own buttons
+
+    /// Fit the day; on the day itself, find me. A note when some lines are
+    /// guesses, so a dashed one is not read as the way to go.
+    private func mapControls(scene: TripMapScene.Scene, isToday: Bool) -> some View {
+        let guessing = scene.lines.contains { $0.style == TripMapScene.guess }
+        return VStack(alignment: .trailing, spacing: 8) {
+            Spacer()
+            HStack(alignment: .bottom) {
+                if guessing {
+                    Label("Dashed: a straight line, not the route", systemImage: "line.diagonal")
+                        .font(SR.Text.mono(11))
+                        .foregroundStyle(SR.inkSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .srGlass(.paper, in: Capsule())
+                        .accessibilityIdentifier("trip-map-guess-note")
+                }
+                Spacer()
+                VStack(spacing: 8) {
+                    if isToday {
+                        mapButton("location.fill", label: "Show where I am") { followToken += 1 }
+                    }
+                    mapButton("arrow.up.left.and.arrow.down.right", label: "Fit the day") { pick(nil); frameToken += 1 }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, covered + 12)
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: covered)
+    }
+
+    private func mapButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button { SRHaptic.select(); action() } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(SR.ink)
+                .frame(width: 44, height: 44)
+                .srGlass(.paper, in: Circle(), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    // MARK: Picking and previewing
+
+    private func pick(_ stopId: String?) {
+        if stopId != nil { SRHaptic.select() }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            selected = stopId
+            if stopId != nil { detent = .peek }
+        }
+    }
+
+    /// An off-plan choice: shown on the map first when it changes today;
+    /// a whole-trip one that leaves today alone is used straight away.
+    private func look(at choice: TripOffPlan.Choice) {
+        guard previewDay(choice) != nil else {
+            offPlan.apply(choice)
+            return
+        }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            previewing = choice.id
+            selected = nil
+            detent = .peek
+        }
+        frameToken += 1
+    }
+
+    private var previewChoice: TripOffPlan.Choice? {
+        previewing.flatMap { id in offPlan.choices.first { $0.id == id } }
+    }
+
+    private func previewDay(_ choice: TripOffPlan.Choice) -> PlannedDay? {
+        switch choice {
+        case .day(let option): return option.day
+        case .trip(let option): return option.days.first { $0.date == date }
+        }
+    }
+
+    /// "Shown on the map: Skip the Pantheon" — use it, or keep the plan.
+    private func previewBar(_ choice: TripOffPlan.Choice, preview: PlannedDay, day: PlannedDay) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("ON THE MAP · PROPOSED")
+                .font(SR.Text.label(11))
+                .tracking(1.2)
+                .foregroundStyle(SR.accentDeep)
+            Text(choice.label)
+                .font(SR.Text.display(19))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(choice.detail + " · the dashed line is the plan as it stands")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Button {
+                    SRHaptic.ok()
+                    offPlan.apply(choice)
+                    previewing = nil
+                    frameToken += 1
+                } label: { SRButtonLabel(title: "Use this", icon: "checkmark", fill: true) }
+                    .srButton(.prominent)
+                    .accessibilityIdentifier("trip-preview-use")
+                Button {
+                    SRHaptic.select()
+                    previewing = nil
+                    frameToken += 1
+                } label: { SRButtonLabel(title: "Keep the plan") }
+                    .srButton(.regular)
+                    .accessibilityIdentifier("trip-preview-cancel")
+            }
+            .controlSize(.small)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("trip-preview")
+    }
+
+    private func stage(of stop: PlannedStop, in day: PlannedDay, _ bundle: TripBundle) -> DayStage {
+        let stages = TripStages.stages(day, wishes: bundle.wishes)
+        guard let i = day.index(of: stop.id), i < stages.count else { return .morning }
+        return stages[i]
     }
 
     // MARK: Pieces
@@ -203,11 +407,16 @@ struct TripDayScreen: View {
             Text("\(visits) stop\(visits == 1 ? "" : "s") · \(span)")
                 .font(SR.Text.display(22))
                 .foregroundStyle(SR.ink)
+            Text("Tap a numbered pin for the stop, or pull up for the whole day.")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func rest(_ bundle: TripBundle, _ day: PlannedDay, marks: [String: TripStopMark], progress: TripProgress?) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let numbers = TripMapScene.numbers(day)
+        return VStack(alignment: .leading, spacing: 0) {
             SRSectionLabel(text: progress == nil ? "The day" : "The rest of today", trailing: "\(day.stops.filter { $0.kind != .stay }.count) stops")
                 .padding(.bottom, 8)
             // v4: the day in its four stages, each with its own look.
@@ -215,10 +424,10 @@ struct TripDayScreen: View {
                 ForEach(TripStages.groups(day, wishes: bundle.wishes), id: \.stage) { group in
                     TripStageBand(stage: group.stage, trailing: span(day, group.indexes), empty: group.indexes.isEmpty) {
                         ForEach(group.indexes, id: \.self) { index in
-                            stopRow(bundle, day, index, marks: marks, progress: progress)
+                            stopRow(bundle, day, index, number: numbers[day.stops[index].id], stage: group.stage, marks: marks, progress: progress)
                         }
                         // v5: what the family suggests for this stage, and ideas that fit it.
-                        TripSlotPanel(tripId: tripId, day: day, stage: group.stage, indexes: group.indexes, bundle: bundle)
+                        TripSlotPanel(tripId: tripId, day: day, stage: group.stage, indexes: group.indexes, bundle: bundle, showsAsk: false)
                     }
                 }
             }
@@ -228,11 +437,14 @@ struct TripDayScreen: View {
                     .foregroundStyle(SR.warn)
                     .padding(.top, 8)
             }
+            // One way to ask for ideas, for any part of the day.
+            TripDayIdeasMenu(tripId: tripId, day: day, bundle: bundle)
+                .padding(.top, 12)
         }
     }
 
     @ViewBuilder
-    private func stopRow(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int, marks: [String: TripStopMark], progress: TripProgress?) -> some View {
+    private func stopRow(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int, number: Int?, stage: DayStage, marks: [String: TripStopMark], progress: TripProgress?) -> some View {
         let stop = day.stops[index]
         NavigationLink(value: TripStopRef(tripId: tripId, date: date, stopId: stop.id)) {
             TripStopRow(
@@ -240,14 +452,27 @@ struct TripDayScreen: View {
                 mark: marks[stop.id],
                 booking: bundle.booking(for: stop),
                 isNext: progress?.next == index,
-                isHere: progress?.phase == TripProgress.Phase.at(index)
+                isHere: progress?.phase == TripProgress.Phase.at(index),
+                number: number,
+                stage: stage
             )
         }
         .buttonStyle(.plain)
         // The person knows better than a geofence: a long press, not a
         // control on the plan.
-        .contextMenu { TripCorrections(tripId: tripId, stop: stop) }
+        .contextMenu {
+            if stop.location != nil {
+                Button { pick(stop.id) } label: { Label("Show on the map", systemImage: "map") }
+            }
+            TripCorrections(tripId: tripId, stop: stop)
+        }
         .accessibilityIdentifier("trip-stop-\(index)")
+        // v7: a meal with no place yet — three real ones nearby, open then.
+        if stop.awaitsMealChoice {
+            TripMealChoices(tripId: tripId, day: day, stop: stop, bundle: bundle) { option in
+                pick(TripMapScene.mealOptionPinId(stop: stop.id, option: option.id))
+            }
+        }
         if let leg = day.leg(after: index) {
             TripLegRow(leg: leg)
         }
@@ -258,24 +483,171 @@ struct TripDayScreen: View {
         guard let first = indexes.first, let last = indexes.last else { return nil }
         return "\(TripFormat.time(day.stops[first].arriveMin))–\(TripFormat.time(day.stops[last].departMin))"
     }
+}
 
-    private func mapCard(_ day: PlannedDay, progress: TripProgress, showsUser: Bool) -> some View {
-        let nextId = progress.next.flatMap { $0 < day.stops.count ? day.stops[$0].id : nil }
-        return VStack(alignment: .leading, spacing: 8) {
-            TripDayMap(
-                day: day,
-                doneIds: Set(progress.doneStopIds),
-                nextId: nextId,
-                // The blue dot runs the map's own GPS: only on the day you
-                // are actually out, not while reading next Tuesday's plan.
-                showsUser: showsUser,
-                marker: SRDemo.isOn ? TripDemo.here : nil
-            )
-            .frame(height: 240)
-            .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
-            .accessibilityLabel("Map of the day's stops")
-            TripMapPackRow(tripId: tripId, day: day, title: "\(store.bundles[tripId]?.trip.title ?? "Trip") · \(date)")
+// MARK: - On the map
+
+/// A stop picked on the map, in the drawer: its number and part of the day,
+/// when, what it is, its hours that day, and the way there.
+struct TripStopPeek: View {
+    let stop: PlannedStop
+    let day: PlannedDay
+    let bundle: TripBundle
+    let date: String
+    let clock: TripClock
+    let number: Int?
+    let stage: DayStage
+    /// Off while a proposal is shown: its stop may exist only in the proposal.
+    var canOpen = true
+    @Binding var following: PlannedRouteDetail?
+    let close: () -> Void
+
+    var body: some View {
+        let wish = bundle.wish(stop.wishId)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                if let photo = bundle.photo(for: stop) {
+                    TripPhotoThumb(photo: photo, size: 52)
+                        .overlay(alignment: .bottomTrailing) {
+                            TripNumberBadge(number: number, symbol: TripMapScene.symbol(stop), stage: stage, stay: stop.kind == .stay, size: 22)
+                                .offset(x: 6, y: 6)
+                        }
+                } else {
+                    TripNumberBadge(number: number, symbol: TripMapScene.symbol(stop), stage: stage, stay: stop.kind == .stay, size: 32)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(stage.label.uppercased()) · \(TripWords.span(stop))")
+                        .font(SR.Text.label(11))
+                        .tracking(1)
+                        .foregroundStyle(SR.inkMuted)
+                    Text(stop.title)
+                        .font(SR.Text.display(20))
+                        .foregroundStyle(SR.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 4)
+                Button { SRHaptic.select(); close() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(SR.inkMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            if let line = summary(wish) {
+                Text(line)
+                    .font(SR.Text.secondary(14))
+                    .foregroundStyle(SR.inkSecondary)
+                    .lineLimit(2)
+            }
+            HStack(spacing: 10) {
+                if canOpen {
+                    NavigationLink(value: TripStopRef(tripId: bundle.trip.id, date: date, stopId: stop.id)) {
+                        SRButtonLabel(title: "Details", icon: "info.circle", fill: true)
+                    }
+                    .srButton(.prominent)
+                    .accessibilityIdentifier("trip-peek-details")
+                }
+                if let i = day.index(of: stop.id), let leg = day.leg(before: i) {
+                    let from = day.stops[i - 1]
+                    if leg.mode == .walk, let route = TripDirections.route(for: leg, from: from, to: stop, tripId: bundle.trip.id, date: date) {
+                        Button { SRHaptic.tap(); following = route } label: { SRButtonLabel(title: "Walk there", icon: "figure.walk") }
+                            .srButton(.regular)
+                    } else if stop.location != nil {
+                        Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: leg.mode) } label: { SRButtonLabel(title: "Directions", icon: "map") }
+                            .srButton(.regular)
+                    }
+                }
+            }
+            .controlSize(.small)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("trip-stop-peek")
+    }
+
+    /// One line on what it is: its hours that day, else what the research
+    /// found, else the leg in.
+    private func summary(_ wish: TripWish?) -> String? {
+        var parts: [String] = []
+        if let facts = wish?.facts {
+            if facts.closedDates.contains(date) {
+                parts.append("Closed this day")
+            } else if let weekday = clock.isoWeekday(date), let ranges = facts.hours?[String(weekday)] {
+                parts.append(ranges.isEmpty ? "Closed this day"
+                             : "Open " + ranges.map { "\(TripFormat.time($0.openMin))–\(TripFormat.time($0.closeMin))" }.joined(separator: ", "))
+            }
+            if let s = facts.summary { parts.append(s) }
+        } else if let guide = wish?.guide {
+            parts.append(guide.summary)
+        }
+        if parts.isEmpty, let i = day.index(of: stop.id), let leg = day.leg(before: i) {
+            parts.append("\(TripFormat.leg(leg)) from \(day.stops[i - 1].title)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// The next leg in one line, for the glance: how, how long, and one button.
+struct TripLegGlance: View {
+    let leg: PlannedLeg
+    let from: PlannedStop
+    let to: PlannedStop
+    let bundle: TripBundle
+    let date: String
+    @Binding var following: PlannedRouteDetail?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: TripFormat.symbol(leg.mode))
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(SR.accent)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            Text("\(TripFormat.leg(leg)) to \(to.title)")
+                .font(SR.Text.secondary(14))
+                .foregroundStyle(SR.inkSecondary)
+                .lineLimit(2)
+            Spacer(minLength: 6)
+            if leg.mode == .walk, let route = TripDirections.route(for: leg, from: from, to: to, tripId: bundle.trip.id, date: date) {
+                Button { SRHaptic.tap(); following = route } label: { SRButtonLabel(title: "Walk", icon: "figure.walk", fill: true) }
+                    .srButton(.prominent)
+                    .accessibilityIdentifier("trip-glance-walk")
+            } else if to.location != nil {
+                Button { SRHaptic.tap(); TripDirections.openInMaps(to, mode: leg.mode) } label: { SRButtonLabel(title: "Maps", icon: "map", fill: true) }
+                    .srButton(.prominent)
+            }
+        }
+        .controlSize(.small)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("trip-leg-glance")
+    }
+}
+
+/// A stop's number in the colour of its part of the day — the same badge as
+/// its pin on the map, so the list and the map read as one.
+struct TripNumberBadge: View {
+    let number: Int?
+    let symbol: String
+    let stage: DayStage
+    var stay = false
+    var size: CGFloat = 26
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(hex: stay ? TripMapScene.ink : TripMapScene.stageColor(stage)))
+            Circle().stroke(Color.white, lineWidth: 2)
+            if let number {
+                Text("\(number)")
+                    .font(.system(size: size * 0.46, weight: .bold).monospacedDigit())
+                    .foregroundStyle(Color.white)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.4, weight: .semibold))
+                    .foregroundStyle(Color.white)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 
@@ -409,13 +781,9 @@ struct TripNextStageCard: View {
 
     @ViewBuilder
     private var walk: some View {
+        // No map of its own: the day's map draws this walk, and the stop
+        // screen's mode picker draws it there — one map a screen.
         let route = TripDirections.route(for: leg, from: from, to: to, tripId: bundle.trip.id, date: date)
-        if let route {
-            SRRouteMap(route: route.coordinates, interactive: false)
-                .frame(height: 150)
-                .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
-                .accessibilityLabel("The walking route")
-        }
         steps
         if let route {
             Button { SRHaptic.tap(); following = route } label: {
@@ -728,6 +1096,7 @@ struct TripTransportCard: View {
         switch segment.confidence {
         case "live": return "Live status"
         case "researched": return "Times found online — check your booking"
+        case "estimated": return "Estimated arrival — confirm your flight"
         default: return "Times as you gave them"
         }
     }
@@ -743,6 +1112,11 @@ private extension String {
 /// carry on — one tap applies one. "I'm fine" puts it away for good.
 struct TripOffPlanCard: View {
     let prompt: TripOffPlan.Prompt
+    /// The choice shown on the map now, by id.
+    var previewing: String? = nil
+    /// Given: a tap shows the choice (the day map's preview) rather than
+    /// using it at once.
+    var onPick: ((TripOffPlan.Choice) -> Void)? = nil
     @ObservedObject private var offPlan = TripOffPlan.shared
 
     var body: some View {
@@ -765,10 +1139,21 @@ struct TripOffPlanCard: View {
             }
             ForEach(offPlan.choices) { choice in
                 Button {
-                    SRHaptic.ok()
-                    offPlan.apply(choice)
+                    if let onPick {
+                        SRHaptic.select()
+                        onPick(choice)
+                    } else {
+                        SRHaptic.ok()
+                        offPlan.apply(choice)
+                    }
                 } label: {
                     VStack(alignment: .leading, spacing: 3) {
+                        if previewing == choice.id {
+                            Text("ON THE MAP")
+                                .font(SR.Text.label(10))
+                                .tracking(1)
+                                .foregroundStyle(SR.accentDeep)
+                        }
                         Text(choice.label)
                             .font(SR.Text.title(15))
                             .foregroundStyle(SR.ink)
@@ -781,9 +1166,14 @@ struct TripOffPlanCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
                     .srGlass(.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous), interactive: true)
+                    .overlay {
+                        if previewing == choice.id {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(SR.accent, lineWidth: 2)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Applies this to the rest of the trip")
+                .accessibilityHint(onPick == nil ? "Applies this to the rest of the trip" : "Shows this on the map before you use it")
                 .accessibilityIdentifier("trip-offplan-\(choice.id)")
             }
             HStack {
@@ -814,6 +1204,9 @@ struct TripStopRow: View {
     let booking: TripBooking?
     let isNext: Bool
     let isHere: Bool
+    /// Its number on the day's map, and its part of the day (the pin's colour).
+    var number: Int? = nil
+    var stage: DayStage? = nil
     /// Inside the evening band: light on dark.
     @Environment(\.tripOnDark) private var onDark
 
@@ -870,6 +1263,12 @@ struct TripStopRow: View {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(SR.good).accessibilityLabel("Done")
         } else if isHere {
             Image(systemName: "location.circle.fill").foregroundStyle(SR.accent).accessibilityLabel("You are here")
+        } else if let stage, stop.location != nil {
+            // The same badge as the stop's pin on the map.
+            TripNumberBadge(number: number, symbol: TripMapScene.symbol(stop), stage: stage, stay: stop.kind == .stay, size: 22)
+                .overlay {
+                    if isNext { Circle().stroke(SR.accent, lineWidth: 2).padding(-3) }
+                }
         } else {
             Image(systemName: TripWords.symbol(stop))
                 .foregroundStyle(isNext ? SR.accent : SR.inkMuted)
@@ -881,6 +1280,7 @@ struct TripStopRow: View {
         var out: [String] = []
         if TripWords.isHere(stop) { out.append("Your stop — not on the original plan") }
         if TripWords.isDropBags(stop) { out.append("Leave the bags at the stay — the room comes later") }
+        if stop.awaitsMealChoice { out.append("No place yet — choose one of the places below") }
         if let wait = TripWords.wait(stop) { out.append(wait) }
         if let booking, booking.status == .booked {
             out.append("Booked" + (booking.reference.map { " · ref \($0)" } ?? ""))
@@ -935,5 +1335,73 @@ enum TripPosition {
         if SRDemo.isOn { return TripDemo.here.map { TripLatLng(lat: $0.latitude, lng: $0.longitude) } }
         guard let fix = CLLocationManager().location, fix.timestamp.timeIntervalSinceNow > -600 else { return nil }
         return TripLatLng(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude)
+    }
+}
+
+/// A meal's option picked on the map, in the drawer: the place and Choose.
+struct TripMealPeek: View {
+    let tripId: String
+    let day: PlannedDay
+    let stop: PlannedStop
+    let option: MealOption
+    let bundle: TripBundle
+    let close: () -> Void
+    @ObservedObject private var store = TripStore.shared
+    @ObservedObject private var network = TripNetwork.shared
+    @State private var busy = false
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                Text("\((stop.mealName ?? "meal").uppercased()) · \(TripWords.span(stop)) · ONE OF \(stop.mealOptions?.count ?? 1)")
+                    .font(SR.Text.label(11))
+                    .tracking(1)
+                    .foregroundStyle(SR.inkMuted)
+                Spacer()
+                Button { SRHaptic.select(); close() } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 22)).foregroundStyle(SR.inkMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            TripMealOptionCard(
+                option: option,
+                photo: bundle.images?[option.id],
+                actionLabel: bundle.can.canEdit || bundle.can.canApprove ? "Choose" : "Suggest",
+                busy: busy,
+                enabled: !busy && (network.online || SRDemo.isOn),
+                choose: choose
+            )
+            if let message {
+                Text(message).font(SR.Text.secondary(12)).foregroundStyle(SR.inkSecondary)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("trip-meal-peek")
+    }
+
+    private func choose() {
+        guard let meal = stop.mealName else { return }
+        busy = true
+        let idea = TripMealChoices.idea(option, meal: meal, stop: stop, date: day.date)
+        let stage: DayStage = meal == "lunch" ? .lunch : .evening
+        let can = bundle.can
+        Task {
+            let failure: String?
+            if can.canEdit || can.canApprove {
+                failure = await store.add(idea, tripId: tripId, date: day.date, stage: stage)
+            } else {
+                failure = await store.suggest(idea.wish, tripId: tripId, date: day.date, stage: stage, note: idea.why, fitText: idea.fit)
+            }
+            busy = false
+            if let failure {
+                SRHaptic.bad()
+                message = failure
+            } else {
+                SRHaptic.ok()
+                if can.canEdit || can.canApprove { close() } else { message = "Suggested — a parent will see it." }
+            }
+        }
     }
 }
