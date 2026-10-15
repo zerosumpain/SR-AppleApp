@@ -306,7 +306,7 @@ struct LocationSettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Let movement decide when GPS runs")
                         .font(SR.body(15)).foregroundStyle(SR.ink)
-                    Text("Off by default, so upgrading changes nothing on its own. Battery saver and Balanced both turn it on.")
+                    Text("On by default: GPS sleeps after five minutes still and wakes when you set off. Needs Motion & Fitness.")
                         .font(SR.body(13)).foregroundStyle(SR.inkMuted)
                 }
             }

@@ -149,6 +149,11 @@ struct PersistedState: Codable {
     /// in that server's household view — so `clear()` on a re-pair drops it:
     /// the next person to pair this phone may not be the last one.
     var access: AppAccess?
+    /// Whether the motion gate was switched on for this phone, once, when
+    /// sleeping GPS while still became everyone's default (John, 2026-10-15).
+    /// A file without the key predates that and gets it turned on by
+    /// `Outbox`; after that the phone's own toggle is left alone.
+    var motionGateOn = true
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -193,6 +198,7 @@ struct PersistedState: Codable {
         outing = (try? c.decodeIfPresent(OutingState.self, forKey: .outing)) ?? nil
         // `try?`: a cache of a server answer, like `connections`.
         access = (try? c.decodeIfPresent(AppAccess.self, forKey: .access)) ?? nil
+        motionGateOn = try c.decodeIfPresent(Bool.self, forKey: .motionGateOn) ?? false
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`
@@ -214,6 +220,13 @@ let outboxFullMessage = "Offline queue is full. Connect and sync before collecti
         try FileManager.default.createDirectory(at: self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: self.url.path) {
             state = try JSONDecoder().decode(PersistedState.self, from: Data(contentsOf: self.url))
+            if !state.motionGateOn {
+                // Once: GPS sleeps when still on every phone now. Written
+                // straight away so a later "off" in Settings sticks.
+                state.location.motion.enabled = true
+                state.motionGateOn = true
+                try? write()
+            }
         } else { state = PersistedState() }
         var resource = URLResourceValues(); resource.isExcludedFromBackup = true
         var dir = self.url.deletingLastPathComponent(); try dir.setResourceValues(resource)
@@ -443,7 +456,7 @@ struct MotionSettings: Codable, Equatable {
         coarseOnBlip = try c.decodeIfPresent(Bool.self, forKey: .coarseOnBlip) ?? d.coarseOnBlip
     }
 
-    init(enabled: Bool = false,
+    init(enabled: Bool = true,
          sleepAfter: TimeInterval = 300,
          anchorRadius: Double = 150,
          maxAnchorRadius: Double = 1000,
@@ -503,7 +516,8 @@ struct LocationSettings: Codable, Equatable {
     /// The cheap fallback that wakes a suspended app when you change city.
     var significantChangeMonitoring = true
     /// Let movement decide when GPS is needed, instead of running GPS to find
-    /// out. Off in the shipped default; on in the two cheaper presets.
+    /// out. On in every preset: GPS always sleeps when still (John,
+    /// 2026-10-15) and wakes on leaving the anchor.
     var motion = MotionSettings()
 
     /// Named starting points. A row of sliders with no frame is the failure
@@ -527,7 +541,7 @@ struct LocationSettings: Codable, Equatable {
             case .balanced:
                 return "GPS to ten metres while moving, cheap fixes when stopped, heartbeat every five minutes. GPS sleeps after five minutes still and wakes on movement the motion chip already recorded."
             case .accurate:
-                return "Full GPS while moving and a fix every minute, running all day whether you move or not. What the app shipped with, and the most expensive thing it can do."
+                return "Full GPS while moving and a fix every minute. GPS sleeps after five minutes still and wakes when you leave, as in Balanced. The most expensive of the three."
             }
         }
 
@@ -559,9 +573,10 @@ struct LocationSettings: Codable, Equatable {
                     pausesAutomatically: true, significantChangeMonitoring: true,
                     motion: MotionSettings(enabled: true))
             case .accurate:
-                // Exactly what the app did before this screen existed. The
-                // default stays here so upgrading changes nothing on its own —
-                // a battery setting that silently moves is worse than none.
+                // The shipped default. Once GPS-all-day; now the motion gate
+                // is on here too (John, 2026-10-15: "always sleep the GPS when
+                // still"), which `PersistedState.motionGateOn` applied once to
+                // phones that already had settings saved.
                 return LocationSettings()
             }
         }

@@ -165,6 +165,16 @@ import UIKit
     @discardableResult
     func primeMotionPermission() async -> Bool { await motion.primePermission() }
 
+    /// In front, once per launch: ask for Motion & Fitness if the gate is on
+    /// and iOS has never asked. The gate is on for everyone now, and a phone
+    /// switched on by the upgrade (not the Settings toggle) was never asked —
+    /// without the answer GPS cannot sleep.
+    func askForMotionIfNeeded() async {
+        guard !SRDemo.isOn, outbox.state.sharing, settings.motion.enabled,
+              motion.available, motion.authorisation == .notDetermined else { return }
+        await motion.primePermission()
+    }
+
     /// Why the gate cannot use motion, or nil if it can. Not `@Published` — it
     /// is read when a settings row draws, which is the only place it is wanted.
     var motionRefusal: String? { motion.refusalReason }
