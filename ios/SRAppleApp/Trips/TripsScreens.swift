@@ -383,6 +383,7 @@ struct TripScreen: View {
     let tripId: String
     var talk = false
     @ObservedObject private var store = TripStore.shared
+    @Environment(\.dismiss) private var dismiss
     @State private var editing = false
     @State private var opened = false
 
@@ -549,7 +550,8 @@ struct TripScreen: View {
                 }
             }
 
-            NavigationLink(value: TripsListRef()) {
+            // The list is always the page beneath a trip: go back to it.
+            Button { dismiss() } label: {
                 Label("All trips", systemImage: "suitcase")
                     .font(SR.Text.label(13))
                     .padding(.vertical, 10)

@@ -20,7 +20,11 @@ private final class RouteGathering: @unchecked Sendable {
     var onUpdate: (() -> Void)?
     private var observers: [HKObserverQuery] = []
     private var collecting = false
+    /// An observer fired while a pass was running: run once more after it,
+    /// rather than once per observer.
+    private var collectAgain = false
     private var alerting = false
+    private var lastAlertPass = Date.distantPast
     private var generation = 0
 
     init(outbox: Outbox) {
@@ -125,7 +129,19 @@ private final class RouteGathering: @unchecked Sendable {
                 Task { @MainActor in
                     defer { completion() }
                     guard let self, error == nil else { return }
-                    do { try await self.collect(until: Date().addingTimeInterval(20)); self.onUpdate?() } catch { /* resumes from anchors next wake */ }
+                    // A Watch sync fires every observed type at once. Each
+                    // used to start its own pass and upload — one pass runs,
+                    // the rest ask it to go round once more, and one upload
+                    // follows.
+                    if self.collecting { self.collectAgain = true; return }
+                    let deadline = Date().addingTimeInterval(20)
+                    do {
+                        repeat {
+                            self.collectAgain = false
+                            try await self.collect(until: deadline)
+                        } while self.collectAgain && Date() < deadline
+                        self.onUpdate?()
+                    } catch { /* resumes from anchors next wake */ }
                     // And while we are awake anyway: take whatever the site has
                     // been trying to say.
                     //
@@ -142,8 +158,12 @@ private final class RouteGathering: @unchecked Sendable {
                     // raised, so the extra wakes cost a request and nothing else.
                     //
                     // (One pass at a time: a wake fires every observer at once.)
-                    guard !self.alerting else { return }
+                    //
+                    // At most every five minutes: in front, the app reads both
+                    // itself, and a workout fires these observers constantly.
+                    guard !self.alerting, Date().timeIntervalSince(self.lastAlertPass) > 300 else { return }
                     self.alerting = true
+                    self.lastAlertPass = Date()
                     await AlertStore.backgroundPass()
                     await ConnectionsStore.backgroundPass(outbox: self.outbox)
                     self.alerting = false

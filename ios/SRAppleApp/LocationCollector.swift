@@ -41,7 +41,12 @@ import UIKit
     private var reference: CLLocation?
     private var heartbeat: Timer?
     var onUpdate: (() -> Void)?
-    @Published var status = "Location sharing is off"
+    /// Only published when the words change: it is set on every fix, and an
+    /// unchanged line still told every observer to redraw.
+    var status = "Location sharing is off" {
+        didSet { if status != oldValue { statusLine = status } }
+    }
+    @Published private(set) var statusLine = "Location sharing is off"
     /// Published so the settings and history screens can say which state the app
     /// is actually in rather than which one it was configured for.
     @Published private(set) var gate: GateState = .tracking
@@ -701,8 +706,12 @@ import UIKit
             if reference == nil || distance > max(30, location.horizontalAccuracy * 2) { reference = location }
             // Re-apply: the moving/stationary split is the whole saving, so it
             // has to follow the state change rather than wait for a restart.
-            manager.desiredAccuracy = (policy.moving ? settings.movingAccuracy : settings.stationaryAccuracy).coreLocationValue
-            manager.distanceFilter = policy.moving ? settings.movingDistanceFilter : settings.stationaryDistanceFilter
+            // Only when it differs: each assignment can make Core Location
+            // restart its updates, and this runs on every fix.
+            let accuracy = (policy.moving ? settings.movingAccuracy : settings.stationaryAccuracy).coreLocationValue
+            let filter = policy.moving ? settings.movingDistanceFilter : settings.stationaryDistanceFilter
+            if manager.desiredAccuracy != accuracy { manager.desiredAccuracy = accuracy }
+            if manager.distanceFilter != filter { manager.distanceFilter = filter }
 
             if worthKeeping { record(location, moving: policy.moving) }
 

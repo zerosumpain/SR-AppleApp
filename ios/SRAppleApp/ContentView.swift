@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import CoreSpotlight
+import Combine
 
 /// Where the app goes, held outside the views that navigate.
 ///
@@ -99,9 +100,17 @@ final class Router: ObservableObject {
 
     /// A trip day, or the list — from Today's trip card, and from a trip
     /// notification. Pushed onto Today's own stack.
+    ///
+    /// A day lands with the list and its trip stacked beneath it, so Back
+    /// walks day → trip → all trips. Pushing the day alone sent Back straight
+    /// to Today, and there was no way into the trips list while a trip ran.
     func openTrips(day: TripDayRef? = nil) {
         var path = NavigationPath()
-        if let day { path.append(day) } else { path.append(TripsListRef()) }
+        path.append(TripsListRef())
+        if let day {
+            path.append(TripRef(tripId: day.tripId))
+            path.append(day)
+        }
         today = path
         tab = .today
     }
@@ -229,10 +238,15 @@ final class Router: ObservableObject {
 /// simulator in DARK appearance deliberately, so a regression here shows up as a
 /// screenshot rather than as a surprise on somebody's phone.
 struct ContentView: View {
-    @ObservedObject var companion: Companion
-    @ObservedObject var outbox: Outbox
-    @ObservedObject var location: LocationCollector
-    @ObservedObject var battery: BatteryMonitor
+    // Held, not observed. These publish on every location fix, upload and
+    // battery sample; observed here, each one redrew every tab behind its
+    // glass — about once a second while out walking, and the phone ran hot.
+    // Settings observes them itself, and the few values read here arrive
+    // through `onReceive` with duplicates dropped.
+    let companion: Companion
+    let outbox: Outbox
+    let location: LocationCollector
+    let battery: BatteryMonitor
     @StateObject private var site = SitePairingModel()
     @StateObject private var router = Router()
     @StateObject private var alerts = AlertStore()
@@ -430,9 +444,9 @@ struct ContentView: View {
         }
         // This phone's own health link, re-judged whenever what it is judged
         // on moves. Everyone's, owner or member — see `PersonalHealthCheck`.
-        .onChange(of: companion.lastUpload) { _, _ in checkPersonal() }
-        .onChange(of: companion.healthReviewNeeded) { _, _ in checkPersonal() }
-        .onChange(of: companion.paired) { _, _ in checkPersonal() }
+        .onReceive(companion.$lastUpload.removeDuplicates().dropFirst()) { _ in checkPersonal() }
+        .onReceive(companion.$healthReviewNeeded.removeDuplicates().dropFirst()) { _ in checkPersonal() }
+        .onReceive(companion.$paired.removeDuplicates().dropFirst()) { _ in checkPersonal() }
         .onChange(of: scenePhase) { _, phase in
             // The invite poll is a foreground thing: it stops the moment the
             // scene leaves, and nothing claims it runs when the app is shut.
