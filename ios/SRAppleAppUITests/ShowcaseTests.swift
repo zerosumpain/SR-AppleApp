@@ -1304,7 +1304,8 @@ final class ShowcaseTests: XCTestCase {
     // MARK: - Trips
 
     /// The demo's Rome day, running now: the "Trip today" card on Today,
-    /// then the Day screen — Now/Next, the map, the timeline — and one stop.
+    /// then the map-led Day screen — the glance over the map, the drawer
+    /// half and full, the stages — and one stop.
     @MainActor func testShowcaseTripDay() {
         let app = launch()
         soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
@@ -1313,12 +1314,13 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Today, trip today")
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
         card.tap()
-        settle(app, on: byId(app, "trip-day-screen"), seconds: 3)
+        settle(app, on: byId(app, "trip-day-map"), seconds: 4)
         attach(app, "Showcase — Trip day")
 
-        app.swipeUp()
-        settle(app)
-        attach(app, "Showcase — Trip day, timeline")
+        pullDrawer(app)
+        attach(app, "Showcase — Trip day, drawer half up")
+        pullDrawer(app)
+        attach(app, "Showcase — Trip day, drawer full")
 
         // v4: the rest of the day in its four stages; v5: a suggestion waiting
         // in the afternoon, and ideas for a slot.
@@ -1326,9 +1328,11 @@ final class ShowcaseTests: XCTestCase {
         if scroll(app, to: afternoon) {
             settle(app)
             attach(app, "Showcase — Trip day, stages and a suggestion")
-            let suggest = byId(app, "trip-suggest-afternoon")
-            if scroll(app, to: suggest) {
-                suggest.tap()
+            let menu = byId(app, "trip-suggest-menu")
+            if scroll(app, to: menu) {
+                menu.tap()
+                let suggest = app.buttons["Afternoon"].firstMatch
+                if suggest.waitForExistence(timeout: 5) { suggest.tap() }
                 settle(app, on: byId(app, "trip-idea-take"), seconds: 2)
                 attach(app, "Showcase — Trip day, make a suggestion")
             } else {
@@ -1370,16 +1374,18 @@ final class ShowcaseTests: XCTestCase {
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
         card.tap()
         settle(app, on: byId(app, "trip-day-screen"))
+        pullDrawer(app, times: 2)
         let all = byId(app, "trip-all-days")
         guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
         all.tap()
-        settle(app, on: byId(app, "trip-timeline"))
-        attach(app, "Showcase — Trip, timeline and travellers")
+        settle(app, on: byId(app, "trip-overview-map"), seconds: 3)
+        attach(app, "Showcase — Trip, the whole trip's map and timeline")
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'trip-day-2'")).firstMatch
         guard scroll(app, to: first) else { return soft(false, "no first day row") }
         first.tap()
-        settle(app, on: byId(app, "trip-transport"), seconds: 2)
+        settle(app, on: byId(app, "trip-day-map"), seconds: 3)
         attach(app, "Showcase — Trip, arrival day")
+        pullDrawer(app)
         app.swipeUp()
         settle(app)
         attach(app, "Showcase — Trip, arrival day, scrolled")
@@ -1394,6 +1400,7 @@ final class ShowcaseTests: XCTestCase {
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
         card.tap()
         settle(app, on: byId(app, "trip-day-screen"))
+        pullDrawer(app, times: 2)
         let all = byId(app, "trip-all-days")
         guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
         all.tap()
@@ -1423,9 +1430,27 @@ final class ShowcaseTests: XCTestCase {
         card.tap()
         settle(app, on: byId(app, "trip-offplan"), seconds: 3)
         attach(app, "Showcase — Trip, off the plan")
+        // A way on, shown on the map over the plan as it stands.
+        let choice = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'trip-offplan-day:' OR identifier BEGINSWITH 'trip-offplan-trip:'"))
+            .firstMatch
+        guard choice.waitForExistence(timeout: 10) else { return soft(false, "no off-plan choice") }
+        choice.tap()
+        settle(app, on: byId(app, "trip-preview"), seconds: 3)
+        attach(app, "Showcase — Trip, a way on shown on the map")
     }
 
     // MARK: - Helpers
+
+    /// Pull the Day screen's drawer up a step (glance → half → full).
+    @MainActor private func pullDrawer(_ app: XCUIApplication, times: Int = 1) {
+        let grabber = byId(app, "trip-drawer-grabber")
+        guard grabber.waitForExistence(timeout: 10) else { return soft(false, "no drawer grabber") }
+        for _ in 0..<times {
+            grabber.tap()
+            settle(app, seconds: 1)
+        }
+    }
 
     @MainActor private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()

@@ -1,7 +1,11 @@
 import SwiftUI
+import MapKit
 
-/// One stop: when, how long, and the facts the site found — opening hours,
-/// the booking, the official links, the sources and when they were checked.
+/// One stop as a PLACE CARD (v7): its photograph and the street in front of
+/// it, why it is in the plan, its hours on the day, then when, how long and
+/// the facts the site found — the booking, the official links, the sources
+/// and when they were checked. A meal still without a place shows the real
+/// places to choose from.
 struct TripStopScreen: View {
     let ref: TripStopRef
     @ObservedObject private var store = TripStore.shared
@@ -29,6 +33,12 @@ struct TripStopScreen: View {
         let booking = bundle.booking(for: stop)
         let clock = TripClock(bundle.trip.timeZone)
         return List {
+            if let photo = bundle.photo(for: stop) {
+                TripPhotoView(photo: photo, height: 220)
+                    .srPlainRow()
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("trip-place-photo")
+            }
             VStack(alignment: .leading, spacing: 6) {
                 Text(TripWords.span(stop))
                     .font(SR.Text.mono(13))
@@ -52,14 +62,32 @@ struct TripStopScreen: View {
                         .font(SR.Text.secondary(13))
                         .foregroundStyle(SR.warn)
                 }
-                if let note = wish?.note, !note.isEmpty {
-                    Label(note, systemImage: "note.text")
+                if let why = TripPlaceWhy.line(stop: stop, wish: wish, bundle: bundle) {
+                    Label(why, systemImage: "heart.text.square")
                         .font(SR.Text.secondary(13))
                         .foregroundStyle(SR.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("trip-place-why")
                 }
+                TripPlaceChips(chips: TripPlaceWhy.chips(facts: facts, date: day.date, clock: clock, stop: stop))
+                    .padding(.top, 4)
             }
             .padding(.vertical, 12)
             .srPlainRow()
+
+            // v7: a meal with no place yet — the places to choose from.
+            if stop.awaitsMealChoice {
+                Section {
+                    TripMealChoices(tripId: ref.tripId, day: day, stop: stop, bundle: bundle, large: true)
+                        .srPlainRow()
+                } header: { SRSectionLabel(text: "Choose where to eat") }
+            }
+
+            // The street in front of it, where Apple has looked around.
+            if let at = stop.location {
+                TripLookAround(location: at)
+                    .srPlainRow()
+            }
 
             gettingThere(bundle, day, index)
 
@@ -198,5 +226,111 @@ struct TripStopScreen: View {
         guard let weekday = clock.isoWeekday(date), let ranges = facts.hours?[String(weekday)] else { return nil }
         if ranges.isEmpty { return "Closed" }
         return ranges.map { "\(TripFormat.time($0.openMin))–\(TripFormat.time($0.closeMin))" }.joined(separator: ", ")
+    }
+}
+
+// MARK: - The place card's pieces
+
+/// Why a stop is in the plan, and its facts at a glance, in plain words.
+enum TripPlaceWhy {
+    /// "Sam suggested it" · "A must-do" · "Booked for 09:30" · the note.
+    static func line(stop: PlannedStop, wish: TripWish?, bundle: TripBundle) -> String? {
+        var parts: [String] = []
+        if let wish {
+            let by = (bundle.suggestions ?? []).first { $0.status == "approved" && $0.wish.title == wish.title }?.byName
+            if let by { parts.append("\(by) suggested it") }
+            if bundle.booking(for: stop)?.status == .booked, let start = bundle.booking(for: stop)?.startMin {
+                parts.append("Booked for \(TripFormat.time(start))")
+            } else if wish.locked || wish.fixedStartMin != nil {
+                parts.append("Fixed for this time")
+            } else if wish.priority == .must {
+                parts.append("A must-do")
+            }
+            if let meal = wish.replacesMeal, !meal.isEmpty { parts.append("This is \(meal)") }
+            if let note = wish.note, !note.isEmpty { parts.append(note) }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    struct Chip: Hashable {
+        let icon: String
+        let text: String
+        var warn = false
+    }
+
+    /// Its hours that day first, then how long, the price, booking.
+    static func chips(facts: TripFacts?, date: String, clock: TripClock, stop: PlannedStop) -> [Chip] {
+        guard let facts else { return [] }
+        var out: [Chip] = []
+        if facts.closedDates.contains(date) {
+            out.append(Chip(icon: "xmark.octagon", text: "Closed this day", warn: true))
+        } else if let weekday = clock.isoWeekday(date), let ranges = facts.hours?[String(weekday)] {
+            out.append(ranges.isEmpty
+                ? Chip(icon: "xmark.octagon", text: "Closed this day", warn: true)
+                : Chip(icon: "clock", text: ranges.map { "\(TripFormat.time($0.openMin))–\(TripFormat.time($0.closeMin))" }.joined(separator: ", ")))
+        } else if facts.openingHoursText == nil {
+            out.append(Chip(icon: "questionmark.circle", text: "Hours unknown", warn: true))
+        }
+        if let visit = facts.typicalVisitSec { out.append(Chip(icon: "hourglass", text: TripFormat.duration(seconds: visit))) }
+        if let price = facts.priceText { out.append(Chip(icon: "eurosign.circle", text: price)) }
+        if facts.bookingRequired == true { out.append(Chip(icon: "ticket", text: "Book ahead")) }
+        return out
+    }
+}
+
+/// The facts at a glance, as small capsules that wrap.
+struct TripPlaceChips: View {
+    let chips: [TripPlaceWhy.Chip]
+
+    var body: some View {
+        if !chips.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(chips, id: \.self) { chip in
+                        Label(chip.text, systemImage: chip.icon)
+                            .font(SR.Text.mono(12))
+                            .foregroundStyle(chip.warn ? SR.warn : SR.inkSecondary)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(SR.inkMuted.opacity(0.10)))
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("trip-place-chips")
+        }
+    }
+}
+
+/// Apple's Look Around at a place, where Apple has it — live on the phone,
+/// nothing stored. Nothing at all where there is no imagery, or no signal.
+struct TripLookAround: View {
+    let location: TripLatLng
+    @ObservedObject private var network = TripNetwork.shared
+    @State private var scene: MKLookAroundScene?
+
+    var body: some View {
+        Group {
+            if let scene {
+                VStack(alignment: .leading, spacing: 6) {
+                    SRSectionLabel(text: "The street")
+                    LookAroundPreview(initialScene: scene)
+                        .frame(height: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 2, style: .continuous))
+                }
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("trip-look-around")
+            } else {
+                // Something to hang the task on: an empty group never appears.
+                Color.clear.frame(height: 1).accessibilityHidden(true)
+            }
+        }
+        // Keyed on the connection too: a look missed offline is tried again online.
+        .task(id: "\(location.lat),\(location.lng),\(network.online)") {
+            guard scene == nil, network.online, !SRDemo.isOn else { return }
+            let request = MKLookAroundSceneRequest(coordinate: CLLocationCoordinate2D(latitude: location.lat, longitude: location.lng))
+            scene = try? await request.scene
+        }
     }
 }

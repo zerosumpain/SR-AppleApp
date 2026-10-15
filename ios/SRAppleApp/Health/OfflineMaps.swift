@@ -81,7 +81,7 @@ final class OfflineMaps: ObservableObject {
     }
 
     /// Any line's corridor, under any id — a saved route, or a trip day's
-    /// stops and legs (`trip:<tripId>:<date>`, see `TripDayMap`).
+    /// stops and legs (`trip:<tripId>:<date>`, see `TripDayGeometry`).
     func download(id: String, name: String, line: [CLLocationCoordinate2D]) {
         if case .downloading = state(for: id) { return }
         guard !line.isEmpty else { return }

@@ -134,9 +134,11 @@ enum TripsAPI {
         case result(Data)
     }
 
-    /// Poll interval, and when to give up on a job.
+    /// Poll interval, and when to give up on a job: just past the server's
+    /// own cap (390 s, SR-Main `limits.ts`), so the phone never says "took
+    /// too long" about a turn the server then finishes and saves.
     static let pollEvery: UInt64 = 2_000_000_000
-    static let giveUpAfter: TimeInterval = 180
+    static let giveUpAfter: TimeInterval = 405
     /// The starting request: long enough for an old server to do the work
     /// itself, short of Cloudflare's cut.
     static let startTimeout: TimeInterval = 95
@@ -194,6 +196,9 @@ enum TripsAPI {
                         guard let result = polled.job.result else { throw Failure.refused(200, unreadable) }
                         return result
                     case "failed":
+                        // A trip made before the cap hit comes back with its id:
+                        // open it rather than invite a second copy.
+                        if let result = polled.job.result { return result }
                         throw Failure.refused(500, polled.job.error ?? "The planner couldn't finish that — try again.")
                     default:
                         break

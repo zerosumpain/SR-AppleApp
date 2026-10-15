@@ -145,6 +145,10 @@ struct TripSlotPanel: View {
     let stage: DayStage
     let indexes: [Int]
     let bundle: TripBundle
+    /// Its own "Make a suggestion" button. The read-only day keeps one menu
+    /// for the whole day instead (`TripDayIdeasMenu`); the panel still shows
+    /// what the family suggested and the ideas that came back for this part.
+    var showsAsk = true
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var network = TripNetwork.shared
     @ObservedObject private var jobs = TripJobs.shared
@@ -211,7 +215,7 @@ struct TripSlotPanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                     tryAgain
                 }
-            } else if can.canSuggest || can.canEdit {
+            } else if showsAsk && (can.canSuggest || can.canEdit) {
                 Button { ask() } label: {
                     Label("Make a suggestion", systemImage: "sparkles")
                         .font(SR.Text.label(12))
@@ -256,19 +260,22 @@ struct TripSlotPanel: View {
             .accessibilityIdentifier("trip-suggest-retry")
     }
 
-    /// The stops either side of the slot, so the planner knows the gap.
-    private var neighbours: (after: String?, before: String?) {
-        guard let first = indexes.first, let last = indexes.last else { return (nil, nil) }
-        let after = first > 0 ? day.stops[first - 1].id : nil
-        let before = last + 1 < day.stops.count ? day.stops[last + 1].id : nil
-        return (after, before)
-    }
-
     private func ask() {
         SRHaptic.tap()
         message = nil
-        let around = neighbours
-        jobs.askIdeas(tripId: tripId, date: day.date, stage: stage, after: around.after, before: around.before)
+        Self.ask(tripId: tripId, day: day, stage: stage, indexes: indexes)
+    }
+
+    /// Ideas for one part of the day: the stops either side of it go with
+    /// the ask, so the planner knows the gap.
+    static func ask(tripId: String, day: PlannedDay, stage: DayStage, indexes: [Int]) {
+        var after: String?
+        var before: String?
+        if let first = indexes.first, let last = indexes.last {
+            after = first > 0 ? day.stops[first - 1].id : nil
+            before = last + 1 < day.stops.count ? day.stops[last + 1].id : nil
+        }
+        TripJobs.shared.askIdeas(tripId: tripId, date: day.date, stage: stage, after: after, before: before)
     }
 
     private func take(_ idea: TripIdea) {
@@ -497,6 +504,39 @@ struct TripLegPicker: View {
         case .drive: return "Drive"
         case .cycle: return "Cycle"
         case .unknown: return "Other"
+        }
+    }
+}
+
+/// "Ideas for this day": one menu under the whole day, a part of the day to
+/// ask about — instead of a "Make a suggestion" button in every part, which
+/// made the read-only plan read as a form.
+struct TripDayIdeasMenu: View {
+    let tripId: String
+    let day: PlannedDay
+    let bundle: TripBundle
+    @ObservedObject private var network = TripNetwork.shared
+
+    var body: some View {
+        if bundle.can.canSuggest || bundle.can.canEdit {
+            let groups = TripStages.groups(day, wishes: bundle.wishes)
+            Menu {
+                ForEach(groups, id: \.stage) { group in
+                    Button {
+                        SRHaptic.tap()
+                        TripSlotPanel.ask(tripId: tripId, day: day, stage: group.stage, indexes: group.indexes)
+                    } label: {
+                        Label(group.indexes.isEmpty ? "\(group.stage.label) — free" : group.stage.label, systemImage: "sparkles")
+                    }
+                    .accessibilityIdentifier("trip-suggest-\(group.stage.rawValue)")
+                }
+            } label: {
+                SRButtonLabel(title: bundle.can.canEdit ? "Ideas for this day" : "Make a suggestion", icon: "sparkles")
+            }
+            .srButton(.regular)
+            .disabled(!(network.online || SRDemo.isOn))
+            .accessibilityHint(network.online ? "Ideas that fit a part of the day" : "Needs a connection")
+            .accessibilityIdentifier("trip-suggest-menu")
         }
     }
 }

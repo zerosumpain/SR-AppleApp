@@ -69,6 +69,10 @@ struct TripConverseSheet: View {
                         if let last, !last.changes.isEmpty || !last.rejected.isEmpty {
                             changes(last)
                         }
+                        // v7: an open question answered with choices, each checked against its day.
+                        if let options = last?.options, !options.isEmpty, let bundle = store.bundles[tripId] {
+                            TripOptionCards(tripId: tripId, options: options, bundle: bundle)
+                        }
                         if case .running(let since, _) = jobs.states[key] {
                             TimelineView(.periodic(from: .now, by: 1)) { context in
                                 HStack(spacing: 8) {
@@ -371,5 +375,103 @@ struct TripResearchList: View {
         }
         .tint(SR.inkMuted)
         .accessibilityIdentifier("trip-research")
+    }
+}
+
+/// The planner's options for an open question, as cards: what it is and why
+/// (the planner's), what it does to the day (the solver's), indoor or out,
+/// children, price — and one button that adds it (or suggests it).
+struct TripOptionCards: View {
+    let tripId: String
+    let options: [PlanOption]
+    let bundle: TripBundle
+    @ObservedObject private var store = TripStore.shared
+    @State private var busy: String?
+    @State private var done: Set<String> = []
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("CHOOSE ONE · CHECKED AGAINST YOUR DAY")
+                .font(SR.Text.label(10))
+                .tracking(1)
+                .foregroundStyle(SR.inkMuted)
+            ForEach(options) { option in card(option) }
+            if let message {
+                Text(message).font(SR.Text.secondary(12)).foregroundStyle(SR.inkSecondary)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("trip-options-cards")
+    }
+
+    private var editor: Bool { bundle.can.canEdit || bundle.can.canApprove }
+
+    private func card(_ option: PlanOption) -> some View {
+        let stage = DayStage(rawValue: option.stage) ?? .afternoon
+        let zone = TripClock(bundle.trip.timeZone).zone
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Circle().fill(stage.color).frame(width: 8, height: 8).accessibilityHidden(true)
+                Text("\(TripFormat.day(option.date, zone: zone)) · \(stage.label)")
+                    .font(SR.Text.mono(11))
+                    .foregroundStyle(SR.inkMuted)
+            }
+            Text(option.title).font(SR.Text.title(16)).foregroundStyle(SR.ink)
+            if !option.why.isEmpty {
+                Text(option.why).font(SR.Text.secondary(13)).foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(option.fit)
+                .font(SR.Text.mono(12))
+                .foregroundStyle(option.verdict.fits ? SR.inkSecondary : SR.warn)
+                .fixedSize(horizontal: false, vertical: true)
+            let chips = [
+                option.indoor.map { $0 ? "Indoors" : "Outdoors" },
+                option.kidFriendly.map { $0 ? "Good with children" : "Better for adults" },
+                option.costText,
+            ].compactMap { $0 }
+            if !chips.isEmpty {
+                Text(chips.joined(separator: " · ")).font(SR.Text.secondary(12)).foregroundStyle(SR.inkMuted)
+            }
+            Button { choose(option, stage: stage) } label: {
+                if busy == option.id { ProgressView() } else if done.contains(option.id) {
+                    SRButtonLabel(title: editor ? "Added" : "Suggested", icon: "checkmark")
+                } else {
+                    SRButtonLabel(title: editor ? "Add this" : "Suggest this", icon: "plus", fill: true)
+                }
+            }
+            .srButton(.prominent)
+            .controlSize(.small)
+            .disabled(busy != nil || done.contains(option.id))
+            .accessibilityIdentifier("trip-option-choose")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) { Capsule().fill(stage.color).frame(width: 3).padding(.vertical, 10) }
+        .srGlassCard(.paper)
+    }
+
+    private func choose(_ option: PlanOption, stage: DayStage) {
+        busy = option.id
+        message = nil
+        let idea = TripIdea(title: option.title, why: option.why, fit: option.fit, wish: option.wish, verdict: option.verdict, source: "planner")
+        Task {
+            let failure: String?
+            if editor {
+                failure = await store.add(idea, tripId: tripId, date: option.date, stage: stage)
+            } else {
+                failure = await store.suggest(option.wish, tripId: tripId, date: option.date, stage: stage, note: option.why, fitText: option.fit)
+            }
+            busy = nil
+            if let failure {
+                SRHaptic.bad()
+                message = failure
+            } else {
+                SRHaptic.ok()
+                done.insert(option.id)
+                if !editor { message = "Suggested — a parent will see it." }
+            }
+        }
     }
 }

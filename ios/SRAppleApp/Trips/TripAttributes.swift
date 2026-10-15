@@ -69,4 +69,11 @@ struct TripAttributes: ActivityAttributes {
 
     var tripId: String
     var title: String
+
+    /// Where a tap on the card goes: `sr://trips/<id>`, which the app opens
+    /// at the day running now (`Router.openTrip`). Without it a tap opened
+    /// the app wherever it was last left.
+    var link: URL? {
+        tripId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed).flatMap { URL(string: "sr://trips/\($0)") }
+    }
 }

@@ -246,6 +246,57 @@ struct PlannedStop: Codable, Hashable, Identifiable {
     /// v4: "morning", "lunch", "afternoon" or "evening", set by the solver.
     /// A String, so a new stage never fails a day; `TripStages` reads it.
     var stage: String? = nil
+    /// v7: a lunch or dinner with no place yet — up to three real places
+    /// near where you will be, open then (SR-Main `meals.ts`).
+    var mealOptions: [MealOption]? = nil
+}
+
+/// v7: a real place to eat for a planned meal, from OpenStreetMap.
+struct MealOption: Codable, Hashable, Identifiable {
+    /// Its OSM id, `node/123`.
+    var id: String
+    var name: String
+    /// "restaurant" or "cafe".
+    var kind: String
+    /// "Italian, pizza"; nil when not on record.
+    var cuisine: String?
+    var place: TripPlace
+    /// Minutes on foot from the stop before (a straight-line estimate).
+    var walkMin: Double
+    var walkFrom: String
+    /// "Open 12:00–15:00" that day; nil when its hours are not on record.
+    var openText: String?
+    /// Its own hours say it is open for the meal.
+    var openKnown: Bool
+    var website: String?
+    var phone: String?
+    /// Dietary tags it carries that the family asked for.
+    var diet: [String]
+    var outdoorSeating: Bool
+    var wheelchair: Bool?
+    var wikidata: String?
+    /// One line: what, how far, when it is open.
+    var why: String
+    var source: String
+}
+
+/// v7: a photograph of a place, from Wikimedia Commons — always shown with
+/// its credit and licence, which is the condition of using it.
+struct PlaceImage: Codable, Hashable {
+    var url: String
+    var width: Double?
+    var height: Double?
+    var credit: String?
+    var license: String?
+    /// The file's Commons page.
+    var sourceUrl: String
+    var wikidata: String
+
+    /// "Photo: Jane Smith · CC BY-SA 4.0 · Wikimedia Commons".
+    var creditLine: String {
+        (["Photo: " + (credit ?? "Wikimedia Commons")] + [license].compactMap { $0 } + (credit == nil ? [] : ["Wikimedia Commons"]))
+            .joined(separator: " · ")
+    }
 }
 
 struct PlannedLeg: Codable, Hashable {
@@ -354,6 +405,8 @@ struct TripBundle: Codable, Hashable {
     var suggestions: [TripSuggestion]? = nil
     /// v5: how full each day is, by local date.
     var fullness: [String: DayFullness]? = nil
+    /// v7: photographs, by wish id (and by a meal option's OSM id).
+    var images: [String: PlaceImage]? = nil
 
     var segments: [TransportSegment] { transport ?? [] }
     var can: TripAccess { access ?? .owner }
@@ -669,6 +722,30 @@ struct TripGuide: Codable, Hashable {
     var transitTickets: String?
     var tips: [String]
     var generatedAt: String
+    /// v7: customs, money, a few words, safety.
+    var primer: CityPrimer? = nil
+    /// v7: the neighbourhoods the trip's places are in.
+    var neighbourhoods: [Neighbourhood]? = nil
+}
+
+/// v7: what a visitor should know before arriving.
+struct CityPrimer: Codable, Hashable {
+    struct Phrase: Codable, Hashable {
+        var local: String
+        var meaning: String
+    }
+    var customs: [String]
+    var money: String?
+    var phrases: [Phrase]
+    var safety: String?
+    var sources: [TripSource]
+}
+
+/// v7: an area of the city the trip goes to, and its places there.
+struct Neighbourhood: Codable, Hashable {
+    var name: String
+    var line: String
+    var places: [String]
 }
 
 /// One turn of the planning conversation.
@@ -703,6 +780,27 @@ struct ConverseResult: Codable, Hashable {
     var changes: [String]
     /// v3: what the planner looked up this turn.
     var research: [ResearchStep]? = nil
+    /// v7: choices offered for an open question, each checked against its day.
+    var options: [PlanOption]? = nil
+}
+
+/// v7: one option the planner offered (SR-Main `options.ts`): a named place
+/// for a part of a day, what it does to that day (from the solver), and the
+/// planner's notes. Choosing it adds `wish` through the ordinary paths.
+struct PlanOption: Codable, Hashable, Identifiable {
+    var id: String
+    var date: String
+    /// A `DayStage` raw value.
+    var stage: String
+    var title: String
+    var why: String
+    /// "14:10–15:10 · 12 min walk in · 8 min on".
+    var fit: String
+    var indoor: Bool?
+    var kidFriendly: Bool?
+    var costText: String?
+    var wish: WishDraft
+    var verdict: IdeaVerdict
 }
 
 struct ConverseBody: Codable {

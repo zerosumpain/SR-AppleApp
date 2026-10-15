@@ -198,6 +198,8 @@ final class TripStore: ObservableObject {
             prune(keeping: Set(list.map(\.id)))
             refreshedAt = now
             message = nil
+            // v7: the evening-before briefings and booking nudges, on this phone.
+            await TripReminders.sync(Array(bundles.values))
         } catch TripsAPI.Failure.ownerOnly {
             ownerOnly = true
             message = nil
@@ -229,6 +231,9 @@ final class TripStore: ObservableObject {
                 bundles[id] = bundle
                 TripFiles.write(bundle, Self.bundleFile(id))
                 settleLocalDays(id)
+                // v7: the places' photographs and the forecast go offline with the trip.
+                TripPhotos.shared.prefetch(bundle)
+                TripWeatherStore.shared.refresh(bundle)
             }
         } catch TripsAPI.Failure.ownerOnly {
             ownerOnly = true
