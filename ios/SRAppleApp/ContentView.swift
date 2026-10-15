@@ -436,6 +436,7 @@ struct ContentView: View {
             }
             checkPersonal()
             syncGamesPoll()
+            await location.askForMotionIfNeeded()
             await site.check()
             await reconcileSite()
             syncFamilyWidgets()

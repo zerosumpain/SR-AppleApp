@@ -221,7 +221,8 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(state.gateState, .tracking, "an upgrade must not come back asleep")
         XCTAssertNil(state.anchor)
         XCTAssertTrue(state.gateEvents.isEmpty)
-        XCTAssertFalse(state.location.motion.enabled, "and must not silently start gating")
+        XCTAssertTrue(state.location.motion.enabled, "GPS sleeps when still on every phone (John, 2026-10-15)")
+        XCTAssertFalse(state.motionGateOn, "an old file is marked for the one-time switch-on")
     }
 
     func testAPartialMotionBlobKeepsTheRestOfTheDefaults() throws {
@@ -279,12 +280,25 @@ final class MotionTests: XCTestCase {
 
     // MARK: - Presets
 
-    func testTheShippedDefaultLeavesTheGateOff() {
-        // An upgrade must change nothing on its own. A battery setting that
-        // moves silently is worse than no setting.
-        XCTAssertFalse(LocationSettings().motion.enabled)
-        XCTAssertFalse(LocationSettings.Preset.accurate.settings.motion.enabled)
+    func testTheShippedDefaultSleepsWhenStill() {
+        // John, 2026-10-15: "I always want to sleep the gps when still".
+        XCTAssertTrue(LocationSettings().motion.enabled)
+        XCTAssertTrue(LocationSettings.Preset.accurate.settings.motion.enabled)
         XCTAssertEqual(LocationSettings().matchingPreset, .accurate)
+    }
+
+    @MainActor func testAnUpgradeTurnsTheGateOnOnceAndThenLeavesItAlone() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("gate-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let old = #"{"sharing":true,"location":{"motion":{"enabled":false}}}"#
+        try Data(old.utf8).write(to: url)
+        let first = try Outbox(url: url)
+        XCTAssertTrue(first.state.location.motion.enabled)
+        XCTAssertTrue(first.state.motionGateOn)
+        // Switched off by hand afterwards: that sticks across a relaunch.
+        try first.change { $0.location.motion.enabled = false }
+        let second = try Outbox(url: url)
+        XCTAssertFalse(second.state.location.motion.enabled)
     }
 
     func testTheCheaperPresetsTurnItOn() {
