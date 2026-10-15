@@ -66,7 +66,7 @@ final class BacklogCastSession: ObservableObject {
         for item in items { states[item.id] = .preparing }
         refreshCastState()
         observer = NotificationCenter.default.addObserver(
-            forName: kGCKCastStateDidChangeNotification, object: nil, queue: .main
+            forName: .gckCastStateDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.castStateChanged() }
         }
