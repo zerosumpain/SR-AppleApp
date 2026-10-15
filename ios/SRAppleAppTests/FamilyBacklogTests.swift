@@ -142,6 +142,28 @@ final class FamilyBacklogTests: XCTestCase {
         XCTAssertEqual(FamilyBacklogAction.toTask.rawValue, "to_task")
     }
 
+    func testPlayAllTakesLinksInListOrderButNotIdeas() throws {
+        let b = try board()
+        XCTAssertEqual(FamilyBacklogRules.castable(b.items).map(\.id), ["b1", "b2"])
+    }
+
+    /// The three answers SR-Main's `POST …/backlog/<id>/cast` gives.
+    func testDecodesTheSitesCastAnswers() throws {
+        let ready = try JSONDecoder().decode(BacklogCastWire.self, from: Data(#"""
+        { "state": "ready", "mediaUrl": "https://strangeramblings.com/cast/t.mp4", "contentType": "video/mp4",
+          "title": "Volcanoes", "posterUrl": null, "durationSeconds": 42, "expiresAt": "2026-10-16T01:00:00.000Z" }
+        """#.utf8))
+        XCTAssertEqual(ready.state, "ready")
+        XCTAssertEqual(ready.durationSeconds, 42)
+        let waiting = try JSONDecoder().decode(BacklogCastWire.self, from: Data(#"{ "state": "preparing", "retryAfterSeconds": 3 }"#.utf8))
+        XCTAssertEqual(waiting.retryAfterSeconds, 3)
+        let phone = try JSONDecoder().decode(BacklogCastWire.self, from: Data(#"""
+        { "state": "fallback", "fallback": "youtube_app", "reason": "That video seems to have gone.", "url": "https://youtu.be/a" }
+        """#.utf8))
+        XCTAssertEqual(phone.fallback, "youtube_app")
+        XCTAssertEqual(phone.url, "https://youtu.be/a")
+    }
+
     func testTheBacklogHasALink() {
         XCTAssertEqual(FamilyPage.from(url: URL(string: "sr://family/backlog")!), .backlog)
         XCTAssertEqual(FamilyPage.from(category: "family-backlog", userInfo: [:]), .backlog)
