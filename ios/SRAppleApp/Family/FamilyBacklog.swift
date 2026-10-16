@@ -93,6 +93,13 @@ enum FamilyBacklogRules {
         (forMe(board), board.items.count, Array(board.items.prefix(2)))
     }
 
+    /// What "Play all on TV" takes from a shelf: things with a link, in list
+    /// order. Pages come too — the sheet offers them to mirror — but ideas
+    /// have nothing to show.
+    static func castable(_ items: [FamilyBacklogItem]) -> [FamilyBacklogItem] {
+        items.filter { $0.url != nil && $0.kind != "idea" }
+    }
+
     static func symbol(_ item: FamilyBacklogItem) -> String {
         switch (item.kind, item.provider) {
         case ("idea", _): return "lightbulb"
@@ -101,6 +108,12 @@ enum FamilyBacklogRules {
         default: return "doc.richtext"
         }
     }
+}
+
+/// One "Play on TV" sheet's worth of items.
+struct BacklogCastList: Identifiable {
+    let id = UUID()
+    let items: [FamilyBacklogItem]
 }
 
 // MARK: - Store

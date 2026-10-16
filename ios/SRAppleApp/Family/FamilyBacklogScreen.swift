@@ -16,6 +16,8 @@ struct FamilyBacklogScreen: View {
     @State private var showing: FamilyBacklogShelf = .all
     @State private var adding = false
     @State private var picked: FamilyBacklogItem?
+    /// What "Play on TV" is playing: one item, or the shelf.
+    @State private var casting: BacklogCastList?
 
     var body: some View {
         List {
@@ -82,6 +84,18 @@ struct FamilyBacklogScreen: View {
                 Button {
                     guard let board = store.board else { return }
                     SRHaptic.tap()
+                    casting = BacklogCastList(items: FamilyBacklogRules.castable(showing.items(board)))
+                } label: {
+                    Image(systemName: "tv")
+                }
+                .disabled(store.board.map { FamilyBacklogRules.castable(showing.items($0)).isEmpty } ?? true)
+                .accessibilityLabel("Play all on TV")
+                .accessibilityIdentifier("backlog-cast-all")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    guard let board = store.board else { return }
+                    SRHaptic.tap()
                     picked = FamilyBacklogRules.pick(board)
                 } label: {
                     Image(systemName: "dice")
@@ -112,13 +126,19 @@ struct FamilyBacklogScreen: View {
             if let message = store.message, store.board != nil { SRBanner(text: message, tone: SR.error) }
         }
         .sheet(item: $picked) { item in
-            FamilyBacklogPickSheet(item: item, board: store.board) {
+            FamilyBacklogPickSheet(item: item, board: store.board, cast: {
+                picked = nil
+                casting = BacklogCastList(items: [item])
+            }) {
                 guard let board = store.board else { return }
                 picked = FamilyBacklogRules.pick(board, avoiding: item.id)
             } done: {
                 picked = nil
                 Task { await store.act(.done, on: item) }
             }
+        }
+        .sheet(item: $casting) { list in
+            BacklogCastSheet(items: list.items)
         }
         .sheet(isPresented: $adding) {
             FamilyBacklogAddSheet(people: store.board?.people ?? [], me: store.board?.me) { share in
@@ -177,6 +197,7 @@ struct FamilyBacklogScreen: View {
             }
             if let link {
                 Button { openURL(link) } label: { Label("Open", systemImage: "arrow.up.right.square") }
+                Button { casting = BacklogCastList(items: [item]) } label: { Label("Play on TV", systemImage: "tv") }
                 ShareLink(item: link) { Label("Share", systemImage: "square.and.arrow.up") }
                 Button { UIPasteboard.general.url = link } label: { Label("Copy link", systemImage: "doc.on.doc") }
             }
@@ -226,6 +247,8 @@ struct FamilyBacklogScreen: View {
 struct FamilyBacklogPickSheet: View {
     let item: FamilyBacklogItem
     let board: FamilyBacklogBoard?
+    /// "Play on TV" for this one.
+    var cast: (() -> Void)? = nil
     let another: () -> Void
     let done: () -> Void
 
@@ -261,6 +284,17 @@ struct FamilyBacklogPickSheet: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .accessibilityIdentifier("backlog-pick-open")
+                    if let cast {
+                        Button {
+                            SRHaptic.tap()
+                            cast()
+                        } label: {
+                            Label("Play on TV", systemImage: "tv").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("backlog-pick-cast")
+                    }
                 }
                 HStack {
                     Button("Pick another") { SRHaptic.tap(); another() }

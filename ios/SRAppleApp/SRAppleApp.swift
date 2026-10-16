@@ -20,6 +20,9 @@ import Combine
         // Teach UIKit the palette before the first view is laid out. Doing it
         // later leaves one system-grey navigation bar on screen for a frame.
         SRChrome.install()
+        // The Cast SDK wants its context before any screen; it does not look
+        // for TVs (or ask for the local network) until the Cast button is tapped.
+        BacklogCastSetup.install()
 
         do {
             let outbox = try Outbox()

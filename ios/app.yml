@@ -25,6 +25,12 @@ packages:
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution
     exactVersion: 6.31.0
+  # "Play on TV" on the family backlog (`Family/BacklogCast.swift`): Google's
+  # own package, the dynamic product (the static one needs -ObjC). Pinned
+  # exactly, like MapLibre — a binary, so a bump is a new binary to re-check.
+  GoogleCast:
+    url: https://github.com/googlecast/google-cast-ios-sdk
+    exactVersion: 4.8.6
 targets:
   SRAppleApp:
     type: application
@@ -47,6 +53,8 @@ targets:
         buildPhase: resources
     dependencies:
       - package: MapLibre
+      - package: GoogleCast
+        product: GoogleCastDynamic
     settings:
       base:
         TARGETED_DEVICE_FAMILY: '1'
