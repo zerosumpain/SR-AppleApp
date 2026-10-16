@@ -77,43 +77,6 @@ struct TripStageBand<Content: View>: View {
     }
 }
 
-/// A day's four parts in brief, for the trip's days list: one line each,
-/// marked with its part's colour.
-struct TripStageStrip: View {
-    let day: PlannedDay
-    let wishes: [TripWish]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(TripStages.groups(day, wishes: wishes), id: \.stage) { group in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    TripStageMark(stage: group.stage)
-                    Text(TripStages.brief(day, group.indexes))
-                        .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkSecondary)
-                        .lineLimit(1)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(group.stage.label): \(TripStages.brief(day, group.indexes))")
-            }
-        }
-        .padding(.leading, 36)
-        .padding(.bottom, 6)
-    }
-}
-
-/// A part of the day's colour, as a small swatch for lists.
-struct TripStageMark: View {
-    let stage: DayStage
-
-    var body: some View {
-        Circle()
-            .fill(stage.color)
-            .frame(width: 9, height: 9)
-            .accessibilityHidden(true)
-    }
-}
-
 extension TripFullness {
     /// From quiet to warning, in the SR palette.
     static func colour(_ band: String) -> Color {
@@ -124,5 +87,29 @@ extension TripFullness {
         case "full": return SR.accent
         default: return SR.error
         }
+    }
+}
+
+/// A trip page's own heading: sentence case, in the reading colour, a figure
+/// beside it in the muted ink — not the shouted mono eyebrow, which used to
+/// head every block and made each page read as a form.
+struct TripHeading: View {
+    let text: String
+    var trailing: String? = nil
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(text)
+                .font(SR.Text.title(17))
+                .foregroundStyle(SR.ink)
+            Spacer(minLength: 8)
+            if let trailing {
+                Text(trailing)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }

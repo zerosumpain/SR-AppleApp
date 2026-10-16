@@ -528,8 +528,8 @@ final class TripTests: XCTestCase {
     }
 
     func testTravellersAreNamesAndAges() {
-        XCTAssertEqual(TripTravellersRow.line(.init(name: "Sam", relation: "child", age: 9, personId: nil)), "Sam, 9")
-        XCTAssertEqual(TripTravellersRow.line(.init(name: "Alex", relation: nil)), "Alex")
+        XCTAssertEqual(TripBriefCard.traveller(.init(name: "Sam", relation: "child", age: 9, personId: nil)), "Sam, 9")
+        XCTAssertEqual(TripBriefCard.traveller(.init(name: "Alex", relation: nil)), "Alex")
     }
 
     // MARK: v4 stages

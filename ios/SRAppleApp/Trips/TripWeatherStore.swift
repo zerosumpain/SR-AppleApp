@@ -68,8 +68,10 @@ final class TripWeatherStore: ObservableObject {
     }
 }
 
-/// A day's weather and light in one line each: "19° / 12° · Partly cloudy ·
-/// rain likely 15:00–18:00" and "Sunset 17:11 · golden hour from 16:32".
+/// A day's weather and light as a small chip on the map — "☁ 19° · ☂ ·
+/// 🌅 17:11" — rather than two lines of text in the drawer. A tap opens it
+/// to the full lines: "19° / 12° · Partly cloudy · rain likely 15:00–18:00"
+/// and "Sunset 17:11 · golden hour from 16:32".
 struct TripDaySky: View {
     let tripId: String
     let date: String
@@ -78,36 +80,63 @@ struct TripDaySky: View {
     var fromMin: Double = 480
     var toMin: Double = 1320
     @ObservedObject private var weather = TripWeatherStore.shared
+    @State private var open = false
 
     var body: some View {
         let clock = TripClock(bundle.trip.timeZone)
         let sun = TripWeatherStore.place(bundle).flatMap { TripSun.day(date, at: $0, zone: clock.zone) }
         let day = weather.day(tripId, date)
-        if day != nil || sun != nil {
-            VStack(alignment: .leading, spacing: 4) {
-                if let day {
+        let rain = day.flatMap { TripWeatherWords.rain($0, fromMin: fromMin, toMin: toMin) }
+        if day != nil || sun?.sunsetMin != nil {
+            Button {
+                SRHaptic.select()
+                withAnimation(.snappy(duration: 0.25)) { open.toggle() }
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Image(systemName: TripWeatherWords.symbol(day.code))
-                            .symbolRenderingMode(.multicolor)
-                            .accessibilityHidden(true)
-                        Text(([TripWeatherWords.line(day)] + [TripWeatherWords.rain(day, fromMin: fromMin, toMin: toMin)].compactMap { $0 })
-                            .joined(separator: " · "))
-                            .font(SR.Text.secondary(13))
-                            .foregroundStyle(TripWeatherWords.rain(day, fromMin: fromMin, toMin: toMin) == nil ? SR.inkSecondary : SR.accentDeep)
-                            .fixedSize(horizontal: false, vertical: true)
+                        if let day {
+                            Image(systemName: TripWeatherWords.symbol(day.code))
+                                .symbolRenderingMode(.multicolor)
+                            if let high = day.highC { Text("\(Int(high.rounded()))°") }
+                        }
+                        if rain != nil {
+                            Image(systemName: "umbrella.fill").foregroundStyle(SR.accentDeep)
+                        }
+                        if let set = sun?.sunsetMin {
+                            Image(systemName: "sun.horizon.fill").foregroundStyle(SR.accent)
+                            Text(TripFormat.time(set))
+                        }
+                    }
+                    .font(SR.Text.label(13))
+                    .foregroundStyle(SR.ink)
+                    if open {
+                        ForEach(lines(day, rain: rain, sun: sun), id: \.self) { line in
+                            Text(line)
+                                .font(SR.Text.secondary(13))
+                                .foregroundStyle(SR.inkSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
-                if let sun, let set = sun.sunsetMin {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sun.horizon").foregroundStyle(SR.accent).accessibilityHidden(true)
-                        Text("Sunset \(TripFormat.time(set))" + (sun.goldenMin.map { " · golden hour from \(TripFormat.time($0))" } ?? ""))
-                            .font(SR.Text.secondary(13))
-                            .foregroundStyle(SR.inkSecondary)
-                    }
-                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: open ? 260 : nil, alignment: .leading)
+                .srGlass(.paper, in: RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: true)
             }
-            .accessibilityElement(children: .combine)
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(lines(day, rain: rain, sun: sun).joined(separator: ". "))
+            .accessibilityHint(open ? "Hides the details" : "Shows the details")
             .accessibilityIdentifier("trip-day-sky")
         }
+    }
+
+    private func lines(_ day: TripForecast.Day?, rain: String?, sun: TripSun.Day?) -> [String] {
+        var out: [String] = []
+        if let day { out.append(([TripWeatherWords.line(day)] + [rain].compactMap { $0 }).joined(separator: " · ")) }
+        if let sun, let set = sun.sunsetMin {
+            out.append("Sunset \(TripFormat.time(set))" + (sun.goldenMin.map { " · golden hour from \(TripFormat.time($0))" } ?? ""))
+        }
+        return out
     }
 }

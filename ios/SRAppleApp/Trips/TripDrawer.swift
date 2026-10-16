@@ -32,18 +32,23 @@ struct TripDrawer<Header: View, Content: View>: View {
     var peek: CGFloat = 230
     @ViewBuilder var header: Header
     @ViewBuilder var content: Content
-    @GestureState private var drag: CGFloat = 0
+    /// How far the finger has pulled from where it settled. It goes back to 0
+    /// with the same spring as the new height (a drag ended or cancelled),
+    /// not in one un-animated jump before the spring starts.
+    @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.35, dampingFraction: 0.86))) private var drag: CGFloat = 0
     /// The header's own height, measured: the glance is never shorter, so
     /// a tall "where you are" never spills out of the drawer.
     @State private var headerHeight: CGFloat = 0
 
     private static var radius: CGFloat { 22 }
+    private static var spring: Animation { .spring(response: 0.35, dampingFraction: 0.86) }
 
     var body: some View {
         GeometryReader { geo in
             let stops = heights(geo.size.height)
             let settled = stops[detent] ?? peek
-            let height = min(max(settled - drag, stops[.peek] ?? peek), stops[.full] ?? geo.size.height)
+            let full = stops[.full] ?? geo.size.height
+            let height = min(max(settled - drag, stops[.peek] ?? peek), full)
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 10) {
                     grabber
@@ -56,14 +61,17 @@ struct TripDrawer<Header: View, Content: View>: View {
                 }
                 .contentShape(Rectangle())
                 .gesture(
-                    DragGesture(minimumDistance: 6)
+                    // Measured on the screen, not on the header: the header
+                    // moves with the finger, so in its own space every frame's
+                    // move shifted the next reading — the drawer shook.
+                    DragGesture(minimumDistance: 6, coordinateSpace: .global)
                         .updating($drag) { value, state, _ in state = value.translation.height }
                         .onEnded { value in
                             let landing = settled - value.predictedEndTranslation.height
                             let nearest = TripDrawerDetent.allCases.min {
                                 abs((stops[$0] ?? 0) - landing) < abs((stops[$1] ?? 0) - landing)
                             } ?? detent
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) { detent = nearest }
+                            withAnimation(Self.spring) { detent = nearest }
                         }
                 )
                 Divider().opacity(0.5)
@@ -71,11 +79,16 @@ struct TripDrawer<Header: View, Content: View>: View {
                     content
                         .padding(.horizontal, SR.gutter)
                         .padding(.top, 12)
-                        .padding(.bottom, 24)
+                        // The part below the screen at this height, so the
+                        // end of the plan can still be scrolled into view.
+                        .padding(.bottom, 24 + full - settled)
                 }
                 .scrollDismissesKeyboard(.immediately)
             }
-            .frame(height: height, alignment: .top)
+            // Always laid out at full height and slid, never resized: a drag
+            // moves one layer instead of laying the whole plan out again on
+            // every frame.
+            .frame(height: full, alignment: .top)
             .frame(maxWidth: .infinity)
             .background(alignment: .top) {
                 UnevenRoundedRectangle(topLeadingRadius: Self.radius, topTrailingRadius: Self.radius, style: .continuous)
@@ -83,6 +96,7 @@ struct TripDrawer<Header: View, Content: View>: View {
                     .shadow(color: .black.opacity(0.16), radius: 14, y: -2)
                     .ignoresSafeArea(edges: .bottom)
             }
+            .offset(y: full - height)
             .frame(maxHeight: .infinity, alignment: .bottom)
             .onAppear { covered = settled }
             .onChange(of: detent) { _, _ in covered = stops[detent] ?? peek }
@@ -107,7 +121,7 @@ struct TripDrawer<Header: View, Content: View>: View {
     private var grabber: some View {
         Button {
             SRHaptic.select()
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) { detent = detent.next }
+            withAnimation(Self.spring) { detent = detent.next }
         } label: {
             Capsule()
                 .fill(SR.inkMuted.opacity(0.45))

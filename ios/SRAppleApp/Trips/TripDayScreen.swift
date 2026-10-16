@@ -8,8 +8,10 @@ import CoreLocation
 /// ride, a faint dashed guess where nothing was routed) — with a drawer over
 /// it. Pulled down, the drawer is the glance a person standing in Rome
 /// wants: where they are, how long is left, when to leave and how to get to
-/// the next stop. Pulled up, it is the rest: anything gone wrong, the next
-/// stage by mode, what to know there, then the whole day in its four parts.
+/// the next stop — or, when something has gone wrong, that instead. Pulled
+/// up, it is the day in its four parts, the next leg and what to know at
+/// the next stop opened out in place. Each thing is said once (2026-10-16):
+/// the weather is a chip on the map, the housekeeping is the ••• menu.
 ///
 /// Tapping a pin brings up that stop; an off-plan choice is shown on the map
 /// over the current plan (a dashed ghost) before it is used.
@@ -21,8 +23,6 @@ struct TripDayScreen: View {
     let tripId: String
     let date: String
     @ObservedObject private var store = TripStore.shared
-    @ObservedObject private var queue = TripEventQueue.shared
-    @ObservedObject private var network = TripNetwork.shared
     @ObservedObject private var offPlan = TripOffPlan.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
@@ -58,6 +58,11 @@ struct TripDayScreen: View {
         .navigationTitle(store.clock(tripId).map { TripFormat.day(date, zone: $0.zone) } ?? "Day")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if let bundle = store.bundles[tripId], let day = store.day(tripId, date) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    TripDayMoreMenu(tripId: tripId, day: day, tripTitle: bundle.trip.title, allDays: { dismiss() })
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 // v5: the creator and parents change the plan; anyone else
                 // may still ask the planner for advice.
@@ -121,7 +126,8 @@ struct TripDayScreen: View {
         )
         // The glance over a big map on the day itself — unless something has
         // gone wrong, which is said first and must not sit under the fold.
-        let alarmed = !missed.isEmpty || (isToday && offPlan.prompt.map { $0.tripId == tripId && $0.date == date } == true)
+        let offPlanToday = isToday ? offPlan.prompt.flatMap { $0.tripId == tripId && $0.date == date ? $0 : nil } : nil
+        let alarmed = !missed.isEmpty || offPlanToday != nil
         let drawerAt = Binding<TripDrawerDetent>(
             get: { detent ?? (isToday && !alarmed ? .peek : .half) },
             set: { detent = $0 }
@@ -143,6 +149,19 @@ struct TripDayScreen: View {
 
             mapControls(scene: scene, isToday: isToday)
 
+            // The weather and the light: a chip on the map, not lines in the drawer.
+            VStack {
+                HStack {
+                    TripDaySky(tripId: tripId, date: date, bundle: bundle,
+                               fromMin: isToday ? nowMin : (day.stops.first?.departMin ?? 480),
+                               toMin: day.stops.last?.arriveMin ?? 1320)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+
             TripDrawer(detent: drawerAt, covered: $covered) {
                 if let choice, let preview {
                     previewBar(choice, preview: preview, day: day)
@@ -160,60 +179,45 @@ struct TripDayScreen: View {
                         following: $following,
                         close: { pick(nil) }
                     )
+                } else if !missed.isEmpty {
+                    // Something gone wrong takes the glance's place; it is
+                    // never one more card above the plan.
+                    missedCard(missed)
+                } else if let offPlanToday {
+                    TripOffPlanCard(prompt: offPlanToday, part: .head)
                 } else if isToday {
                     TripHereCard(day: day, progress: progress, nowMin: nowMin, clock: clock)
                     if let next = nextIndex, next > 0, next < day.stops.count, let leg = day.leg(before: next) {
                         TripLegGlance(leg: leg, from: day.stops[next - 1], to: day.stops[next], bundle: bundle, date: date, following: $following)
                     }
-                    TripDaySky(tripId: tripId, date: date, bundle: bundle, fromMin: nowMin, toMin: day.stops.last?.arriveMin ?? 1320)
                 } else {
                     dayHeader(day, clock: clock, past: date < clock.localDate(now))
-                    TripDaySky(tripId: tripId, date: date, bundle: bundle,
-                               fromMin: day.stops.first?.departMin ?? 480, toMin: day.stops.last?.arriveMin ?? 1320)
                 }
             } content: {
+                // Each thing said once. The next leg and what to know at the
+                // next stop open out in the list, where they happen; the
+                // offline map, "All days" and how fresh the plan is live in
+                // the ••• menu.
                 VStack(alignment: .leading, spacing: 20) {
                     notes(bundle)
-                    if isToday, let prompt = offPlan.prompt, prompt.tripId == tripId, prompt.date == date {
-                        TripOffPlanCard(prompt: prompt, previewing: previewing) { picked in look(at: picked) }
-                    }
-                    if !missed.isEmpty {
-                        missedCard(missed)
-                    }
-                    if bundle.trip.dayLoads?[date] == "light" {
-                        Label("Easy day", systemImage: "leaf")
-                            .font(SR.Text.label(13))
-                            .foregroundStyle(SR.good)
-                            .accessibilityLabel("Easy day: planned light, ending earlier")
-                            .accessibilityIdentifier("trip-easy-day")
+                    if let offPlanToday {
+                        // Its headline is the drawer's header (unless a missed
+                        // slot has that); the ways on are here.
+                        TripOffPlanCard(prompt: offPlanToday, previewing: previewing, part: missed.isEmpty ? .choices : .all) { picked in look(at: picked) }
                     }
                     // Arriving today: the flight or train is the day's first stage.
                     ForEach(bundle.segments.filter { $0.arriveDate == date && $0.direction != "return" }) { segment in
                         TripTransportCard(segment: segment, arriving: true)
                     }
-                    if let next = nextIndex, next > 0, next < day.stops.count, let leg = day.leg(before: next) {
-                        TripNextStageCard(
-                            leg: leg, from: day.stops[next - 1], to: day.stops[next],
-                            bundle: bundle, date: date, following: $following
-                        )
-                        TripStopGuideCard(stop: day.stops[next], bundle: bundle)
-                    }
+                    // The next leg opens out today; on another day only an
+                    // arrival's transfer does — a plan read ahead stays quiet.
+                    let arriving = bundle.segments.contains { $0.arriveDate == date && $0.direction != "return" }
+                    rest(bundle, day, marks: marks, progress: isToday ? progress : nil,
+                         nextIndex: isToday || arriving ? nextIndex : nil)
                     // Leaving today: the flight or train is the day's last stage.
                     ForEach(bundle.segments.filter { $0.departDate == date && $0.direction != "outbound" }) { segment in
                         TripTransportCard(segment: segment, arriving: false)
                     }
-                    rest(bundle, day, marks: marks, progress: isToday ? progress : nil)
-                    TripMapPackRow(tripId: tripId, day: day, title: "\(bundle.trip.title) · \(date)")
-                    // The trip is always the page beneath (from its days, or
-                    // stacked there by `Router.openTrips`): go back to it rather
-                    // than push a second copy on top.
-                    Button { dismiss() } label: {
-                        Label("All days of \(bundle.trip.title)", systemImage: "calendar")
-                            .font(SR.Text.label(13))
-                    }
-                    .accessibilityIdentifier("trip-all-days")
-                    TripSavedLine(refreshedAt: store.refreshedAt, online: network.online, queued: queue.count(for: tripId))
-                        .padding(.top, 4)
                 }
             }
         }
@@ -307,9 +311,8 @@ struct TripDayScreen: View {
     /// "Shown on the map: Skip the Pantheon" — use it, or keep the plan.
     private func previewBar(_ choice: TripOffPlan.Choice, preview: PlannedDay, day: PlannedDay) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("ON THE MAP · PROPOSED")
-                .font(SR.Text.label(11))
-                .tracking(1.2)
+            Text("Proposed — shown on the map")
+                .font(SR.Text.label(12))
                 .foregroundStyle(SR.accentDeep)
             Text(choice.label)
                 .font(SR.Text.display(19))
@@ -375,7 +378,7 @@ struct TripDayScreen: View {
                     .foregroundStyle(SR.error)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("A booked slot cannot be moved. Check the booking for a later entry, or change the plan without it.")
+            Text("A booked slot can't be moved. Check the booking for a later entry, or change the plan without it.")
                 .font(SR.Text.secondary(13))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -386,10 +389,9 @@ struct TripDayScreen: View {
                 .srButton(.prominent)
             }
         }
-        .padding(SR.cardPadding)
+        .padding(.leading, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .leading) { Capsule().fill(SR.error).frame(width: 3).padding(.vertical, 14) }
-        .srGlassCard(.paper)
+        .overlay(alignment: .leading) { Capsule().fill(SR.error).frame(width: 3) }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("trip-missed-slot")
     }
@@ -400,31 +402,32 @@ struct TripDayScreen: View {
         let span = day.stops.first.map { first in
             "\(TripFormat.time(first.departMin))–\(TripFormat.time(day.stops.last?.arriveMin ?? first.departMin))"
         } ?? ""
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(past ? "How the day went" : "The plan")
-                .font(SR.Text.label())
-                .foregroundStyle(SR.inkMuted)
+        let easy = store.bundles[tripId]?.trip.dayLoads?[date] == "light"
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(past ? "How the day went" : (easy ? "An easy day" : "The plan"))
+                .font(SR.Text.secondary(14))
+                .foregroundStyle(easy && !past ? SR.good : SR.inkMuted)
             Text("\(visits) stop\(visits == 1 ? "" : "s") · \(span)")
                 .font(SR.Text.display(22))
                 .foregroundStyle(SR.ink)
-            Text("Tap a numbered pin for the stop, or pull up for the whole day.")
-                .font(SR.Text.secondary(13))
-                .foregroundStyle(SR.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
     }
 
-    private func rest(_ bundle: TripBundle, _ day: PlannedDay, marks: [String: TripStopMark], progress: TripProgress?) -> some View {
+    private func rest(_ bundle: TripBundle, _ day: PlannedDay, marks: [String: TripStopMark], progress: TripProgress?, nextIndex: Int?) -> some View {
         let numbers = TripMapScene.numbers(day)
+        let easy = bundle.trip.dayLoads?[date] == "light"
         return VStack(alignment: .leading, spacing: 0) {
-            SRSectionLabel(text: progress == nil ? "The day" : "The rest of today", trailing: "\(day.stops.filter { $0.kind != .stay }.count) stops")
-                .padding(.bottom, 8)
+            TripHeading(text: progress == nil ? "The day" : "Today",
+                        trailing: "\(day.stops.filter { $0.kind != .stay }.count) stops" + (easy ? " · easy day" : ""))
+                .padding(.bottom, 4)
+                .accessibilityIdentifier(easy ? "trip-easy-day" : "trip-day-heading")
             // v4: the day in its four stages, each with its own look.
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(TripStages.groups(day, wishes: bundle.wishes), id: \.stage) { group in
                     TripStageBand(stage: group.stage, trailing: span(day, group.indexes), empty: group.indexes.isEmpty) {
                         ForEach(group.indexes, id: \.self) { index in
-                            stopRow(bundle, day, index, number: numbers[day.stops[index].id], stage: group.stage, marks: marks, progress: progress)
+                            stopRow(bundle, day, index, number: numbers[day.stops[index].id], stage: group.stage, marks: marks, progress: progress, nextIndex: nextIndex)
                         }
                         // v5: what the family suggests for this stage, and ideas that fit it.
                         TripSlotPanel(tripId: tripId, day: day, stage: group.stage, indexes: group.indexes, bundle: bundle, showsAsk: false)
@@ -444,8 +447,17 @@ struct TripDayScreen: View {
     }
 
     @ViewBuilder
-    private func stopRow(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int, number: Int?, stage: DayStage, marks: [String: TripStopMark], progress: TripProgress?) -> some View {
+    private func stopRow(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int, number: Int?, stage: DayStage, marks: [String: TripStopMark], progress: TripProgress?, nextIndex: Int?) -> some View {
         let stop = day.stops[index]
+        // The leg in to the next stop, open: how to get there, by its mode.
+        if index == nextIndex, index > 0, let leg = day.leg(before: index) {
+            TripNextStageCard(
+                leg: leg, from: day.stops[index - 1], to: stop,
+                bundle: bundle, date: date, following: $following, inline: true
+            )
+            .padding(.leading, 60)
+            .padding(.vertical, 8)
+        }
         NavigationLink(value: TripStopRef(tripId: tripId, date: date, stopId: stop.id)) {
             TripStopRow(
                 stop: stop,
@@ -467,13 +479,30 @@ struct TripDayScreen: View {
             TripCorrections(tripId: tripId, stop: stop)
         }
         .accessibilityIdentifier("trip-stop-\(index)")
-        // v7: a meal with no place yet — three real ones nearby, open then.
-        if stop.awaitsMealChoice {
-            TripMealChoices(tripId: tripId, day: day, stop: stop, bundle: bundle) { option in
-                pick(TripMapScene.mealOptionPinId(stop: stop.id, option: option.id))
-            }
+        // What to know at the next stop, under its row.
+        if index == nextIndex {
+            TripStopGuideCard(stop: stop, bundle: bundle, inline: true)
+                .padding(.leading, 60)
+                .padding(.bottom, 6)
         }
-        if let leg = day.leg(after: index) {
+        // v7: a meal with no place yet — its real places are pins on the
+        // map; one line here, not three cards.
+        if stop.awaitsMealChoice, let first = stop.mealOptions?.first {
+            Button {
+                pick(TripMapScene.mealOptionPinId(stop: stop.id, option: first.id))
+            } label: {
+                Label("\(stop.mealOptions?.count ?? 1) places to eat nearby — on the map", systemImage: "fork.knife")
+                    .font(SR.Text.label(12))
+                    .foregroundStyle(SR.accentDeep)
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 60)
+            .padding(.bottom, 6)
+            .accessibilityHint("Shows them on the map, to choose one")
+            .accessibilityIdentifier("trip-meal-choices-\(stop.mealName ?? "meal")")
+        }
+        // The leg out, unless it is the next one (opened above that stop).
+        if let leg = day.leg(after: index), index + 1 != nextIndex {
             TripLegRow(leg: leg)
         }
     }
@@ -516,9 +545,8 @@ struct TripStopPeek: View {
                     TripNumberBadge(number: number, symbol: TripMapScene.symbol(stop), stage: stage, stay: stop.kind == .stay, size: 32)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(stage.label.uppercased()) · \(TripWords.span(stop))")
-                        .font(SR.Text.label(11))
-                        .tracking(1)
+                    Text("\(stage.label) · \(TripWords.span(stop))")
+                        .font(SR.Text.label(12))
                         .foregroundStyle(SR.inkMuted)
                     Text(stop.title)
                         .font(SR.Text.display(20))
@@ -662,29 +690,28 @@ struct TripHereCard: View {
     let clock: TripClock
 
     var body: some View {
-        SRCard(accented: true) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(headline)
-                    .font(SR.Text.display(22))
-                    .foregroundStyle(SR.ink)
-                    .fixedSize(horizontal: false, vertical: true)
+        // The drawer is the card: no card inside it.
+        VStack(alignment: .leading, spacing: 4) {
+            Text(headline)
+                .font(SR.Text.display(22))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
                 if let line = subline {
                     Text(line)
-                        .font(SR.Text.mono(13))
                         .foregroundStyle(progress.showsBehind ? SR.error : SR.inkSecondary)
                 }
                 if let leave = leaveDate, leave > Date() {
-                    HStack(spacing: 6) {
-                        Image(systemName: "timer").accessibilityHidden(true)
-                        Text("Leave in")
-                        Text(timerInterval: Date()...leave, countsDown: true)
-                            .monospacedDigit()
-                    }
-                    .font(SR.Text.mono(13))
-                    .foregroundStyle(SR.accentDeep)
-                    .accessibilityElement(children: .combine)
+                    Text("·").foregroundStyle(SR.inkMuted).accessibilityHidden(true)
+                    Text("leave in")
+                        .foregroundStyle(SR.accentDeep)
+                    Text(timerInterval: Date()...leave, countsDown: true)
+                        .monospacedDigit()
+                        .foregroundStyle(SR.accentDeep)
                 }
             }
+            .font(SR.Text.mono(13))
+            .accessibilityElement(children: .combine)
         }
         .accessibilityIdentifier("trip-now")
     }
@@ -741,40 +768,59 @@ struct TripNextStageCard: View {
     let bundle: TripBundle
     let date: String
     @Binding var following: PlannedRouteDetail?
+    /// In the day's list, between two stops: no card, a rule in the accent.
+    var inline = false
 
     private var guidance: LegGuidance? { leg.guidance }
 
     var body: some View {
-        SRCard {
-            VStack(alignment: .leading, spacing: 12) {
+        if inline {
+            inner
+                .padding(.leading, 12)
+                .overlay(alignment: .leading) { Capsule().fill(SR.accent).frame(width: 3) }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("trip-next-stage")
+        } else {
+            SRCard { inner }
+                .accessibilityIdentifier("trip-next-stage")
+        }
+    }
+
+    private var inner: some View {
+        VStack(alignment: .leading, spacing: inline ? 10 : 12) {
+            if inline {
+                Text("Next · \(TripFormat.leg(leg))")
+                    .font(SR.Text.label(12))
+                    .foregroundStyle(SR.accentDeep)
+            } else {
                 SRSectionLabel(text: "Next · \(TripFormat.mode(leg.mode))", trailing: TripFormat.duration(seconds: leg.durationSec), prominent: true)
-                Text(guidance?.summary ?? "\(TripFormat.leg(leg)) to \(to.title)")
-                    .font(SR.Text.title(17))
-                    .foregroundStyle(SR.ink)
+            }
+            Text(guidance?.summary ?? "\(TripFormat.leg(leg)) to \(to.title)")
+                .font(SR.Text.title(inline ? 15 : 17))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            switch leg.mode {
+            case .walk: walk
+            case .transit: transit
+            case .taxi: taxi
+            default: drive
+            }
+            ForEach(guidance?.tips ?? [], id: \.self) { tip in
+                Label(tip, systemImage: "lightbulb")
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                switch leg.mode {
-                case .walk: walk
-                case .transit: transit
-                case .taxi: taxi
-                default: drive
-                }
-                ForEach(guidance?.tips ?? [], id: \.self) { tip in
-                    Label(tip, systemImage: "lightbulb")
-                        .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let cost = guidance?.costText {
-                    Label(cost, systemImage: "eurosign.circle")
-                        .font(SR.Text.secondary(13))
-                        .foregroundStyle(SR.inkSecondary)
-                }
-                if leg.estimated && guidance == nil {
-                    Text("Times are estimates.").font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
-                }
+            }
+            if let cost = guidance?.costText {
+                Label(cost, systemImage: "eurosign.circle")
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkSecondary)
+            }
+            if leg.estimated && guidance == nil {
+                Text("Times are estimates.").font(SR.Text.secondary(12)).foregroundStyle(SR.inkMuted)
             }
         }
-        .accessibilityIdentifier("trip-next-stage")
+        .controlSize(inline ? .small : .regular)
     }
 
     // MARK: Walk
@@ -952,13 +998,15 @@ struct TripLinkButtons: View {
 struct TripStopGuideCard: View {
     let stop: PlannedStop
     let bundle: TripBundle
+    /// Under the stop's own row: its name is already said.
+    var inline = false
 
     var body: some View {
         let guide = bundle.wish(stop.wishId)?.guide
         let booking = bundle.booking(for: stop)
         if guide != nil || booking?.reference != nil {
             VStack(alignment: .leading, spacing: 8) {
-                SRSectionLabel(text: "At \(stop.title)")
+                if !inline { SRSectionLabel(text: "At \(stop.title)") }
                 if let ref = booking?.reference {
                     Label("Booking ref \(ref)", systemImage: "ticket")
                         .font(SR.Text.mono(13))
@@ -967,16 +1015,16 @@ struct TripStopGuideCard: View {
                 }
                 if let guide {
                     Text(guide.summary)
-                        .font(SR.Text.body(15))
-                        .foregroundStyle(SR.ink)
+                        .font(inline ? SR.Text.secondary(14) : SR.Text.body(15))
+                        .foregroundStyle(inline ? SR.inkSecondary : SR.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                    ForEach(guide.tips, id: \.self) { tip in
+                    ForEach(inline ? Array(guide.tips.prefix(2)) : guide.tips, id: \.self) { tip in
                         Label(tip, systemImage: "checkmark.circle")
                             .font(SR.Text.secondary(14))
                             .foregroundStyle(SR.inkSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    TripLinkButtons(links: guide.links, phone: nil)
+                    if !inline { TripLinkButtons(links: guide.links, phone: nil) }
                 }
             }
             .accessibilityIdentifier("trip-stop-guide")
@@ -1114,85 +1162,111 @@ struct TripOffPlanCard: View {
     let prompt: TripOffPlan.Prompt
     /// The choice shown on the map now, by id.
     var previewing: String? = nil
+    /// On the day, the headline and the planner's view are the drawer's
+    /// header and the ways on sit under it: each said once.
+    var part: Part = .all
     /// Given: a tap shows the choice (the day map's preview) rather than
     /// using it at once.
     var onPick: ((TripOffPlan.Choice) -> Void)? = nil
     @ObservedObject private var offPlan = TripOffPlan.shared
 
+    enum Part { case all, head, choices }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(prompt.headline, systemImage: prompt.slotAtRisk ? "exclamationmark.triangle.fill" : "location.magnifyingglass")
-                .font(SR.Text.title(16))
-                .foregroundStyle(prompt.slotAtRisk ? SR.error : SR.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            if let narrative = offPlan.narrative {
-                Text(narrative)
-                    .font(SR.Text.body(15))
-                    .foregroundStyle(SR.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if offPlan.loading && offPlan.choices.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Working out ways to carry on…").font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted)
-                }
-            }
-            ForEach(offPlan.choices) { choice in
-                Button {
-                    if let onPick {
-                        SRHaptic.select()
-                        onPick(choice)
-                    } else {
-                        SRHaptic.ok()
-                        offPlan.apply(choice)
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        if previewing == choice.id {
-                            Text("ON THE MAP")
-                                .font(SR.Text.label(10))
-                                .tracking(1)
-                                .foregroundStyle(SR.accentDeep)
-                        }
-                        Text(choice.label)
-                            .font(SR.Text.title(15))
-                            .foregroundStyle(SR.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(choice.detail)
-                            .font(SR.Text.secondary(13))
-                            .foregroundStyle(SR.inkMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .srGlass(.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous), interactive: true)
-                    .overlay {
-                        if previewing == choice.id {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(SR.accent, lineWidth: 2)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint(onPick == nil ? "Applies this to the rest of the trip" : "Shows this on the map before you use it")
-                .accessibilityIdentifier("trip-offplan-\(choice.id)")
-            }
-            HStack {
-                if offPlan.offline && !offPlan.choices.isEmpty {
-                    Text("Worked out on the phone — no signal.").font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
-                }
-                Spacer()
-                Button("I'm fine") { SRHaptic.select(); offPlan.dismiss() }
-                    .font(SR.Text.label(13))
-                    .accessibilityIdentifier("trip-offplan-dismiss")
-            }
+            if part != .choices { head }
+            if part != .head { choices }
         }
-        .padding(SR.cardPadding)
+        .padding(part == .all ? SR.cardPadding : 0)
+        .padding(.leading, part == .head ? 14 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .leading) {
-            Capsule().fill(prompt.slotAtRisk ? SR.error : SR.accent).frame(width: 3).padding(.vertical, 14)
+            if part != .choices {
+                Capsule().fill(prompt.slotAtRisk ? SR.error : SR.accent).frame(width: 3).padding(.vertical, part == .all ? 14 : 0)
+            }
         }
-        .srGlassCard(.paper)
-        .accessibilityIdentifier("trip-offplan")
+        .modifier(OffPlanChrome(card: part == .all))
+        .accessibilityIdentifier(part == .choices ? "trip-offplan-choices" : "trip-offplan")
+    }
+
+    private struct OffPlanChrome: ViewModifier {
+        let card: Bool
+        @ViewBuilder
+        func body(content: Content) -> some View {
+            if card { content.srGlassCard(.paper) } else { content }
+        }
+    }
+
+    @ViewBuilder
+    private var head: some View {
+        Label(prompt.headline, systemImage: prompt.slotAtRisk ? "exclamationmark.triangle.fill" : "location.magnifyingglass")
+            .font(SR.Text.title(16))
+            .foregroundStyle(prompt.slotAtRisk ? SR.error : SR.ink)
+            .fixedSize(horizontal: false, vertical: true)
+        if let narrative = offPlan.narrative {
+            Text(narrative)
+                .font(SR.Text.body(15))
+                .foregroundStyle(SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(part == .head ? 3 : nil)
+        }
+    }
+
+    @ViewBuilder
+    private var choices: some View {
+        if offPlan.loading && offPlan.choices.isEmpty {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Working out ways to carry on…").font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted)
+            }
+        }
+        ForEach(offPlan.choices) { choice in
+            Button {
+                if let onPick {
+                    SRHaptic.select()
+                    onPick(choice)
+                } else {
+                    SRHaptic.ok()
+                    offPlan.apply(choice)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    if previewing == choice.id {
+                        Text("On the map")
+                            .font(SR.Text.label(11))
+                            .foregroundStyle(SR.accentDeep)
+                    }
+                    Text(choice.label)
+                        .font(SR.Text.title(15))
+                        .foregroundStyle(SR.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(choice.detail)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .srGlass(.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous), interactive: true)
+                .overlay {
+                    if previewing == choice.id {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(SR.accent, lineWidth: 2)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(onPick == nil ? "Applies this to the rest of the trip" : "Shows this on the map before you use it")
+            .accessibilityIdentifier("trip-offplan-\(choice.id)")
+        }
+        HStack {
+            if offPlan.offline && !offPlan.choices.isEmpty {
+                Text("Worked out on the phone — no signal.").font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
+            }
+            Spacer()
+            Button("I'm fine") { SRHaptic.select(); offPlan.dismiss() }
+                .font(SR.Text.label(13))
+                .accessibilityIdentifier("trip-offplan-dismiss")
+        }
     }
 }
 
@@ -1280,7 +1354,7 @@ struct TripStopRow: View {
         var out: [String] = []
         if TripWords.isHere(stop) { out.append("Your stop — not on the original plan") }
         if TripWords.isDropBags(stop) { out.append("Leave the bags at the stay — the room comes later") }
-        if stop.awaitsMealChoice { out.append("No place yet — choose one of the places below") }
+        if stop.awaitsMealChoice { out.append("No place chosen yet") }
         if let wait = TripWords.wait(stop) { out.append(wait) }
         if let booking, booking.status == .booked {
             out.append("Booked" + (booking.reference.map { " · ref \($0)" } ?? ""))
@@ -1305,7 +1379,7 @@ struct TripLegRow: View {
                 .frame(width: 22)
                 .accessibilityHidden(true)
             Text(text)
-                .font(SR.Text.mono(12))
+                .font(SR.Text.secondary(12))
                 .foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)
             Spacer(minLength: 0)
         }
@@ -1313,14 +1387,11 @@ struct TripLegRow: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// "12 min walk · 850 m", "about 25 min by transit". The other ways and
+    /// the route are on the stop's own page.
     private var text: String {
-        var out = TripFormat.leg(leg)
-        // v5: the other ways, said briefly: "· taxi 9′ · transit 18′".
-        for alt in (leg.alternatives ?? []).filter({ $0.mode != leg.mode && $0.mode != .unknown }).prefix(2) {
-            out += " · \(TripLegPicker.name(alt.mode).lowercased()) \(Int((alt.durationSec / 60).rounded()))′"
-        }
+        var out = (leg.estimated ? "about " : "") + TripFormat.leg(leg)
         if let m = leg.distanceM { out += m < 1000 ? " · \(Int((m / 10).rounded()) * 10) m" : String(format: " · %.1f km", m / 1000) }
-        if leg.estimated { out += " · estimate" }
         return out
     }
 }
@@ -1354,9 +1425,8 @@ struct TripMealPeek: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
-                Text("\((stop.mealName ?? "meal").uppercased()) · \(TripWords.span(stop)) · ONE OF \(stop.mealOptions?.count ?? 1)")
-                    .font(SR.Text.label(11))
-                    .tracking(1)
+                Text("\((stop.mealName ?? "meal").capitalized) · \(TripWords.span(stop)) · one of \(stop.mealOptions?.count ?? 1) nearby")
+                    .font(SR.Text.label(12))
                     .foregroundStyle(SR.inkMuted)
                 Spacer()
                 Button { SRHaptic.select(); close() } label: {

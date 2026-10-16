@@ -1347,7 +1347,15 @@ final class ShowcaseTests: XCTestCase {
         if scroll(app, to: stop) {
             stop.tap()
             settle(app)
-            attach(app, "Showcase — Trip stop, by taxi")
+            attach(app, "Showcase — Trip stop, place card")
+            let route = byId(app, "trip-place-route")
+            if scroll(app, to: route) {
+                route.tap()
+                settle(app)
+                attach(app, "Showcase — Trip stop, by taxi")
+            } else {
+                soft(false, "no Getting there on the stop")
+            }
             app.navigationBars.buttons.element(boundBy: 0).tap()
             settle(app, on: byId(app, "trip-day-screen"))
         } else {
@@ -1374,10 +1382,7 @@ final class ShowcaseTests: XCTestCase {
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
         card.tap()
         settle(app, on: byId(app, "trip-day-screen"))
-        pullDrawer(app, times: 2)
-        let all = byId(app, "trip-all-days")
-        guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
-        all.tap()
+        guard openAllDays(app) else { return }
         settle(app, on: byId(app, "trip-overview-map"), seconds: 3)
         attach(app, "Showcase — Trip, the whole trip's map and timeline")
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'trip-day-2'")).firstMatch
@@ -1400,14 +1405,10 @@ final class ShowcaseTests: XCTestCase {
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
         card.tap()
         settle(app, on: byId(app, "trip-day-screen"))
-        pullDrawer(app, times: 2)
-        let all = byId(app, "trip-all-days")
-        guard scroll(app, to: all, swipes: 12) else { return soft(false, "no All days link") }
-        all.tap()
+        guard openAllDays(app) else { return }
         settle(app)
-        let trips = byId(app, "trip-all-trips")
-        guard scroll(app, to: trips, swipes: 12) else { return soft(false, "no All trips link") }
-        trips.tap()
+        // Back from a trip is the trips list.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         settle(app, on: byId(app, "trips-screen"))
         let new = byId(app, "trip-new-button")
         if new.waitForExistence(timeout: 5) {
@@ -1441,6 +1442,17 @@ final class ShowcaseTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// From the Day screen to the whole trip, by its ••• menu.
+    @MainActor private func openAllDays(_ app: XCUIApplication) -> Bool {
+        let more = byId(app, "trip-more")
+        guard more.waitForExistence(timeout: 10) else { soft(false, "no ••• menu on the day"); return false }
+        more.tap()
+        let all = byId(app, "trip-all-days")
+        guard all.waitForExistence(timeout: 5) else { soft(false, "no All days in the menu"); return false }
+        all.tap()
+        return true
+    }
 
     /// Pull the Day screen's drawer up a step (glance → half → full).
     @MainActor private func pullDrawer(_ app: XCUIApplication, times: Int = 1) {

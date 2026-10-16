@@ -14,6 +14,8 @@ struct TripRef: Hashable {
     var talk = false
 }
 struct TripDayRef: Hashable { let tripId: String; let date: String }
+/// The city guide, a page of its own.
+struct TripGuideRef: Hashable { let tripId: String }
 struct TripStopRef: Hashable { let tripId: String; let date: String; let stopId: String }
 /// The list itself, pushed from Today. `start`: open "New trip" at once.
 struct TripsListRef: Hashable { var start = false }
@@ -29,6 +31,7 @@ extension View {
             .navigationDestination(for: TripDayRef.self) { TripDayScreen(tripId: $0.tripId, date: $0.date) }
             .navigationDestination(for: TripStopRef.self) { TripStopScreen(ref: $0) }
             .navigationDestination(for: TripStoryRef.self) { TripStoryScreen(tripId: $0.tripId) }
+            .navigationDestination(for: TripGuideRef.self) { TripGuideScreen(tripId: $0.tripId) }
     }
 }
 
@@ -400,6 +403,13 @@ struct TripSavedLine: View {
         let when = refreshedAt.map { "checked " + $0.formatted(.relative(presentation: .named)) } ?? "not checked yet this session"
         return online ? "Saved on this phone · \(when)" : "Offline · using what is saved on this phone"
     }
+
+    /// The same, as one sentence for a menu's footer.
+    static func words(refreshedAt: Date?, online: Bool, queued: Int) -> String {
+        let line = TripSavedLine(refreshedAt: refreshedAt, online: online, queued: queued).line
+        guard queued > 0 else { return line }
+        return line + (queued == 1 ? " · 1 update waiting to send" : " · \(queued) updates waiting to send")
+    }
 }
 
 // MARK: - One trip
@@ -409,7 +419,6 @@ struct TripScreen: View {
     var talk = false
     @ObservedObject private var store = TripStore.shared
     @EnvironmentObject private var router: Router
-    @Environment(\.dismiss) private var dismiss
     @State private var editing = false
     @State private var opened = false
 
@@ -465,33 +474,56 @@ struct TripScreen: View {
         return TripClock.within(today, bundle.trip.startDate, bundle.trip.endDate) ? today : bundle.trip.startDate
     }
 
+    /// Where the trip is: what leads the page, and what it leaves out.
+    enum Phase { case before, during, after }
+
+    static func phase(_ bundle: TripBundle, today: String) -> Phase {
+        if today < bundle.trip.startDate { return .before }
+        if today > bundle.trip.endDate { return .after }
+        return .during
+    }
+
+    /// The page by where the trip is (2026-10-16). Before: the countdown,
+    /// what to book and making it work offline. During: today, then the
+    /// days. After: how it went. Each block once, in plain headings; the
+    /// city guide is a page of its own.
     private func content(_ bundle: TripBundle) -> some View {
         let clock = TripClock(bundle.trip.timeZone)
         let today = clock.localDate(Date())
         let days = bundle.plan?.plan.days ?? []
+        let shown = days.map { store.day(tripId, $0.date) ?? $0 }
+        let phase = Self.phase(bundle, today: today)
+        let toBook = phase == .after ? [] : TripBookAhead.items(bundle, today: today, clock: clock)
+        let pastDays = days.contains { $0.date < today }
         return List {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(bundle.trip.destination.uppercased())
-                    .font(SR.Text.label())
-                    .tracking(1.4)
-                    .foregroundStyle(SR.inkMuted)
+            VStack(alignment: .leading, spacing: 4) {
                 Text(bundle.trip.title)
                     .font(SR.Text.display(26))
                     .foregroundStyle(SR.ink)
-                Text("\(TripFormat.range(bundle.trip.startDate, bundle.trip.endDate, zone: clock.zone)) · \(bundle.trip.pace.rawValue) pace")
+                Text(([TripFormat.range(bundle.trip.startDate, bundle.trip.endDate, zone: clock.zone), bundle.trip.destination]
+                      + [whose(bundle)].compactMap { $0 }).joined(separator: " · "))
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkSecondary)
-                if let maker = bundle.trip.createdByName {
-                    Text(bundle.can.role == "creator" ? "Your trip" : "\(maker)'s trip")
-                        .font(SR.Text.mono(12))
-                        .foregroundStyle(SR.inkMuted)
-                }
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.vertical, 12)
+            .padding(.top, 12)
             .srPlainRow()
 
-            // v7: the trip in brief — who, when, how, what matters.
-            TripBriefCard(bundle: bundle, today: today).srPlainRow()
+            // What leads: the countdown and the brief; today; how it went.
+            switch phase {
+            case .before:
+                TripBriefCard(bundle: bundle, today: today).srPlainRow()
+            case .during:
+                if let day = shown.first(where: { $0.date == today }) {
+                    NavigationLink(value: TripDayRef(tripId: tripId, date: today)) {
+                        TripDayListRow(number: (shown.firstIndex(of: day) ?? 0) + 1, day: day, bundle: bundle, today: today, lead: true)
+                    }
+                    .srPlainRow()
+                    .accessibilityIdentifier("trip-today")
+                }
+            case .after:
+                if pastDays { storyLink(bundle, today: today, lead: true) }
+            }
 
             if days.isEmpty {
                 Text(bundle.can.canEdit
@@ -501,30 +533,59 @@ struct TripScreen: View {
                     .foregroundStyle(SR.inkMuted)
                     .srPlainRow()
             } else {
-                let shown = days.map { store.day(tripId, $0.date) ?? $0 }
                 // The whole trip on one map: a colour a day, each day's
                 // number at its first stop. Tap one to open that day.
                 TripOverviewMap(scene: TripMapScene.overview(shown, stays: bundle.stays)) { date in
                     router.today.append(TripDayRef(tripId: tripId, date: date))
                 }
-                .listRowInsets(EdgeInsets(top: 0, leading: SR.gutter, bottom: 8, trailing: SR.gutter))
+                .listRowInsets(EdgeInsets(top: 8, leading: SR.gutter, bottom: 8, trailing: SR.gutter))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                // v5: the trip at a glance — a cell a day, its stages and how full it is.
-                TripDayTimeline(tripId: tripId, bundle: bundle, days: shown, today: today)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+
+                // The days, in the map's colours — one list, not a strip of
+                // cells and a list of the same days.
+                TripHeading(text: "Days", trailing: "\(days.count)")
+                    .padding(.top, 8)
+                    .srPlainRow()
+                ForEach(Array(shown.enumerated()), id: \.element.date) { i, day in
+                    NavigationLink(value: TripDayRef(tripId: tripId, date: day.date)) {
+                        TripDayListRow(number: i + 1, day: day, bundle: bundle, today: today)
+                    }
+                    .srPlainRow()
+                    .accessibilityIdentifier("trip-day-\(day.date)")
+                }
+            }
+
+            // Getting ready: what to book by when, and the maps for no signal.
+            if !toBook.isEmpty || (phase == .before && !days.isEmpty) {
+                TripHeading(text: phase == .before ? "Getting ready" : "Still to book", trailing: toBook.isEmpty ? nil : "\(toBook.count) to book")
+                    .padding(.top, 12)
+                    .srPlainRow()
+                ForEach(toBook) { item in
+                    TripBookAheadRow(item: item, zone: clock.zone).srPlainRow()
+                }
+            }
+            if phase != .after && !days.isEmpty {
                 TripOfflineRow(tripId: tripId, title: bundle.trip.title, days: shown)
                     .srPlainRow()
             }
 
-            if let travellers = bundle.knownProfile?.travellers, !travellers.isEmpty {
-                TripTravellersRow(travellers: travellers).srPlainRow()
-            }
+            if phase == .during && pastDays { storyLink(bundle, today: today, lead: false) }
 
-            if !bundle.segments.isEmpty {
-                Section {
+            if phase != .after {
+                // The city guide the site writes, as a page of its own.
+                if bundle.guide != nil {
+                    NavigationLink(value: TripGuideRef(tripId: tripId)) {
+                        SRRow(title: "\(TripCityGuideCard.city(bundle.trip.destination)) guide",
+                              subtitle: "Getting around, customs, money and a few words",
+                              icon: "book.closed")
+                    }
+                    .srPlainRow()
+                    .accessibilityIdentifier("trip-guide-link")
+                }
+
+                if !bundle.segments.isEmpty {
+                    TripHeading(text: "Journeys").padding(.top, 12).srPlainRow()
                     ForEach(bundle.segments) { segment in
                         SRRow(
                             title: [segment.number, segment.carrier].compactMap { $0 }.joined(separator: " · ").isEmpty
@@ -534,53 +595,10 @@ struct TripScreen: View {
                         )
                         .srPlainRow()
                     }
-                } header: { SRSectionLabel(text: "Journeys") }
-            }
-
-            // The city guide the site writes: getting around, taxis, tickets,
-            // tips. Written for the trip and, until now, shown nowhere.
-            if let guide = bundle.guide {
-                Section {
-                    TripCityGuideCard(guide: guide).srPlainRow()
-                } header: { SRSectionLabel(text: "Getting around \(TripCityGuideCard.city(bundle.trip.destination))") }
-            }
-
-            Section {
-                ForEach(days) { planned in
-                    let day = store.day(tripId, planned.date) ?? planned
-                    NavigationLink(value: TripDayRef(tripId: tripId, date: day.date)) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            SRRow(
-                                title: TripFormat.day(day.date, zone: clock.zone) + (day.date == today ? " · today" : "")
-                                    + (bundle.trip.dayLoads?[day.date] == "light" ? " · easy day" : ""),
-                                subtitle: daySummary(day),
-                                icon: day.date == today ? "sun.max.fill" : "calendar"
-                            )
-                            // v4: the day's four stages, in brief.
-                            TripStageStrip(day: day, wishes: bundle.wishes)
-                        }
-                    }
-                    .srPlainRow()
-                    .accessibilityIdentifier("trip-day-\(day.date)")
                 }
-            } header: {
-                SRSectionLabel(text: "Days")
-            }
 
-            // v7: what to book, by when — from how far ahead each sells out.
-            let toBook = TripBookAhead.items(bundle, today: today, clock: clock)
-            if !toBook.isEmpty {
-                Section {
-                    ForEach(toBook) { item in
-                        TripBookAheadRow(item: item, zone: clock.zone).srPlainRow()
-                    }
-                } header: {
-                    SRSectionLabel(text: "Still to book", trailing: "soonest first")
-                }
-            }
-
-            if let plan = bundle.plan, !(plan.plan.dropped.isEmpty && plan.plan.warnings.isEmpty) {
-                Section {
+                if let plan = bundle.plan, !(plan.plan.dropped.isEmpty && plan.plan.warnings.isEmpty) {
+                    TripHeading(text: "Left out, and worth knowing").padding(.top, 12).srPlainRow()
                     ForEach(plan.plan.dropped, id: \.wishId) { dropped in
                         SRRow(title: bundle.wish(dropped.wishId)?.title ?? "A wish", subtitle: dropped.reason, icon: "minus.circle", tone: SR.inkMuted)
                             .srPlainRow()
@@ -589,153 +607,125 @@ struct TripScreen: View {
                         SRRow(title: warning, icon: "exclamationmark.triangle", tone: SR.warn)
                             .srPlainRow()
                     }
-                } header: {
-                    SRSectionLabel(text: "Left out and worth knowing")
                 }
             }
-
-            // v7: once a day has been, the story so far — when you were
-            // where, and the photos you took there.
-            if days.contains(where: { $0.date < today }) {
-                NavigationLink(value: TripStoryRef(tripId: tripId)) {
-                    SRRow(title: today > bundle.trip.endDate ? "How it went" : "How it's going",
-                          subtitle: "Each stop, when you were there, and your photos from it", icon: "photo.on.rectangle.angled")
-                }
-                .srPlainRow()
-                .accessibilityIdentifier("trip-story-link")
-            }
-
-            // The list is always the page beneath a trip: go back to it.
-            Button { dismiss() } label: {
-                Label("All trips", systemImage: "suitcase")
-                    .font(SR.Text.label(13))
-                    .padding(.vertical, 10)
-            }
-            .srPlainRow()
-            .accessibilityIdentifier("trip-all-trips")
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .srRefreshable { await store.fetch(tripId) }
     }
 
-    /// "6 stops · 09:00–18:40".
-    private func daySummary(_ day: PlannedDay) -> String {
-        let visits = day.stops.filter { $0.kind != .stay }.count
-        guard let first = day.stops.first, let last = day.stops.last else { return "Nothing planned" }
-        return "\(visits) stop\(visits == 1 ? "" : "s") · \(TripFormat.time(first.departMin))–\(TripFormat.time(last.arriveMin))"
+    /// "your trip", "Sam's trip".
+    private func whose(_ bundle: TripBundle) -> String? {
+        bundle.trip.createdByName.map { bundle.can.role == "creator" ? "your trip" : "\($0)'s trip" }
     }
-}
 
-/// Who is travelling: names and ages. Nothing the planner remembers about
-/// them is shown — memories never reach the app (v5).
-struct TripTravellersRow: View {
-    let travellers: [TravellerProfile.Traveller]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SRSectionLabel(text: "Travelling")
-            Text(travellers.map(Self.line).joined(separator: " · "))
-                .font(SR.Text.body(15))
-                .foregroundStyle(SR.ink)
-                .fixedSize(horizontal: false, vertical: true)
+    /// v7: once a day has been, the story so far — when you were where, and
+    /// the photos you took there.
+    private func storyLink(_ bundle: TripBundle, today: String, lead: Bool) -> some View {
+        NavigationLink(value: TripStoryRef(tripId: tripId)) {
+            SRRow(title: today > bundle.trip.endDate ? "How it went" : "How it's going",
+                  subtitle: "Each stop, when you were there, and your photos from it", icon: "photo.on.rectangle.angled")
         }
-        .padding(.vertical, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("trip-travellers")
-    }
-
-    /// "Sam, 9".
-    static func line(_ t: TravellerProfile.Traveller) -> String {
-        t.age.map { "\(t.name), \(Int($0))" } ?? t.name
+        .srPlainRow()
+        .padding(.vertical, lead ? 6 : 0)
+        .accessibilityIdentifier("trip-story-link")
     }
 }
 
-/// The trip as a row of days: each cell its date, the four stages as a
-/// strip, and how full the day is (colour and per cent). Tap to open it.
-struct TripDayTimeline: View {
-    let tripId: String
+/// One day in the trip's list, in its colour on the trip's map: its number,
+/// its date, the forecast once there is one, how many stops and how full —
+/// in words, with the four parts of the day as one thin bar.
+struct TripDayListRow: View {
+    let number: Int
+    let day: PlannedDay
     let bundle: TripBundle
-    let days: [PlannedDay]
     let today: String
+    /// Today, at the head of the page: bigger.
+    var lead = false
     /// So a forecast that lands later shows without a reload.
     @ObservedObject private var weather = TripWeatherStore.shared
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Array(days.enumerated()), id: \.element.date) { i, day in
-                    NavigationLink(value: TripDayRef(tripId: tripId, date: day.date)) {
-                        cell(i + 1, day)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("trip-timeline-\(day.date)")
-                }
-            }
-            .padding(.horizontal, SR.gutter)
-        }
-        .accessibilityIdentifier("trip-timeline")
-    }
-
-    private func cell(_ number: Int, _ day: PlannedDay) -> some View {
-        let full = TripFullness.of(day, bundle: bundle)
-        let groups = TripStages.groups(day, wishes: bundle.wishes)
         let zone = TripClock(bundle.trip.timeZone).zone
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                // The day's colour on the trip's map.
-                Circle().fill(Color(hex: TripMapScene.dayColor(number - 1))).frame(width: 9, height: 9)
+        let full = TripFullness.of(day, bundle: bundle)
+        let isToday = day.date == today
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle().fill(Color(hex: TripMapScene.dayColor(number - 1)))
                 Text("\(number)")
-                    .font(SR.Text.display(20))
-                    .foregroundStyle(day.date == today ? SR.accent : SR.ink)
-                Text(TripFormat.day(day.date, zone: zone))
-                    .font(SR.Text.mono(12))
-                    .foregroundStyle(SR.inkSecondary)
-                    .lineLimit(1)
+                    .font(.system(size: lead ? 15 : 13, weight: .bold).monospacedDigit())
+                    .foregroundStyle(Color.white)
             }
-            // The forecast, once the day is near enough to have one.
-            if let sky = weather.day(tripId, day.date) {
-                HStack(spacing: 4) {
-                    Image(systemName: TripWeatherWords.symbol(sky.code)).symbolRenderingMode(.multicolor)
-                    Text(sky.highC.map { "\(Int($0.rounded()))°" } ?? TripWeatherWords.words(sky.code))
-                        .font(SR.Text.mono(12))
-                        .foregroundStyle(SR.inkSecondary)
+            .frame(width: lead ? 34 : 28, height: lead ? 34 : 28)
+            .overlay { if isToday && !lead { Circle().stroke(SR.accent, lineWidth: 2).padding(-3) } }
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(lead ? "Today" : TripFormat.day(day.date, zone: zone) + (isToday ? " · today" : ""))
+                        .font(lead ? SR.Text.display(22) : SR.Text.title(16))
+                        .foregroundStyle(SR.ink)
+                    Spacer(minLength: 6)
+                    if let sky = weather.day(bundle.trip.id, day.date) {
+                        Image(systemName: TripWeatherWords.symbol(sky.code)).symbolRenderingMode(.multicolor)
+                        if let high = sky.highC {
+                            Text("\(Int(high.rounded()))°").font(SR.Text.secondary(13)).foregroundStyle(SR.inkSecondary)
+                        }
+                    }
+                }
+                Text(summary(full.band))
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(full.band == "overfull" ? SR.error : SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                // The four parts of the day, each as wide as the stops it holds.
+                HStack(spacing: 2) {
+                    ForEach(TripStages.groups(day, wishes: bundle.wishes), id: \.stage) { g in
+                        Capsule()
+                            .fill(g.stage.color.opacity(g.indexes.isEmpty ? 0.25 : 1))
+                            .frame(width: CGFloat(max(1, g.indexes.count)) * 12, height: 4)
+                    }
                 }
                 .accessibilityHidden(true)
             }
-            // The four stages, each as wide as the stops it holds.
-            HStack(spacing: 2) {
-                ForEach(groups, id: \.stage) { g in
-                    TripStageMark(stage: g.stage)
-                        .frame(width: CGFloat(max(1, g.indexes.count)) * 9, height: 8)
-                        .opacity(g.indexes.isEmpty ? 0.3 : 1)
-                }
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                // How full, as a bar rather than a percentage.
-                ZStack(alignment: .leading) {
-                    Capsule().fill(SR.inkMuted.opacity(0.18))
-                    Capsule().fill(TripFullness.colour(full.band))
-                        .frame(width: 96 * CGFloat(min(1, max(0.04, full.pct / 100))))
-                }
-                .frame(width: 96, height: 5)
-                Text(TripFullness.sentence(full.band))
-                    .font(SR.Text.secondary(12))
-                    .foregroundStyle(full.band == "overfull" ? SR.error : SR.inkSecondary)
-                    .lineLimit(1)
-            }
         }
-        .padding(10)
-        .frame(minWidth: 120, alignment: .leading)
-        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4, interactive: true)
-        .overlay {
-            if day.date == today {
-                RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous).stroke(SR.accent, lineWidth: 2)
-            }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous))
+        .padding(.vertical, lead ? 10 : 6)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Day \(number), \(TripFormat.day(day.date, zone: zone)): \(TripFullness.sentence(full.band))")
+    }
+
+    /// "6 stops · 09:00–18:40 · a full day".
+    private func summary(_ band: String) -> String {
+        let visits = day.stops.filter { $0.kind != .stay }.count
+        guard let first = day.stops.first, let last = day.stops.last else { return "Nothing planned" }
+        let feel = bundle.trip.dayLoads?[day.date] == "light" ? "an easy day" : TripFullness.sentence(band).lowercased()
+        return "\(visits) stop\(visits == 1 ? "" : "s") · \(TripFormat.time(first.departMin))–\(TripFormat.time(last.arriveMin)) · \(feel)"
+    }
+}
+
+/// The city guide the site writes for the trip, as a page of its own:
+/// getting around, the neighbourhoods, customs, money, a few words.
+struct TripGuideScreen: View {
+    let tripId: String
+    @ObservedObject private var store = TripStore.shared
+
+    var body: some View {
+        Group {
+            if let bundle = store.bundles[tripId], let guide = bundle.guide {
+                List {
+                    TripCityGuideCard(guide: guide)
+                        .padding(.top, 8)
+                        .srPlainRow()
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .navigationTitle("\(TripCityGuideCard.city(bundle.trip.destination)) guide")
+            } else {
+                SREmpty(title: "No guide for this trip yet", icon: "book.closed")
+            }
+        }
+        .srPaper()
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("trip-guide")
     }
 }
 
@@ -781,6 +771,7 @@ struct TripCityGuideCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            TripHeading(text: "Getting around")
             Text(guide.gettingAround)
                 .font(SR.Text.body(15))
                 .foregroundStyle(SR.ink)
@@ -807,7 +798,7 @@ struct TripCityGuideCard: View {
             }
             // v7: the neighbourhoods the trip goes to, and the primer.
             if let areas = guide.neighbourhoods, !areas.isEmpty {
-                SRSectionLabel(text: "Where you'll be").padding(.top, 6)
+                TripHeading(text: "Where you'll be").padding(.top, 10)
                 ForEach(areas, id: \.name) { area in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(area.name).font(SR.Text.title(15)).foregroundStyle(SR.ink)
@@ -819,7 +810,7 @@ struct TripCityGuideCard: View {
                 }
             }
             if let primer = guide.primer {
-                SRSectionLabel(text: "Good to know").padding(.top, 6)
+                TripHeading(text: "Good to know").padding(.top, 10)
                 ForEach(primer.customs, id: \.self) { custom in
                     Label(custom, systemImage: "hand.raised")
                         .font(SR.Text.secondary(14)).foregroundStyle(SR.inkSecondary)
@@ -836,7 +827,7 @@ struct TripCityGuideCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !primer.phrases.isEmpty {
-                    SRSectionLabel(text: "A few words").padding(.top, 4)
+                    TripHeading(text: "A few words").padding(.top, 10)
                     ForEach(primer.phrases, id: \.local) { phrase in
                         HStack(alignment: .firstTextBaseline) {
                             Text(phrase.local).font(SR.Text.title(14)).foregroundStyle(SR.ink).textSelection(.enabled)
@@ -875,7 +866,7 @@ struct TripBriefCard: View {
                     .font(SR.Text.display(20))
                     .foregroundStyle(SR.accentDeep)
             }
-            line("person.2", travellers.isEmpty ? nil : travellers.map(TripTravellersRow.line).joined(separator: " · "))
+            line("person.2", travellers.isEmpty ? nil : travellers.map(Self.traveller).joined(separator: " · "))
             line("figure.walk", "\(bundle.trip.pace.rawValue.capitalized) pace" + (bundle.trip.modes.isEmpty ? "" : " · " + bundle.trip.modes.map { TripLegPicker.name($0).lowercased() }.joined(separator: ", ")))
             line("star", musts.isEmpty ? nil : "Musts: " + musts.prefix(4).joined(separator: ", ") + (musts.count > 4 ? " +\(musts.count - 4)" : ""))
             line("ticket", booked == 0 ? nil : "\(booked) booked")
@@ -883,6 +874,12 @@ struct TripBriefCard: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("trip-brief")
+    }
+
+    /// "Sam, 9". Nothing the planner remembers about them is shown —
+    /// memories never reach the app (v5).
+    static func traveller(_ t: TravellerProfile.Traveller) -> String {
+        t.age.map { "\(t.name), \(Int($0))" } ?? t.name
     }
 
     @ViewBuilder
