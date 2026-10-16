@@ -67,7 +67,7 @@ struct TripStoryScreen: View {
                             .srPlainRow()
                     }
                 } header: {
-                    SRSectionLabel(text: TripFormat.day(day.date, zone: clock.zone))
+                    TripHeading(text: TripFormat.day(day.date, zone: clock.zone))
                 }
             }
             if bundle.can.canEdit, !verdicts.isEmpty {

@@ -51,10 +51,11 @@ struct TripMealChoices: View {
     var body: some View {
         if stop.awaitsMealChoice {
             VStack(alignment: .leading, spacing: 8) {
-                Text("WHERE TO EAT · \(options.count) NEARBY, OPEN THEN")
-                    .font(SR.Text.label(10))
-                    .tracking(1)
-                    .foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)
+                if !large {
+                    Text("Where to eat · \(options.count) nearby, open then")
+                        .font(SR.Text.label(11))
+                        .foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)
+                }
                 ForEach(options) { option in
                     TripMealOptionCard(
                         option: option,

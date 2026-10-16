@@ -1,15 +1,18 @@
 import SwiftUI
 import MapKit
 
-/// One stop as a PLACE CARD (v7): its photograph and the street in front of
-/// it, why it is in the plan, its hours on the day, then when, how long and
-/// the facts the site found — the booking, the official links, the sources
-/// and when they were checked. A meal still without a place shows the real
-/// places to choose from.
+/// One stop as a PLACE CARD (v7): its photograph, why it is in the plan, its
+/// hours on the day and the way there — the essentials first (2026-10-16).
+/// How to get there by each mode, and everything else the site found (the
+/// street in front of it, what's worth knowing, the booking, the facts, the
+/// sources and when they were checked), open on a tap. A meal still without
+/// a place shows the real places to choose from.
 struct TripStopScreen: View {
     let ref: TripStopRef
     @ObservedObject private var store = TripStore.shared
     @State private var following: PlannedRouteDetail?
+    @State private var showsRoute = false
+    @State private var showsMore = false
 
     var body: some View {
         Group {
@@ -69,8 +72,10 @@ struct TripStopScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("trip-place-why")
                 }
-                TripPlaceChips(chips: TripPlaceWhy.chips(facts: facts, date: day.date, clock: clock, stop: stop))
+                TripPlaceChips(chips: TripPlaceWhy.chips(facts: facts, date: day.date, clock: clock, stop: stop) + refChip(booking))
                     .padding(.top, 4)
+                directions(bundle, day, index)
+                    .padding(.top, 8)
             }
             .padding(.vertical, 12)
             .srPlainRow()
@@ -80,70 +85,78 @@ struct TripStopScreen: View {
                 Section {
                     TripMealChoices(tripId: ref.tripId, day: day, stop: stop, bundle: bundle, large: true)
                         .srPlainRow()
-                } header: { SRSectionLabel(text: "Choose where to eat") }
-            }
-
-            // The street in front of it, where Apple has looked around.
-            if let at = stop.location {
-                TripLookAround(location: at)
-                    .srPlainRow()
+                } header: { TripHeading(text: "Choose where to eat") }
             }
 
             gettingThere(bundle, day, index)
 
-            if let guide = wish?.guide {
-                Section {
-                    Text(guide.summary)
-                        .font(SR.Text.body(15))
-                        .foregroundStyle(SR.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.vertical, 4)
-                        .srPlainRow()
-                    ForEach(guide.tips, id: \.self) { tip in
-                        Label(tip, systemImage: "checkmark.circle")
-                            .font(SR.Text.secondary(14))
-                            .foregroundStyle(SR.inkSecondary)
-                            .srPlainRow()
-                    }
-                    ForEach(guide.links.filter { TripLinkButtons.safeURL($0.url) != nil }, id: \.url) { link in
-                        if let url = TripLinkButtons.safeURL(link.url) { linkRow(link.label, url) }
-                    }
-                } header: { SRSectionLabel(text: "Worth knowing") }
-            }
-
-            if let booking {
-                Section {
-                    factRow("Status", bookingStatus(booking))
-                    if let ref = booking.reference { factRow("Reference", ref) }
-                    if let start = booking.startMin { factRow("Time", TripFormat.time(start) + (booking.endMin.map { "–" + TripFormat.time($0) } ?? "")) }
-                    if let link = booking.url.flatMap(URL.init(string:)) { linkRow("Booking", link) }
-                } header: { SRSectionLabel(text: "Booking") }
-            }
-
-            if let facts {
-                Section {
-                    if let text = facts.openingHoursText { factRow("Opening hours", text) }
-                    if let today = hoursOn(facts, date: day.date, clock: clock) { factRow(TripFormat.day(day.date, zone: clock.zone), today) }
-                    if facts.closedDates.contains(day.date) { factRow("Closed", "on this day (holiday)") }
-                    if let price = facts.priceText { factRow("Price", price) }
-                    if let visit = facts.typicalVisitSec { factRow("Typical visit", TripFormat.duration(seconds: visit)) }
-                    if facts.bookingRequired == true {
-                        factRow("Booking", facts.bookAheadDays.map { "Needed · sells out about \(Int($0)) days ahead" } ?? "Needed")
-                    }
-                    if let link = facts.bookingUrl.flatMap(URL.init(string:)) { linkRow("Book (official)", link) }
-                    if let link = facts.officialUrl.flatMap(URL.init(string:)) { linkRow("Official site", link) }
-                    if !facts.unknown.isEmpty { factRow("Not found", facts.unknown.joined(separator: ", ")) }
-                } header: {
-                    SRSectionLabel(text: "Facts", trailing: checked(facts))
+            if hasMore(stop: stop, wish: wish, booking: booking) {
+                disclosure(showsMore ? "Less about this place" : "More about this place", open: showsMore, id: "trip-place-more") {
+                    showsMore.toggle()
                 }
-                if !facts.sources.isEmpty {
+            }
+
+            if showsMore {
+                // The street in front of it, where Apple has looked around.
+                if let at = stop.location {
+                    TripLookAround(location: at)
+                        .srPlainRow()
+                }
+
+                if let guide = wish?.guide {
                     Section {
-                        ForEach(facts.sources, id: \.url) { source in
-                            if let url = URL(string: source.url) {
-                                linkRow(source.title ?? url.host() ?? source.url, url)
-                            }
+                        Text(guide.summary)
+                            .font(SR.Text.body(15))
+                            .foregroundStyle(SR.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.vertical, 4)
+                            .srPlainRow()
+                        ForEach(guide.tips, id: \.self) { tip in
+                            Label(tip, systemImage: "checkmark.circle")
+                                .font(SR.Text.secondary(14))
+                                .foregroundStyle(SR.inkSecondary)
+                                .srPlainRow()
                         }
-                    } header: { SRSectionLabel(text: "Sources") }
+                        ForEach(guide.links.filter { TripLinkButtons.safeURL($0.url) != nil }, id: \.url) { link in
+                            if let url = TripLinkButtons.safeURL(link.url) { linkRow(link.label, url) }
+                        }
+                    } header: { TripHeading(text: "Worth knowing") }
+                }
+
+                if let booking {
+                    Section {
+                        factRow("Status", bookingStatus(booking))
+                        if let ref = booking.reference { factRow("Reference", ref) }
+                        if let start = booking.startMin { factRow("Time", TripFormat.time(start) + (booking.endMin.map { "–" + TripFormat.time($0) } ?? "")) }
+                        if let link = booking.url.flatMap(URL.init(string:)) { linkRow("Booking", link) }
+                    } header: { TripHeading(text: "Booking") }
+                }
+
+                if let facts {
+                    Section {
+                        if let text = facts.openingHoursText { factRow("Opening hours", text) }
+                        if let today = hoursOn(facts, date: day.date, clock: clock) { factRow(TripFormat.day(day.date, zone: clock.zone), today) }
+                        if facts.closedDates.contains(day.date) { factRow("Closed", "on this day (holiday)") }
+                        if let price = facts.priceText { factRow("Price", price) }
+                        if let visit = facts.typicalVisitSec { factRow("Typical visit", TripFormat.duration(seconds: visit)) }
+                        if facts.bookingRequired == true {
+                            factRow("Booking", facts.bookAheadDays.map { "Needed · sells out about \(Int($0)) days ahead" } ?? "Needed")
+                        }
+                        if let link = facts.bookingUrl.flatMap(URL.init(string:)) { linkRow("Book (official)", link) }
+                        if let link = facts.officialUrl.flatMap(URL.init(string:)) { linkRow("Official site", link) }
+                        if !facts.unknown.isEmpty { factRow("Not found", facts.unknown.joined(separator: ", ")) }
+                    } header: {
+                        TripHeading(text: "Facts", trailing: checked(facts))
+                    }
+                    if !facts.sources.isEmpty {
+                        Section {
+                            ForEach(facts.sources, id: \.url) { source in
+                                if let url = URL(string: source.url) {
+                                    linkRow(source.title ?? url.host() ?? source.url, url)
+                                }
+                            }
+                        } header: { TripHeading(text: "Sources") }
+                    }
                 }
             }
 
@@ -154,22 +167,88 @@ struct TripStopScreen: View {
         .scrollContentBackground(.hidden)
     }
 
+    /// How to get there, by each mode: one line until it is opened.
     @ViewBuilder
     private func gettingThere(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int) -> some View {
         if let leg = day.leg(before: index) {
-            Section {
+            disclosure("Getting there · \(TripFormat.leg(leg)) from \(day.stops[index - 1].title)", open: showsRoute, id: "trip-place-route") {
+                showsRoute.toggle()
+            }
+            if showsRoute {
                 // v5: the leg in, in the mode you'd rather (display only).
                 TripLegPicker(tripId: ref.tripId, date: ref.date, leg: leg, from: day.stops[index - 1], to: day.stops[index])
                     .srPlainRow()
                     .padding(.vertical, 6)
                 TripNextStageCard(
                     leg: leg, from: day.stops[index - 1], to: day.stops[index],
-                    bundle: bundle, date: ref.date, following: $following
+                    bundle: bundle, date: ref.date, following: $following, inline: true
                 )
                 .srPlainRow()
                 .padding(.vertical, 6)
-            } header: { SRSectionLabel(text: "Getting there") }
+            }
         }
+    }
+
+    /// The one way there, up front: walking directions when the leg in is a
+    /// walk, else Maps.
+    @ViewBuilder
+    private func directions(_ bundle: TripBundle, _ day: PlannedDay, _ index: Int) -> some View {
+        let stop = day.stops[index]
+        if let leg = day.leg(before: index) {
+            let from = day.stops[index - 1]
+            if leg.mode == .walk, let route = TripDirections.route(for: leg, from: from, to: stop, tripId: bundle.trip.id, date: ref.date) {
+                Button { SRHaptic.tap(); following = route } label: { SRButtonLabel(title: "Walk there", icon: "figure.walk", fill: true) }
+                    .srButton(.prominent)
+                    .accessibilityIdentifier("trip-place-directions")
+            } else if stop.location != nil {
+                Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: leg.mode) } label: { SRButtonLabel(title: "Directions", icon: "map", fill: true) }
+                    .srButton(.prominent)
+                    .accessibilityIdentifier("trip-place-directions")
+            }
+        } else if stop.location != nil {
+            Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: .walk) } label: { SRButtonLabel(title: "Directions", icon: "map", fill: true) }
+                .srButton(.prominent)
+                .accessibilityIdentifier("trip-place-directions")
+        }
+    }
+
+    /// A row that opens or shuts what follows it.
+    private func disclosure(_ title: String, open: Bool, id: String, toggle: @escaping () -> Void) -> some View {
+        Button {
+            SRHaptic.select()
+            withAnimation(.snappy(duration: 0.25)) { toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(SR.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SR.inkMuted)
+                    .rotationEffect(.degrees(open ? 180 : 0))
+                    .accessibilityHidden(true)
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(open ? "Open" : "Shut")
+        .accessibilityIdentifier(id)
+        .srPlainRow()
+    }
+
+    /// A booked place's reference, up front: it is read out at the desk.
+    private func refChip(_ booking: TripBooking?) -> [TripPlaceWhy.Chip] {
+        guard let booking, booking.status == .booked, let ref = booking.reference else { return [] }
+        return [TripPlaceWhy.Chip(icon: "ticket.fill", text: "Ref \(ref)")]
+    }
+
+    /// Anything to show under "More about this place".
+    private func hasMore(stop: PlannedStop, wish: TripWish?, booking: TripBooking?) -> Bool {
+        stop.location != nil || wish?.guide != nil || booking != nil || wish?.facts != nil
     }
 
     /// Every value is selectable: a booking reference is read out at a
@@ -314,7 +393,7 @@ struct TripLookAround: View {
         Group {
             if let scene {
                 VStack(alignment: .leading, spacing: 6) {
-                    SRSectionLabel(text: "The street")
+                    TripHeading(text: "The street")
                     LookAroundPreview(initialScene: scene)
                         .frame(height: 180)
                         .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 2, style: .continuous))

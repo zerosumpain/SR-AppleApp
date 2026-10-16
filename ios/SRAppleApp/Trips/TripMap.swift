@@ -342,94 +342,74 @@ extension TripMapScene {
     }
 }
 
-/// "Download today's map" — the day's corridor as an offline pack, on Wi-Fi
-/// unless the person says mobile data is fine.
-struct TripMapPackRow: View {
+/// The day's ••• menu: what used to sit at the foot of the plan — this
+/// day's offline map, the way back to all the days, and how fresh the saved
+/// plan is — out of the way of the plan itself. With no signal, its icon
+/// says so.
+struct TripDayMoreMenu: View {
     let tripId: String
     let day: PlannedDay
-    let title: String
+    let tripTitle: String
+    let allDays: () -> Void
     @ObservedObject private var maps = OfflineMaps.shared
     @ObservedObject private var network = TripNetwork.shared
+    @ObservedObject private var store = TripStore.shared
+    @ObservedObject private var queue = TripEventQueue.shared
     @State private var askCellular = false
 
     private var id: String { TripDayGeometry.packId(trip: tripId, date: day.date) }
+    private var mapped: Bool { !TripDayGeometry.corridorLine(day).isEmpty }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .foregroundStyle(SR.accent)
-                .frame(width: 24)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(headline).font(SR.Text.title(15)).foregroundStyle(SR.ink)
-                Text(detail).font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+        Menu {
+            Section {
+                if mapped { mapItem }
+                Button { allDays() } label: { Label("All days of \(tripTitle)", systemImage: "calendar") }
+                    .accessibilityIdentifier("trip-all-days")
             }
-            Spacer(minLength: 8)
-            action
+            Section {
+                Text(TripSavedLine.words(refreshedAt: store.refreshedAt, online: network.online, queued: queue.count(for: tripId)))
+            }
+        } label: {
+            Image(systemName: network.online ? "ellipsis.circle" : "wifi.slash")
+                .accessibilityLabel(network.online ? "More" : "More — offline, using the saved plan")
         }
-        .padding(.vertical, 6)
+        .accessibilityIdentifier("trip-more")
         .confirmationDialog("Download on mobile data?", isPresented: $askCellular, titleVisibility: .visible) {
             Button("Download now") { start() }
             Button("Wait for Wi-Fi", role: .cancel) {}
         } message: {
             Text("A day's map is usually a few megabytes.")
         }
-        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
-    private var action: some View {
+    private var mapItem: some View {
         switch maps.state(for: id) {
         case .none, .failed:
             Button {
-                SRHaptic.tap()
                 if network.unmetered { start() } else { askCellular = true }
-            } label: { SRButtonLabel(title: "Download", icon: "arrow.down.circle") }
-                .srButton(.regular)
+            } label: { Label("Save this day's map offline", systemImage: "arrow.down.circle") }
                 .disabled(!network.online || SRDemo.isOn)
                 .accessibilityIdentifier("trip-map-download")
         case .downloading(let p):
-            ProgressView(value: p).frame(width: 60).tint(SR.accent)
-        case .ready:
-            Button("Remove") { maps.delete(id) }
-                .font(SR.Text.label())
-                .foregroundStyle(SR.inkMuted)
+            Button {} label: { Label("Saving the map… \(Int((p * 100).rounded())) %", systemImage: "arrow.down.circle.dotted") }
+                .disabled(true)
+        case .ready(let bytes):
+            Button(role: .destructive) { maps.delete(id) } label: {
+                Label("Remove the offline map (\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)))", systemImage: "checkmark.circle")
+            }
         }
     }
 
     private func start() {
-        maps.download(id: id, name: title, line: TripDayGeometry.corridorLine(day))
-    }
-
-    private var icon: String {
-        if case .ready = maps.state(for: id) { return "checkmark.circle.fill" }
-        return "map"
-    }
-
-    private var headline: String {
-        switch maps.state(for: id) {
-        case .ready: return "Today's map is on the phone"
-        case .downloading: return "Downloading the map…"
-        default: return "Download today's map"
-        }
-    }
-
-    private var detail: String {
-        switch maps.state(for: id) {
-        case .ready(let bytes): return "\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) · works with no signal"
-        case .failed(let why): return why
-        case .downloading: return "Keep the app open until it finishes."
-        case .none:
-            if !network.online { return "Needs a connection — the plan itself is already saved." }
-            return network.unmetered ? "On Wi-Fi now — a few megabytes." : "Best on Wi-Fi — a few megabytes."
-        }
+        maps.download(id: id, name: "\(tripTitle) · \(day.date)", line: TripDayGeometry.corridorLine(day))
     }
 }
 
 /// "Make the whole trip work offline": every day's map in one go, before
 /// leaving — rather than a download on each day, found one day at a time.
-/// The same packs as `TripMapPackRow`, so either shows the other's work.
+/// The same packs as the day's menu (`TripDayMoreMenu`), so either shows the other's work.
 struct TripOfflineRow: View {
     let tripId: String
     let title: String
