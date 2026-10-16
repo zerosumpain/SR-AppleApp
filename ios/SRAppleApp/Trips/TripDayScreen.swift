@@ -209,7 +209,11 @@ struct TripDayScreen: View {
                     ForEach(bundle.segments.filter { $0.arriveDate == date && $0.direction != "return" }) { segment in
                         TripTransportCard(segment: segment, arriving: true)
                     }
-                    rest(bundle, day, marks: marks, progress: isToday ? progress : nil, nextIndex: nextIndex)
+                    // The next leg opens out today; on another day only an
+                    // arrival's transfer does — a plan read ahead stays quiet.
+                    let arriving = bundle.segments.contains { $0.arriveDate == date && $0.direction != "return" }
+                    rest(bundle, day, marks: marks, progress: isToday ? progress : nil,
+                         nextIndex: isToday || arriving ? nextIndex : nil)
                     // Leaving today: the flight or train is the day's last stage.
                     ForEach(bundle.segments.filter { $0.departDate == date && $0.direction != "outbound" }) { segment in
                         TripTransportCard(segment: segment, arriving: false)
