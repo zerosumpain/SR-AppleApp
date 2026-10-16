@@ -39,6 +39,10 @@ extension SRDemoFixtures {
         var follow: String? = nil
         /// Past its date, as the detailed wire sends it (raw JSON).
         var stale: String? = nil
+        /// The living week plan, pinned above the list.
+        var living = false
+        /// Days the same finding came back and was folded in.
+        var seenAgain: [String] = []
     }
 
     static let demoNotes: [DemoNote] = [
@@ -51,7 +55,8 @@ extension SRDemoFixtures {
             minutesAgo: 38,
             next: "Keep the 23:00 lights-out for two more weeks before adding the long day.",
             sources: ["Your /health summary", "Recent workouts and outings", "Health trend · resting hr · last 14 days"],
-            stage: "spotted"
+            stage: "spotted",
+            living: true
         ),
         DemoNote(
             id: "demo-note-hall-light",
@@ -86,7 +91,8 @@ extension SRDemoFixtures {
             stage: "motion",
             bucket: "motion",
             commissionId: CommissionDemoFixtures.runningId,
-            commissionState: "running"
+            commissionState: "running",
+            seenAgain: ["2026-10-12", "2026-10-14"]
         ),
         DemoNote(
             id: "demo-note-hrv-caffeine",
@@ -157,7 +163,7 @@ extension SRDemoFixtures {
     static func detailedNoteJSON(_ note: DemoNote, clock: DemoClock) -> String {
         let summary = SRDemoFixtures.summary(of: note.body)
         return """
-        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState)), "review": \(note.review ?? "null"), "act": \(note.act ?? "null"), "follow": \(note.follow ?? "null"), "stale": \(note.stale ?? "null")}
+        {"id": \(s(note.id)), "outcome": \(s(note.outcome)), "channel": \(s(note.channel)), "title": \(s(note.title)), "body": \(s(note.body)), "createdAt": \(s(clock.iso(minutesAgo: note.minutesAgo))), "url": \(s("/jkai/daydreams?note=\(note.id)")), "feedback": \(s(note.feedback)), "summary": \(s(summary)), "next": \(s(note.next)), "sources": \(list(note.sources.map { s($0) })), "stage": \(s(note.stage)), "bucket": \(s(note.bucket)), "checkable": \(note.checkable ? "true" : "false"), "commissionId": \(s(note.commissionId)), "commissionState": \(s(note.commissionState)), "review": \(note.review ?? "null"), "act": \(note.act ?? "null"), "follow": \(note.follow ?? "null"), "stale": \(note.stale ?? "null"), "reason": null, "seenAgain": \(list(note.seenAgain.map { s($0) })), "living": \(note.living ? "true" : "false")}
         """
     }
 

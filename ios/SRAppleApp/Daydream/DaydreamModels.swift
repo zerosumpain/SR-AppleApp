@@ -22,6 +22,8 @@ import Foundation
 //   POST api/native/daydream/feedback        { "id", "verdict": useful|not_useful|never } → { "ok": true }
 //                                            { "id", "verdict": wrong|right, "why" } — a ruling on the claim
 //                                            (`DaydreamRuling.swift`)
+//                                            { "id", "reason": already_knew|not_my_thing|not_now|did_it } — why,
+//                                            in one tap; detailed notes carry `reason`, `seenAgain`, `living`
 //
 // Everything decodes defensively. The server side is being built in parallel
 // with this, and a Today payload that throws is a blank first screen, so an
@@ -134,6 +136,43 @@ enum DaydreamVerdict: String, Codable, Hashable {
     case never
 }
 
+/// Why, in one tap, after a verdict — the site's `reasons.ts`. "Not now" files
+/// the note with no verdict, so nothing like it is counted down; "It's wrong"
+/// is not here, it is a ruling with a reason you write (`DaydreamRuling.swift`).
+enum DaydreamReason: String, Codable, Hashable, CaseIterable {
+    case alreadyKnew = "already_knew"
+    case notMyThing = "not_my_thing"
+    case notNow = "not_now"
+    case didIt = "did_it"
+
+    var label: String {
+        switch self {
+        case .alreadyKnew: return "Already knew"
+        case .notMyThing: return "Not my thing"
+        case .notNow: return "Not now"
+        case .didIt: return "Did it"
+        }
+    }
+
+    /// The verdict a reason sets; `nil` is "Not now", which clears it.
+    var verdict: DaydreamVerdict? {
+        switch self {
+        case .alreadyKnew, .notMyThing: return .notUseful
+        case .notNow: return nil
+        case .didIt: return .useful
+        }
+    }
+
+    /// The reasons offered after each verdict, in the site's order.
+    static func after(_ verdict: DaydreamVerdict) -> [DaydreamReason] {
+        switch verdict {
+        case .useful: return [.didIt]
+        case .notUseful: return [.alreadyKnew, .notNow, .notMyThing]
+        case .never: return []
+        }
+    }
+}
+
 /// Where a note is in the one process the site and the phone both draw:
 /// jkai spots something, you make the call, anything approved runs, and a
 /// result comes back.
@@ -225,6 +264,14 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
     /// Probably past its date, and why. `nil` when it is not, and from an
     /// older server (`DaydreamShelf.swift`).
     let stale: DaydreamStale?
+    /// Your one-tap reason, as the site keeps it. `nil` when none, and from an
+    /// older server.
+    let reason: DaydreamReason?
+    /// Days (`YYYY-MM-DD`) the same finding came back with nothing new and
+    /// was folded into this note instead of written up again.
+    let seenAgain: [String]
+    /// The living week plan — pinned above the list. `false` from an older server.
+    let living: Bool
     /// Whether this copy came from the detailed read. A plain copy (Today's
     /// block) must not overwrite what a detailed one knows — see `merged`.
     let detailed: Bool
@@ -235,7 +282,8 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
          stage: DaydreamStage? = nil, bucket: DaydreamBucket? = nil, checkable: Bool? = nil,
          commissionId: String? = nil, commissionState: String? = nil, review: DaydreamReview? = nil,
          act: DaydreamAct? = nil, follow: DaydreamFollow? = nil, replaces: [DaydreamReplaced] = [],
-         stale: DaydreamStale? = nil, detailed: Bool = false) {
+         stale: DaydreamStale? = nil, reason: DaydreamReason? = nil, seenAgain: [String] = [],
+         living: Bool = false, detailed: Bool = false) {
         self.id = id
         self.outcome = outcome
         self.channel = channel
@@ -261,13 +309,16 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
         self.follow = follow
         self.replaces = replaces
         self.stale = stale
+        self.reason = reason
+        self.seenAgain = seenAgain
+        self.living = living
         self.detailed = detailed
     }
 
     enum CodingKeys: String, CodingKey {
         case id, outcome, channel, title, body, createdAt, url, feedback
         case summary, next, sources, stage, bucket, checkable, commissionId, commissionState, review, act
-        case follow, replaces, stale
+        case follow, replaces, stale, reason, seenAgain, living
     }
 
     /// An id and a title are the note; without either there is nothing to show
@@ -317,6 +368,10 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
             replaces: c.lossy(DaydreamReplaced.self, .replaces),
             // A flag of the wrong shape costs the flag, never the note.
             stale: c.lenient(DaydreamStale.self, .stale),
+            // A reason this build does not know is no reason.
+            reason: c.lenient(String.self, .reason).flatMap(DaydreamReason.init(rawValue:)),
+            seenAgain: c.lossy(String.self, .seenAgain).filter { !$0.isEmpty },
+            living: c.lenient(Bool.self, .living) ?? false,
             detailed: detailed
         )
     }
@@ -372,7 +427,8 @@ struct DaydreamNote: Decodable, Identifiable, Hashable {
             stage: nil, bucket: DaydreamNote.derivedBucket(feedback: verdict, commissionState: commissionState,
                                                            ruled: review?.byOwner == true),
             checkable: checkable, commissionId: commissionId, commissionState: commissionState, review: review,
-            act: act, follow: follow, replaces: replaces, stale: stale, detailed: true
+            act: act, follow: follow, replaces: replaces, stale: stale, reason: reason, seenAgain: seenAgain,
+            living: living, detailed: true
         )
     }
 }
@@ -584,4 +640,10 @@ extension KeyedDecodingContainer {
 struct DaydreamFeedbackRequest: Encodable, Equatable {
     let id: String
     let verdict: DaydreamVerdict
+}
+
+/// A one-tap reason on `POST api/native/daydream/feedback`: `{ id, reason }`.
+struct DaydreamReasonRequest: Encodable, Equatable {
+    let id: String
+    let reason: DaydreamReason
 }

@@ -126,8 +126,16 @@ struct DaydreamScreen: View {
 
     @ViewBuilder
     private var list: some View {
-        let notes = visibleNotes
+        let plan = livingPlan
+        let notes = visibleNotes.filter { $0.id != plan?.id }
         let others = visibleOrphans
+        if let plan {
+            // One plan, revised when the week changes — pinned, not filed in a day.
+            SRSectionLabel(text: "This week's plan")
+                .padding(.horizontal, 4)
+                .accessibilityIdentifier("daydream-living-plan")
+            DaydreamNoteCard(note: plan)
+        }
         if store.notes.isEmpty && commissions.commissions.isEmpty {
             if store.loaded {
                 SREmpty(
@@ -139,7 +147,7 @@ struct DaydreamScreen: View {
                 ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
             }
         } else if notes.isEmpty && others.isEmpty {
-            empty
+            if plan == nil { empty }
         } else {
             ForEach(notes) { note in
                 DaydreamNoteCard(note: note)
@@ -183,8 +191,16 @@ struct DaydreamScreen: View {
         }
     }
 
+    /// The living week plan, on the lists where a decision is waiting or
+    /// everything shows. The site marks it; an older server marks none.
+    private var livingPlan: DaydreamNote? {
+        guard filter == .decide || filter == .all else { return nil }
+        return store.notes.first { $0.living && !shelf.isFiled($0) && feedback.reason(for: $0) != .notNow }
+    }
+
     private var visibleNotes: [DaydreamNote] {
-        let held = store.notes.filter { !shelf.isFiled($0) }
+        // "Not now" files a note on the site; it leaves here at once.
+        let held = store.notes.filter { !shelf.isFiled($0) && feedback.reason(for: $0) != .notNow }
         guard let bucket = filter.bucket else { return held }
         return held.filter { store.bucket(for: $0, feedback: feedback, commissions: commissions) == bucket }
     }

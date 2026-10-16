@@ -22,6 +22,8 @@ final class NoticedFeedback: ObservableObject {
     @Published private(set) var sending: Set<String> = []
     /// Notes rated here whose moment on screen is over.
     @Published private(set) var settled: Set<String> = []
+    /// Reasons given on this phone, over whatever the note arrived with.
+    @Published private(set) var reasons: [String: DaydreamReason] = [:]
 
     /// How long a rated note stays, showing what was chosen, before it goes.
     var settleDelay: Duration = .seconds(3)
@@ -42,6 +44,39 @@ final class NoticedFeedback: ObservableObject {
     }
 
     func didFail(_ note: DaydreamNote) -> Bool { failed.contains(note.id) }
+
+    func reason(for note: DaydreamNote) -> DaydreamReason? {
+        reasons[note.id] ?? note.reason
+    }
+
+    /// Record why. A "yes" or "no" reason also sets that verdict, as the site
+    /// does; "Not now" files the note with no verdict, so it leaves the list.
+    /// Optimistic, like `record`, and quiet when it fails.
+    func give(_ reason: DaydreamReason, for note: DaydreamNote) async {
+        guard self.reason(for: note) != reason, !sending.contains(note.id) else { return }
+        let previousReason = reasons[note.id]
+        let previousVerdict = chosen[note.id]
+        reasons[note.id] = reason
+        if let verdict = reason.verdict { chosen[note.id] = verdict }
+        failed.remove(note.id)
+        sending.insert(note.id)
+        defer { sending.remove(note.id) }
+        do {
+            let body = try JSONEncoder().encode(DaydreamReasonRequest(id: note.id, reason: reason))
+            let reply = try await client.post("api/native/daydream/feedback", body: body)
+            if let answer = try? JSONDecoder().decode(FeedbackReply.self, from: reply), answer.ok == false {
+                throw SiteError.message("The site did not keep that.")
+            }
+        } catch {
+            reasons[note.id] = previousReason
+            chosen[note.id] = previousVerdict
+            failed.insert(note.id)
+            return
+        }
+        if reason == .notNow {
+            withAnimation(.easeOut(duration: 0.35)) { _ = settled.insert(note.id) }
+        }
+    }
 
     /// Record a verdict. Choosing the verdict already standing is a no-op —
     /// the contract has no "clear", so a second tap must not pretend to undo.

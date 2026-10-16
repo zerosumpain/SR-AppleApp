@@ -33,6 +33,7 @@ struct DaydreamNoteCard: View {
                 }
                 title
                 if !note.summary.isEmpty { summary }
+                if !note.seenAgain.isEmpty { seenAgainLine }
                 if !note.replaces.isEmpty { replacesLine }
                 if let next = note.next { nextStep(next) }
                 if !note.sources.isEmpty { sources }
@@ -131,6 +132,26 @@ struct DaydreamNoteCard: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityHint("Opens the note on the website")
         .accessibilityIdentifier("noticed-title")
+    }
+
+    /// "Found again 2 times since, with nothing new — last on 15 Oct." The
+    /// repeats the loop folded into this note instead of writing them up.
+    private var seenAgainLine: some View {
+        let count = note.seenAgain.count
+        let last = note.seenAgain.last.map(Self.shortDay) ?? ""
+        return Text("Found again \(count == 1 ? "once" : "\(count) times") since, with nothing new — last on \(last). It was not written up again.")
+            .font(SR.Text.secondary(13))
+            .foregroundStyle(SR.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("daydream-seen-again")
+    }
+
+    /// `2026-10-15` → "15 Oct"; anything else as sent.
+    static func shortDay(_ iso: String) -> String {
+        let parts = iso.split(separator: "-")
+        guard parts.count == 3, let month = Int(parts[1]), (1...12).contains(month), let day = Int(parts[2]) else { return iso }
+        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return "\(day) \(names[month - 1])"
     }
 
     /// "Replaces 2 earlier notes on the same subject: …" — one card per subject.
@@ -405,21 +426,63 @@ struct DaydreamNoteCard: View {
     }
 
     private func answered(_ verdict: DaydreamVerdict) -> some View {
-        HStack(spacing: 10) {
-            SRGlassChip(text: Self.label(verdict), icon: Self.icon(verdict), tone: Self.tone(verdict))
-                .accessibilityIdentifier("daydream-verdict")
-            Spacer(minLength: 6)
-            Button {
-                SRHaptic.tap()
-                withAnimation(.easeInOut(duration: 0.2)) { changing = true }
-            } label: {
-                SRButtonLabel(title: "Change")
+        let reason = feedback.reason(for: note)
+        let label = Self.label(verdict) + (reason.map { " · \($0.label.lowercased())" } ?? "")
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                SRGlassChip(text: label, icon: Self.icon(verdict), tone: Self.tone(verdict))
+                    .accessibilityIdentifier("daydream-verdict")
+                Spacer(minLength: 6)
+                Button {
+                    SRHaptic.tap()
+                    withAnimation(.easeInOut(duration: 0.2)) { changing = true }
+                } label: {
+                    SRButtonLabel(title: "Change")
+                }
+                .srButton()
+                .controlSize(.small)
+                .accessibilityLabel("Change your answer")
+                .accessibilityIdentifier("daydream-change")
             }
-            .srButton()
-            .controlSize(.small)
-            .accessibilityLabel("Change your answer")
-            .accessibilityIdentifier("daydream-change")
+            if reason == nil, !DaydreamReason.after(verdict).isEmpty {
+                reasonChips(after: verdict)
+            }
         }
+    }
+
+    /// "Why?" — one more, optional tap after a verdict. It teaches the loop the
+    /// difference between "I knew", "not today" and "not for me".
+    private func reasonChips(after verdict: DaydreamVerdict) -> some View {
+        DaydreamWrap(spacing: 8) {
+            Text("Why?")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
+            ForEach(DaydreamReason.after(verdict), id: \.self) { reason in
+                Button {
+                    SRHaptic.tap()
+                    let note = self.note
+                    Task { await feedback.give(reason, for: note) }
+                } label: {
+                    SRButtonLabel(title: reason.label)
+                }
+                .srButton()
+                .controlSize(.small)
+                .disabled(feedback.sending.contains(note.id))
+                .accessibilityIdentifier("daydream-reason-\(reason.rawValue)")
+            }
+            if verdict == .notUseful, rulings.review(for: note)?.verdict != .wrong {
+                Button {
+                    startRuling(.wrong)
+                } label: {
+                    SRButtonLabel(title: "It's wrong")
+                }
+                .srButton()
+                .controlSize(.small)
+                .accessibilityIdentifier("daydream-reason-wrong")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Why?")
     }
 
     /// Done for you, standing in for a rating.
