@@ -22,11 +22,13 @@ final class NoticedFeedback: ObservableObject {
     @Published private(set) var sending: Set<String> = []
     /// Notes rated here whose moment on screen is over.
     @Published private(set) var settled: Set<String> = []
+    /// Notes rated here that stay where they are, showing the answer, until
+    /// the reader leaves the screen or pulls to refresh. Taking a card away
+    /// on a timer moved the list under the reader's eye while they were
+    /// already reading the next one.
+    @Published private(set) var held: Set<String> = []
     /// Reasons given on this phone, over whatever the note arrived with.
     @Published private(set) var reasons: [String: DaydreamReason] = [:]
-
-    /// How long a rated note stays, showing what was chosen, before it goes.
-    var settleDelay: Duration = .seconds(3)
 
     private let client = SiteClient.shared
 
@@ -34,8 +36,8 @@ final class NoticedFeedback: ObservableObject {
         chosen[note.id] ?? note.feedback
     }
 
-    /// Whether a note still belongs on screen: not yet rated, or rated here a
-    /// moment ago and still showing the answer. A note that arrives already
+    /// Whether a note still belongs on screen: not yet rated, or rated here
+    /// since the screen opened and still showing the answer. A note that arrives already
     /// rated (on the site, or on this phone before a relaunch) is done.
     func isShowing(_ note: DaydreamNote) -> Bool {
         if settled.contains(note.id) { return false }
@@ -45,12 +47,30 @@ final class NoticedFeedback: ObservableObject {
 
     func didFail(_ note: DaydreamNote) -> Bool { failed.contains(note.id) }
 
+    /// Rated on this screen, and staying put until the reader moves on.
+    func isHeld(_ note: DaydreamNote) -> Bool { held.contains(note.id) }
+
+    /// "Not now" files the note on the site. A note that arrived filed is
+    /// gone; one filed here stays where it is until it settles.
+    func isFiledNotNow(_ note: DaydreamNote) -> Bool {
+        reason(for: note) == .notNow && !held.contains(note.id)
+    }
+
+    /// The reader has moved on — left the screen, or pulled to refresh. The
+    /// cards rated meanwhile go now, all at once, when nothing is being read.
+    func settleHeld() {
+        guard !held.isEmpty else { return }
+        settled.formUnion(held)
+        held.removeAll()
+    }
+
     func reason(for note: DaydreamNote) -> DaydreamReason? {
         reasons[note.id] ?? note.reason
     }
 
     /// Record why. A "yes" or "no" reason also sets that verdict, as the site
-    /// does; "Not now" files the note with no verdict, so it leaves the list.
+    /// does; "Not now" files the note with no verdict, so it leaves the list
+    /// once the reader moves on.
     /// Optimistic, like `record`, and quiet when it fails.
     func give(_ reason: DaydreamReason, for note: DaydreamNote) async {
         guard self.reason(for: note) != reason, !sending.contains(note.id) else { return }
@@ -73,9 +93,7 @@ final class NoticedFeedback: ObservableObject {
             failed.insert(note.id)
             return
         }
-        if reason == .notNow {
-            withAnimation(.easeOut(duration: 0.35)) { _ = settled.insert(note.id) }
-        }
+        held.insert(note.id)
     }
 
     /// Record a verdict. Choosing the verdict already standing is a no-op —
@@ -99,19 +117,7 @@ final class NoticedFeedback: ObservableObject {
             failed.insert(note.id)
             return
         }
-        settleSoon(note.id, verdict: verdict)
-    }
-
-    /// Take the note away once the reader has seen the answer land — unless
-    /// they changed it in the meantime, in which case that later answer's own
-    /// timer does it.
-    private func settleSoon(_ id: String, verdict: DaydreamVerdict) {
-        let delay = settleDelay
-        Task { [weak self] in
-            try? await Task.sleep(for: delay)
-            guard let self, self.chosen[id] == verdict else { return }
-            withAnimation(.easeOut(duration: 0.35)) { _ = self.settled.insert(id) }
-        }
+        held.insert(note.id)
     }
 
     private struct FeedbackReply: Decodable { let ok: Bool? }
@@ -239,8 +245,8 @@ final class DaydreamStore: ObservableObject {
 
     /// The list a note sits in right now: the site's answer, moved by
     /// anything done on this phone since it was read. A note answered here
-    /// stays in its list, showing the answer, until it settles — the same
-    /// few seconds Today and Health give it.
+    /// stays in its list, showing the answer, until it settles — when the
+    /// reader leaves the screen or pulls to refresh, as on Health.
     func bucket(for note: DaydreamNote, feedback: NoticedFeedback, commissions: CommissionStore) -> DaydreamBucket {
         let verdict = feedback.verdict(for: note)
         let live = commissions.commission(for: note)?.state
