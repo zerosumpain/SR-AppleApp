@@ -220,8 +220,9 @@ struct TodayHeroCanvas: View, Equatable {
             let now = moment(width: w)
             let d = 88 * k
             let sunX = min(max(Self.x(now.frac, width: w), Self.inset + d / 2), max(Self.inset + d / 2, w - Self.inset - d / 2))
-            // 72k on the horizon, 50k at its highest.
-            let sunY = 72 * k - 22 * k * CGFloat(now.lift)
+            // 96k on the horizon, so a setting sun sits on the line; 66k at
+            // its highest. Higher left a dead band between sun and horizon.
+            let sunY = 96 * k - 30 * k * CGFloat(now.lift)
             ZStack(alignment: .topLeading) {
                 horizonBand(width: w, lineY: 20 * k, compact: false)
                     .frame(width: w, height: 44 * k)
@@ -240,7 +241,7 @@ struct TodayHeroCanvas: View, Equatable {
 
                 if let scrubX {
                     bubble(atX: scrubX, width: w)
-                        .position(x: bubbleX(scrubX, width: w), y: 106 * k)
+                        .position(x: bubbleX(scrubX, width: w), y: 18 * k)
                 }
             }
             .frame(width: w, height: geo.size.height)
@@ -695,9 +696,11 @@ struct TodayHorizon: View {
                     .fill(SR.line)
                     .frame(width: max(0, end - nowX), height: 1)
                     .position(x: (nowX + end) / 2, y: lineY)
+                let lanes = compact ? [:] : Self.lanes(markers, width: w)
                 ForEach(Array(markers.enumerated()), id: \.element.id) { index, marker in
                     mark(marker)
-                        .position(x: TodayHeroCanvas.x(marker.frac, width: w), y: y(marker))
+                        .position(x: TodayHeroCanvas.x(marker.frac, width: w),
+                                  y: y(marker) - CGFloat(lanes[marker.id] ?? 0) * Self.laneStep)
                         // Chips that meet overlap as the family card's do:
                         // the earlier on top. Stops and the sun's glyphs sit
                         // under any chip.
@@ -713,6 +716,26 @@ struct TodayHorizon: View {
             }
             .frame(width: w, height: geo.size.height)
         }
+    }
+
+    /// How far a chip lifts per lane: a chip's height and a hairline.
+    static let laneStep: CGFloat = 24
+
+    /// People who went out within a chip's width of each other would hide
+    /// one another (Sam at 07:48 and Alex at 08:12 are 9pt apart on a
+    /// phone). Each chip takes the lowest lane whose last chip it clears;
+    /// compact dots are small enough to share the line.
+    static func lanes(_ markers: [HorizonMarker], width: CGFloat) -> [String: Int] {
+        var lastX: [CGFloat] = []
+        var out: [String: Int] = [:]
+        for marker in markers.sorted(by: { $0.frac < $1.frac }) {
+            guard case .person = marker.kind else { continue }
+            let x = TodayHeroCanvas.x(marker.frac, width: width)
+            let lane = lastX.firstIndex { x - $0 >= 24 } ?? lastX.count
+            if lane == lastX.count { lastX.append(x) } else { lastX[lane] = x }
+            out[marker.id] = min(lane, 2)
+        }
+        return out
     }
 
     private func isPerson(_ marker: HorizonMarker) -> Bool {
