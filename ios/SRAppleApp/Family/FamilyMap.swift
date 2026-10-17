@@ -3,9 +3,10 @@ import MapKit
 
 /// Everyone's pin, and — where the view carries a day — today's line.
 ///
-/// One canvas for both sizes: the mini-map on Today (no gestures, no lines)
-/// and the Family tab's map (pan, zoom, today's trails, and a camera that
-/// moves to whoever was tapped in the list).
+/// One canvas for every map of the family: still and bare where it is only
+/// a picture (no gestures, no lines), and the Family tab's own (pan, zoom,
+/// today's trails, and a camera that moves to whoever was tapped in the
+/// list). Today draws no map: it lists places (`TodayFamilyCard`).
 struct FamilyMapCanvas: View {
     let people: [FamilyPerson]
     var interactive: Bool = false
@@ -90,7 +91,11 @@ struct TodayFamilyCard: View {
             let initials = view.initials
             let absent = view.absent
             VStack(alignment: .leading, spacing: 10) {
-                SRSectionLabel(text: "Family tracking", prominent: true)
+                HStack {
+                    SRSectionLabel(text: "Family tracking", prominent: true)
+                    Spacer()
+                    TodayLiveDot(updated: store.updated, freshness: store.freshness)
+                }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(groups.enumerated()), id: \.element.id) { index, place in
                         if index > 0 { divider }
@@ -286,5 +291,69 @@ struct TodayFamilyCard: View {
             sentence += " \(person.name)'s battery is low, \(person.batteryPct ?? 0) percent."
         }
         return sentence
+    }
+}
+
+/// The family card's live light: green when the site filed the view in the
+/// last five minutes, amber within the hour, grey after. When fresh positions
+/// arrive it pulses once — a ring that flashes and spreads — and then sits
+/// still until the next ones. Never on a loop: a dot that breathes forever
+/// says nothing about whether anything changed.
+struct TodayLiveDot: View {
+    /// `FamilyStore.updated`: when the site filed the view. The pulse keys
+    /// on it, so a re-read that brings nothing new does not flash.
+    let updated: String?
+    /// `FamilyStore.freshness`: "Updated 2m ago", read out.
+    let freshness: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    enum Pulse: CaseIterable {
+        case rest, flash, spread
+
+        var scale: CGFloat { self == .spread ? 2.4 : 1 }
+        var opacity: Double { self == .flash ? 0.7 : 0 }
+
+        /// The curve INTO this phase. Back to rest is instant: the ring is
+        /// already invisible by then.
+        var animation: Animation? {
+            switch self {
+            case .rest: return nil
+            case .flash: return .linear(duration: 0.05)
+            case .spread: return .easeOut(duration: 0.6)
+            }
+        }
+    }
+
+    /// Green, amber or grey by how long ago the view was filed.
+    var tone: Color {
+        guard let updated, let at = isoDate(updated) else { return SR.inkGhost }
+        let age = Date().timeIntervalSince(at)
+        if age < 5 * 60 { return SR.good }
+        if age < 60 * 60 { return SR.warn }
+        return SR.inkGhost
+    }
+
+    var body: some View {
+        let tint = tone
+        Circle()
+            .fill(tint)
+            .frame(width: 6, height: 6)
+            .overlay {
+                if !reduceMotion {
+                    Circle()
+                        .stroke(tint, lineWidth: 1.5)
+                        .phaseAnimator(Pulse.allCases, trigger: updated) { ring, phase in
+                            ring
+                                .scaleEffect(phase.scale)
+                                .opacity(phase.opacity)
+                        } animation: { phase in
+                            phase.animation
+                        }
+                }
+            }
+            .frame(width: 14, height: 14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(freshness ?? "Not updated yet")
+            .accessibilityIdentifier("today-family-live")
     }
 }

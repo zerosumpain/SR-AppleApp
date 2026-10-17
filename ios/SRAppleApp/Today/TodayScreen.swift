@@ -127,12 +127,14 @@ final class TodayStore: ObservableObject {
 /// that is a glance: how the body is doing, what the site has been trying to
 /// tell you, and where the conversation got to.
 ///
-/// Under glass the screen is a stack of lifted sheets on a warm ground: who is
-/// where, then four squares — Ask jkai, Health (the three rings), Daydream
-/// (what the loop noticed) and Games — then the wire, and Sync at the foot.
-/// The alerts and the workflows are the bell's: Up next repeated them and
-/// went. An urgent alert still pins itself under the bar.
-/// Nothing here is the only place to read anything.
+/// It opens on a short live sky (`TodayHero`): the light of the time of day,
+/// a sun that is the readiness ring — tap it for Health, press and hold for
+/// the day's figures — and under it a line for the day so far. Then, as
+/// lifted sheets on a warm ground: who is where, a trip running today, the
+/// family boards somebody switched on, and the doors — Ask jkai, Daydream
+/// (what the loop noticed) and Play. The alerts and the workflows are the
+/// bell's: Up next repeated them and went. An urgent alert still pins itself
+/// under the bar. Nothing here is the only place to read anything.
 ///
 /// No "carry on" card for the last thread: the Chat tab is one tap away on the
 /// bar and opens on that list.
@@ -181,62 +183,12 @@ struct TodayScreen: View {
         ScrollView {
             // No page title. The tab bar already says this is Today and the
             // bar carries the date, so the first thing under the bar is the
-            // thing the app is opened for: where everyone is.
-            VStack(alignment: .leading, spacing: 24) {
-                // Over the companion pairing, so a family member without the
-                // site's sees it too — if the owner gave them the family. Draws
-                // nothing until there is somebody to show.
-                if access.current.family {
-                    TodayFamilyCard(store: family) {
-                        router.show(.family)
-                    }
-                }
-
-                // The family's next moves live on the Family tab now, not
-                // here: one place for where everyone is going.
-
-                // A trip running today (in its own time zone): what is next
-                // and when to leave. Before one, a quieter line; with no
-                // trips at all, nothing. Every family member's (v5).
-                if site.paired && (access.current.owner || access.current.family) {
-                    TodayTripCard()
-                }
-
-                // Off unless asked for; over the SITE credential.
-                if access.familyBoards && site.paired {
-                    if showSteps {
-                        TodayStepsCard { router.openFamilyPage(.steps) }
-                    }
-                    if showTasks {
-                        TodayTasksCard { router.openFamilyPage(.tasks) }
-                    }
-                    if showBacklog {
-                        TodayBacklogCard { router.openFamilyPage(.backlog) }
-                    }
-                }
-
-                if access.current.owner && !site.paired {
-                    // The owner's QR. A member's phone pairs itself, and a
-                    // member with neither chat nor news has nothing to pair.
-                    connectCard
-                } else if !(companionPaired ?? companion.paired) && !access.current.owner {
-                    // Nobody knows who this is yet: the companion is where
-                    // that answer comes from.
-                    companionCard
-                } else {
-                    // Four doors, two by two: Ask and Health, Daydream and Games.
-                    TodayTileGrid(tiles: TodayTile.kinds(access: access.current, sitePaired: site.paired)) { kind in
-                        tile(kind)
-                    }
-                    // No top story here: News is a door in More (John, 2026-10-05).
-                }
-                // Sync now and its status moved to More (and stay in
-                // Settings): a maintenance control, not a first-screen one.
+            // sky, and straight under that the thing the app is opened for:
+            // where everyone is.
+            VStack(spacing: 0) {
+                hero
+                cards
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.top, 4)
-            .padding(.bottom, 28)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .srGround(.warm)
         // Pinned under the bar, not scrolled with the page: something urgent
@@ -379,6 +331,105 @@ struct TodayScreen: View {
         }
     }
 
+    /// The sky, its sun and the day so far. Full width; it insets its own
+    /// content. Everything it reads is already observed here — the trip's
+    /// stops come from the store the hero watches itself, as the trip card
+    /// does — so Today gains no new observed store.
+    private var hero: some View {
+        let lead = TodayHeroLead.make(
+            ownerSite: access.current.owner && site.paired,
+            health: store.payload?.health,
+            move: move.reading,
+            now: Date()
+        )
+        let view = family.view
+        let shown = access.current.family ? (view?.people.filter { $0.status != "off" } ?? []) : []
+        let initials = view?.initials ?? [:]
+        let people = shown.map { person in
+            TodayHeroInput.Person(subject: person.subject, name: person.name,
+                                  initials: initials[person.subject] ?? person.initial, isSelf: person.isSelf,
+                                  firstOut: person.today?.firstOut, out: person.status == "out")
+        }
+        let freshness = Dictionary(shown.map { ($0.subject, $0.freshness()) }, uniquingKeysWith: { first, _ in first })
+        let selfFix = view?.people.first(where: \.isSelf)?.position.map { (lat: $0.lat, lon: $0.lon) }
+        return TodayHero(
+            vitals: lead.rings,
+            lead: lead,
+            people: people,
+            freshness: freshness,
+            selfFix: selfFix,
+            showsTrip: site.paired && (access.current.owner || access.current.family),
+            showsFamily: access.current.family,
+            live: onScreen && scenePhase == .active,
+            openHealth: {
+                SRHaptic.tap()
+                router.show(.health)
+            },
+            openFamily: { router.show(.family) },
+            openTripDay: { router.openTrips(day: $0) }
+        )
+    }
+
+    /// Everything under the sky, in the gutter.
+    private var cards: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Over the companion pairing, so a family member without the
+            // site's sees it too — if the owner gave them the family. Draws
+            // nothing until there is somebody to show.
+            if access.current.family {
+                TodayFamilyCard(store: family) {
+                    router.show(.family)
+                }
+            }
+
+            // The family's next moves live on the Family tab now, not
+            // here: one place for where everyone is going.
+
+            // A trip running today (in its own time zone): what is next
+            // and when to leave. Before one, a quieter line; with no
+            // trips at all, nothing. Every family member's (v5).
+            if site.paired && (access.current.owner || access.current.family) {
+                TodayTripCard()
+            }
+
+            // Off unless asked for; over the SITE credential.
+            if access.familyBoards && site.paired {
+                if showSteps {
+                    TodayStepsCard { router.openFamilyPage(.steps) }
+                }
+                if showTasks {
+                    TodayTasksCard { router.openFamilyPage(.tasks) }
+                }
+                if showBacklog {
+                    TodayBacklogCard { router.openFamilyPage(.backlog) }
+                }
+            }
+
+            if access.current.owner && !site.paired {
+                // The owner's QR. A member's phone pairs itself, and a
+                // member with neither chat nor news has nothing to pair.
+                connectCard
+            } else if !(companionPaired ?? companion.paired) && !access.current.owner {
+                // Nobody knows who this is yet: the companion is where
+                // that answer comes from.
+                companionCard
+            } else {
+                // The doors, two by two: Ask and Daydream, then Play across
+                // the row. Health is the sun now, not a door.
+                TodayTileGrid(tiles: TodayTile.doors(access: access.current, sitePaired: site.paired)) { kind in
+                    tile(kind)
+                }
+                // No top story here: News is a door in More (John, 2026-10-05).
+            }
+            // Sync now and its status moved to More (and stay in
+            // Settings): a maintenance control, not a first-screen one.
+        }
+        .padding(.horizontal, SR.gutter)
+        .padding(.top, 8)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     /// The boards behind whichever family cards are on. Nothing is read for
     /// a card that is off.
     private func loadFamilyBoards() async {
@@ -469,7 +520,9 @@ struct TodayScreen: View {
     private func tile(_ kind: TodayTile) -> some View {
         switch kind {
         case .ask: askTile
-        case .health: healthTile
+        // Not a door any more: the sun in the sky opens Health. Kept for
+        // the switch, since `kinds` still lists it.
+        case .health: EmptyView()
         case .daydream: daydreamTile
         case .games: gamesTile
         }
@@ -484,34 +537,9 @@ struct TodayScreen: View {
         } label: {
             TodayAskTile()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .accessibilityLabel("JkAi and messages")
         .accessibilityIdentifier("today-ask")
-    }
-
-    /// The three rings — Move, Recovery, Readiness — and the score. One tap
-    /// into the Health tab, which has the reasoning behind the numbers. The
-    /// verdict and the ring figures are spoken, not printed: the tile is one
-    /// line now.
-    private var healthTile: some View {
-        let health = store.payload?.health
-        let vitals = TodayVital.make(health: health, move: move.reading)
-        let readiness = vitals.first { $0.key == "readiness" }
-        return Button {
-            SRHaptic.tap()
-            router.show(.health)
-        } label: {
-            TodayTileCard(title: readiness.map { "Readiness \($0.value)" } ?? "Readiness") {
-                TodayRings(vitals: vitals).frame(width: 42, height: 42)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Health. " + vitals.map(\.spoken).joined(separator: ". ")
-            + ((health?.isMock ?? false) ? ". Demonstration figures" : ""))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens Health")
-        .accessibilityIdentifier("today-health")
     }
 
     /// Its own view, watching the notes: a rating or a re-read redraws the
@@ -523,7 +551,7 @@ struct TodayScreen: View {
         } label: {
             TodayDaydreamTile()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .accessibilityIdentifier("today-daydream")
     }
 
@@ -536,7 +564,7 @@ struct TodayScreen: View {
         } label: {
             TodayGamesTile()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .accessibilityIdentifier("today-games")
     }
 }

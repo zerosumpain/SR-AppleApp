@@ -24,6 +24,22 @@ final class TodayTilesTests: XCTestCase {
         XCTAssertEqual(TodayTile.kinds(access: AppAccess(family: true), sitePaired: true), [.health])
     }
 
+    // MARK: - The doors
+
+    func testTheOwnersDoorsLeaveHealthToTheSun() {
+        XCTAssertEqual(TodayTile.doors(access: .everything, sitePaired: true), [.ask, .daydream, .games])
+    }
+
+    func testAMembersDoorsLeaveHealthToTheSun() {
+        let member = AppAccess(chat: true, family: true, games: true)
+        XCTAssertEqual(TodayTile.doors(access: member, sitePaired: true), [.ask, .games])
+        XCTAssertEqual(TodayTile.doors(access: AppAccess(family: true), sitePaired: true), [])
+    }
+
+    func testWithoutTheSiteTheDoorsAreJustPlay() {
+        XCTAssertEqual(TodayTile.doors(access: .everything, sitePaired: false), [.games])
+    }
+
     // MARK: - The urgent banner
 
     private func alert(_ id: String, severity: String = "alert", read: Bool = false) -> SiteAlert {

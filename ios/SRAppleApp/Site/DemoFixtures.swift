@@ -107,6 +107,30 @@ enum SRDemo {
     static var access: AppAccess {
         isMember ? AppAccess(family: true, games: true) : .everything
     }
+
+    /// `-SRDemoClock HH:mm` as well: how far to move the sky's clock so the
+    /// showcase photographs Today at that time of day — dawn, noon, dusk —
+    /// whenever CI happens to run. Only the sky and the demo household's
+    /// first-outs read it; every other clock in the app is the real one.
+    /// Zero without the flag, and always zero in Release.
+    ///
+    /// Worked out once, on first use, so the shifted clock still runs.
+    static let clockShift: TimeInterval = {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        guard SRDemo.isShowcase, let flag = arguments.firstIndex(of: "-SRDemoClock"), flag + 1 < arguments.count else { return 0 }
+        let parts = arguments[flag + 1].split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return 0 }
+        let now = Date()
+        guard let target = Calendar.current.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: now) else { return 0 }
+        return target.timeIntervalSince(now)
+        #else
+        return 0
+        #endif
+    }()
+
+    /// Now, on the sky's clock: `Date()` moved by `clockShift`.
+    static func skyNow() -> Date { Date().addingTimeInterval(clockShift) }
 }
 
 /// Answers the site client's requests from `SRDemoFixtures`.
@@ -429,6 +453,15 @@ enum SRDemoFixtures {
                    series: [7200, 8100, 10400, 6600, 9900, 8300, 11250, 7400, 8800, 12100, 6900, 9400, 8700, 9120]),
     ]
 
+    /// Today's own recovery figure, so the sun's middle ring reads from a
+    /// figure as it does on a real morning rather than from the readiness
+    /// factor. Only in Today's payload: the Health hub's figures are its own
+    /// fixture and agree with their own verdict.
+    static let recoveryFigure = DemoFigure(
+        key: "recovery", label: "Recovery", value: 68, unit: "%", display: "68",
+        delta: 6, deltaDisplay: "+6 vs 7d", direction: "up", improving: true, caption: "this morning", series: []
+    )
+
     static func figureJSON(_ f: DemoFigure, withSeries: Bool) -> String {
         var fields = [
             "\"key\": \(s(f.key))",
@@ -492,7 +525,7 @@ enum SRDemoFixtures {
             "isMock": false,
             "strap": "Recovered and ready.",
             "readiness": \(readiness),
-            "figures": \(list(figures.map { figureJSON($0, withSeries: false) })),
+            "figures": \(list((figures + [recoveryFigure]).map { figureJSON($0, withSeries: false) })),
             "generatedAt": \(s(clock.iso(minutesAgo: 12)))
           },
           "alerts": {"pending": 0, "unread": 3, "latest": \(list(alerts))},

@@ -135,6 +135,78 @@ final class TodayTests: XCTestCase {
         XCTAssertEqual(vital.value, "150%")
     }
 
+    // MARK: - The sun
+
+    private func owner(score: Double?, generatedAt: String = "2026-09-26T08:00:00Z", isMock: Bool = false) throws -> TodayHealth {
+        let readiness = score.map { #", "readiness": {"score": \#($0), "label": "Primed", "recommendation": "A quality session is on the cards."}"# } ?? ""
+        return try health("""
+        {"isMock": \(isMock), "strap": "", "generatedAt": "\(generatedAt)"\(readiness), "figures": [\(recoveryFigure)]}
+        """)
+    }
+
+    private let morning = isoDate("2026-09-26T08:30:00Z")!
+    private let move = MoveRingStore.Reading(value: 412, goal: 600, unit: "kcal")
+
+    func testAMembersSunIsTheMoveRingAlone() throws {
+        let lead = TodayHeroLead.make(ownerSite: false, health: try owner(score: 72), move: move, now: morning)
+        XCTAssertEqual(lead.rings.map(\.key), ["move"])
+        XCTAssertEqual(lead.figure, "69%")
+        XCTAssertEqual(lead.word, "Move")
+        XCTAssertEqual(lead.band, .neutral)
+        // Nothing of the site's: no figures behind the long press, and no
+        // readiness in what is read out.
+        XCTAssertTrue(lead.figures.isEmpty)
+        XCTAssertNil(lead.recommendation)
+        XCTAssertFalse(lead.spoken.contains("Readiness"))
+        XCTAssertEqual(lead.moveDetail, "412 / 600 kcal")
+    }
+
+    func testTheOwnersSunIsThreeRingsAndTheScore() throws {
+        let lead = TodayHeroLead.make(ownerSite: true, health: try owner(score: 72), move: move, now: morning)
+        XCTAssertEqual(lead.rings.map(\.key), ["move", "recovery", "readiness"])
+        XCTAssertEqual(lead.figure, "72")
+        XCTAssertEqual(lead.figureValue, 72)
+        XCTAssertEqual(lead.word, "Primed")
+        XCTAssertEqual(lead.band, .good)
+        XCTAssertFalse(lead.stale)
+        XCTAssertEqual(lead.spoken, lead.rings.map(\.spoken).joined(separator: ". "))
+    }
+
+    func testTheBandTurnsAtFortyAndSeventy() throws {
+        let bands = try [39.0, 40, 69, 70].map {
+            TodayHeroLead.make(ownerSite: true, health: try owner(score: $0), move: nil, now: morning).band
+        }
+        XCTAssertEqual(bands, [.low, .mid, .mid, .good])
+    }
+
+    func testFiguresMoreThanThreeHoursOldAreStale() throws {
+        let health = try owner(score: 72, generatedAt: "2026-09-26T08:00:00Z")
+        let fresh = TodayHeroLead.make(ownerSite: true, health: health, move: nil, now: isoDate("2026-09-26T10:59:00Z")!)
+        XCTAssertFalse(fresh.stale)
+        let stale = TodayHeroLead.make(ownerSite: true, health: health, move: nil, now: isoDate("2026-09-26T11:00:01Z")!)
+        XCTAssertTrue(stale.stale)
+        // Said, not printed: the label gains when they are from.
+        XCTAssertTrue(stale.spoken.contains(", as of "))
+        XCTAssertFalse(fresh.spoken.contains(", as of "))
+    }
+
+    func testDemonstrationFiguresSaySo() throws {
+        let lead = TodayHeroLead.make(ownerSite: true, health: try owner(score: 72, isMock: true), move: nil, now: morning)
+        XCTAssertTrue(lead.spoken.hasSuffix(". Demonstration figures"))
+    }
+
+    func testNoPayloadIsADashAndNoWord() {
+        let lead = TodayHeroLead.make(ownerSite: true, health: nil, move: nil, now: morning)
+        XCTAssertEqual(lead.figure, "—")
+        XCTAssertEqual(lead.word, "")
+        XCTAssertEqual(lead.band, .neutral)
+        XCTAssertEqual(lead.rings.count, 3)
+        XCTAssertTrue(lead.rings.allSatisfy { $0.fraction == nil })
+
+        let member = TodayHeroLead.make(ownerSite: false, health: nil, move: nil, now: morning)
+        XCTAssertEqual(member.figure, "—")
+    }
+
     // MARK: - Workflow numbers
 
     private func flows(_ json: String) throws -> [FlowSummary] {

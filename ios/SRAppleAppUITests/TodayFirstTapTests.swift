@@ -10,11 +10,11 @@ import XCTest
 /// allow exactly one tap.
 final class TodayFirstTapTests: XCTestCase {
 
-    @MainActor private func launch() -> XCUIApplication {
+    @MainActor private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // `@AppStorage` reads launch arguments: the steps card on, as a person
         // who switched it on in Settings has it.
-        app.launchArguments = ["-SRDemo", "-today-card-steps", "YES"]
+        app.launchArguments = ["-SRDemo", "-today-card-steps", "YES"] + extra
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
         return app
@@ -34,6 +34,61 @@ final class TodayFirstTapTests: XCTestCase {
             )
             app.terminate()
         }
+    }
+
+    /// Nothing under the sky moves once it is there: the sun comes up and
+    /// the rings sweep in on the first Today of a launch, and the cards
+    /// under the hero must not shift while they do (a fixed-height hero is
+    /// the whole point). Read once Today's own loads have landed, then again
+    /// well after the sunrise.
+    ///
+    /// What is measured is the hero's part and nothing else. `-SRStoreShots`
+    /// drops the demo's urgent alert, whose banner is pinned over the page
+    /// whenever the alert inbox lands; the steps card is read only after its
+    /// "Reading the board…" line has become the board; and the steps card is
+    /// placed against the family card only once the trip card between them
+    /// is there. Positions are taken against the hero, so a page that moves
+    /// as a whole for some other reason is not blamed on the sky.
+    @MainActor func testTodayDoesNotMoveUnderTheThumb() {
+        let app = launch(["-SRStoreShots"])
+        let any = app.descendants(matching: .any)
+        let hero = any["today-hero"].firstMatch
+        let family = any["today-family"].firstMatch
+        let steps = any["today-steps"].firstMatch
+        XCTAssertTrue(hero.waitForExistence(timeout: 15), "no hero on Today")
+        XCTAssertTrue(family.waitForExistence(timeout: 15), "no family card on Today")
+        XCTAssertTrue(steps.waitForExistence(timeout: 15), "no steps card on Today")
+        let loaded = expectation(
+            for: NSPredicate(format: "NOT (label CONTAINS %@)", "Reading the board"), evaluatedWith: steps
+        )
+        wait(for: [loaded], timeout: 15)
+        // Whichever trip card the demo's trips give, once it is drawn.
+        let trip = any.matching(NSPredicate(format: "identifier IN %@", ["today-trip", "today-trips", "today-plan-trip"])).firstMatch
+        _ = trip.waitForExistence(timeout: 10)
+
+        func read() -> (hero: CGFloat, family: CGRect, steps: CGRect) {
+            let top = hero.frame.maxY
+            return (hero.frame.height,
+                    family.frame.offsetBy(dx: 0, dy: -top),
+                    steps.frame.offsetBy(dx: 0, dy: -family.frame.maxY))
+        }
+        let before = read()
+        let pause = expectation(description: "past the sunrise")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { pause.fulfill() }
+        wait(for: [pause], timeout: 10)
+        let after = read()
+        XCTAssertEqual(after.hero, before.hero, "the hero changed height during the sunrise")
+        XCTAssertEqual(after.family, before.family, "the family card moved under the hero after it appeared")
+        XCTAssertEqual(after.steps, before.steps, "the steps card moved after it appeared")
+    }
+
+    /// A member's sun is their Move ring: nothing of the owner's readiness.
+    @MainActor func testMemberSunIsMoveOnly() {
+        let app = launch(["-SRDemoMember"])
+        let sun = app.descendants(matching: .any)["today-health"].firstMatch
+        XCTAssertTrue(sun.waitForExistence(timeout: 15), "no sun on a member's Today")
+        XCTAssertTrue(sun.label.contains("Move"), "the member's sun does not say Move: \(sun.label)")
+        XCTAssertFalse(sun.label.contains("Readiness"), "the member's sun reads the owner's readiness: \(sun.label)")
     }
 
     /// The family card: a title, and only where everyone is.

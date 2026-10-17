@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// The four doors under the family — Ask and Readiness, then Daydream and
-/// Play — each one unit tall and two across, two to a row.
+/// The doors at the foot of Today — Ask and Daydream, then Play — each one
+/// unit tall and two across, two to a row.
 ///
 /// Squares, not rows, because each is a door rather than a reading — one tap
 /// and you are where the thing is. Which of them a person gets follows what
-/// they may use; the grid fills left to right, so a member with only Health
-/// and Games still gets a tidy pair.
+/// they may use; the grid fills left to right, and an odd last door takes
+/// the whole row.
+///
+/// Health was the fourth door. It is the sun in Today's sky now (`TodayHero`,
+/// still `today-health`), so the grid asks for `doors`, which leaves it out;
+/// `kinds` keeps the full list for anything that wants every place.
 enum TodayTile: String, CaseIterable, Identifiable {
     case ask, health, daydream, games
 
@@ -23,6 +27,11 @@ enum TodayTile: String, CaseIterable, Identifiable {
             case .games: return AccessPolicy.allows(.games, access)
             }
         }
+    }
+
+    /// The grid's doors: `kinds` without Health, which the sun opens.
+    static func doors(access: AppAccess, sitePaired: Bool) -> [TodayTile] {
+        kinds(access: access, sitePaired: sitePaired).filter { $0 != .health }
     }
 }
 
@@ -55,8 +64,9 @@ struct TodayTileGrid<Tile: View>: View {
                             .frame(height: folded ? nil : side)
                             .frame(minHeight: folded ? 72 : nil)
                     }
-                    // A lone tile keeps its half, not the whole row.
-                    if !folded && row.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+                    // A lone tile takes the whole row: with Health gone to
+                    // the sky, an owner has three doors, and a half-empty
+                    // last row read as a door missing.
                 }
             }
         }
@@ -179,9 +189,13 @@ struct TodayTileGlyph: View {
     let symbol: String
     let tone: Color
     var count: Int = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Image(systemName: symbol)
+            // One hop when the count changes — a new invitation, a new note
+            // — and never on its own. Still under Reduce Motion.
+            .symbolEffect(.bounce, value: reduceMotion ? 0 : count)
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(tone)
             .frame(width: 38, height: 38)
@@ -202,6 +216,7 @@ struct TodayCountBadge: View {
         Text(count > 99 ? "99+" : "\(count)")
             .font(SR.Text.label())
             .monospacedDigit()
+            .srNumeric(Double(count))
             .foregroundStyle(SR.paper)
             .padding(.horizontal, 5)
             .frame(minWidth: 20, minHeight: 20)
