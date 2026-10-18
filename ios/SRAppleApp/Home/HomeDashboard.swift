@@ -121,11 +121,24 @@ struct HomeHeader: View {
 struct HomeCustomizeScreen: View {
     @AppStorage(HomeLayout.key) private var raw = ""
     @ObservedObject private var access = AccessStore.shared
+    @EnvironmentObject private var router: Router
 
     var body: some View {
         let available = HomeTileKind.available(access: access.current, sitePaired: SiteClient.shared.isPaired)
         let layout = HomeLayout.decode(raw)
         List {
+            Section {
+                Button {
+                    SRHaptic.tap()
+                    router.openColours()
+                } label: {
+                    SRRow(title: "Colours", subtitle: "Pick a palette, or change any tile's colour", icon: "paintpalette")
+                }
+                .buttonStyle(.plain)
+                .srGlassRow()
+                .accessibilityIdentifier("settings-home-colours")
+            }
+
             Section {
                 ForEach(layout.arranged(available)) { kind in
                     Toggle(isOn: Binding(

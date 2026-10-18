@@ -172,7 +172,7 @@ struct TaskWaffle: View {
         switch cell {
         case 0: return AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(0.85))
         case 1: return AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(0.45))
-        case 3: return AnyShapeStyle(Color(hex: 0xD7193F).opacity(0.85))
+        case 3: return AnyShapeStyle(SR.Hue.alerts.base.opacity(0.85))
         default: return AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(0.08))
         }
     }
@@ -308,27 +308,28 @@ struct DieFace: View {
 
 // MARK: - Daydream: the aurora
 
-/// A still aurora in the daydream's hues, brighter the more there is to
+/// A still aurora in the daydream's hues and its neighbours', brighter the more there is to
 /// decide. A `MeshGradient` on iOS 18; two gradients before it.
 struct AuroraField: View {
     var intensity: Double = 1
 
     var body: some View {
+        let dream = SR.Hue.daydream
         Group {
             if #available(iOS 18.0, *) {
                 MeshGradient(
                     width: 3, height: 3,
                     points: [[0, 0], [0.5, 0], [1, 0], [0, 0.5], [0.35, 0.55], [1, 0.4], [0, 1], [0.6, 1], [1, 1]],
                     colors: [
-                        Color(hex: 0x9333EA), Color(hex: 0xF472B6), Color(hex: 0x6366F1),
-                        Color(hex: 0x22D3EE).opacity(0.8 * intensity), Color(hex: 0xF0ABFC), Color(hex: 0xA855F7),
-                        Color(hex: 0x7C3AED), Color(hex: 0x38BDF8).opacity(0.9 * intensity), Color(hex: 0xDB2777),
+                        dream.base, dream.glow, SR.Hue.chat.glow,
+                        SR.Hue.news.glow.opacity(0.8 * intensity), dream.glow.opacity(0.7), SR.Hue.games.base,
+                        SR.Hue.games.base, SR.Hue.trips.glow.opacity(0.9 * intensity), SR.Hue.backlog.base,
                     ]
                 )
             } else {
                 ZStack {
                     SR.Hue.daydream.gradient
-                    RadialGradient(colors: [Color(hex: 0x22D3EE).opacity(0.6 * intensity), .clear], center: .bottomLeading, startRadius: 0, endRadius: 180)
+                    RadialGradient(colors: [SR.Hue.news.glow.opacity(0.6 * intensity), .clear], center: .bottomLeading, startRadius: 0, endRadius: 180)
                 }
             }
         }
@@ -348,7 +349,7 @@ struct FlowDots: View {
         LazyVGrid(columns: grid, alignment: .leading, spacing: 6) {
             ForEach(0..<max(total, 1), id: \.self) { index in
                 Circle()
-                    .fill(index < failing ? AnyShapeStyle(Color(hex: 0xFF6B85)) : AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(total == 0 ? 0.2 : 0.85)))
+                    .fill(index < failing ? AnyShapeStyle(SR.errorOnDark) : AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(total == 0 ? 0.2 : 0.85)))
                     .overlay(Circle().strokeBorder(.white.opacity(index < failing ? 0.9 : 0), lineWidth: 2))
                     .frame(width: 12, height: 12)
             }

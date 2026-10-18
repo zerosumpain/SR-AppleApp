@@ -83,6 +83,8 @@ targets:
       # with the app that fills them.
       - path: SRAppleApp/Family/FamilyBoardModels.swift
       - path: SRAppleApp/Family/FamilyWidgetShared.swift
+      # The reader's palette, as the app leaves it on the shelf.
+      - path: SRAppleApp/Design/SRPaletteShared.swift
       # The headline and label faces, as on the Watch.
       - path: SRAppleApp/Fonts/InterDisplay-ExtraBold.ttf
         buildPhase: resources
@@ -117,6 +119,7 @@ targets:
       - path: SRAppleApp/Family/FamilyBacklogShared.swift
       - path: SRAppleApp/Family/FamilyBoardModels.swift
       - path: SRAppleApp/Family/FamilyWidgetShared.swift
+      - path: SRAppleApp/Design/SRPaletteShared.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID).share

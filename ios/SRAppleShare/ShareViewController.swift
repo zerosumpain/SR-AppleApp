@@ -183,6 +183,7 @@ struct ShareSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(FamilyWidgetInk.paper)
+            .tint(FamilyWidgetInk.accent)
             .navigationTitle("Family backlog")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

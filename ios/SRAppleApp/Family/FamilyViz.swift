@@ -554,7 +554,7 @@ struct FamilyRibbonsView: View {
             let width = size.width - left - 4
             let span = model.end - model.start
             func x(_ t: Double) -> CGFloat { left + CGFloat(t / span) * width }
-            let ground = scheme == .dark ? Color(hex: 0x16143A) : Color.white
+            let ground = SR.surface
             for (index, row) in model.rows.enumerated() {
                 let baseline = pitch * 1.4 + pitch * CGFloat(index + 1) - 4
                 let colour = colours[row.subject] ?? SR.accent

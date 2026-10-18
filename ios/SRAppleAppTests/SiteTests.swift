@@ -129,14 +129,18 @@ final class SiteTests: XCTestCase {
     /// no longer the website's `src/app.css`: these values were measured for
     /// contrast, and a value changed by eye is one that can fail it.
     func testPaletteMatchesThePrismTokens() {
-        XCTAssertEqual(UIColor(SR.paper).hexString, "F4F3FB")
-        XCTAssertEqual(UIColor(SR.ink).hexString, "15123A")
-        XCTAssertEqual(UIColor(SR.accent).hexString, "5233F0")
-        XCTAssertEqual(UIColor(SR.accentOnDark).hexString, "A194FF")
-        XCTAssertEqual(UIColor(SR.accentInk).hexString, "087078")
-        XCTAssertEqual(UIColor(SR.good).hexString, "0A8048")
-        XCTAssertEqual(UIColor(SR.goodOnDark).hexString, "4ADE80")
-        XCTAssertEqual(UIColor(SR.surface).hexString, "FFFFFF")
+        // Prism's paint, not `SR`'s: the tokens follow whichever palette this
+        // simulator last chose, and this pins the default.
+        let prism = SRPaint(SRPalette.prism)
+        XCTAssertEqual(UIColor(prism.paper).hexString, "F4F3FB")
+        XCTAssertEqual(UIColor(prism.ink).hexString, "15123A")
+        XCTAssertEqual(UIColor(prism.accent).hexString, "5233F0")
+        XCTAssertEqual(UIColor(prism.accentOnDark).hexString, "A194FF")
+        XCTAssertEqual(UIColor(prism.accentInk).hexString, "087078")
+        XCTAssertEqual(UIColor(prism.good).hexString, "0A8048")
+        XCTAssertEqual(UIColor(prism.goodOnDark).hexString, "4ADE80")
+        XCTAssertEqual(UIColor(prism.surface).hexString, "FFFFFF")
+        XCTAssertEqual(SRPaletteChoice().preset, "prism", "a new install is Prism")
     }
 
     // MARK: - Relative time

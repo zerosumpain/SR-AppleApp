@@ -20,59 +20,79 @@ struct SRLiveBundle: WidgetBundle {
     }
 }
 
-// The site palette (`Theme.swift`), repeated: an extension cannot see the app.
-// Internal, not private: the trip day's card (`TripLiveActivity.swift`) paints with it too.
-enum Ink {
-    static let paper = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let ink = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
-    static let muted = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.65)
-    static let accent = Color(red: 0xC4 / 255, green: 0x57 / 255, blue: 0x0A / 255)
-    static let accentOnDark = Color(red: 0xE8 / 255, green: 0x86 / 255, blue: 0x3A / 255)
-    static let cream = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let creamMuted = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255).opacity(0.7)
-    static let good = Color(red: 0x55 / 255, green: 0x66 / 255, blue: 0x3A / 255)
-    static let goodOnDark = Color(red: 0x8A / 255, green: 0x9A / 255, blue: 0x5B / 255)
-    static let line = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255).opacity(0.18)
+// The reader's palette, as the app left it on the shelf (`SRWidgetPalette`):
+// an extension cannot see the app. Read fresh for each render — a Live
+// Activity redraws only when it is updated, and a stale palette would outlive
+// the reader's change by a whole journey.
+//
+// Prism: the Lock Screen card is the feature's Home tile — the family's hue
+// for a journey, the trips' hue for a trip day — with its type on top. The
+// Dynamic Island is always black, so it takes the hue's bright stop.
+struct LiveInk {
+    let hue: SRHueSpec
+    let good: SRTone
+
+    /// Type on the card.
+    var on: Color { SRRGB.color(hue.onFill) }
+    var onSoft: Color { SRRGB.color(hue.onFill, alpha: 0.78) }
+    var track: Color { SRRGB.color(hue.onFill, alpha: 0.25) }
+    /// The card's own colour, for the system's tint behind it.
+    var tint: Color { SRRGB.color(hue.base) }
+    /// On the black island.
+    var bright: Color { SRRGB.color(hue.glow) }
+    var goodBright: Color { SRRGB.color(good.dark) }
+    static let cream = Color.white
+    static let creamMuted = Color.white.opacity(0.7)
+
+    static func journey() -> LiveInk {
+        let palette = SRWidgetPalette.load()
+        return LiveInk(hue: palette.family, good: palette.good)
+    }
+
+    static func trip() -> LiveInk {
+        let palette = SRWidgetPalette.load()
+        return LiveInk(hue: palette.trips, good: palette.good)
+    }
 }
 
+/// The Live Activities' faces: SF Pro Rounded, as the app's.
 extension Font {
-    /// Inter Display: the headline face. Falls back to a heavy system font if
-    /// the file did not register, which reads close enough.
-    static func display(_ size: CGFloat) -> Font { .custom("InterDisplay-ExtraBold", size: size, relativeTo: .headline) }
-    /// JetBrains Mono: labels and figures.
-    static func mono(_ size: CGFloat) -> Font { .custom("JetBrainsMono-Medium", size: size, relativeTo: .caption) }
+    static func display(_ size: CGFloat) -> Font { FamilyWidgetFont.rounded(size, .heavy, .headline) }
+    static func mono(_ size: CGFloat) -> Font { FamilyWidgetFont.rounded(size, .semibold, .caption1).monospacedDigit() }
 }
 
 struct JourneyLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: JourneyAttributes.self) { context in
-            LockScreenJourney(attributes: context.attributes, state: context.state, stale: context.isStale)
-                .activityBackgroundTint(Ink.paper)
-                .activitySystemActionForegroundColor(Ink.ink)
+            let ink = LiveInk.journey()
+            return LockScreenJourney(attributes: context.attributes, state: context.state, stale: context.isStale, ink: ink)
+                .activityBackgroundTint(ink.tint)
+                .activitySystemActionForegroundColor(ink.on)
         } dynamicIsland: { context in
             let state = context.state
+            let ink = LiveInk.journey()
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     Image(systemName: state.symbol)
                         .font(.title2)
-                        .foregroundStyle(state.arrived ? Ink.goodOnDark : Ink.accentOnDark)
+                        .foregroundStyle(state.arrived ? ink.goodBright : ink.bright)
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     if let eta = state.etaMinutes {
                         VStack(alignment: .trailing, spacing: 0) {
-                            Text("~\(eta)").font(.display(22)).foregroundStyle(Ink.cream)
-                            Text("MIN").font(.mono(10)).foregroundStyle(Ink.creamMuted)
+                            Text("~\(eta)").font(.display(22)).foregroundStyle(LiveInk.cream)
+                            Text("MIN").font(.mono(10)).foregroundStyle(LiveInk.creamMuted)
                         }
                         .padding(.trailing, 4)
                     } else if let distance = state.shortDistance {
-                        Text(distance).font(.mono(15)).foregroundStyle(Ink.cream).padding(.trailing, 4)
+                        Text(distance).font(.mono(15)).foregroundStyle(LiveInk.cream).padding(.trailing, 4)
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Text(state.headline)
                         .font(.display(15))
-                        .foregroundStyle(Ink.cream)
+                        .foregroundStyle(LiveInk.cream)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
@@ -80,26 +100,26 @@ struct JourneyLiveActivity: Widget {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(state.detail)
                             .font(.mono(12))
-                            .foregroundStyle(Ink.creamMuted)
+                            .foregroundStyle(LiveInk.creamMuted)
                             .lineLimit(2)
                         if let progress = state.progress {
-                            JourneyBar(progress: progress, fill: state.arrived ? Ink.goodOnDark : Ink.accentOnDark, track: Ink.cream.opacity(0.18))
+                            JourneyBar(progress: progress, fill: state.arrived ? ink.goodBright : ink.bright, track: LiveInk.cream.opacity(0.18))
                         }
                     }
                 }
             } compactLeading: {
                 Image(systemName: state.symbol)
-                    .foregroundStyle(state.arrived ? Ink.goodOnDark : Ink.accentOnDark)
+                    .foregroundStyle(state.arrived ? ink.goodBright : ink.bright)
             } compactTrailing: {
                 Text(state.arrived ? "Home" : (state.etaMinutes.map { "~\($0)m" } ?? state.shortDistance ?? context.attributes.name))
                     .font(.mono(12))
-                    .foregroundStyle(Ink.cream)
+                    .foregroundStyle(LiveInk.cream)
                     .lineLimit(1)
             } minimal: {
                 Image(systemName: state.symbol)
-                    .foregroundStyle(state.arrived ? Ink.goodOnDark : Ink.accentOnDark)
+                    .foregroundStyle(state.arrived ? ink.goodBright : ink.bright)
             }
-            .keylineTint(Ink.accentOnDark)
+            .keylineTint(ink.bright)
         }
     }
 }
@@ -109,49 +129,55 @@ struct LockScreenJourney: View {
     let attributes: JourneyAttributes
     let state: JourneyAttributes.ContentState
     let stale: Bool
+    var ink: LiveInk = .journey()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(state.arrived ? "ARRIVED" : (state.moving ? "ON THE WAY" : "JOURNEY"))
-                    .font(.mono(11))
-                    .tracking(1.2)
-                    .foregroundStyle(state.arrived ? Ink.good : Ink.accent)
+                Label(
+                    state.arrived ? "ARRIVED" : (state.moving ? "ON THE WAY" : "JOURNEY"),
+                    systemImage: state.arrived ? "checkmark.circle.fill" : "location.fill"
+                )
+                .font(.mono(11))
+                .tracking(1)
+                .foregroundStyle(ink.on)
                 Spacer()
                 Text(state.updated, style: .time)
                     .font(.mono(11))
-                    .foregroundStyle(Ink.muted)
+                    .foregroundStyle(ink.onSoft)
             }
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: state.symbol)
-                    .font(.title3)
-                    .foregroundStyle(state.arrived ? Ink.good : Ink.accent)
-                    .frame(width: 28)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(ink.tint)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(ink.on))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.headline)
                         .font(.display(18))
-                        .foregroundStyle(Ink.ink)
+                        .foregroundStyle(ink.on)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     Text(stale ? "\(state.detail) · not updated lately" : state.detail)
                         .font(.mono(12))
-                        .foregroundStyle(Ink.muted)
+                        .foregroundStyle(ink.onSoft)
                         .lineLimit(2)
                 }
                 Spacer(minLength: 0)
                 if let eta = state.etaMinutes, state.moving {
                     VStack(alignment: .trailing, spacing: 0) {
-                        Text("~\(eta)").font(.display(24)).foregroundStyle(Ink.ink)
-                        Text("MIN").font(.mono(10)).foregroundStyle(Ink.muted)
+                        Text("~\(eta)").font(.display(26)).foregroundStyle(ink.on)
+                        Text("MIN").font(.mono(10)).foregroundStyle(ink.onSoft)
                     }
                 }
             }
             if let progress = state.progress {
-                JourneyBar(progress: progress, fill: state.arrived ? Ink.good : Ink.accent, track: Ink.line)
+                JourneyBar(progress: progress, fill: ink.on, track: ink.track)
             }
         }
         .padding(16)
-        .opacity(stale ? 0.7 : 1)
+        .background(FamilyWidgetGround(hue: ink.hue))
+        .opacity(stale ? 0.75 : 1)
     }
 }
 

@@ -229,7 +229,7 @@ struct ReadinessRings: View {
     let rings: ActivityRingsStore.Rings?
 
     /// Move, Exercise, Stand — the lifted partners, because this is on ink.
-    static let tints: [Color] = [SR.accentOnDark, SR.goodOnDark, SR.accentInkOnDark]
+    static var tints: [Color] { [SR.accentOnDark, SR.goodOnDark, SR.accentInkOnDark] }
 
     var body: some View {
         GeometryReader { proxy in

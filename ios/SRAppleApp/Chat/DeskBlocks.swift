@@ -33,11 +33,11 @@ extension EnvironmentValues {
 /// The desk's palette, named for what it means rather than for its hue.
 enum DeskInk {
     /// A block lifted off the desk's surface: white, or lifted midnight.
-    static let card = SR.surface
+    static var card: Color { SR.surface }
     /// `up` — petrol. `--accent-ink`.
-    static let up = SR.accentInk
+    static var up: Color { SR.accentInk }
     /// `down` — the accent.
-    static let down = SR.accent
+    static var down: Color { SR.accent }
 
     static func direction(_ value: String?) -> Color {
         switch value {
@@ -274,7 +274,7 @@ struct DeskSeriesChart: View {
         let y: Double
     }
 
-    private static let palette: [Color] = [SR.accent, SR.accentInk, SR.inkMuted]
+    private static var palette: [Color] { [SR.accent, SR.accentInk, SR.inkMuted] }
 
     private var points: [Point] {
         var out: [Point] = []

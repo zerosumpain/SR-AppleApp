@@ -42,11 +42,17 @@ final class Router: ObservableObject {
     /// Files handed in from another app — "Open in SR" on a Share sheet.
     @Published var pendingFiles: [URL] = []
 
-    enum Sheet: String, Identifiable { case settings, alerts, connections; var id: String { rawValue } }
+    enum Sheet: String, Identifiable { case settings, alerts, connections, colours; var id: String { rawValue } }
     /// Pages that live only inside More — not places with a tab of their own.
     /// Wildmind, like Daydream, is the owner's.
     enum MorePage: String, Hashable { case daydream, wildmind }
     enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
+
+    /// The palette sheet. A sheet, not a pushed page, so the app behind it
+    /// can redraw in the new colours while the reader is still choosing.
+    func openColours() {
+        sheet = .colours
+    }
 
     func openSettings(_ target: SettingsTarget? = nil) {
         // Where alerts go is the owner's site inbox; nobody else has a
@@ -294,6 +300,8 @@ struct ContentView: View {
     @ObservedObject private var access = AccessStore.shared
     /// The App Review demo: a strip on every screen while it runs.
     @ObservedObject private var reviewDemo = ReviewDemo.shared
+    /// The reader's colours: a change rebuilds the tabs (see `.id` below).
+    @ObservedObject private var palette = SRPaletteStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
@@ -428,7 +436,13 @@ struct ContentView: View {
         // stores were loaded as the person before, and a thread list or story
         // kept from the owner under Katie's tabs is the leak this exists to
         // rule out. The shared stores (family, alerts) re-apply on their own.
-        .id(access.viewingAs?.email ?? "self")
+        //
+        // And whenever the palette changes: every token is read as a view is
+        // built, so a fresh set of screens is the whole app in the new
+        // colours. The paths live on the router, so the reader stays where
+        // they were; the Colours sheet is attached outside this, so it stays
+        // open while the app redraws behind it.
+        .id("\(access.viewingAs?.email ?? "self")#\(palette.epoch)")
         .tint(SR.accentDeep)
         // Viewing the app as somebody else: said on every screen, with the way
         // back one tap away, so a look never passes for the real thing.
@@ -468,6 +482,8 @@ struct ContentView: View {
             }
             checkPersonal()
             syncGamesPoll()
+            // The widgets paint in the reader's palette, read from the shelf.
+            palette.shareWithWidgets()
             await location.askForMotionIfNeeded()
             await site.check()
             await reconcileSite()
@@ -594,6 +610,8 @@ struct ContentView: View {
                 NavigationStack { AlertsScreen(alerts: alerts) }
             case .connections:
                 ConnectionsSheet(store: connections)
+            case .colours:
+                SRPaletteSheet()
             }
         }
     }

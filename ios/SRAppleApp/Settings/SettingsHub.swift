@@ -30,6 +30,7 @@ struct SettingsScreen: View {
     @ObservedObject private var bikePresence = BikePresence.shared
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var router: Router
     @State private var path = NavigationPath()
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
@@ -68,6 +69,17 @@ struct SettingsScreen: View {
                     .tint(SR.accent)
                     .srGlassRow()
                     .accessibilityIdentifier("settings-appearance")
+                    // The palette is a sheet of its own, so the app can be
+                    // seen redrawing behind it; this one gives way to it.
+                    Button {
+                        SRHaptic.tap()
+                        router.openColours()
+                    } label: {
+                        SRRow(title: "Colours", subtitle: "Pick a palette, or change any tile's colour", icon: "paintpalette")
+                    }
+                    .buttonStyle(.plain)
+                    .srGlassRow()
+                    .accessibilityIdentifier("settings-colours")
                 } header: {
                     SRSectionLabel(text: "Appearance")
                 }

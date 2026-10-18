@@ -154,6 +154,7 @@ struct TodayScreen: View {
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var connections: ConnectionsStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// The alert tapped on the card, read in full in a sheet.
     @State private var opened: SiteAlert?
     /// Urgent alerts waved off the banner this session. Dismissing also marks
@@ -337,15 +338,29 @@ struct TodayScreen: View {
         HomeGrid(kinds: visibleTiles) { kind in
             tile(kind)
         }
-        Button {
-            SRHaptic.tap()
-            router.today.append(HomeCustomizeRef())
-        } label: {
-            SRButtonLabel(title: "Arrange Home", icon: "slider.horizontal.3", fill: true)
+        .environment(\.homeColours, { router.openColours() })
+        // Side by side, or stacked once the type is too big for two labels.
+        let footer = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+        footer {
+            Button {
+                SRHaptic.tap()
+                router.today.append(HomeCustomizeRef())
+            } label: {
+                SRButtonLabel(title: "Arrange Home", icon: "slider.horizontal.3", fill: true)
+            }
+            .srButton(.regular)
+            .controlSize(.large)
+            .accessibilityIdentifier("home-customise")
+            Button {
+                SRHaptic.tap()
+                router.openColours()
+            } label: {
+                SRButtonLabel(title: "Colours", icon: "paintpalette.fill", fill: true)
+            }
+            .srButton(.regular)
+            .controlSize(.large)
+            .accessibilityIdentifier("home-colours")
         }
-        .srButton(.regular)
-        .controlSize(.large)
-        .accessibilityIdentifier("home-customise")
         .padding(.top, 4)
     }
 

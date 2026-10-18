@@ -70,6 +70,24 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Arrange Home")
     }
 
+    /// Colours: the sheet over Home, then Home redrawn in Sunset behind it.
+    @MainActor func testShowcaseColours() {
+        let app = launch()
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        let button = byId(app, "home-colours")
+        settle(app, on: byId(app, "today-hero"))
+        guard scroll(app, to: button) else { return soft(false, "no Colours button") }
+        button.tap()
+        settle(app, on: byId(app, "colours-preset-sunset"))
+        attach(app, "Showcase — Colours")
+        byId(app, "colours-preset-sunset").tap()
+        settle(app, seconds: 2)
+        attach(app, "Showcase — Colours, Sunset")
+        byId(app, "colours-done").tap()
+        settle(app, on: byId(app, "today-hero"), seconds: 2)
+        attach(app, "Showcase — Home in Sunset")
+    }
+
     /// A member's Home: the Move ring, the family and Play.
     @MainActor func testShowcaseTodayMember() {
         let app = launch(["-SRDemoMember", "-SRDemoClock", "10:40"])
