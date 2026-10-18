@@ -125,17 +125,18 @@ final class SiteTests: XCTestCase {
         XCTAssertNotEqual(SRRegister.paper.background, SRRegister.ink.background)
     }
 
-    /// Spot-check the palette against `src/app.css`. These are copied values,
-    /// and a copied value is one that can drift.
-    func testPaletteMatchesTheSiteTokens() {
-        XCTAssertEqual(UIColor(SR.paper).hexString, "EDE4D4")   // --bg
-        XCTAssertEqual(UIColor(SR.ink).hexString, "1A1008")     // --text-primary
-        XCTAssertEqual(UIColor(SR.accent).hexString, "C4570A")  // --accent
-        XCTAssertEqual(UIColor(SR.accentOnDark).hexString, "E8863A") // --accent-on-dark
-        XCTAssertEqual(UIColor(SR.accentInk).hexString, "0E5B66")    // --accent-ink
-        XCTAssertEqual(UIColor(SR.good).hexString, "55663A")         // --good
-        XCTAssertEqual(UIColor(SR.goodOnDark).hexString, "8A9A5B")   // --good-on-dark
-        XCTAssertEqual(UIColor(SR.surface).hexString, "E8DECE")      // --surface-elevated
+    /// Spot-check the Prism palette (light). The app's own since 2026-10-18,
+    /// no longer the website's `src/app.css`: these values were measured for
+    /// contrast, and a value changed by eye is one that can fail it.
+    func testPaletteMatchesThePrismTokens() {
+        XCTAssertEqual(UIColor(SR.paper).hexString, "F4F3FB")
+        XCTAssertEqual(UIColor(SR.ink).hexString, "15123A")
+        XCTAssertEqual(UIColor(SR.accent).hexString, "5233F0")
+        XCTAssertEqual(UIColor(SR.accentOnDark).hexString, "A194FF")
+        XCTAssertEqual(UIColor(SR.accentInk).hexString, "087078")
+        XCTAssertEqual(UIColor(SR.good).hexString, "0A8048")
+        XCTAssertEqual(UIColor(SR.goodOnDark).hexString, "4ADE80")
+        XCTAssertEqual(UIColor(SR.surface).hexString, "FFFFFF")
     }
 
     // MARK: - Relative time

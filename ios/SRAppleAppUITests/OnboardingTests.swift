@@ -260,6 +260,10 @@ final class SettingsUITests: XCTestCase {
         // the motion gate, which is where you look for it only if you already
         // know it exists.
         let log = app.buttons["settings-log"]
+        // Below the Home section, so below the fold on a small phone: a List
+        // does not build rows it has not scrolled to.
+        _ = log.waitForExistence(timeout: 5)
+        for _ in 0..<4 where !(log.exists && log.isHittable) { app.swipeUp() }
         XCTAssertTrue(log.waitForExistence(timeout: 10), "no route from settings to the history")
         log.tap()
 
