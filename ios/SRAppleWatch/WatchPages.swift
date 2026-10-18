@@ -16,17 +16,17 @@ struct WatchTodayPage: View {
                 HStack(spacing: 6) {
                     ring(label: "MOVE", fraction: move.reading?.fraction,
                          value: move.reading.map { "\(Int(($0.fraction * 100).rounded()))" } ?? "—",
-                         tint: WatchInk.accent)
+                         tint: WatchInk.move)
                     ring(label: "RECOV", fraction: snapshot.recovery?.fraction,
-                         value: snapshot.recovery?.display ?? "—", tint: WatchInk.good)
+                         value: snapshot.recovery?.display ?? "—", tint: WatchInk.recovery)
                     ring(label: "READY", fraction: snapshot.readiness?.fraction,
-                         value: snapshot.readiness?.display ?? "—", tint: WatchInk.warn)
+                         value: snapshot.readiness?.display ?? "—", tint: WatchInk.readiness)
                 }
 
                 if let readiness = snapshot.readiness {
                     Text(readiness.label.uppercased())
                         .font(WatchInk.label())
-                        .foregroundStyle(WatchInk.accent)
+                        .foregroundStyle(WatchInk.readiness)
                         .lineLimit(1)
                 }
 

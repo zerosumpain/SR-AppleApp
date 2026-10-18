@@ -22,6 +22,8 @@ from pathlib import Path
 
 SIZE = 1024
 ASSETS = Path(__file__).resolve().parent.parent / "ios/SRAppleApp/Assets.xcassets"
+# The Watch app wears the primary (Prism) icon: watchOS has no alternate icons.
+WATCH_ICON = Path(__file__).resolve().parent.parent / "ios/SRAppleWatch/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
 
 # The mark on an 11 x 7 grid: S in columns 0-4, R in 6-10.
 MARK = [
@@ -134,7 +136,10 @@ def main():
     for name, (asset, corners, ink, bar, sheen) in ICONS.items():
         folder = ASSETS / f"{asset}.appiconset"
         folder.mkdir(exist_ok=True)
-        (folder / f"{asset}.png").write_bytes(png(render(corners, ink, bar, sheen)))
+        image = png(render(corners, ink, bar, sheen))
+        (folder / f"{asset}.png").write_bytes(image)
+        if asset == "AppIcon":
+            WATCH_ICON.write_bytes(image)
         contents = {
             "images": [{"filename": f"{asset}.png", "idiom": "universal", "platform": "ios", "size": "1024x1024"}],
             "info": {"author": "xcode", "version": 1},

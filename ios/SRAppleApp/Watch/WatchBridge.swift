@@ -60,6 +60,8 @@ final class WatchBridge: NSObject, ObservableObject {
         }
         bag["access"] = AccessStore.shared.$current.sink { [weak self] _ in self?.setNeedsPublish() }
         bag["pins"] = PinnedFlows.shared.$pins.sink { [weak self] _ in self?.setNeedsPublish() }
+        // The wrist wears the reader's palette too.
+        bag["palette"] = SRPaletteStore.shared.$epoch.dropFirst().sink { [weak self] _ in self?.setNeedsPublish() }
     }
 
     /// The inbox and the connections, from the instances `ContentView` holds.
@@ -138,6 +140,7 @@ final class WatchBridge: NSObject, ObservableObject {
             sync: sync,
             connectionNeedsFixing: connectionNeedsFixing,
             pinned: PinnedFlows.shared.pins,
+            palette: SRPaint.current.palette.watch,
             now: Date()
         )
     }
@@ -268,6 +271,7 @@ enum WatchSnapshotBuilder {
         sync: WatchSnapshot.Sync,
         connectionNeedsFixing: Bool,
         pinned: [WatchSnapshot.PinnedFlow],
+        palette: WatchPalette? = nil,
         now: Date
     ) -> WatchSnapshot {
         // The inbox and the workflows are the owner's, on the Watch as on the
@@ -290,7 +294,8 @@ enum WatchSnapshotBuilder {
             sync: sync,
             connectionNeedsFixing: ownerSite && connectionNeedsFixing,
             pinnedFlows: ownerSite ? Array(pinned.prefix(PinnedFlows.limit)) : [],
-            canAsk: AccessPolicy.allows(.chat, access)
+            canAsk: AccessPolicy.allows(.chat, access),
+            palette: palette
         )
     }
 
@@ -339,6 +344,6 @@ private extension WatchSnapshot {
         WatchSnapshot(version: version, generatedAt: generatedAt, readiness: readiness, recovery: recovery,
                       figures: figures, healthUpdatedAt: healthUpdatedAt, alerts: alerts, unread: unread,
                       showsAlerts: showsAlerts, sync: sync, connectionNeedsFixing: connectionNeedsFixing,
-                      pinnedFlows: pinnedFlows, canAsk: canAsk)
+                      pinnedFlows: pinnedFlows, canAsk: canAsk, palette: palette)
     }
 }

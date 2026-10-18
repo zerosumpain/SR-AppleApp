@@ -1,29 +1,41 @@
 import SwiftUI
 
-/// The ink register, on a wrist: cream type on ink, one accent. watchOS is
-/// always dark, and the site's ink band is the part of its palette made for
-/// that. Two faces only — Inter Display for figures, JetBrains Mono for labels.
+/// The reader's palette, on a wrist: light type on the dark page, one accent,
+/// a colour per ring. Chosen on the phone (Settings → Colours) and carried in
+/// the snapshot (`WatchPalette`); Prism until a phone sends one. SF Pro
+/// Rounded throughout, as on the phone since Prism.
 enum WatchInk {
-    static let ground = Color(red: 0x1A / 255, green: 0x10 / 255, blue: 0x08 / 255)
-    static let cream = Color(red: 0xED / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-    static let creamSoft = cream.opacity(0.7)
-    static let creamFaint = cream.opacity(0.45)
-    static let accent = Color(red: 0xE8 / 255, green: 0x86 / 255, blue: 0x3A / 255)
-    static let good = Color(red: 0x8A / 255, green: 0x9A / 255, blue: 0x5B / 255)
-    static let warn = Color(red: 0xB0 / 255, green: 0x89 / 255, blue: 0x2A / 255)
-    static let bad = Color(red: 0xE0 / 255, green: 0x8B / 255, blue: 0x8B / 255)
+    /// Set by `WatchModel` as each snapshot lands, before it is published, so
+    /// the redraw that follows paints in the new colours. Main thread only.
+    static var palette: WatchPalette = WatchShelf.load()?.palette ?? .prism
 
-    /// Scaled with the wearer's text size, like every face in the phone app.
+    static var ground: Color { hex(palette.ground) }
+    static var cream: Color { hex(palette.cream) }
+    static var creamSoft: Color { cream.opacity(0.7) }
+    static var creamFaint: Color { cream.opacity(0.55) }
+    static var accent: Color { hex(palette.accent) }
+    static var good: Color { hex(palette.good) }
+    static var warn: Color { hex(palette.warn) }
+    static var bad: Color { hex(palette.bad) }
+    static var move: Color { hex(palette.move) }
+    static var recovery: Color { hex(palette.recovery) }
+    static var readiness: Color { hex(palette.readiness) }
+
+    static func hex(_ value: UInt32) -> Color {
+        Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
+
+    /// Scaled with the wearer's text size: the system's text styles, rounded.
     static func figure(_ size: CGFloat) -> Font {
-        .custom("InterDisplay-ExtraBold", size: size, relativeTo: .title3)
+        .system(size >= 17 ? .title3 : .headline, design: .rounded, weight: .heavy)
     }
 
     static func label(_ size: CGFloat = 12) -> Font {
-        .custom("JetBrainsMono-Medium", size: size, relativeTo: .caption2)
+        .system(size >= 12 ? .caption : .caption2, design: .rounded, weight: .bold)
     }
 
     static func mono(_ size: CGFloat = 13) -> Font {
-        .custom("JetBrainsMono-Regular", size: size, relativeTo: .footnote)
+        .system(size >= 13 ? .footnote : .caption2, design: .rounded, weight: .medium).monospacedDigit()
     }
 
     static func severity(_ severity: String) -> Color {

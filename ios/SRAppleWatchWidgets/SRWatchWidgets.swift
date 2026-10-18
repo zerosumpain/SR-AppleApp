@@ -27,7 +27,19 @@ struct ShelfProvider: TimelineProvider {
     }
 }
 
-private let accent = Color(red: 0xE8 / 255, green: 0x86 / 255, blue: 0x3A / 255)
+/// The reader's palette, from the snapshot the phone sent (Prism before one
+/// arrives). On a tinted face the system recolours whatever is accentable;
+/// in full colour the rings wear the same colours as the Watch app's.
+extension ShelfEntry {
+    var palette: WatchPalette { snapshot.palette ?? .prism }
+
+    func colour(_ value: UInt32) -> Color {
+        Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
+
+    var readinessColour: Color { colour(palette.readiness) }
+    var alertColour: Color { colour(palette.bad) }
+}
 
 // MARK: - Readiness
 
@@ -49,6 +61,7 @@ struct ReadinessView: View {
 
     private var readiness: WatchSnapshot.Figure? { entry.snapshot.readiness }
     private var score: String { readiness?.display ?? "—" }
+    private var accent: Color { entry.readinessColour }
 
     var body: some View {
         switch family {
@@ -56,14 +69,14 @@ struct ReadinessView: View {
             Gauge(value: readiness?.fraction ?? 0) {
                 Text("READY")
             } currentValueLabel: {
-                Text(score)
+                Text(score).font(.system(.body, design: .rounded, weight: .heavy))
             }
             .gaugeStyle(.accessoryCircularCapacity)
             .tint(accent)
             .widgetAccentable()
         case .accessoryCorner:
             Text(score)
-                .font(.title3)
+                .font(.system(.title3, design: .rounded, weight: .heavy))
                 .widgetCurvesContent()
                 .widgetLabel {
                     Gauge(value: readiness?.fraction ?? 0) { Text("Readiness") }
@@ -75,7 +88,7 @@ struct ReadinessView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("READINESS").font(.caption2).foregroundStyle(accent).widgetAccentable()
                 Text(readiness.map { "\($0.display) · \($0.label)" } ?? "Not in yet")
-                    .font(.headline)
+                    .font(.system(.headline, design: .rounded, weight: .bold))
                     .lineLimit(1)
                 if let recovery = entry.snapshot.recovery {
                     Text("Recovery \(recovery.display)%").font(.caption).lineLimit(1)
@@ -117,8 +130,9 @@ struct UnreadView: View {
                 VStack(spacing: 0) {
                     Image(systemName: entry.snapshot.unread > 0 ? "bell.badge.fill" : "bell")
                         .font(.caption)
+                        .foregroundStyle(entry.snapshot.unread > 0 ? entry.alertColour : .primary)
                         .widgetAccentable()
-                    Text("\(entry.snapshot.unread)").font(.headline)
+                    Text("\(entry.snapshot.unread)").font(.system(.headline, design: .rounded, weight: .heavy))
                 }
             }
         }

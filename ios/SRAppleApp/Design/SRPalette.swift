@@ -116,6 +116,15 @@ struct SRPalette: Identifiable, Equatable {
         presets.first { $0.id == id } ?? prism
     }
 
+    /// What the Watch needs of this palette: always dark, so the dark page,
+    /// the lifted partners, and a bright stop for each of Today's rings.
+    var watch: WatchPalette {
+        WatchPalette(
+            ground: paper.dark, cream: paper.light, accent: accent.dark, good: good.dark, warn: warn.dark,
+            bad: error.dark, move: hue(.move).glow, recovery: hue(.health).glow, readiness: accent.dark
+        )
+    }
+
     /// What a widget or Live Activity needs of this palette.
     var widget: SRWidgetPalette {
         SRWidgetPalette(

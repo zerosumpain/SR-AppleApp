@@ -71,6 +71,9 @@ struct WatchSnapshot: Codable, Equatable {
     let pinnedFlows: [PinnedFlow]
     /// Whether a question may be started from the wrist (this person has chat).
     let canAsk: Bool
+    /// The reader's palette, chosen on the phone (Settings → Colours). Nil
+    /// from a phone older than palettes; the Watch then wears Prism.
+    var palette: WatchPalette? = nil
 
     static let empty = WatchSnapshot(
         generatedAt: .distantPast, readiness: nil, recovery: nil, figures: [], healthUpdatedAt: nil,
@@ -106,6 +109,28 @@ struct WatchSnapshot: Codable, Equatable {
         d.dateDecodingStrategy = .secondsSince1970
         return d
     }()
+}
+
+/// The reader's palette, as a wrist wears it. watchOS is always dark, so these
+/// are the dark page and the lifted partners the phone uses in dark mode, plus
+/// a colour for each of Today's three rings. `0xRRGGBB`; Foundation only, so
+/// the phone, the Watch app and the complications all read the same value.
+struct WatchPalette: Codable, Equatable, Hashable {
+    var ground: UInt32
+    var cream: UInt32
+    var accent: UInt32
+    var good: UInt32
+    var warn: UInt32
+    var bad: UInt32
+    /// The rings: Move (read on the wrist), Recovery and Readiness.
+    var move: UInt32
+    var recovery: UInt32
+    var readiness: UInt32
+
+    static let prism = WatchPalette(
+        ground: 0x0B0A1C, cream: 0xF4F3FB, accent: 0xA194FF, good: 0x4ADE80, warn: 0xFFC24B, bad: 0xFF6B85,
+        move: 0xFF5FA2, recovery: 0x3DDC84, readiness: 0xA194FF
+    )
 }
 
 /// What the wrist can ask the phone to do. Every one is something the phone
