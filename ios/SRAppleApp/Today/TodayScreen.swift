@@ -431,7 +431,7 @@ struct TodayScreen: View {
         let arrange = { router.today.append(HomeCustomizeRef()) }
         switch kind {
         case .family:
-            HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange) {
+            HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange, keepsChildren: true) {
                 HomeFamilyTile(store: family, watch: family.view?.watch, live: onScreen && scenePhase == .active)
             }
         case .familyDay:
@@ -451,7 +451,7 @@ struct TodayScreen: View {
                 HomeTasksTile()
             }
         case .trips:
-            HomeTripsTile { target in
+            HomeTripsTile(hide: hide, customise: arrange) { target in
                 switch target {
                 case .day(let day): router.openTrips(day: day)
                 case .list: router.openTrips()

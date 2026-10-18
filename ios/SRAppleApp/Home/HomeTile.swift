@@ -118,22 +118,42 @@ struct HomeFigure: View {
 
 /// A tile as a button: one tap goes where the feature is; a long press offers
 /// taking it off Home, or arranging Home.
+///
+/// `keepsChildren`: a tap target that is NOT a `Button`, for a tile whose
+/// picture has parts of its own — the Orbit's people, each a VoiceOver
+/// element. A `Button` folds everything inside it into one element.
 struct HomeTileButton<Content: View>: View {
     let kind: HomeTileKind
     let id: String
     let action: () -> Void
     var hide: (() -> Void)? = nil
     var customise: (() -> Void)? = nil
+    var keepsChildren = false
     @ViewBuilder var label: Content
 
     var body: some View {
-        Button {
-            SRHaptic.tap()
-            action()
-        } label: {
-            label
+        Group {
+            if keepsChildren {
+                label
+                    .contentShape(RoundedRectangle(cornerRadius: HomeTileFrame<EmptyView>.corner, style: .continuous))
+                    .onTapGesture {
+                        SRHaptic.tap()
+                        action()
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { action() }
+            } else {
+                Button {
+                    SRHaptic.tap()
+                    action()
+                } label: {
+                    label
+                }
+                .buttonStyle(SRPressStyle())
+                .accessibilityAddTraits(.isButton)
+            }
         }
-        .buttonStyle(SRPressStyle())
         .contextMenu {
             if let hide {
                 Button { hide() } label: { Label("Hide from Home", systemImage: "eye.slash") }
@@ -143,6 +163,5 @@ struct HomeTileButton<Content: View>: View {
             }
         }
         .accessibilityIdentifier(id)
-        .accessibilityAddTraits(.isButton)
     }
 }

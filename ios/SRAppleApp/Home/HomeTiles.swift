@@ -250,6 +250,8 @@ struct HomeTasksTile: View {
 
 struct HomeTripsTile: View {
     @ObservedObject private var store = TripStore.shared
+    var hide: (() -> Void)? = nil
+    var customise: (() -> Void)? = nil
     let open: (HomeTripTarget) -> Void
 
     var body: some View {
@@ -259,22 +261,22 @@ struct HomeTripsTile: View {
             if let running = store.running(now: now) {
                 HomeTileButton(kind: .trips, id: "today-trip", action: {
                     open(.day(TripDayRef(tripId: running.bundle.trip.id, date: running.date)))
-                }) {
+                }, hide: hide, customise: customise) {
                     runningTile(running.bundle, date: running.date, now: now)
                 }
             } else if let next = store.upcoming(now: now) {
-                HomeTileButton(kind: .trips, id: "today-trips", action: { open(.list) }) {
+                HomeTileButton(kind: .trips, id: "today-trips", action: { open(.list) }, hide: hide, customise: customise) {
                     upcomingTile(next, now: now)
                 }
             } else if !store.summaries.isEmpty {
-                HomeTileButton(kind: .trips, id: "today-trips", action: { open(.list) }) {
+                HomeTileButton(kind: .trips, id: "today-trips", action: { open(.list) }, hide: hide, customise: customise) {
                     HomeTileFrame(kind: .trips) {
                         Spacer(minLength: 0)
                         HomeFigure(value: "\(store.summaries.count)", unit: store.summaries.count == 1 ? "trip" : "trips", caption: "On this phone")
                     }
                 }
             } else {
-                HomeTileButton(kind: .trips, id: "today-plan-trip", action: { open(.plan) }) {
+                HomeTileButton(kind: .trips, id: "today-plan-trip", action: { open(.plan) }, hide: hide, customise: customise) {
                     HomeTileFrame(kind: .trips) {
                         Spacer(minLength: 0)
                         HomeFigure(value: "Plan a trip", caption: "Say where, when and who", size: 24)
