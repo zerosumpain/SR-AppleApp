@@ -122,8 +122,11 @@ final class AppStoreShotsTests: XCTestCase {
     /// reads the launch arguments), no connection banner, no urgent alert.
     @MainActor private func launch() -> XCUIApplication {
         let app = XCUIApplication()
+        // The sky's clock pinned mid-morning, so the store frame of Today
+        // looks the same whenever it is shot.
         app.launchArguments = ["-SRDemo", "-SRStoreShots",
-                               "-today-card-steps", "YES", "-today-card-tasks", "YES"]
+                               "-today-card-steps", "YES", "-today-card-tasks", "YES",
+                               "-SRDemoClock", "10:40"]
         app.launch()
         return app
     }

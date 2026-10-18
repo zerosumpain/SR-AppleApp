@@ -20,14 +20,53 @@ final class ShowcaseTests: XCTestCase {
     // MARK: - Today
 
     @MainActor func testShowcaseToday() {
-        let app = launch()
+        // Mid-morning on the sky's clock, whenever CI runs: the family out,
+        // the sun well up, the trip's stops on the horizon.
+        let app = launch(["-SRDemoClock", "10:40"])
         soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
-        settle(app, on: byId(app, "today-health"))
+        settle(app, on: byId(app, "today-health"), seconds: 2.5)
         attach(app, "Showcase — Today")
 
         app.swipeUp()
         settle(app)
         attach(app, "Showcase — Today, scrolled")
+    }
+
+    /// The sky at three more times of day, each as CI boots it (dark) and
+    /// again in light.
+    @MainActor func testShowcaseTodayDawn() { shootSky(at: "06:55", "dawn") }
+
+    @MainActor func testShowcaseTodayDusk() { shootSky(at: "18:20", "dusk") }
+
+    @MainActor func testShowcaseTodayNight() { shootSky(at: "22:30", "night") }
+
+    @MainActor private func shootSky(at clock: String, _ name: String) {
+        for (appearance, extra) in [("dark", [String]()), ("light", ["-sr.appearance", "light"])] {
+            let app = launch(["-SRDemoClock", clock] + extra)
+            soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+            settle(app, on: byId(app, "today-hero"), seconds: 2.5)
+            attach(app, "Showcase — Today at \(name), \(appearance)")
+            app.terminate()
+        }
+    }
+
+    /// The long press on the sun: the day's figures.
+    @MainActor func testShowcaseTodayPeek() {
+        let app = launch(["-SRDemoClock", "10:40"])
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        let sun = byId(app, "today-health")
+        settle(app, on: sun, seconds: 2.5)
+        sun.press(forDuration: 1.0)
+        settle(app)
+        attach(app, "Showcase — Today, the sun held")
+    }
+
+    /// A member's Today: the Move sun, the family and Play.
+    @MainActor func testShowcaseTodayMember() {
+        let app = launch(["-SRDemoMember", "-SRDemoClock", "10:40"])
+        soft(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "no Today tab")
+        settle(app, on: byId(app, "today-health"), seconds: 2.5)
+        attach(app, "Showcase — a member's Today")
     }
 
     /// Daydream: the tile on Today, then the page in More it opens.

@@ -35,6 +35,10 @@ final class MoveRingStore: ObservableObject {
     /// Start watching today's ring, or re-point the watch at a new day. Cheap
     /// to call on every refresh: a query already on today is left alone.
     func start(now: Date = Date()) {
+        // Demo mode (the review demo, or the screenshot harness): a ring part
+        // closed, so Today's sun has a Move ring to draw. No launch flag is
+        // read here, so this is safe in a Release build.
+        if SRDemo.isOn { reading = Reading(value: 412, goal: 600, unit: "kcal"); return }
         guard HKHealthStore.isHealthDataAvailable() else { return }
         let calendar = Calendar.current
         var today = calendar.dateComponents([.era, .year, .month, .day], from: now)
@@ -141,74 +145,28 @@ struct TodayVital: Equatable, Identifiable {
     }
 }
 
-// MARK: - The row
-
-/// The body, as one row of Today's "Up next": three nested rings and the
-/// readiness verdict. The Health tab, one tap away, has the reasoning.
-///
-/// It was a card of three rings at the top of the screen. Today leads with the
-/// family now, and a glance at the body needs one line, not a third of the
-/// first screen — the rings stay, nested the way the Watch draws them, small
-/// enough to sit where a row's icon goes.
-struct TodayHealthRow: View {
-    let vitals: [TodayVital]
-    var isMock = false
-
-    private var readiness: TodayVital? { vitals.first { $0.key == "readiness" } }
-    private var others: [TodayVital] { vitals.filter { $0.key != "readiness" } }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            TodayRings(vitals: vitals)
-                .frame(width: 34, height: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                // Figure and verdict as separate texts: the verdict is a word
-                // the screen can be found by ("Primed"), and it wraps under the
-                // figure at a large text size rather than truncating it.
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) { headline }
-                    VStack(alignment: .leading, spacing: 0) { headline }
-                }
-                Text(isMock ? "Demonstration figures, not a measurement." : subline)
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(SR.inkGhost)
-                .accessibilityHidden(true)
-        }
-        .padding(.vertical, SR.rowPadding)
-        .frame(minHeight: SR.tapTarget)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(vitals.map(\.spoken).joined(separator: ". "))
-    }
-
-    @ViewBuilder
-    private var headline: some View {
-        Text(readiness.map { "Readiness \($0.value)" } ?? "Readiness")
-            .font(SR.Text.title())
-            .foregroundStyle(SR.ink)
-        if let caption = readiness?.caption {
-            Text(caption)
-                .font(SR.Text.title())
-                .foregroundStyle(SR.inkSecondary)
-        }
-    }
-
-    /// "Move 76% · Recovery 68%".
-    private var subline: String {
-        others.map { "\($0.label) \($0.value)" }.joined(separator: " · ")
-    }
-}
-
 /// Move, Recovery and Readiness as three concentric rings, outermost first.
 /// A number with no reading draws its track and no arc.
+///
+/// Today's sun is the one place they are drawn now. It draws them thinner
+/// (`lineScale`), sweeps them in on the first Today of a launch (`progress`
+/// with `stagger`, each ring a beat after the one outside it), and fades the
+/// site's two (`dimmed`) when the figures behind them are hours old.
 struct TodayRings: View {
     let vitals: [TodayVital]
+    /// How much of each arc is drawn, 0…1: the sunrise sweep. 1 draws the
+    /// reading as it is.
+    var progress: Double = 1
+    /// The stroke, as a share of the side.
+    var lineScale: CGFloat = 0.11
+    /// Each ring sweeps in after the one outside it, instead of all at once.
+    var stagger: Bool = false
+    /// Keys whose ring is drawn at half strength.
+    var dimmed: Set<String> = []
+    /// Read here, not left to the caller: an `.animation(_:value:)` on the
+    /// arc itself overrides any outer transaction that clears it, so only the
+    /// ring can stop its own sweep under Reduce Motion.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static func tint(_ key: String) -> Color {
         switch key {
@@ -218,10 +176,19 @@ struct TodayRings: View {
         }
     }
 
+    static func line(side: CGFloat, lineScale: CGFloat) -> CGFloat { max(3, side * lineScale) }
+
+    /// The clear disc inside the innermost ring, where a figure can go.
+    static func hole(side: CGFloat, count: Int, lineScale: CGFloat) -> CGFloat {
+        let line = line(side: side, lineScale: lineScale)
+        let rings = CGFloat(max(1, count))
+        return max(0, side - 2 * ((rings - 1) * (line + 1.5) + line))
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
-            let line = max(3, side * 0.11)
+            let line = Self.line(side: side, lineScale: lineScale)
             ZStack {
                 ForEach(Array(vitals.enumerated()), id: \.element.id) { index, vital in
                     let inset = CGFloat(index) * (line + 1.5)
@@ -230,17 +197,118 @@ struct TodayRings: View {
                         Circle().stroke(tint.opacity(0.16), lineWidth: line)
                         if let fraction = vital.fraction {
                             Circle()
-                                .trim(from: 0, to: max(0, min(1, fraction)))
+                                .trim(from: 0, to: max(0, min(1, fraction)) * max(0, min(1, progress)))
                                 .stroke(tint, style: StrokeStyle(lineWidth: line, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
+                                .animation(stagger && !reduceMotion ? SRMotion.sweep.delay(0.2 + 0.08 * Double(index)) : nil,
+                                           value: progress)
                         }
                     }
+                    .opacity(dimmed.contains(vital.key) ? 0.5 : 1)
                     .padding(inset + line / 2)
                 }
             }
             .frame(width: side, height: side)
-            .animation(.easeInOut(duration: 0.4), value: vitals)
+            // A new reading eases in; under Reduce Motion it simply changes.
+            .srAnimation(.easeInOut(duration: 0.4), value: vitals)
         }
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - The sun's reading
+
+/// What Today's sun says: its rings, the figure in the middle, the word
+/// beside it and the colour of its glow.
+///
+/// Pure, like `TodayVital`, so who gets what is tested without a view. The
+/// owner with the site paired gets the three rings and the readiness score;
+/// anybody else — a member, or the owner before the site is paired — gets
+/// the one ring this phone knows, Move, and its percentage. Nothing of the
+/// site's ever reaches a member's sun: their endpoints would only refuse
+/// them, and the figures are not theirs to read.
+struct TodayHeroLead: Equatable {
+    enum Band: Equatable {
+        /// Readiness 70 and up.
+        case good
+        /// 40 to 69.
+        case mid
+        /// Under 40.
+        case low
+        /// No readiness to colour by: Move only, or not in yet.
+        case neutral
+    }
+
+    /// Outermost first.
+    let rings: [TodayVital]
+    /// In the sun: "72", "69%", or "—".
+    let figure: String
+    /// What the figure rolls between when it changes.
+    let figureValue: Double
+    /// Beside the sun: "Primed", "Move", or nothing.
+    let word: String
+    let band: Band
+    /// The site's figures are more than three hours old. Said, and the
+    /// site's rings faded; no words are added to the screen.
+    let stale: Bool
+    /// The sun's VoiceOver label, after "Health. ".
+    let spoken: String
+    /// The owner's site figures, behind a long press. Empty for anybody else.
+    let figures: [HealthFigure]
+    /// The readiness verdict's advice, for the same.
+    let recommendation: String?
+    /// "412 / 600 kcal", for a Move-only long press.
+    let moveDetail: String?
+    /// The owner, with the site's figures in reach.
+    let ownerSite: Bool
+
+    /// The glow behind the figure.
+    var bandTint: Color {
+        switch band {
+        case .good: return SR.good
+        case .mid, .neutral: return SR.accent
+        case .low: return SR.accentInk
+        }
+    }
+
+    /// Past this, the site's figures are yesterday's news in all but name.
+    static let staleAfter: TimeInterval = 3 * 3600
+
+    static func band(_ score: Int?) -> Band {
+        guard let score else { return .neutral }
+        if score >= 70 { return .good }
+        if score >= 40 { return .mid }
+        return .low
+    }
+
+    static func make(ownerSite: Bool, health: TodayHealth?, move: MoveRingStore.Reading?, now: Date) -> TodayHeroLead {
+        let moveVital = TodayVital.moveVital(move)
+        let moveDetail = move.map { "\(Int($0.value.rounded())) / \(Int($0.goal.rounded())) \($0.unit)" }
+        guard ownerSite else {
+            let percent = move.map { Int(($0.fraction * 100).rounded()) }
+            return TodayHeroLead(
+                rings: [moveVital], figure: percent.map { "\($0)%" } ?? "—", figureValue: Double(percent ?? 0),
+                word: "Move", band: .neutral, stale: false, spoken: moveVital.spoken,
+                figures: [], recommendation: nil, moveDetail: moveDetail, ownerSite: false
+            )
+        }
+        let vitals = TodayVital.make(health: health, move: move)
+        let score = health?.readiness.map { Int($0.score.rounded()) }
+        let generated = health.flatMap { isoDate($0.generatedAt) }
+        let stale = generated.map { now.timeIntervalSince($0) > staleAfter } ?? false
+        var spoken = vitals.map(\.spoken).joined(separator: ". ")
+        if stale, let generated {
+            // "06:40" on this phone's clock, whatever its 12/24-hour setting:
+            // a 12-hour "06" with no am or pm would be a guess for the ear.
+            let hm = Calendar.current.dateComponents([.hour, .minute], from: generated)
+            spoken += ", as of " + String(format: "%02d:%02d", hm.hour ?? 0, hm.minute ?? 0)
+        }
+        if health?.isMock ?? false { spoken += ". Demonstration figures" }
+        return TodayHeroLead(
+            rings: vitals, figure: score.map { "\($0)" } ?? "—", figureValue: Double(score ?? 0),
+            word: health?.readiness?.label ?? "", band: band(score), stale: stale, spoken: spoken,
+            figures: health?.figures ?? [], recommendation: health?.readiness?.recommendation,
+            moveDetail: moveDetail, ownerSite: true
+        )
     }
 }
