@@ -109,7 +109,7 @@ struct SRTopBar<Trailing: View>: View {
                 Text(kicker.uppercased())
                     .font(SR.mono(12))
                     .tracking(1.2)
-                    .foregroundStyle(Color(hex: 0xEDE4D4, alpha: 0.55))
+                    .foregroundStyle(SR.onInk(.label))
                     .lineLimit(1)
             }
             trailing
@@ -185,7 +185,7 @@ struct SRFooterStrip: View {
                 Text(item.uppercased())
                     .font(SR.mono(12))
                     .tracking(1.1)
-                    .foregroundStyle(Color(hex: 0xEDE4D4, alpha: 0.55))
+                    .foregroundStyle(SR.onInk(.label))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

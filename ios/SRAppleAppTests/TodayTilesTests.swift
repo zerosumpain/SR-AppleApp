@@ -1,44 +1,8 @@
 import XCTest
 @testable import SRAppleApp
 
-/// Today's four squares, the urgent banner, and the Daydream list they open.
+/// The urgent banner, and the Daydream list it opens.
 final class TodayTilesTests: XCTestCase {
-
-    // MARK: - Which tiles
-
-    func testTheOwnerGetsAllFourInReadingOrder() {
-        XCTAssertEqual(TodayTile.kinds(access: .everything, sitePaired: true), [.ask, .health, .daydream, .games])
-    }
-
-    func testWithoutTheSiteOnlyHealthAndGamesAreLeft() {
-        // Ask and Daydream both ride the site credential.
-        XCTAssertEqual(TodayTile.kinds(access: .everything, sitePaired: false), [.health, .games])
-    }
-
-    func testAMemberGetsNoDaydream() {
-        let member = AppAccess(chat: true, family: true, games: true)
-        XCTAssertEqual(TodayTile.kinds(access: member, sitePaired: true), [.ask, .health, .games])
-    }
-
-    func testAMemberWithoutChatOrGamesStillHasHealth() {
-        XCTAssertEqual(TodayTile.kinds(access: AppAccess(family: true), sitePaired: true), [.health])
-    }
-
-    // MARK: - The doors
-
-    func testTheOwnersDoorsLeaveHealthToTheSun() {
-        XCTAssertEqual(TodayTile.doors(access: .everything, sitePaired: true), [.ask, .daydream, .games])
-    }
-
-    func testAMembersDoorsLeaveHealthToTheSun() {
-        let member = AppAccess(chat: true, family: true, games: true)
-        XCTAssertEqual(TodayTile.doors(access: member, sitePaired: true), [.ask, .games])
-        XCTAssertEqual(TodayTile.doors(access: AppAccess(family: true), sitePaired: true), [])
-    }
-
-    func testWithoutTheSiteTheDoorsAreJustPlay() {
-        XCTAssertEqual(TodayTile.doors(access: .everything, sitePaired: false), [.games])
-    }
 
     // MARK: - The urgent banner
 

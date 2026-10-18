@@ -1,32 +1,28 @@
 import SwiftUI
 import UIKit
 
-/// Paper under glass.
+/// Glass over a bright ground.
 ///
 /// The app used to be the website's system carried over whole: a cream page,
-/// zero radius, no shadows, ink as chrome. That was right for a desk and it
-/// read, on iOS 26, as an app that had not noticed the phone it was on — every
-/// bar opaque, every control flat, nothing refracting anything.
-///
-/// The overhaul biases towards Apple's Liquid Glass and keeps Strange Ramblings
-/// as the MATERIAL the glass sits over and the voice it speaks in:
+/// zero radius, no shadows, ink as chrome. The first overhaul moved the
+/// furniture to Apple's Liquid Glass; Prism (2026-10-18) changed what the
+/// glass sits over and the voice it speaks in:
 ///
 /// - **The furniture is glass.** Tab bar, navigation bar, buttons, the chat
 ///   composer, chips, the floating figures. On iOS 26 these are the system's
 ///   own `glassEffect`; on 17–25 they fall back to a material, so an older
 ///   phone gets frosted panels rather than a crash.
-/// - **The ground is paper.** Cream, grain, and two faint fields of the accent
-///   and the counter-accent drifting under the content — glass with nothing
-///   behind it to bend is just a grey panel, and this is what it bends.
-/// - **Ink survives as smoked glass.** /health's ink band becomes a dark slab
-///   tinted `#1a1008`. The register rule still holds: anything on it asks
-///   `SRRegister.ink` for its colour.
-/// - **The voice is SR.** Inter Display for figures and headlines, JetBrains
-///   Mono kickers, DM Sans reading copy, burnt orange for the one thing that
+/// - **The ground is bright.** A cool near-white (midnight in dark mode) lit by
+///   soft fields of the screen's feature hues — glass with nothing behind it
+///   to bend is just a grey panel, and this is what it bends.
+/// - **The band survives as smoked indigo glass.** The register rule still
+///   holds: anything on it asks `SRRegister.ink` for its colour.
+/// - **The voice is rounded.** SF Pro Rounded for figures, headlines and
+///   labels, SF Pro for reading copy, electric violet for the one thing that
 ///   matters on a screen, the `sr.` mark in the bar.
 ///
-/// What gave way: the zero radius. Glass is continuous curvature or it is not
-/// glass, so surfaces take `SR.Glass.radius` — the one corner the app uses.
+/// Glass is continuous curvature or it is not glass, so surfaces take
+/// `SR.Glass.radius` — the one corner the app uses.
 extension SR {
     enum Glass {
         /// The corner every glass surface uses. Concentric with the phone's
@@ -36,16 +32,16 @@ extension SR {
         static let innerRadius: CGFloat = 16
         /// How far a hero slab sits in from the screen edge.
         static let bandInset: CGFloat = SR.gutter
-        /// A cream tint on glass over paper, so a panel reads as a sheet of the
-        /// page lifted rather than a hole in it.
-        static let paperTint = Color(light: 0xF6EFE3, dark: 0x2A2118, alpha: 0.55)
-        /// The smoked slab. Ink, not black — the brown is the SR part.
-        static let inkTint = Color(hex: 0x1A1008, alpha: 0.82)
-        /// A grouped list row over the atmosphere: frosted cream, not opaque, so
+        /// A white tint on glass over the ground, so a panel reads as a sheet
+        /// lifted off the page rather than a hole in it.
+        static let paperTint = Color(light: 0xFFFFFF, dark: 0x221F48, alpha: 0.62)
+        /// The smoked slab. Indigo, not black.
+        static let inkTint = Color(hex: SR.Fixed.ink, alpha: 0.86)
+        /// A grouped list row over the atmosphere: frosted white, not opaque, so
         /// the ground shows through the sections the way it does through glass.
-        static let rowFill = Color(light: 0xFBF6EE, dark: 0x251D15, alpha: 0.62)
+        static let rowFill = Color(light: 0xFFFFFF, dark: 0x1E1B40, alpha: 0.74)
         /// The accent, as glass wants it: saturated enough to read through.
-        static let accentTint = Color(light: 0xC4570A, dark: 0xE8863A, alpha: 0.85)
+        static let accentTint = Color(light: SR.Fixed.accent, dark: 0xA194FF, alpha: 0.88)
         /// The pre-26 fallback's highlight edge. A white rim on a dark page is
         /// a glare line, so it dims with the ground.
         static let rim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 1, alpha: 0.45) })
@@ -59,58 +55,43 @@ extension SR {
 /// One tab, one mood — the hue under the glass tells you where you are before
 /// the title does, and never so strongly that it competes with the content.
 enum SRMood {
-    /// Today: the accent, warm.
+    /// Home and Family: coral, sky and violet.
     case warm
     /// Chat: almost nothing. Reading copy wants a quiet ground.
     case quiet
-    /// Health: olive and accent — the good direction and the bad.
+    /// Health: green and lime, with a touch of the Move pink.
     case vital
-    /// News: petrol, the counter-accent.
+    /// News: teal and blue.
     case wire
 
-    fileprivate var fields: [(Color, UnitPoint, CGFloat)] {
+    /// The three hues the ground is lit with.
+    var hues: [SR.Hue] {
         switch self {
-        case .warm:
-            return [(SR.accent.opacity(0.22), UnitPoint(x: 0.95, y: 0.02), 420),
-                    (SR.warn.opacity(0.16), UnitPoint(x: 0.0, y: 0.45), 360),
-                    (SR.accentInk.opacity(0.08), UnitPoint(x: 0.9, y: 0.95), 380)]
-        case .quiet:
-            return [(SR.accent.opacity(0.08), UnitPoint(x: 1.0, y: 0.0), 380),
-                    (SR.accentInk.opacity(0.05), UnitPoint(x: 0.0, y: 1.0), 380)]
-        case .vital:
-            return [(SR.good.opacity(0.20), UnitPoint(x: 0.0, y: 0.05), 420),
-                    (SR.accent.opacity(0.14), UnitPoint(x: 1.0, y: 0.35), 360),
-                    (SR.good.opacity(0.10), UnitPoint(x: 0.6, y: 1.0), 380)]
-        case .wire:
-            return [(SR.accentInk.opacity(0.18), UnitPoint(x: 1.0, y: 0.0), 420),
-                    (SR.accent.opacity(0.10), UnitPoint(x: 0.0, y: 0.55), 340),
-                    (SR.accentInk.opacity(0.08), UnitPoint(x: 0.5, y: 1.0), 380)]
+        case .warm: return [.family, .trips, .daydream]
+        case .quiet: return [.chat, .messages, .daydream]
+        case .vital: return [.health, .move, .wildmind]
+        case .wire: return [.news, .trips, .chat]
+        }
+    }
+
+    /// How strongly. Reading screens stay faint.
+    var strength: Double {
+        switch self {
+        case .warm, .vital, .wire: return 1
+        case .quiet: return 0.45
         }
     }
 }
 
-/// Cream, the grain, and the soft fields the glass refracts.
+/// The ground and the soft fields of hue the glass refracts.
 ///
-/// Radial gradients rather than blurred shapes: a blur is re-rendered every
-/// frame a scroll view moves over it, a gradient is drawn once.
+/// No grain since Prism: the grain was paper's texture, and the ground is
+/// not paper any more. Drawn once — see `SRPrismGround`.
 struct SRAtmosphere: View {
     var mood: SRMood = .warm
 
     var body: some View {
-        ZStack {
-            SR.paper
-            ForEach(Array(mood.fields.enumerated()), id: \.offset) { _, field in
-                RadialGradient(
-                    colors: [field.0, field.0.opacity(0)],
-                    center: field.1,
-                    startRadius: 0,
-                    endRadius: field.2
-                )
-            }
-            SRGrain(opacity: 0.035)
-        }
-        .ignoresSafeArea()
-        .accessibilityHidden(true)
+        SRPrismGround(hues: mood.hues, scale: mood.strength)
     }
 }
 
@@ -181,8 +162,8 @@ private func srGlassValue(_ kind: SRGlassKind, interactive: Bool) -> Glass {
 
 private func srFallbackTint(_ kind: SRGlassKind) -> Color {
     switch kind {
-    case .paper: return Color(light: 0xF6EFE3, dark: 0x2A2118, alpha: 0.6)
-    case .ink: return Color(hex: 0x1A1008, alpha: 0.9)
+    case .paper: return Color(light: 0xFFFFFF, dark: 0x221F48, alpha: 0.66)
+    case .ink: return Color(hex: SR.Fixed.ink, alpha: 0.92)
     case .accent: return SR.accent
     case .clear: return Color(light: 0xFFFFFF, dark: 0x000000, alpha: 0.2)
     }

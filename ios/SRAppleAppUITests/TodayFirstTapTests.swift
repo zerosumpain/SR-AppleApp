@@ -16,7 +16,7 @@ final class TodayFirstTapTests: XCTestCase {
         // who switched it on in Settings has it.
         app.launchArguments = ["-SRDemo", "-today-card-steps", "YES"] + extra
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
         return app
     }
 
@@ -91,17 +91,18 @@ final class TodayFirstTapTests: XCTestCase {
         XCTAssertFalse(sun.label.contains("Readiness"), "the member's sun reads the owner's readiness: \(sun.label)")
     }
 
-    /// The family card: a title, and only where everyone is.
+    /// The family tile: the Orbit, and only where everyone is.
     @MainActor func testTheFamilyCardSaysOnlyWhere() {
         let app = launch()
         let card = app.descendants(matching: .any)["today-family"].firstMatch
-        XCTAssertTrue(card.waitForExistence(timeout: 15), "no family card on Today")
-        XCTAssertTrue(app.staticTexts["FAMILY TRACKING"].exists, "the family card has no title")
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "no family tile on Home")
+        XCTAssertTrue(app.descendants(matching: .any)["family-orbit"].firstMatch.waitForExistence(timeout: 10),
+                      "the family tile has no Orbit")
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "km/h")).firstMatch.exists,
                        "the family card still says how fast")
         XCTAssertFalse(app.descendants(matching: .any)["today-overnight"].firstMatch.exists, "the Overnight tile is back")
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "Today — family tracking"
+        shot.name = "Home — family Orbit"
         shot.lifetime = .keepAlways
         add(shot)
     }

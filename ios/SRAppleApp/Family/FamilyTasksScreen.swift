@@ -8,7 +8,7 @@ import SwiftUI
 /// site pushes each step to whoever it concerns; this is where those land.
 struct FamilyTasksScreen: View {
     @ObservedObject private var store = FamilyTasksStore.shared
-    @AppStorage(TodayCards.tasks) private var onToday = false
+    @AppStorage(HomeLayout.key) private var homeLayout = ""
     @Environment(\.scenePhase) private var scenePhase
     @State private var showing: Shelf = .open
     @State private var adding = false
@@ -56,7 +56,7 @@ struct FamilyTasksScreen: View {
             }
 
             Section {
-                FamilyShowOnToday(isOn: $onToday, what: "what's left to do and what's owed")
+                FamilyShowOnToday(isOn: HomeShowsBinding.binding(.tasks, raw: $homeLayout), what: "what's left to do and what's owed")
             }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())

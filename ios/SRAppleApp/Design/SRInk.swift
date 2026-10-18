@@ -335,7 +335,7 @@ struct SRInkDonut: View {
             Circle()
                 .trim(from: 0, to: max(0, min(1, fraction)))
                 .stroke(
-                    AngularGradient(colors: [SR.accent, SR.accentOnDark, Color(hex: 0xF2B27A)], center: .center),
+                    AngularGradient(colors: [SR.Hue.health.base, SR.Hue.health.glow, Color(hex: 0xA3E635)], center: .center),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))

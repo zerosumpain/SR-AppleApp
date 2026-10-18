@@ -72,6 +72,15 @@ final class Router: ObservableObject {
         tab = .more
     }
 
+    /// Wildmind, a page in More — the owner's alone, like Daydream.
+    func openWildmind() {
+        guard AccessStore.shared.current.owner, AccessStore.shared.allows(.more) else { return }
+        var path = NavigationPath()
+        path.append(MorePage.wildmind)
+        more = path
+        tab = .more
+    }
+
     /// The step board or the task list — a tapped push, a widget, a link.
     /// Pushed onto More when there is one, else onto the Family tab (a member
     /// with four places has no More). Somebody without them — no family, or
@@ -316,7 +325,7 @@ struct ContentView: View {
                 TodayScreen(companion: companion, alerts: alerts, site: site, family: family)
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .tabItem { SRTabIcon.label("Today", "square.grid.2x2") }
+            .tabItem { SRTabIcon.label("Home", "square.grid.2x2.fill") }
             .tag(Router.Tab.today)
 
             // Only the tabs this person may open are BUILT: a feature somebody

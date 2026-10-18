@@ -80,24 +80,24 @@ enum TripMapScene {
 
     // MARK: Palette (fixed: the map's tiles are light in either theme)
 
-    /// The light through the day: petrol morning, orange noon, ochre
-    /// afternoon, ink evening.
+    /// The light through the day (Prism): sky-blue morning, coral noon,
+    /// amber afternoon, indigo evening.
     static func stageColor(_ stage: DayStage) -> UInt32 {
         switch stage {
-        case .morning: return 0x0E5B66
-        case .lunch: return 0xC4570A
-        case .afternoon: return 0xB0892A
-        case .evening: return 0x1A1008
+        case .morning: return 0x1E63E9
+        case .lunch: return 0xE62E5C
+        case .afternoon: return 0xE85D00
+        case .evening: return 0x15123A
         }
     }
 
-    static let ink: UInt32 = 0x1A1008
-    static let accent: UInt32 = 0xC4570A
-    static let petrol: UInt32 = 0x0E5B66
-    static let green: UInt32 = 0x55663A
+    static let ink: UInt32 = 0x15123A
+    static let accent: UInt32 = 0x5233F0
+    static let petrol: UInt32 = 0x087078
+    static let green: UInt32 = 0x0A8048
 
     /// One colour a day on the trip's overview, in turn.
-    static let dayColors: [UInt32] = [0xC4570A, 0x0E5B66, 0x55663A, 0xB0892A, 0x3D2E1A, 0x8C3B2E]
+    static let dayColors: [UInt32] = [0x5233F0, 0xE62E5C, 0x1E63E9, 0x0E9F5A, 0xE85D00, 0x9333EA]
 
     static func dayColor(_ index: Int) -> UInt32 { dayColors[((index % dayColors.count) + dayColors.count) % dayColors.count] }
 

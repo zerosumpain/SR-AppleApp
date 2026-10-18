@@ -40,17 +40,17 @@ final class ReviewDemoUITests: XCTestCase {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: typed.count))
         }
         field.typeText(reviewCode + "\n")
-        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20), "the review code did not open the app")
+        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "the review code did not open the app")
         XCTAssertTrue(badge(app).waitForExistence(timeout: 10), "no Demo strip")
         // Everything, as an owner would see it.
-        for tab in ["Today", "Family", "Chat", "Health", "More"] {
+        for tab in ["Home", "Family", "Chat", "Health", "More"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab) in the demo")
         }
         attach(app, "Review demo — Today")
 
         // Family: the map and made-up people.
         XCTAssertTrue(app.openTab("Family"))
-        XCTAssertTrue(byId(app, "family-map").waitForExistence(timeout: 15), "no family map in the demo")
+        XCTAssertTrue(byId(app, "family-orbit").waitForExistence(timeout: 15), "no family Orbit in the demo")
         XCTAssertTrue(badge(app).exists, "the Demo strip left on Family")
         attach(app, "Review demo — Family")
 
@@ -103,7 +103,7 @@ final class ReviewDemoUITests: XCTestCase {
         back(app)
 
         // Settings says it is a demo, and leaves it.
-        XCTAssertTrue(app.openTab("Today"))
+        XCTAssertTrue(app.openTab("Home"))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
         let leave = app.buttons["settings-leave-demo"]
         XCTAssertTrue(leave.waitForExistence(timeout: 10), "no Leave demo in Settings")
@@ -132,7 +132,7 @@ final class ReviewDemoUITests: XCTestCase {
         app.launchArguments = ["-SRStubNetwork"]
         app.launch()
         XCTAssertTrue(badge(app).waitForExistence(timeout: 20), "a relaunch dropped the demo")
-        XCTAssertTrue(app.tabBars.buttons["Today"].exists)
+        XCTAssertTrue(app.tabBars.buttons["Home"].exists)
 
         XCTAssertTrue(app.openSettings())
         let leave = app.buttons["settings-leave-demo"]

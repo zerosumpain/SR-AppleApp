@@ -2,11 +2,6 @@ import SwiftUI
 
 /// The keys for Today's optional cards. Off unless the person turns one on —
 /// here, in Settings → Today, or with "Show on Today" on the page itself.
-enum TodayCards {
-    static let steps = "today-card-steps"
-    static let tasks = "today-card-tasks"
-}
-
 /// The family step board: your place, the race, everyone ranked.
 ///
 /// The site refreshes the board every fifteen minutes from each person's
@@ -16,7 +11,7 @@ enum TodayCards {
 struct FamilyStepsScreen: View {
     @ObservedObject private var store = FamilyStepsStore.shared
     @ObservedObject private var landgrab = LandgrabStore.shared
-    @AppStorage(TodayCards.steps) private var onToday = false
+    @AppStorage(HomeLayout.key) private var homeLayout = ""
     @Environment(\.scenePhase) private var scenePhase
 
     /// Re-read while the page is open: the board moves every fifteen minutes.
@@ -52,7 +47,7 @@ struct FamilyStepsScreen: View {
                 // break the steps above it.
                 LandgrabSection()
 
-                FamilyShowOnToday(isOn: $onToday, what: "your place and the top three")
+                FamilyShowOnToday(isOn: HomeShowsBinding.binding(.steps, raw: $homeLayout), what: "your place in the race")
             }
             .padding(.horizontal, SR.gutter)
             .padding(.top, 8)
@@ -212,7 +207,8 @@ struct FamilyStepsRow: View {
     }
 }
 
-/// "Show on Today", at the foot of each family page.
+/// "Show on Home", at the foot of each family page — the same switch as
+/// Settings → Home.
 struct FamilyShowOnToday: View {
     @Binding var isOn: Bool
     let what: String
@@ -220,10 +216,10 @@ struct FamilyShowOnToday: View {
     var body: some View {
         Toggle(isOn: $isOn) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Show on Today")
+                Text("Show on Home")
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
-                Text("A card with \(what). On this phone only.")
+                Text("A tile with \(what). On this phone only.")
                     .font(SR.Text.secondary(13))
                     .foregroundStyle(SR.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)

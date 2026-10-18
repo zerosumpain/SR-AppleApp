@@ -39,6 +39,11 @@ struct FamilyScreen: View {
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
     @State private var showTracks = false
+    /// The top of the page: the Orbit (how far, which way) or the map
+    /// (exactly where). Remembered: it is a way of looking, not a visit.
+    @AppStorage("family-top") private var top: FamilyTop = .orbit
+
+    enum FamilyTop: String { case orbit, map }
 
     var body: some View {
         Group {
@@ -120,20 +125,25 @@ struct FamilyScreen: View {
     }
 
     private func content(_ view: HouseholdView) -> some View {
-        VStack(spacing: 0) {
-            FamilyMapCanvas(people: view.people, interactive: true, showTrails: showTracks, camera: $camera)
-                // Two thirds of what it was: the people and their moves
-                // below are the page now, the map is where.
-                .frame(height: 212)
-                .overlay(alignment: .bottomTrailing) {
-                    FamilyMapExpandButton(expanded: false) { mapExpanded = true }.padding(10)
+        let colours = SR.PersonHue.assign(view.people.map(\.subject))
+        return VStack(spacing: 0) {
+            Picker("View", selection: $top) {
+                Text("Orbit").tag(FamilyTop.orbit)
+                Text("Map").tag(FamilyTop.map)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, SR.gutter)
+            .padding(.vertical, 8)
+            .accessibilityIdentifier("family-top")
+            if top == .orbit, let model = FamilyOrbitModel.make(view: view, watch: view.watch) {
+                FamilyOrbitView(model: model, colours: colours, live: scenePhase == .active) { subject in
+                    router.push(FamilyPersonRoute(subject: subject), on: .family)
                 }
-                .accessibilityIdentifier("family-map")
-                .fullScreenCover(isPresented: $mapExpanded) {
-                    FamilyFullMap(people: view.people, showTracks: $showTracks, camera: $camera) {
-                        mapExpanded = false
-                    }
-                }
+                .frame(height: 300)
+                .padding(.horizontal, SR.gutter)
+            } else {
+                mapPanel(view)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
                     LiveWalksCard(store: walks)
@@ -157,6 +167,16 @@ struct FamilyScreen: View {
                         .padding(.horizontal, 4)
                         .padding(.top, 14)
                     FamilyPlaceStacks(view: view)
+                    // Each person's day as a ridge: how far from home, when.
+                    if let ribbons = FamilyRibbonsModel.make(view: view, watch: view.watch) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SRSectionLabel(text: "Everyone's day", trailing: "distance from home")
+                            FamilyRibbonsView(model: ribbons, colours: colours)
+                        }
+                        .padding(SR.cardPadding)
+                        .srGlassCard(.paper)
+                        .padding(.top, 14)
+                    }
                     // Where everyone is going: the travel desk's next moves.
                     if let f = forecast.forecast, !f.next.isEmpty {
                         FamilyMovesCard(moves: f.next, names: f.names)
@@ -169,6 +189,23 @@ struct FamilyScreen: View {
             }
             .srRefreshable { await store.load(); await walks.load(); await gifts.load(); await forecast.load(force: true) }
         }
+    }
+
+    /// The map, as it was before the Orbit: pinned, pannable, expandable.
+    private func mapPanel(_ view: HouseholdView) -> some View {
+        FamilyMapCanvas(people: view.people, interactive: true, showTrails: showTracks, camera: $camera)
+            // Two thirds of what it was: the people and their moves
+            // below are the page now, the map is where.
+            .frame(height: 260)
+            .overlay(alignment: .bottomTrailing) {
+                FamilyMapExpandButton(expanded: false) { mapExpanded = true }.padding(10)
+            }
+            .accessibilityIdentifier("family-map")
+            .fullScreenCover(isPresented: $mapExpanded) {
+                FamilyFullMap(people: view.people, showTracks: $showTracks, camera: $camera) {
+                    mapExpanded = false
+                }
+            }
     }
 
     private func footer(_ view: HouseholdView) -> some View {

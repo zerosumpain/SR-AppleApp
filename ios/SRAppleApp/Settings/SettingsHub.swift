@@ -31,10 +31,6 @@ struct SettingsScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var path = NavigationPath()
-    /// Today's optional family cards — see `TodayCards`.
-    @AppStorage(TodayCards.steps) private var todaySteps = false
-    @AppStorage(TodayCards.tasks) private var todayTasks = false
-    @AppStorage(TodayCards.backlog) private var todayBacklog = false
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
     enum Route: Hashable { case notifications, connections, health, location, bike, log, about, viewAs, deleteAccount }
@@ -76,33 +72,31 @@ struct SettingsScreen: View {
                     SRSectionLabel(text: "Appearance")
                 }
 
-                // Cards Today can carry, off until asked for. Only for
-                // somebody with the family boards (family + the site). The
-                // travel forecast is not one: it lives on the Family tab.
-                if access.familyBoards && site.paired {
-                    Section {
-                        todayToggle("Family steps", "Your place and the top three", "figure.walk", $todaySteps)
-                            .accessibilityIdentifier("settings-today-steps")
-                        todayToggle("Family tasks", "What's left, what's waiting, what's owed", "checklist", $todayTasks)
-                            .accessibilityIdentifier("settings-today-tasks")
-                        todayToggle("Family backlog", "What's been shared for you, and how much is waiting", "tray.full", $todayBacklog)
-                            .accessibilityIdentifier("settings-today-backlog")
-                        #if DEBUG
-                        // The widgets, drawn in the app: a UI test cannot reach
-                        // the Home Screen, so this is how CI photographs them.
-                        if SRDemo.isShowcase {
-                            NavigationLink {
-                                FamilyWidgetGallery()
-                            } label: {
-                                SRRow(title: "Widget previews", subtitle: "Demo only", icon: "square.grid.2x2")
-                            }
-                            .srGlassRow()
-                            .accessibilityIdentifier("settings-widget-previews")
-                        }
-                        #endif
-                    } header: {
-                        SRSectionLabel(text: "Today")
+                // Which tiles Home shows, and in what order. Everyone has a
+                // Home, so everyone has this; it lists only what they may use.
+                Section {
+                    NavigationLink {
+                        HomeCustomizeScreen()
+                    } label: {
+                        SRRow(title: "Home", subtitle: "Choose and arrange the tiles on Home", icon: "square.grid.2x2")
                     }
+                    .srGlassRow()
+                    .accessibilityIdentifier("settings-home")
+                    #if DEBUG
+                    // The widgets, drawn in the app: a UI test cannot reach
+                    // the Home Screen, so this is how CI photographs them.
+                    if SRDemo.isShowcase && access.familyBoards && site.paired {
+                        NavigationLink {
+                            FamilyWidgetGallery()
+                        } label: {
+                            SRRow(title: "Widget previews", subtitle: "Demo only", icon: "rectangle.3.group")
+                        }
+                        .srGlassRow()
+                        .accessibilityIdentifier("settings-widget-previews")
+                    }
+                    #endif
+                } header: {
+                    SRSectionLabel(text: "Home")
                 }
 
                 Section {
@@ -219,14 +213,6 @@ struct SettingsScreen: View {
 
     private var draft: String {
         outbox.state.location.matchingPreset?.label ?? "Custom"
-    }
-
-    private func todayToggle(_ title: String, _ subtitle: String, _ icon: String, _ isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn) {
-            SRRow(title: title, subtitle: subtitle, icon: icon)
-        }
-        .tint(SR.accent)
-        .srGlassRow()
     }
 
     @ViewBuilder
