@@ -173,4 +173,47 @@ final class WatchBridgeTests: XCTestCase {
         store.reconcile(with: list.workflows)
         XCTAssertEqual(store.pins, [WatchSnapshot.PinnedFlow(slug: "a", title: "New name")])
     }
+
+    // MARK: - The palette
+
+    func testTheWatchWearsThePalettePickedOnThePhone() throws {
+        var snapshot = WatchSnapshotBuilder.build(
+            health: nil, recent: [], latest: [], cleared: [], unread: 0, access: .everything, ownerSite: true,
+            sync: WatchSnapshot.Sync(queued: 0, lastUpload: nil, gate: nil), connectionNeedsFixing: false,
+            pinned: [], palette: SRPalette.ocean.watch, now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let back = WatchSnapshot.from(context: snapshot.context())
+        XCTAssertEqual(back?.palette, SRPalette.ocean.watch, "the palette did not survive the trip")
+        XCTAssertEqual(back?.palette?.accent, SRPalette.ocean.accent.dark, "a wrist is always dark")
+        // A different palette is different content, so it is sent.
+        let prism = snapshot
+        snapshot.palette = SRPalette.prism.watch
+        XCTAssertFalse(WatchSnapshotBuilder.sameContent(prism, snapshot))
+    }
+
+    func testPrismIsTheWatchesFallbackExactly() {
+        XCTAssertEqual(WatchPalette.prism, SRPalette.prism.watch)
+    }
+
+    func testASnapshotFromAPhoneBeforePalettesStillReads() throws {
+        // Encoded without the field, as a phone on an older build sends it.
+        var old = WatchSnapshot.empty
+        old.palette = nil
+        let data = try WatchSnapshot.encoder.encode(old)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        json.removeValue(forKey: "palette")
+        let stripped = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try WatchSnapshot.decoder.decode(WatchSnapshot.self, from: stripped)
+        XCTAssertNil(decoded.palette)
+    }
+
+    func testEveryPalettesRingsReadOnTheWatchGround() {
+        for palette in SRPalette.presets {
+            let watch = palette.watch
+            for (name, ring) in [("move", watch.move), ("recovery", watch.recovery), ("readiness", watch.readiness), ("cream", watch.cream)] {
+                let ratio = SRRGB.contrast(ring, watch.ground)
+                XCTAssertGreaterThanOrEqual(ratio, 3, "\(palette.name): \(name) measures \(String(format: "%.2f", ratio)):1 on the Watch")
+            }
+        }
+    }
 }

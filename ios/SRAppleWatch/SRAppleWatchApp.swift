@@ -41,6 +41,9 @@ struct WatchRoot: View {
             .background(WatchInk.ground)
         }
         .tint(WatchInk.accent)
+        // A new palette from the phone: every page redrawn in it, including
+        // the parts whose own inputs did not change.
+        .id(model.snapshot.palette ?? .prism)
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 Text(toast.text)

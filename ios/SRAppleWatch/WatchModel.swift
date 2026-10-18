@@ -37,6 +37,9 @@ final class WatchModel: NSObject, ObservableObject {
 
     private func adopt(_ next: WatchSnapshot) {
         guard next.generatedAt >= snapshot.generatedAt else { return }
+        // Before the snapshot is published, so the redraw it causes paints
+        // in the phone's palette.
+        WatchInk.palette = next.palette ?? .prism
         snapshot = next
         WatchShelf.save(next)
         // Complications draw from the shelf; tell them it moved.
@@ -93,7 +96,7 @@ final class WatchModel: NSObject, ObservableObject {
             figures: s.figures, healthUpdatedAt: s.healthUpdatedAt,
             alerts: s.alerts.filter { $0.id != id }, unread: s.unread, showsAlerts: s.showsAlerts,
             sync: s.sync, connectionNeedsFixing: s.connectionNeedsFixing,
-            pinnedFlows: s.pinnedFlows, canAsk: s.canAsk
+            pinnedFlows: s.pinnedFlows, canAsk: s.canAsk, palette: s.palette
         )
     }
 
