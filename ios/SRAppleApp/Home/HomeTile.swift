@@ -117,7 +117,7 @@ struct HomeFigure: View {
 }
 
 /// A tile as a button: one tap goes where the feature is; a long press offers
-/// taking it off Home, or arranging Home.
+/// taking it off Home, arranging Home, or changing its colours.
 ///
 /// `keepsChildren`: a tap target that is NOT a `Button`, for a tile whose
 /// picture has parts of its own — the Orbit's people, each a VoiceOver
@@ -130,6 +130,7 @@ struct HomeTileButton<Content: View>: View {
     var customise: (() -> Void)? = nil
     var keepsChildren = false
     @ViewBuilder var label: Content
+    @Environment(\.homeColours) private var colours
 
     var body: some View {
         Group {
@@ -161,7 +162,24 @@ struct HomeTileButton<Content: View>: View {
             if let customise {
                 Button { customise() } label: { Label("Arrange Home…", systemImage: "square.grid.2x2") }
             }
+            if let colours {
+                Button { colours() } label: { Label("Colours…", systemImage: "paintpalette") }
+            }
         }
         .accessibilityIdentifier(id)
+    }
+}
+
+/// "Colours…" on a tile's long-press menu: Home sets it to open the palette
+/// sheet. An environment value rather than a parameter, so the fifteen tiles
+/// that already take `hide` and `customise` do not each grow a third.
+private struct HomeColoursKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var homeColours: (() -> Void)? {
+        get { self[HomeColoursKey.self] }
+        set { self[HomeColoursKey.self] = newValue }
     }
 }

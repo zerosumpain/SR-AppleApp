@@ -9,9 +9,9 @@ import SwiftUI
 /// so the colours are fixed per thing, never picked per screen.
 ///
 /// A tile's FILL is a two-stop gradient of its hue, and the type on it is
-/// `onFill`: white on the deep hues, deep indigo on the two bright ones
-/// (yellow and lime), where white would fail. Measured at the lighter stop,
-/// where contrast is worst.
+/// `onFill`: white wherever white holds 3:1 at the gradient's middle, and the
+/// palette's dark ink on the brighter fills (`SRHueSpec.typeColour`). Every hue
+/// comes from the reader's palette (`SRPalette.swift`).
 extension SR {
     struct Hue: Equatable {
         /// The deeper stop: text-safe under `onFill`, and the hue a line or a
@@ -29,52 +29,43 @@ extension SR {
         /// The hue at 14%: a chip's or a track's ground.
         var wash: Color { base.opacity(0.14) }
 
-        private static let white = Color.white
-        private static let indigo = Color(hex: SR.Fixed.ink)
-
-        static let family = Hue(base: Color(hex: 0xE62E5C), glow: Color(hex: 0xFF7A59), onFill: white)
-        static let health = Hue(base: Color(hex: 0x0E9F5A), glow: Color(hex: 0x3DDC84), onFill: white)
-        static let steps = Hue(base: Color(hex: 0xE85D00), glow: Color(hex: 0xFF9E2C), onFill: white)
-        static let trips = Hue(base: Color(hex: 0x1E63E9), glow: Color(hex: 0x2EC5FF), onFill: white)
-        static let tasks = Hue(base: Color(hex: 0xFFB800), glow: Color(hex: 0xFFE14D), onFill: indigo)
-        static let backlog = Hue(base: Color(hex: 0xD6336C), glow: Color(hex: 0xFF8FB1), onFill: white)
-        static let messages = Hue(base: Color(hex: 0x0B8A7A), glow: Color(hex: 0x2DD4BF), onFill: white)
-        static let games = Hue(base: Color(hex: 0x7C3AED), glow: Color(hex: 0xC026D3), onFill: white)
-        static let chat = Hue(base: Color(hex: 0x3B4BF5), glow: Color(hex: 0x6E8BFF), onFill: white)
-        static let news = Hue(base: Color(hex: 0x0E7490), glow: Color(hex: 0x22C3DD), onFill: white)
-        static let daydream = Hue(base: Color(hex: 0x9333EA), glow: Color(hex: 0xF472B6), onFill: white)
-        static let flows = Hue(base: Color(hex: 0x4338CA), glow: Color(hex: 0x38BDF8), onFill: white)
-        static let alerts = Hue(base: Color(hex: 0xDC2626), glow: Color(hex: 0xFB923C), onFill: white)
-        static let wildmind = Hue(base: Color(hex: 0x15803D), glow: Color(hex: 0xA3E635), onFill: indigo)
-        static let move = Hue(base: Color(hex: 0xE11D74), glow: Color(hex: 0xFF5FA2), onFill: white)
+        // The reader's palette (`SRPalette.swift`): Prism's values unless
+        // they picked another, or re-picked this one feature's colour.
+        static var family: Hue { SRPaint.current.hue(.family) }
+        static var health: Hue { SRPaint.current.hue(.health) }
+        static var steps: Hue { SRPaint.current.hue(.steps) }
+        static var trips: Hue { SRPaint.current.hue(.trips) }
+        static var tasks: Hue { SRPaint.current.hue(.tasks) }
+        static var backlog: Hue { SRPaint.current.hue(.backlog) }
+        static var messages: Hue { SRPaint.current.hue(.messages) }
+        static var games: Hue { SRPaint.current.hue(.games) }
+        static var chat: Hue { SRPaint.current.hue(.chat) }
+        static var news: Hue { SRPaint.current.hue(.news) }
+        static var daydream: Hue { SRPaint.current.hue(.daydream) }
+        static var flows: Hue { SRPaint.current.hue(.flows) }
+        static var alerts: Hue { SRPaint.current.hue(.alerts) }
+        static var wildmind: Hue { SRPaint.current.hue(.wildmind) }
+        static var move: Hue { SRPaint.current.hue(.move) }
     }
 
     /// One colour per person, in a fixed order.
     ///
-    /// Eight, chosen to stay apart from one another on both grounds, and none
-    /// of them the accent — a person is never the thing the screen is asking
-    /// you to press. A household larger than eight wraps; nobody's household
+    /// Eight per palette, chosen to stay apart from one another on both
+    /// grounds, and none of them the accent — a person is never the thing the
+    /// screen is asking you to press. A household larger than eight wraps; nobody's household
     /// is that large yet.
     enum PersonHue {
-        static let all: [Color] = [
-            Color(hex: 0xFF4D6D), // coral
-            Color(hex: 0x2F80ED), // blue
-            Color(hex: 0x12B76A), // green
-            Color(hex: 0xF79009), // amber
-            Color(hex: 0x9B51E0), // purple
-            Color(hex: 0x06AED4), // cyan
-            Color(hex: 0xEE46BC), // pink
-            Color(hex: 0x84CC16), // lime
-        ]
+        static var all: [Color] { SRPaint.current.people }
 
         /// A colour per subject, stable for as long as the household is: the
         /// subjects sorted, each taking the next colour. Sorting by subject
         /// rather than by the list's order means a person keeps their colour
         /// when somebody else starts or stops sharing.
         static func assign(_ subjects: [String]) -> [String: Color] {
+            let colours = all
             var out: [String: Color] = [:]
             for (index, subject) in Array(Set(subjects)).sorted().enumerated() {
-                out[subject] = all[index % all.count]
+                out[subject] = colours[index % colours.count]
             }
             return out
         }
@@ -97,7 +88,7 @@ struct SRPrismGround: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let strength = (scheme == .dark ? 0.30 : 0.20) * scale
+        let strength = (scheme == .dark ? 0.30 : 0.20) * scale * SRPaint.current.glow
         ZStack {
             SR.paper
             if #available(iOS 18.0, *) {

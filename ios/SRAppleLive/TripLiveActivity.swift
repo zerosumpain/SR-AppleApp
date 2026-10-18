@@ -12,33 +12,35 @@ import ActivityKit
 struct TripLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: TripAttributes.self) { context in
-            LockScreenTrip(attributes: context.attributes, state: context.state, stale: context.isStale)
-                .activityBackgroundTint(Ink.paper)
-                .activitySystemActionForegroundColor(Ink.ink)
+            let ink = LiveInk.trip()
+            return LockScreenTrip(attributes: context.attributes, state: context.state, stale: context.isStale, ink: ink)
+                .activityBackgroundTint(ink.tint)
+                .activitySystemActionForegroundColor(ink.on)
                 // A tap opens the day, not wherever the app was left.
                 .widgetURL(context.attributes.link)
         } dynamicIsland: { context in
             let state = context.state
+            let ink = LiveInk.trip()
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     Image(systemName: state.symbol)
                         .font(.title2)
-                        .foregroundStyle(Ink.accentOnDark)
+                        .foregroundStyle(ink.bright)
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .trailing, spacing: 0) {
                         Text(state.leave, style: .time)
                             .font(.display(20))
-                            .foregroundStyle(Ink.cream)
-                        Text("LEAVE BY").font(.mono(10)).foregroundStyle(Ink.creamMuted)
+                            .foregroundStyle(LiveInk.cream)
+                        Text("LEAVE BY").font(.mono(10)).foregroundStyle(LiveInk.creamMuted)
                     }
                     .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Text("Next: \(state.nextTitle)")
                         .font(.display(15))
-                        .foregroundStyle(Ink.cream)
+                        .foregroundStyle(LiveInk.cream)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
@@ -48,20 +50,20 @@ struct TripLiveActivity: Widget {
                         Text("· \(state.legLine) · \(state.stopLine)")
                     }
                     .font(.mono(12))
-                    .foregroundStyle(Ink.creamMuted)
+                    .foregroundStyle(LiveInk.creamMuted)
                     .lineLimit(1)
                 }
             } compactLeading: {
-                Image(systemName: state.symbol).foregroundStyle(Ink.accentOnDark)
+                Image(systemName: state.symbol).foregroundStyle(ink.bright)
             } compactTrailing: {
                 Text(state.leave, style: .time)
                     .font(.mono(12))
-                    .foregroundStyle(Ink.cream)
+                    .foregroundStyle(LiveInk.cream)
                     .lineLimit(1)
             } minimal: {
-                Image(systemName: state.symbol).foregroundStyle(Ink.accentOnDark)
+                Image(systemName: state.symbol).foregroundStyle(ink.bright)
             }
-            .keylineTint(Ink.accentOnDark)
+            .keylineTint(ink.bright)
             .widgetURL(context.attributes.link)
         }
     }
@@ -91,29 +93,31 @@ struct LockScreenTrip: View {
     let attributes: TripAttributes
     let state: TripAttributes.ContentState
     let stale: Bool
+    var ink: LiveInk = .trip()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(attributes.title.uppercased())
                     .font(.mono(11))
-                    .tracking(1.2)
-                    .foregroundStyle(Ink.accent)
+                    .tracking(1)
+                    .foregroundStyle(ink.on)
                     .lineLimit(1)
                 Spacer()
                 Text(state.stopLine.uppercased())
                     .font(.mono(11))
-                    .foregroundStyle(Ink.muted)
+                    .foregroundStyle(ink.onSoft)
             }
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: state.symbol)
-                    .font(.title3)
-                    .foregroundStyle(Ink.accent)
-                    .frame(width: 28)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(ink.tint)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(ink.on))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Next: \(state.nextTitle)")
                         .font(.display(18))
-                        .foregroundStyle(Ink.ink)
+                        .foregroundStyle(ink.on)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     HStack(spacing: 4) {
@@ -121,23 +125,24 @@ struct LockScreenTrip: View {
                         Text("· \(state.legLine)")
                     }
                     .font(.mono(12))
-                    .foregroundStyle(Ink.muted)
+                    .foregroundStyle(ink.onSoft)
                     .lineLimit(1)
                     if stale {
                         Text("Open the app to bring this up to date")
                             .font(.mono(11))
-                            .foregroundStyle(Ink.muted)
+                            .foregroundStyle(ink.onSoft)
                     }
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 0) {
-                    Text(state.leave, style: .time).font(.display(22)).foregroundStyle(Ink.ink)
-                    Text("LEAVE BY").font(.mono(10)).foregroundStyle(Ink.muted)
+                    Text(state.leave, style: .time).font(.display(22)).foregroundStyle(ink.on)
+                    Text("LEAVE BY").font(.mono(10)).foregroundStyle(ink.onSoft)
                 }
             }
         }
         .padding(16)
-        .opacity(stale ? 0.7 : 1)
+        .background(FamilyWidgetGround(hue: ink.hue))
+        .opacity(stale ? 0.75 : 1)
         .accessibilityElement(children: .combine)
     }
 }

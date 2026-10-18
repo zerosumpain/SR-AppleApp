@@ -6,8 +6,10 @@ import WidgetKit
 // Each timeline fetches its board with the credential the app left in the
 // shared Keychain group (`FamilyShelf`), falls back to the last snapshot the
 // app saved, and asks to be refreshed in twenty minutes. The app also reloads
-// both whenever it reads a board that changed. See `FamilyWidgetShared.swift`
-// for why this is a Keychain group and not an App Group.
+// both whenever it reads a board that changed, and when the reader changes
+// palette — each entry carries the palette the app left on the shelf. See
+// `FamilyWidgetShared.swift` for why this is a Keychain group and not an App
+// Group.
 
 private extension FamilyWidgetSize {
     init(_ family: WidgetFamily) {
@@ -24,6 +26,7 @@ private extension FamilyWidgetSize {
 struct FamilyStepsEntry: TimelineEntry {
     let date: Date
     let board: FamilyStepsBoard?
+    var palette: SRWidgetPalette = .load()
 }
 
 struct FamilyStepsProvider: TimelineProvider {
@@ -69,9 +72,9 @@ struct FamilyStepsEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        FamilyStepsWidgetView(board: entry.board, size: FamilyWidgetSize(family), now: entry.date)
+        FamilyStepsWidgetView(board: entry.board, size: FamilyWidgetSize(family), now: entry.date, palette: entry.palette)
             .containerBackground(for: .widget) {
-                if family == .accessoryRectangular { Color.clear } else { FamilyWidgetInk.paper }
+                if family == .accessoryRectangular { Color.clear } else { FamilyWidgetGround(hue: entry.palette.steps) }
             }
             .widgetURL(FamilyPage.steps.url)
     }
@@ -82,6 +85,7 @@ struct FamilyStepsEntryView: View {
 struct FamilyTasksEntry: TimelineEntry {
     let date: Date
     let summary: FamilyTasksSummary?
+    var palette: SRWidgetPalette = .load()
 }
 
 struct FamilyTasksProvider: TimelineProvider {
@@ -128,9 +132,9 @@ struct FamilyTasksEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        FamilyTasksWidgetView(summary: entry.summary, size: FamilyWidgetSize(family))
+        FamilyTasksWidgetView(summary: entry.summary, size: FamilyWidgetSize(family), palette: entry.palette)
             .containerBackground(for: .widget) {
-                if family == .accessoryRectangular { Color.clear } else { FamilyWidgetInk.paper }
+                if family == .accessoryRectangular { Color.clear } else { FamilyWidgetGround(hue: entry.palette.tasks) }
             }
             .widgetURL(FamilyPage.tasks.url)
     }

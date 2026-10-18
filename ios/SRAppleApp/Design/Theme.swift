@@ -38,79 +38,86 @@ enum SR {
     // anything on it asks `SRRegister.ink` (or `SR.band` / `SR.cream`) for its
     // colour — the fixed pair — never `SR.ink` / `SR.paper`.
 
+    // Since 2026-10-18 (evening) every token below reads the reader's chosen
+    // palette (`SRPalette.swift`) — Prism unless they picked another. They are
+    // computed, not stored: a stored copy would keep the colour it was first
+    // read with, and the palette can change while the app runs. The comments
+    // give Prism's measurements; `PaletteTests` holds every preset to them.
+
     /// The ground. A cool near-white; midnight in dark mode.
-    static let paper = Color(uiColor: UI.paper)
+    static var paper: Color { SRPaint.current.paper }
     /// The opaque panel ground: white, or a lifted midnight.
-    static let surface = Color(light: Fixed.surface, dark: 0x1A1838)
+    static var surface: Color { SRPaint.current.surface }
     /// Type. Deep indigo; near-white in dark mode. For the band, `SR.band`.
-    static let ink = Color(uiColor: UI.ink)
+    static var ink: Color { SRPaint.current.ink }
     /// Supporting type. 8:1 on the ground in light, 11:1 in dark.
-    static let inkSecondary = Color(light: Fixed.inkSecondary, dark: 0xC8C4EE)
+    static var inkSecondary: Color { SRPaint.current.inkSecondary }
     /// 65% ink. GROUND ONLY.
-    static let inkMuted = Color(uiColor: UI.inkMuted)
+    static var inkMuted: Color { SRPaint.current.inkMuted }
     /// 45%. GROUND ONLY — decoration, never something to read.
-    static let inkGhost = Color(light: Fixed.ink, dark: Fixed.paper, alpha: 0.45)
+    static var inkGhost: Color { SRPaint.current.inkGhost }
 
     /// The band's ground, in BOTH modes. Deep indigo.
-    static let band = Color(hex: Fixed.ink)
+    static var band: Color { SRPaint.current.band }
     /// Near-white type on the band, in BOTH modes.
-    static let cream = Color(hex: Fixed.paper)
+    static var cream: Color { SRPaint.current.cream }
 
     /// THE accent: electric violet. 6.2:1 on the ground. GROUND ONLY.
-    static let accent = Color(uiColor: UI.accent)
+    static var accent: Color { SRPaint.current.accent }
     /// The accent one step deeper, for a FILL that carries white text — the
     /// Ask button, a selected chip. 8.4:1 under white. In dark mode the fill
     /// carries `SR.paper` (dark) type, so it lifts instead.
-    static let accentDeep = Color(light: 0x4426D6, dark: 0xA194FF)
+    static var accentDeep: Color { SRPaint.current.accentDeep }
     /// The accent lifted for the band: 6.4:1 on indigo.
-    static let accentOnDark = Color(hex: 0xA194FF)
+    static var accentOnDark: Color { SRPaint.current.accentOnDark }
     /// The counter-accent: deep teal; aqua in dark mode. GROUND ONLY.
-    static let accentInk = Color(light: Fixed.accentInk, dark: 0x4FD8E0)
+    static var accentInk: Color { SRPaint.current.accentInk }
     /// The counter-accent on the band.
-    static let accentInkOnDark = Color(hex: 0x4FD8E0)
+    static var accentInkOnDark: Color { SRPaint.current.accentInkOnDark }
 
     /// Green: the one hue meaning a number is going the right way.
-    static let good = Color(light: Fixed.good, dark: 0x4ADE80)
+    static var good: Color { SRPaint.current.good }
     /// Green on the band.
-    static let goodOnDark = Color(hex: 0x4ADE80)
+    static var goodOnDark: Color { SRPaint.current.goodOnDark }
 
-    static let warn = Color(light: Fixed.warn, dark: 0xFFC24B)
-    static let error = Color(light: Fixed.error, dark: 0xFF6B85)
+    static var warn: Color { SRPaint.current.warn }
+    static var error: Color { SRPaint.current.error }
     /// Error, lifted for the band.
-    static let errorOnDark = Color(hex: 0xFF6B85)
+    static var errorOnDark: Color { SRPaint.current.errorOnDark }
 
     /// A card's border.
-    static let line = Color(uiColor: UI.line)
+    static var line: Color { SRPaint.current.line }
     /// A rule between rows.
-    static let divider = Color(light: Fixed.ink, dark: Fixed.paper, alpha: 0.08)
+    static var divider: Color { SRPaint.current.divider }
     /// The hairline on the band.
-    static let lineOnDark = Color(hex: Fixed.paper, alpha: 0.14)
+    static var lineOnDark: Color { SRPaint.current.lineOnDark }
     /// Near-white at reading weight on the band.
-    static let creamOnDark = Color(hex: Fixed.paper, alpha: 0.72)
+    static var creamOnDark: Color { SRPaint.current.creamOnDark }
 
     /// The mode-following tokens UIKit's appearance proxies need as a
-    /// `UIColor` — built here, once, so the proxy holds the dynamic colour
-    /// itself rather than a conversion that may have resolved it.
+    /// `UIColor`. The proxy keeps the object it is given for every bar made
+    /// after, so each is a provider that asks the palette when it RESOLVES,
+    /// not a colour fixed when the proxy was set.
     enum UI {
-        static let paper = UIColor(light: Fixed.paper, dark: 0x0B0A1C)
-        static let ink = UIColor(light: Fixed.ink, dark: Fixed.paper)
-        static let inkMuted = UIColor(light: Fixed.ink, dark: Fixed.paper, alpha: 0.65)
-        static let accent = UIColor(light: Fixed.accent, dark: 0xA194FF)
-        static let line = UIColor(light: Fixed.ink, dark: Fixed.paper, alpha: 0.18)
+        static let paper = UIColor { SRPaint.current.palette.paper.ui().resolvedColor(with: $0) }
+        static let ink = UIColor { SRPaint.current.palette.ink.ui().resolvedColor(with: $0) }
+        static let inkMuted = UIColor { SRPaint.current.palette.ink.ui(alpha: 0.65).resolvedColor(with: $0) }
+        static let accent = UIColor { SRPaint.current.palette.accent.ui().resolvedColor(with: $0) }
+        static let line = UIColor { SRPaint.current.palette.ink.ui(alpha: 0.18).resolvedColor(with: $0) }
     }
 
     /// The light values, raw. For the few surfaces that must look the same in
     /// both modes — a game's coloured tiles, a widget preview.
     enum Fixed {
-        static let paper: UInt32 = 0xF4F3FB
-        static let surface: UInt32 = 0xFFFFFF
-        static let ink: UInt32 = 0x15123A
-        static let inkSecondary: UInt32 = 0x45417A
-        static let accent: UInt32 = 0x5233F0
-        static let accentInk: UInt32 = 0x087078
-        static let good: UInt32 = 0x0A8048
-        static let warn: UInt32 = 0x9A5B00
-        static let error: UInt32 = 0xD7193F
+        static var paper: UInt32 { SRPaint.current.palette.paper.light }
+        static var surface: UInt32 { SRPaint.current.palette.surface.light }
+        static var ink: UInt32 { SRPaint.current.palette.ink.light }
+        static var inkSecondary: UInt32 { SRPaint.current.palette.inkSecondary.light }
+        static var accent: UInt32 { SRPaint.current.palette.accent.light }
+        static var accentInk: UInt32 { SRPaint.current.palette.accentInk.light }
+        static var good: UInt32 { SRPaint.current.palette.good.light }
+        static var warn: UInt32 { SRPaint.current.palette.warn.light }
+        static var error: UInt32 { SRPaint.current.palette.error.light }
     }
 
     // MARK: - Type

@@ -34,14 +34,14 @@ extension SR {
         static let bandInset: CGFloat = SR.gutter
         /// A white tint on glass over the ground, so a panel reads as a sheet
         /// lifted off the page rather than a hole in it.
-        static let paperTint = Color(light: 0xFFFFFF, dark: 0x221F48, alpha: 0.62)
+        static var paperTint: Color { SRPaint.current.lifted.color(alpha: 0.62) }
         /// The smoked slab. Indigo, not black.
-        static let inkTint = Color(hex: SR.Fixed.ink, alpha: 0.86)
+        static var inkTint: Color { Color(hex: SR.Fixed.ink, alpha: 0.86) }
         /// A grouped list row over the atmosphere: frosted white, not opaque, so
         /// the ground shows through the sections the way it does through glass.
-        static let rowFill = Color(light: 0xFFFFFF, dark: 0x1E1B40, alpha: 0.74)
+        static var rowFill: Color { SRPaint.current.lifted.color(alpha: 0.74) }
         /// The accent, as glass wants it: saturated enough to read through.
-        static let accentTint = Color(light: SR.Fixed.accent, dark: 0xA194FF, alpha: 0.88)
+        static var accentTint: Color { SRPaint.current.palette.accent.color(alpha: 0.88) }
         /// The pre-26 fallback's highlight edge. A white rim on a dark page is
         /// a glare line, so it dims with the ground.
         static let rim = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 1, alpha: 0.45) })
@@ -162,7 +162,7 @@ private func srGlassValue(_ kind: SRGlassKind, interactive: Bool) -> Glass {
 
 private func srFallbackTint(_ kind: SRGlassKind) -> Color {
     switch kind {
-    case .paper: return Color(light: 0xFFFFFF, dark: 0x221F48, alpha: 0.66)
+    case .paper: return SRPaint.current.lifted.color(alpha: 0.66)
     case .ink: return Color(hex: SR.Fixed.ink, alpha: 0.92)
     case .accent: return SR.accent
     case .clear: return Color(light: 0xFFFFFF, dark: 0x000000, alpha: 0.2)

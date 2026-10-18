@@ -86,14 +86,15 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    var hue: SR.Hue {
+    /// Which of the palette's hues the tile wears. Several tiles share one:
+    /// the family's three are all the family's colour.
+    var hueKey: SR.HueKey {
         switch self {
-        case .family, .familyDay: return .family
+        case .family, .familyDay, .moves: return .family
         case .health: return .health
         case .steps: return .steps
         case .tasks: return .tasks
         case .trips: return .trips
-        case .moves: return .family
         case .messages: return .messages
         case .backlog: return .backlog
         case .games: return .games
@@ -104,6 +105,8 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         case .wildmind: return .wildmind
         }
     }
+
+    var hue: SR.Hue { SRPaint.current.hue(hueKey) }
 
     /// The order a new install gets. Family first, always: where everyone is
     /// is the thing the app is opened for.

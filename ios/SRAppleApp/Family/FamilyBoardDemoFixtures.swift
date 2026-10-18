@@ -172,17 +172,17 @@ struct FamilyWidgetGallery: View {
             VStack(alignment: .leading, spacing: 18) {
                 SRSectionLabel(text: "Steps")
                 HStack(alignment: .top, spacing: 16) {
-                    tile(FamilyStepsWidgetView(board: steps.board ?? FamilyWidgetSamples.steps, size: .small), width: 158)
-                    tile(FamilyStepsWidgetView(board: steps.board ?? FamilyWidgetSamples.steps, size: .rectangular), width: 158, height: 72, lock: true)
+                    tile(FamilyStepsWidgetView(board: steps.board ?? FamilyWidgetSamples.steps, size: .small, palette: palette), width: 158, hue: palette.steps)
+                    tile(FamilyStepsWidgetView(board: steps.board ?? FamilyWidgetSamples.steps, size: .rectangular, palette: palette), width: 158, height: 72, lock: true)
                 }
-                tile(FamilyStepsWidgetView(board: steps.board ?? FamilyWidgetSamples.steps, size: .medium), width: 338)
+                tile(FamilyStepsWidgetView(board: steps.board ?? FamilyWidgetSamples.steps, size: .medium, palette: palette), width: 338, hue: palette.steps)
 
                 SRSectionLabel(text: "Tasks")
                 HStack(alignment: .top, spacing: 16) {
-                    tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .small), width: 158)
-                    tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .rectangular), width: 158, height: 72, lock: true)
+                    tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .small, palette: palette), width: 158, hue: palette.tasks)
+                    tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .rectangular, palette: palette), width: 158, height: 72, lock: true)
                 }
-                tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .medium), width: 338)
+                tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .medium, palette: palette), width: 338, hue: palette.tasks)
             }
             .padding(SR.gutter)
         }
@@ -196,17 +196,23 @@ struct FamilyWidgetGallery: View {
         }
     }
 
+    /// The reader's palette, as the widgets will get it.
+    private var palette: SRWidgetPalette { SRPaint.current.palette.widget }
+
     /// A widget-sized, widget-shaped frame. `lock` draws a Lock Screen slot:
-    /// no paper, light text on the wallpaper.
-    private func tile<V: View>(_ view: V, width: CGFloat, height: CGFloat = 158, lock: Bool = false) -> some View {
-        view
+    /// no ground, light text on the wallpaper.
+    @ViewBuilder
+    private func tile<V: View>(_ view: V, width: CGFloat, height: CGFloat = 158, lock: Bool = false, hue: SRHueSpec? = nil) -> some View {
+        let shape = RoundedRectangle(cornerRadius: lock ? 12 : 22, style: .continuous)
+        let framed = view
             .padding(lock ? 6 : 16)
             .frame(width: width, height: height, alignment: .topLeading)
-            .foregroundStyle(lock ? Color.white : FamilyWidgetInk.ink)
+            .foregroundStyle(lock ? Color.white : SR.ink)
             .environment(\.colorScheme, lock ? .dark : .light)
-            .background(
-                RoundedRectangle(cornerRadius: lock ? 12 : 22, style: .continuous)
-                    .fill(lock ? Color.white.opacity(0.12) : FamilyWidgetInk.paper)
-            )
+        if let hue, !lock {
+            framed.background(FamilyWidgetGround(hue: hue).clipShape(shape))
+        } else {
+            framed.background(shape.fill(Color.white.opacity(0.12)))
+        }
     }
 }
