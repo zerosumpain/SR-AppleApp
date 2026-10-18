@@ -361,7 +361,7 @@ struct MarkdownText: View {
             }
             var parsed = (try? AttributedString(markdown: line, options: options)) ?? AttributedString(line)
             for run in parsed.runs where run.inlinePresentationIntent == .code {
-                parsed[run.range].font = SR.mono(14)
+                parsed[run.range].font = SR.code(14)
             }
             if heading { parsed.font = SR.bodyBold(17) }
             result += parsed
@@ -382,7 +382,7 @@ struct CodeBlock: View {
                 Text(language.uppercased())
                     .font(SR.mono(12))
                     .tracking(1)
-                    .foregroundStyle(Color(hex: 0xEDE4D4, alpha: 0.5))
+                    .foregroundStyle(SR.onInk(.unit))
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
             }
@@ -391,7 +391,7 @@ struct CodeBlock: View {
             // is what the site does with one.
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text)
-                    .font(SR.mono(13))
+                    .font(SR.code(13))
                     .foregroundStyle(SR.paper)
                     .textSelection(.enabled)
                     .padding(12)

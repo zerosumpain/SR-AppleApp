@@ -113,3 +113,15 @@ extension XCUIApplication {
         if skip.waitForExistence(timeout: 10) { skip.tap() }
     }
 }
+
+extension XCUIApplication {
+    /// The Family tab's top: "Orbit" or "Map". Remembered on the phone, so a
+    /// test that switches to the map switches back when it is done.
+    @MainActor @discardableResult
+    func selectFamilyTop(_ name: String, timeout: TimeInterval = 10) -> Bool {
+        let segment = segmentedControls.buttons[name]
+        guard segment.waitForExistence(timeout: timeout) else { return false }
+        if !segment.isSelected { segment.tap() }
+        return true
+    }
+}

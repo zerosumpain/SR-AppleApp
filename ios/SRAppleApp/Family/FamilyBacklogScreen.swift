@@ -12,7 +12,7 @@ struct FamilyBacklogScreen: View {
     @ObservedObject private var store = FamilyBacklogStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
-    @AppStorage(TodayCards.backlog) private var onToday = false
+    @AppStorage(HomeLayout.key) private var homeLayout = ""
     @State private var showing: FamilyBacklogShelf = .all
     @State private var adding = false
     @State private var picked: FamilyBacklogItem?
@@ -66,7 +66,7 @@ struct FamilyBacklogScreen: View {
             if let board = store.board {
                 Section {
                     digestSwitch(board)
-                    FamilyShowOnToday(isOn: $onToday, what: "what's been shared for you and how much is waiting")
+                    FamilyShowOnToday(isOn: HomeShowsBinding.binding(.backlog, raw: $homeLayout), what: "what's been shared for you and how much is waiting")
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))

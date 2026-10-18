@@ -279,13 +279,12 @@ final class ContrastTests: XCTestCase {
         }
     }
 
-    func testTheThreeTonesThatCannotCarryASentenceAreKnownAndMeasured() {
+    func testTheToneThatCannotCarryASentenceIsKnownAndMeasured() {
         // If one of these rises above the floor, the constraint has been lifted
-        // and this test should be deleted rather than updated. If one FALLS
-        // further, something re-picked a token by eye.
+        // and it should be deleted rather than updated. If one FALLS further,
+        // something re-picked a token by eye. Prism (2026-10-18) lifted the
+        // accent (6.2:1) and warn (4.9:1); only the ghost is decoration now.
         let measured: [(String, Color, ClosedRange<Double>)] = [
-            ("accent", SR.accent, 3.2...3.9),
-            ("warn", SR.warn, 2.3...2.9),
             ("inkGhost", SR.inkGhost, 2.6...3.2),
         ]
         for (name, token, expected) in measured {

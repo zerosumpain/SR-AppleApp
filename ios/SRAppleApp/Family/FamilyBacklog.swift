@@ -5,10 +5,6 @@ import Foundation
 // read or do together. Wire shapes and the share path are in
 // FamilyBacklogShared.swift, which the share extension compiles too.
 
-extension TodayCards {
-    static let backlog = "today-card-backlog"
-}
-
 /// The page's filter chips.
 enum FamilyBacklogShelf: String, CaseIterable, Identifiable {
     case all = "All", watch = "Watch", read = "Read", ideas = "Ideas", done = "Done"

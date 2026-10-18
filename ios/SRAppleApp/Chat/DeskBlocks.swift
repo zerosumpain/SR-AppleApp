@@ -32,8 +32,8 @@ extension EnvironmentValues {
 
 /// The desk's palette, named for what it means rather than for its hue.
 enum DeskInk {
-    /// `--card`: a block lifted off the desk's surface.
-    static let card = Color(hex: 0xF3EBDD)
+    /// A block lifted off the desk's surface: white, or lifted midnight.
+    static let card = SR.surface
     /// `up` — petrol. `--accent-ink`.
     static let up = SR.accentInk
     /// `down` — the accent.

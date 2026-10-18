@@ -48,7 +48,7 @@ enum SRChrome {
         bar.shadowColor = SR.UI.line
         bar.titleTextAttributes = [
             .foregroundColor: ink,
-            .font: scaled(SR.Face.bodyBold, 17, .headline),
+            .font: SRType.roundedUI(17, .bold, .headline),
         ]
         // COLOUR ONLY, no face.
         //
@@ -68,7 +68,7 @@ enum SRChrome {
         let back = UIBarButtonItemAppearance(style: .plain)
         back.normal.titleTextAttributes = [
             .foregroundColor: accent,
-            .font: scaled(SR.Face.monoMedium, 13, .caption1),
+            .font: SRType.roundedUI(15, .semibold, .body),
         ]
         bar.backButtonAppearance = back
 
@@ -86,12 +86,12 @@ enum SRChrome {
             item.selected.iconColor = accent
             item.selected.titleTextAttributes = [
                 .foregroundColor: accent,
-                .font: scaled(SR.Face.monoMedium, 10, .caption2),
+                .font: SRType.roundedUI(10, .bold, .caption2),
             ]
             item.normal.iconColor = SR.UI.inkMuted
             item.normal.titleTextAttributes = [
                 .foregroundColor: SR.UI.inkMuted,
-                .font: scaled(SR.Face.mono, 10, .caption2),
+                .font: SRType.roundedUI(10, .semibold, .caption2),
             ]
         }
         UITabBar.appearance().standardAppearance = tabs
@@ -121,7 +121,7 @@ enum SRChrome {
         bar.configureWithTransparentBackground()
         bar.titleTextAttributes = [
             .foregroundColor: ink,
-            .font: scaled(SR.Face.bodyBold, 17, .headline),
+            .font: SRType.roundedUI(17, .bold, .headline),
         ]
         bar.largeTitleTextAttributes = [.foregroundColor: ink]
         UINavigationBar.appearance().standardAppearance = bar

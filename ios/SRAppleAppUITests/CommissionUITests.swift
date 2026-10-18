@@ -131,7 +131,7 @@ final class CommissionUITests: XCTestCase {
     // MARK: - Helpers
 
     @MainActor private func openDaydream(_ app: XCUIApplication) {
-        XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
         let tile = app.descendants(matching: .any)["today-daydream"].firstMatch
         XCTAssertTrue(tile.waitForExistence(timeout: 15), "no Daydream tile on Today")
         // No isHittable gate: the row it sits in falls between the pinned
