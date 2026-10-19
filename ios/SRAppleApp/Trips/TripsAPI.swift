@@ -292,6 +292,16 @@ enum TripsAPI {
 
     // MARK: - Plumbing
 
+    /// The trip and everything under it — its creator only. One already gone
+    /// counts as deleted. A refusal keeps its sentence: a 403 here is "not
+    /// yours to delete", not "not in the family".
+    static func delete(trip id: String) async throws {
+        let (data, http) = try await exchange(path(id), method: "DELETE")
+        if (200..<300).contains(http.statusCode) || http.statusCode == 404 { return }
+        let sentence = (try? JSONDecoder().decode(APIError.self, from: data))?.error ?? "\(http.statusCode) from the trip planner."
+        throw Failure.refused(http.statusCode, sentence)
+    }
+
     private static func escape(_ part: String) -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/%?#")

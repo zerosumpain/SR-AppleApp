@@ -971,8 +971,13 @@ struct TripAccess: Codable, Hashable {
     var canApprove: Bool
     /// Any family member: may suggest something for a slot.
     var canSuggest: Bool
+    /// Created the trip: may delete it. Nil from a server that cannot delete
+    /// trips from a phone, which offers no Delete.
+    var canDelete: Bool?
     /// "creator", "parent" or "member".
     var role: String
+
+    var mayDelete: Bool { canDelete ?? false }
 
     /// What an older (owner-only) server implied.
     static let owner = TripAccess(canEdit: true, canApprove: true, canSuggest: true, role: "creator")

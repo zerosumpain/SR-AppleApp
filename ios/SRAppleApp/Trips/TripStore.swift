@@ -255,6 +255,27 @@ final class TripStore: ObservableObject {
         persistLocal()
     }
 
+    /// Delete a trip this person started: on the site, then everything this
+    /// phone kept of it — the offline copy, its own day versions and marks,
+    /// the reminders and the arrival geofences. Nil when it went; otherwise why not.
+    func delete(_ id: String) async -> String? {
+        do {
+            try await TripsAPI.delete(trip: id)
+        } catch {
+            return error.localizedDescription
+        }
+        summaries.removeAll { $0.id == id }
+        TripFiles.write(summaries, Self.indexFile)
+        bundles[id] = nil
+        TripFiles.remove(Self.bundleFile(id))
+        local.days[id] = nil
+        local.marks[id] = nil
+        persistLocal()
+        await TripReminders.sync(Array(bundles.values))
+        TripArrivals.shared.refresh()
+        return nil
+    }
+
     private func prune(keeping ids: Set<String>) {
         for id in bundles.keys where !ids.contains(id) {
             bundles[id] = nil

@@ -126,10 +126,13 @@ enum FamilyMessages {
     static let path = "api/native/family/messages"
     static let bodyMax = 500
 
-    static func repliesPath(_ id: String) -> String {
+    /// One message or reply: where it is deleted.
+    static func itemPath(_ id: String) -> String {
         let safe = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
-        return "\(path)/\(safe)/replies"
+        return "\(path)/\(safe)"
     }
+
+    static func repliesPath(_ id: String) -> String { "\(itemPath(id))/replies" }
 
     /// What may be sent: trimmed, non-empty, under the cap.
     static func sendable(_ text: String) -> String? {
@@ -254,6 +257,27 @@ final class FamilyMessagesStore: ObservableObject {
             return nil
         } catch {
             return sentence(for: error)
+        }
+    }
+
+    /// Take back a message (with every reply under it) or one of this
+    /// person's replies — the site refuses anyone else's. True when it went.
+    func delete(_ id: String) async -> Bool {
+        guard busy == nil else { return false }
+        busy = id
+        defer { busy = nil }
+        do {
+            _ = try await SiteClient.shared.call(FamilyMessages.itemPath(id), method: "DELETE")
+            SRHaptic.ok()
+            message = nil
+            await load()
+            return true
+        } catch {
+            SRHaptic.bad()
+            message = Self.sentence(for: error)
+            // Already gone (another phone of theirs got there first): show the list as it is.
+            if case .status(404, _)? = error as? SiteError { await load() }
+            return false
         }
     }
 

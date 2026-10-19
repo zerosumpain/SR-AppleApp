@@ -77,4 +77,11 @@ final class FamilyMessagesTests: XCTestCase {
         XCTAssertEqual(FamilyThreadPlacement.merge(threads, family: nil).map(\.id), ["thread-a", "thread-b"])
         XCTAssertEqual(FamilyThreadPlacement.merge([], family: .distantPast).map(\.id), ["family"])
     }
+
+    func testAMessageOrReplyIsDeletedAtItsOwnAddress() {
+        XCTAssertEqual(FamilyMessages.itemPath("m1"), "api/native/family/messages/m1")
+        XCTAssertEqual(FamilyMessages.repliesPath("m1"), "api/native/family/messages/m1/replies")
+        // An id can never reach a different route.
+        XCTAssertEqual(FamilyMessages.itemPath("a/b"), "api/native/family/messages/a%2Fb")
+    }
 }
