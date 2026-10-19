@@ -10,6 +10,7 @@ import UserNotifications
 /// the app as it always opened.
 struct WelcomeScreen: View {
     @ObservedObject var registration: RegistrationStore
+    let companion: Companion
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @Environment(\.colorScheme) private var colorScheme
     @State private var enteringCode = false
@@ -82,7 +83,7 @@ struct WelcomeScreen: View {
         }
         .srPaper()
         .sheet(isPresented: $enteringCode) {
-            PairingCodeSheet(registration: registration)
+            PairingCodeSheet(registration: registration, companion: companion)
         }
     }
 }
@@ -90,11 +91,14 @@ struct WelcomeScreen: View {
 /// "I have a pairing code": type it, or go on without one.
 ///
 /// A typed code is asked of the site first as the App Review code, then
-/// redeemed as an ordinary one-time pairing code (`RegistrationStore.submit`).
-/// "Continue without a code" is the old way in — the app, unconnected, with
-/// the QR scanner under Settings → Connections.
+/// redeemed as the one pairing code (`CodePairing`) — which asks for a sign-in
+/// first when this phone is signed in as nobody, and connects only the person
+/// the code is for. "Continue without a code" is the old way in — the app,
+/// unconnected, with the scanner under Settings → Connections.
 struct PairingCodeSheet: View {
     @ObservedObject var registration: RegistrationStore
+    let companion: Companion
+    @ObservedObject private var pairing = CodePairing.shared
     @Environment(\.dismiss) private var dismiss
     @State private var code = ""
     @State private var problem: String?
@@ -107,7 +111,7 @@ struct PairingCodeSheet: View {
                     SRPageHeader(
                         kicker: "Already invited",
                         title: "Enter your code",
-                        strap: "Type the pairing code you were given. Codes from a QR can be scanned instead, from Settings once you are in."
+                        strap: "Type the code from strangeramblings.com/welcome — one code connects everything. It only works for the person it was made for."
                     )
 
                     TextField("Pairing code", text: $code)
@@ -138,10 +142,10 @@ struct PairingCodeSheet: View {
                     }
                     .srButton(.prominent)
                     .controlSize(.large)
-                    .disabled(registration.busy || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(registration.busy || pairing.busy || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("code-submit")
 
-                    if registration.busy {
+                    if registration.busy || pairing.busy {
                         ProgressView().frame(maxWidth: .infinity)
                     }
 
@@ -170,19 +174,28 @@ struct PairingCodeSheet: View {
                         .accessibilityIdentifier("code-cancel")
                 }
             }
+            .sheet(item: $pairing.pending, onDismiss: {
+                // Spent: this phone is in. Refused: say why, here.
+                if SiteClient.shared.isPaired && pairing.message == nil { dismiss() } else { problem = pairing.message }
+            }) { _ in
+                ConfirmIdentitySheet(pairing: pairing, companion: companion)
+            }
         }
     }
 
     private func submit() async {
-        guard !registration.busy else { return }
+        guard !registration.busy, !pairing.busy else { return }
         focused = false
         problem = nil
-        if let refusal = await registration.submit(code: code) {
-            SRHaptic.bad()
-            problem = refusal
-        } else {
+        if await registration.enterReviewDemo(ifCode: code) {
             SRHaptic.ok()
             dismiss()
+            return
+        }
+        switch await pairing.pair(code: code, server: nil, companion: companion) {
+        case .connected: dismiss()
+        case .needsSignIn: break // the confirm sheet below takes it from here
+        case .refused(let why): problem = why
         }
     }
 }

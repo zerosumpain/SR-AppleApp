@@ -8,11 +8,10 @@ import Security
 /// conflating them would mean revoking a phone's health sync to stop it reading
 /// chat. The Keychain accounts differ for the same reason.
 ///
-/// Auth is a device token obtained by redeeming a one-time code from
-/// the companion dashboard at `/apple-app`, sent as `Authorization: Bearer`.
-/// (That page shows it, but the main site mints it — the pilot server never
-/// handles a site credential.) It is exactly as
-/// privileged as the browser session that minted it and is revocable from there.
+/// Auth is a device token obtained by redeeming a one-time code — the one
+/// pairing code at strangeramblings.com/welcome, or a sign-in from Welcome —
+/// sent as `Authorization: Bearer`. It is exactly as privileged as the person
+/// it was minted for and is revocable from the website.
 enum SiteError: LocalizedError {
     case unpaired
     case expired
@@ -87,43 +86,14 @@ enum SiteKeychain {
     }
 }
 
-/// The QR payload minted by `/api/admin/native-devices`.
+/// A site pairing code handed to this phone by the site itself — a member's
+/// automatic pairing (`SitePairOffer`). Never scanned: the one code a person
+/// scans is `PairingPayload`, redeemed by `CodePairing`.
 struct SitePairing: Decodable {
     let type: String
     let version: Int
     let server: String
     let code: String
-
-    /// Parse a scanned string, refusing anything that is not ours.
-    ///
-    /// The origin check is the one that matters. A QR is a URL somebody else
-    /// controls; without this the scanner is a "point your paired phone at my
-    /// server" button.
-    static func parse(_ raw: String) throws -> SitePairing {
-        guard let data = raw.data(using: .utf8),
-              let payload = try? JSONDecoder().decode(SitePairing.self, from: data) else {
-            throw SiteError.message("That is not a Strange Ramblings pairing code.")
-        }
-        // Name the ACTUAL mistake. Both codes are minted from the same page, so
-        // scanning the wrong one is the likely error by a wide margin — and
-        // "a different version of the app" sent the reader looking for a
-        // TestFlight update that would not have helped.
-        guard payload.type != "sr-companion-pair" else {
-            throw SiteError.message(
-                "That is the health & location code, for the Companion tab. At strangeramblings.com/welcome, create the Chat & news code instead."
-            )
-        }
-        guard payload.type == "sr-native-pair" else {
-            throw SiteError.message("That is not a Strange Ramblings pairing code.")
-        }
-        guard payload.version == 1 else {
-            throw SiteError.message("That pairing code is from a newer version of the site than this app understands. Update the app.")
-        }
-        guard let url = URL(string: payload.server), url.scheme == "https" else {
-            throw SiteError.message("A pairing code must name an HTTPS address.")
-        }
-        return payload
-    }
 }
 
 @MainActor
@@ -396,10 +366,17 @@ final class SiteClient {
         try await redeem(code: payload.code, at: url)
     }
 
-    /// Spend a one-time code for this phone's credential — from a scanned QR,
-    /// a member's automatic pairing, or a sign-in from Welcome (which is why it
-    /// defaults to the saved origin: the code came from there).
-    func redeem(code: String, at server: URL? = nil) async throws {
+    /// Spend a one-time code for this phone's credential — the one pairing
+    /// code, a member's automatic pairing, or a sign-in from Welcome (which is
+    /// why it defaults to the saved origin: the code came from there).
+    ///
+    /// The code shown at /welcome connects only a phone signed in as the person
+    /// it was made for, so this says who this phone is: the credential it
+    /// already holds (to the same site only — never handed to another host),
+    /// or `identity`, from a sign-in made just now for this code. A refusal
+    /// keeps its status: 428 is "sign in first", 409 is "this is someone
+    /// else's code" (`CodePairing`).
+    func redeem(code: String, at server: URL? = nil, identity: String? = nil) async throws {
         // Never let a demo session reach the Keychain.
         if SRDemo.isOn { throw SiteError.message("Demo mode: pairing is switched off. Leave the demo in Settings first.") }
         let url = server ?? origin
@@ -407,12 +384,18 @@ final class SiteClient {
         var req = URLRequest(url: url.appending(path: "api/native/pair"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(["code": code, "label": deviceLabel()])
+        if let token, url.host() == origin.host(), url.port == origin.port {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        var body = ["code": code, "label": deviceLabel()]
+        if let identity { body["identity"] = identity }
+        req.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse else { throw SiteError.message("No reply from the server.") }
+        guard (200..<300).contains(http.statusCode) else {
             let detail = try? JSONDecoder().decode(APIError.self, from: data)
-            throw SiteError.message(detail?.error ?? "That pairing code did not work.")
+            throw SiteError.status(http.statusCode, detail?.error ?? "That pairing code did not work.")
         }
         let result = try JSONDecoder().decode(PairResponse.self, from: data)
         try SiteKeychain.save(result.token)

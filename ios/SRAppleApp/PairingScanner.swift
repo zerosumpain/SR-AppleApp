@@ -2,7 +2,14 @@ import SwiftUI
 import VisionKit
 import AVFoundation
 
+/// The one pairing code: `{type: "sr-pair", version: 1, server, code}`, from
+/// strangeramblings.com/welcome (SR-Main `$lib/server/pair-payload`). It
+/// replaced the two codes a phone used to need — health & location, and chat &
+/// news — and it connects only a phone signed in as the person it was made
+/// for (`CodePairing`).
 struct PairingPayload: Decodable, Equatable {
+    static let type = "sr-pair"
+
     let type: String
     let version: Int
     let server: String
@@ -11,10 +18,21 @@ struct PairingPayload: Decodable, Equatable {
     @MainActor static func parse(_ text: String) throws -> PairingPayload {
         guard text.utf8.count <= 2048,
               let data = text.data(using: .utf8),
-              let value = try? JSONDecoder().decode(Self.self, from: data),
-              value.type == "sr-companion-pair", value.version == 1,
-              value.code.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else {
-            throw CompanionError.message("This is not the health & location code. If you scanned the Chat & news code, that one goes under Settings → Connections → Chat & news. Create the right one at strangeramblings.com/welcome.")
+              let value = try? JSONDecoder().decode(Self.self, from: data) else {
+            throw CompanionError.message("That is not a Strange Ramblings pairing code. Make yours at strangeramblings.com/welcome.")
+        }
+        // The two codes this one replaced. Name the fix, not just the refusal.
+        guard value.type != "sr-companion-pair", value.type != "sr-native-pair" else {
+            throw CompanionError.message("That is one of the old pair of codes. strangeramblings.com/welcome now shows one code for everything — make a new one there.")
+        }
+        guard value.type == Self.type else {
+            throw CompanionError.message("That is not a Strange Ramblings pairing code. Make yours at strangeramblings.com/welcome.")
+        }
+        guard value.version == 1 else {
+            throw CompanionError.message("That pairing code is from a newer version of the site than this app understands. Update the app.")
+        }
+        guard value.code.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else {
+            throw CompanionError.message("That pairing code is damaged. Make a new one at strangeramblings.com/welcome.")
         }
         _ = try API.validateURL(value.server)
         return value
@@ -44,20 +62,20 @@ struct PairingScanner: View {
                             if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                         }
                     }
-                    Text("You can also paste a pairing code on the previous screen.").font(.callout).padding()
+                    Text("You can also type the code instead, on the previous screen.").font(.callout).padding()
                 }
             }
-            .navigationTitle("Pair by QR code").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Pair with a code").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .task {
                 guard DataScannerViewController.isSupported else {
-                    message = "Camera scanning is unavailable on this device. Use manual pairing instead."; return
+                    message = "Camera scanning is unavailable on this device. Type the code instead."; return
                 }
                 let allowed = await AVCaptureDevice.requestAccess(for: .video)
                 guard !Task.isCancelled else { return }
                 guard allowed else { cameraDenied = true; message = "Allow camera access in Settings to scan your pairing QR code."; return }
                 guard DataScannerViewController.isAvailable else {
-                    message = "The camera is currently unavailable. Try again or use manual pairing."; return
+                    message = "The camera is currently unavailable. Try again or type the code instead."; return
                 }
                 ready = true
             }
@@ -78,7 +96,7 @@ private struct CameraScanner: UIViewControllerRepresentable {
         DispatchQueue.main.async { [weak scanner] in
             guard let scanner, !context.coordinator.finished else { return }
             do { try scanner.startScanning() }
-            catch { context.coordinator.fail("The camera could not start. Try again or use manual pairing.") }
+            catch { context.coordinator.fail("The camera could not start. Try again or type the code instead.") }
         }
         return scanner
     }
@@ -101,7 +119,7 @@ private struct CameraScanner: UIViewControllerRepresentable {
             }
         }
         func dataScanner(_ dataScanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) {
-            fail("The camera became unavailable. Try again or use manual pairing.")
+            fail("The camera became unavailable. Try again or type the code instead.")
         }
     }
 }
