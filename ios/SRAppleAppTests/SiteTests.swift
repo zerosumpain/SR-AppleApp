@@ -26,7 +26,7 @@ final class SiteTests: XCTestCase {
     @MainActor func testAcceptsTheOnePairingCode() throws {
         let parsed = try PairingPayload.parse(try payload())
         XCTAssertEqual(parsed.server, "https://strangeramblings.com")
-        XCTAssertEqual(parsed.code.count, 43)
+        XCTAssertEqual(parsed.code?.count, 43)
     }
 
     @MainActor func testReadsTheOpenCodeAsNobodysCode() throws {
@@ -59,7 +59,7 @@ final class SiteTests: XCTestCase {
         XCTAssertThrowsError(try PairingPayload.parse(try payload(version: 2)))
     }
 
-    func testTellsTheSiteTheCodesHashNotTheCode() {
+    @MainActor func testTellsTheSiteTheCodesHashNotTheCode() {
         // What `welcome/app?confirm=` and `register/apple` are sent while the
         // phone signs in: SR-Main checks it against sha256(code), hex.
         XCTAssertEqual(
