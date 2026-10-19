@@ -108,6 +108,12 @@ off, the UDID (Finder or the Windows Apple Devices app: click the serial number
 until it shows UDID) and a name. The UDID is read from the event payload and
 masked, never put in a step's `env:`, because step env is printed in public logs.
 
+**Developer Mode.** iOS 16 and later open an ad-hoc app only with Developer Mode
+on (Settings → Privacy & Security → Developer Mode, restart, confirm), once per
+phone. TestFlight and App Store installs are exempt. The build is correctly
+signed ad hoc (`get-task-allow` false, checked on adhoc-119): this is iOS policy,
+not a signing fault.
+
 A copy only installs on the phones listed when it was built. On another phone
 iOS says "Unable to install". A failure here never costs the TestFlight upload
 on a merge.
