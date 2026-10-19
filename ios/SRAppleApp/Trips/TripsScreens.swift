@@ -421,6 +421,9 @@ struct TripScreen: View {
     @EnvironmentObject private var router: Router
     @State private var editing = false
     @State private var opened = false
+    @State private var confirmingDelete = false
+    @State private var deleteFailure: String?
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Group {
@@ -450,7 +453,46 @@ struct TripScreen: View {
                     }
                     .accessibilityIdentifier("trip-edit-plan")
                 }
+                // Only whoever started the trip may delete it (the site's `canDelete`).
+                if bundle.can.mayDelete {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button(role: .destructive) { confirmingDelete = true } label: {
+                                Label("Delete trip", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("More")
+                        .accessibilityIdentifier("trip-more")
+                    }
+                }
             }
+        }
+        .confirmationDialog(
+            "Delete \(store.bundles[tripId]?.trip.title ?? "this trip")?",
+            isPresented: $confirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete trip", role: .destructive) {
+                Task {
+                    if let failure = await store.delete(tripId) {
+                        SRHaptic.bad()
+                        deleteFailure = failure
+                    } else {
+                        SRHaptic.ok()
+                        dismiss()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The plan, the stops, the bookings and the conversation go for everyone in the family. This can't be undone.")
+        }
+        .alert("The trip was not deleted", isPresented: Binding(get: { deleteFailure != nil }, set: { if !$0 { deleteFailure = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteFailure ?? "")
         }
         .sheet(isPresented: $editing) {
             TripConverseSheet(tripId: tripId, date: conversationDate)

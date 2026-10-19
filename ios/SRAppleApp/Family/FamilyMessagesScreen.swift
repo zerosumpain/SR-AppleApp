@@ -14,6 +14,14 @@ struct FamilyMessagesScreen: View {
     /// The message a text reply is being written to.
     @State private var replying: FamilyMessage?
     @State private var replyDraft = ""
+    /// A message or text reply of mine, waiting on "Delete?".
+    @State private var deleting: Deleting?
+
+    struct Deleting: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -67,6 +75,19 @@ struct FamilyMessagesScreen: View {
                 Task { await store.reply(to: message.id, text) }
             }
             Button("Cancel", role: .cancel) { replyDraft = "" }
+        }
+        .confirmationDialog(
+            deleting?.title ?? "Delete?",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible,
+            presenting: deleting
+        ) { target in
+            Button("Delete", role: .destructive) {
+                Task { await store.delete(target.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { target in
+            Text(target.detail)
         }
     }
 
@@ -127,7 +148,7 @@ struct FamilyMessagesScreen: View {
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .contextMenu { answers(message) }
         .accessibilityIdentifier("family-message-\(message.id)")
-        .accessibilityHint(message.mine ? "" : "Touch and hold to answer with an emoji or a reply.")
+        .accessibilityHint(message.mine ? "Touch and hold to delete it." : "Touch and hold to answer with an emoji or a reply.")
     }
 
     /// The long press: the quick emoji, three to a row, then Reply and Copy.
@@ -158,6 +179,34 @@ struct FamilyMessagesScreen: View {
             UIPasteboard.general.string = message.body
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
+        }
+        // What this person sent, and only that: their own emoji go at once,
+        // a line or the message itself asks first.
+        ForEach(message.replies.filter { $0.mine && $0.reaction }) { reply in
+            Button(role: .destructive) {
+                Task { await store.delete(reply.id) }
+            } label: {
+                Label("Remove my \(reply.body)", systemImage: "minus.circle")
+            }
+        }
+        ForEach(message.textReplies.filter(\.mine)) { reply in
+            Button(role: .destructive) {
+                deleting = Deleting(id: reply.id, title: "Delete your reply?", detail: "“\(reply.body)” goes for everyone.")
+            } label: {
+                Label("Delete my reply", systemImage: "trash")
+            }
+        }
+        if message.mine {
+            Button(role: .destructive) {
+                deleting = Deleting(
+                    id: message.id,
+                    title: "Delete this message?",
+                    detail: "It goes for everyone, with its replies. A notification someone already has stays on their phone."
+                )
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .accessibilityIdentifier("family-message-delete")
         }
     }
 

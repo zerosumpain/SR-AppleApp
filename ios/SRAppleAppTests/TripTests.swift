@@ -470,6 +470,16 @@ final class TripTests: XCTestCase {
         XCTAssertTrue(bundle.can.canSuggest)
     }
 
+    /// Only the creator is offered Delete, and only by a server that can do it.
+    func testOnlyTheCreatorMayDeleteATrip() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(TripAccess.self, from: Data(json.utf8)) }
+        XCTAssertTrue(try decode(#"{"canEdit":true,"canApprove":false,"canSuggest":true,"canDelete":true,"role":"creator"}"#).mayDelete)
+        XCTAssertFalse(try decode(#"{"canEdit":true,"canApprove":true,"canSuggest":true,"canDelete":false,"role":"parent"}"#).mayDelete)
+        // A server from before phones could delete: no Delete, even for the creator.
+        XCTAssertFalse(try decode(#"{"canEdit":true,"canApprove":true,"canSuggest":true,"role":"creator"}"#).mayDelete)
+        XCTAssertFalse(TripAccess.owner.mayDelete)
+    }
+
     /// v5: the creator's email is not on the wire; a trip decodes without it.
     func testATripDecodesWithoutAnOwnerEmail() throws {
         let json = #"{"id":"t1","createdById":"p1","createdByName":"Alex","title":"Rome","destination":"Rome","timeZone":"Europe/Rome","startDate":"2026-10-27","endDate":"2026-10-30","pace":"normal","modes":["walk"],"status":"planned","notes":null}"#
