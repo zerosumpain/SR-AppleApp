@@ -68,6 +68,21 @@ final class SiteTests: XCTestCase {
         )
     }
 
+    // MARK: - Updating a copy installed from /app
+
+    @MainActor func testOffersOnlyALaterBuildOfDifferentCode() {
+        XCTAssertTrue(AppUpdate.isNewer(build: "121", commit: "b", thanBuild: 120, commit: "a"))
+        // Adding someone's phone rebuilds the same commit under a new number.
+        XCTAssertFalse(AppUpdate.isNewer(build: "121", commit: "a", thanBuild: 120, commit: "a"))
+        XCTAssertFalse(AppUpdate.isNewer(build: "119", commit: "b", thanBuild: 120, commit: "a"))
+        XCTAssertFalse(AppUpdate.isNewer(build: "not a number", commit: "b", thanBuild: 120, commit: "a"))
+    }
+
+    @MainActor func testATestFlightCopyNeverAsks() {
+        // The test host is a simulator build: no embedded profile, no commit.
+        XCTAssertFalse(AppUpdate.isAdHoc)
+    }
+
     // MARK: - Transcript rendering
 
     func testSplitsFencedCodeFromProse() {

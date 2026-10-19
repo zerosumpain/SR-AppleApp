@@ -442,10 +442,18 @@ private struct EntryGate: View {
     /// The App Review demo: entered from Welcome's code box, left from
     /// Settings. Either way the whole window swaps.
     @ObservedObject private var reviewDemo = ReviewDemo.shared
+    /// A copy installed from strangeramblings.com/app offering its own update.
+    @ObservedObject private var update = AppUpdate.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group { gate }
             .onReceive(companion.$paired.removeDuplicates()) { companionPaired = $0 }
+            .appUpdatePrompt(update)
+            .task { await update.check() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await update.check() } }
+            }
     }
 
     @ViewBuilder

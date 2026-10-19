@@ -85,18 +85,34 @@ every enabled iOS device on the developer account. The newest copy is kept in
 one **draft** release, "Ad-hoc build" (`scripts/publish-adhoc.sh`). It's a draft
 because this repository is public and the IPA lists the UDIDs it installs on.
 
-SR-Main serves it: `/admin/access/devices` → *Install without TestFlight*.
-- **Make a link for a phone** (24 hours), and open it on that phone in Safari.
-- It downloads a one-time profile. Installing it (Settings → Profile Downloaded) makes iOS
-  post the phone's UDID to the site, which dispatches this workflow with
-  `testflight` off and `adhoc_udid` / `adhoc_name` set.
-- About half an hour later, the same phone installs from `/install/<token>`, the one install page.
-  Each later merge refreshes the copy there.
+SR-Main serves it at **strangeramblings.com/app**:
+- `/admin/access/devices` → *Install without TestFlight* → **Make a link** for a
+  first name. That gives `strangeramblings.com/app/rory-<tag>`, which works for 7 days on any of that person's
+  phones.
+- On their iPhone, in Safari, the link offers a one-time profile. Installing it
+  (Settings → Profile Downloaded) makes iOS post the phone's UDID to the site.
+  The site dispatches this workflow with `testflight` off and the phone named "Rory's iPhone".
+- About half an hour later they install from `strangeramblings.com/app`. The join link's cookie
+  lets that page recognise their Safari.
+
+**Updates.** Every merge refreshes the copy. A copy installed this way checks
+`/api/native/app-update` on launch and on return to the foreground, at most hourly. When there's a later build
+of different code, it offers **Update**, which opens the same install link (iOS
+still asks). Settings → About → *Check for updates* does it on demand. CI stamps
+`SRCommit` into Info.plist (`SR_COMMIT`), so a rebuild that only adds a phone
+(same commit) is not offered as an update. TestFlight and App Store copies never
+ask: they ship no `embedded.mobileprovision`.
 
 Or by hand: Actions → Upload to TestFlight → Run workflow, with *testflight*
 off, the UDID (Finder or the Windows Apple Devices app: click the serial number
 until it shows UDID) and a name. The UDID is read from the event payload and
 masked, never put in a step's `env:`, because step env is printed in public logs.
+
+**Developer Mode.** iOS 16 and later open an ad-hoc app only with Developer Mode
+on (Settings → Privacy & Security → Developer Mode, restart, confirm), once per
+phone. TestFlight and App Store installs are exempt. The build is correctly
+signed ad hoc (`get-task-allow` false, checked on adhoc-119): this is iOS policy,
+not a signing fault.
 
 A copy only installs on the phones listed when it was built. On another phone
 iOS says "Unable to install". A failure here never costs the TestFlight upload
