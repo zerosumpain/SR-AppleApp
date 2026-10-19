@@ -677,6 +677,9 @@ struct AppleHealthScreen: View {
 
 /// What this app is, and what it holds.
 struct AboutScreen: View {
+    @ObservedObject private var update = AppUpdate.shared
+    @State private var checking = false
+
     private var version: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
@@ -692,6 +695,21 @@ struct AboutScreen: View {
                     Text(version).font(SR.Text.mono(13)).foregroundStyle(SR.inkMuted)
                 }
                 .srGlassRow()
+                // Installed from strangeramblings.com/app: nothing updates it
+                // but this (AppUpdate), so it can be asked for, too.
+                if AppUpdate.isAdHoc {
+                    Button {
+                        checking = true
+                        Task { await update.check(force: true); checking = false }
+                    } label: {
+                        SRRow(title: "Check for updates", icon: "arrow.down.circle") {
+                            if checking { ProgressView() }
+                            else if update.upToDate { Text("Up to date").font(SR.Text.mono(13)).foregroundStyle(SR.inkMuted) }
+                        }
+                    }
+                    .disabled(checking)
+                    .srGlassRow()
+                }
                 Link(destination: SiteClient.shared.webURL("welcome")) {
                     SRRow(title: "Pairing on the web", icon: "safari") {
                         Image(systemName: "arrow.up.forward").foregroundStyle(SR.inkMuted)
