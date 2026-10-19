@@ -53,8 +53,15 @@ final class CodePairing: ObservableObject {
         message = nil
         do {
             try await SiteClient.shared.redeem(code: code, at: server, identity: identity)
-        } catch SiteError.status(428, _) {
-            pending = Pending(code: code, server: server)
+        } catch SiteError.status(428, _) where identity == nil {
+            // Signed in as nobody: try this phone's Apple ID straight away,
+            // and offer Google (or another go) only if that does not happen.
+            let waiting = Pending(code: code, server: server)
+            busy = false
+            if let outcome = await confirmWithApple(AppleIDSheet.run(nonce: startAppleSignIn(), scopes: [.email]), for: waiting, companion: companion) {
+                return outcome
+            }
+            pending = waiting
             return .needsSignIn
         } catch {
             pending = nil
@@ -132,29 +139,57 @@ final class CodePairing: ObservableObject {
     }
 
     /// Sign in with Apple, natively; the site checks the token and answers
-    /// with an identity for this code.
-    func confirmWithApple(_ result: Result<ASAuthorization, Error>, companion: Companion) async {
-        guard let pending else { return }
+    /// with an identity for this code. The outcome once Apple answered; nil
+    /// when there was no sign-in to use.
+    @discardableResult
+    func confirmWithApple(_ result: Result<ASAuthorization, Error>, for waiting: Pending? = nil, companion: Companion) async -> Outcome? {
+        guard let pending = waiting ?? pending else { return nil }
         switch result {
         case .failure(let error):
-            if (error as? ASAuthorizationError)?.code != .canceled { message = error.localizedDescription }
+            if (error as? ASAuthorizationError)?.code != .canceled, waiting == nil { message = error.localizedDescription }
+            return nil
         case .success(let authorization):
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                   let tokenData = credential.identityToken,
                   let token = String(data: tokenData, encoding: .utf8),
                   let nonce = appleNonce else {
                 message = "Apple did not send a sign-in. Try again."
-                return
+                return nil
             }
             appleNonce = nil
             struct Identity: Decodable { let identity: String }
             do {
                 let body = try JSONEncoder().encode(["identityToken": token, "nonce": nonce, "confirm": Self.hash(pending.code)])
                 let reply: Identity = try await SiteClient.shared.sendAnonymous("api/native/register/apple", body: body)
-                await finish(pending, identity: reply.identity, companion: companion)
+                return await finish(pending, identity: reply.identity, companion: companion)
             } catch {
-                message = error.localizedDescription
+                return refuse(error.localizedDescription)
             }
+        }
+    }
+
+    /// The page's OPEN code (no secret): sign this phone in as its own person,
+    /// with its Apple ID, straight away. Pre-registered family are let in and
+    /// connected; anyone else is asked to wait for the owner (SR-Main
+    /// `ensureAppRequest`). Google stays on Welcome for whoever wants it.
+    func signInAsThisPhone() async {
+        message = nil
+        guard !SiteClient.shared.isPaired else {
+            message = "This iPhone is already connected. To connect it as someone else, disconnect it first."
+            return
+        }
+        let registration = RegistrationStore.shared
+        let result = await AppleIDSheet.run(nonce: registration.startAppleSignIn(), scopes: [.fullName, .email])
+        await registration.signInWithApple(result)
+        message = registration.message
+    }
+
+    /// Whatever was scanned: a person's code, or the open one.
+    func scanned(_ payload: PairingPayload, companion: Companion) async {
+        if let code = payload.code {
+            await pair(code: code, server: URL(string: payload.server), companion: companion)
+        } else {
+            await signInAsThisPhone()
         }
     }
 
@@ -162,10 +197,11 @@ final class CodePairing: ObservableObject {
         pending = nil
     }
 
-    private func finish(_ pending: Pending, identity: String, companion: Companion) async {
-        if case .refused(let why) = await pair(code: pending.code, server: pending.server, identity: identity, companion: companion) {
-            message = why
-        }
+    @discardableResult
+    private func finish(_ pending: Pending, identity: String, companion: Companion) async -> Outcome {
+        let outcome = await pair(code: pending.code, server: pending.server, identity: identity, companion: companion)
+        if case .refused(let why) = outcome { message = why }
+        return outcome
     }
 
     private func refuse(_ why: String) -> Outcome {
@@ -249,5 +285,50 @@ struct ConfirmIdentitySheet: View {
                 }
             }
         }
+    }
+}
+
+/// The Apple ID sheet, asked for in code rather than by a button: scanning a
+/// pairing code is the tap. Same request as `SignInWithAppleButton` makes.
+@MainActor
+final class AppleIDSheet: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private static var running: AppleIDSheet?
+    private var continuation: CheckedContinuation<ASAuthorization, Error>?
+
+    static func run(nonce: String, scopes: [ASAuthorization.Scope]) async -> Result<ASAuthorization, Error> {
+        let sheet = AppleIDSheet()
+        running = sheet
+        defer { running = nil }
+        do {
+            let authorization = try await withCheckedThrowingContinuation { continuation in
+                sheet.continuation = continuation
+                let request = ASAuthorizationAppleIDProvider().createRequest()
+                request.requestedScopes = scopes
+                request.nonce = nonce
+                let controller = ASAuthorizationController(authorizationRequests: [request])
+                controller.delegate = sheet
+                controller.presentationContextProvider = sheet
+                controller.performRequests()
+            }
+            return .success(authorization)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        continuation?.resume(returning: authorization)
+        continuation = nil
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        continuation?.resume(throwing: error)
+        continuation = nil
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first ?? ASPresentationAnchor()
     }
 }

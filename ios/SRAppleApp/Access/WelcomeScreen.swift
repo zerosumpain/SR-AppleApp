@@ -13,7 +13,10 @@ struct WelcomeScreen: View {
     let companion: Companion
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var pairing = CodePairing.shared
     @State private var enteringCode = false
+    @State private var scanning = false
+    @State private var scanned: PairingPayload?
 
     var body: some View {
         ScrollView {
@@ -23,14 +26,28 @@ struct WelcomeScreen: View {
                 SRPageHeader(
                     kicker: "Strange Ramblings",
                     title: "Ask for an account",
-                    strap: "Sign in so John knows who you are. He reviews every request, and this app opens once he has said yes."
+                    strap: "Scan the code at strangeramblings.com/welcome, or sign in. Family John has already added are straight in; anyone else waits for him to say yes."
                 )
 
                 VStack(spacing: 12) {
+                    // The code on strangeramblings.com/welcome. Family the owner
+                    // has already added are straight in with their Apple ID.
+                    Button {
+                        SRHaptic.tap()
+                        scanned = nil
+                        scanning = true
+                    } label: {
+                        SRButtonLabel(title: "Scan the code", icon: "qrcode.viewfinder", fill: true)
+                    }
+                    .srButton(.prominent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("welcome-scan")
+
                     SignInWithAppleButton(.continue) { request in
                         request.requestedScopes = [.fullName, .email]
                         request.nonce = registration.startAppleSignIn()
                     } onCompletion: { result in
+                        pairing.message = nil
                         Task { await registration.signInWithApple(result) }
                     }
                     .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
@@ -40,6 +57,7 @@ struct WelcomeScreen: View {
 
                     Button {
                         SRHaptic.tap()
+                        pairing.message = nil
                         Task { await registration.signInWithGoogle(webAuthenticationSession) }
                     } label: {
                         SRButtonLabel(title: "Continue with Google", icon: "globe", fill: true)
@@ -48,12 +66,12 @@ struct WelcomeScreen: View {
                     .controlSize(.large)
                     .accessibilityIdentifier("welcome-google")
                 }
-                .disabled(registration.busy)
+                .disabled(registration.busy || pairing.busy)
 
-                if registration.busy {
+                if registration.busy || pairing.busy {
                     ProgressView().frame(maxWidth: .infinity)
                 }
-                if let message = registration.message {
+                if let message = pairing.message ?? registration.message {
                     Text(message)
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.error)
@@ -84,6 +102,23 @@ struct WelcomeScreen: View {
         .srPaper()
         .sheet(isPresented: $enteringCode) {
             PairingCodeSheet(registration: registration, companion: companion)
+        }
+        .sheet(isPresented: $scanning, onDismiss: {
+            guard let payload = scanned else { return }
+            scanned = nil
+            Task { await pairing.scanned(payload, companion: companion) }
+        }) {
+            PairingScanner { value in
+                do { scanned = try PairingPayload.parse(value) }
+                catch {
+                    scanned = nil
+                    pairing.message = error.localizedDescription
+                }
+            }
+        }
+        // The typed-code sheet presents its own while it is up.
+        .sheet(item: Binding(get: { enteringCode ? nil : pairing.pending }, set: { pairing.pending = $0 })) { _ in
+            ConfirmIdentitySheet(pairing: pairing, companion: companion)
         }
     }
 }

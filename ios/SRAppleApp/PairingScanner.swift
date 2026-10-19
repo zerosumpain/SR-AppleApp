@@ -7,13 +7,18 @@ import AVFoundation
 /// replaced the two codes a phone used to need — health & location, and chat &
 /// news — and it connects only a phone signed in as the person it was made
 /// for (`CodePairing`).
+///
+/// Without a `code` it is the page's OPEN code, shown to a visitor who is not
+/// signed in: nobody's, no secret. Scanned, the phone signs in with its own
+/// Apple ID, and someone the owner pre-registered in the household is let
+/// straight in.
 struct PairingPayload: Decodable, Equatable {
     static let type = "sr-pair"
 
     let type: String
     let version: Int
     let server: String
-    let code: String
+    let code: String?
 
     @MainActor static func parse(_ text: String) throws -> PairingPayload {
         guard text.utf8.count <= 2048,
@@ -31,7 +36,7 @@ struct PairingPayload: Decodable, Equatable {
         guard value.version == 1 else {
             throw CompanionError.message("That pairing code is from a newer version of the site than this app understands. Update the app.")
         }
-        guard value.code.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else {
+        if let code = value.code, code.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) == nil {
             throw CompanionError.message("That pairing code is damaged. Make a new one at strangeramblings.com/welcome.")
         }
         _ = try API.validateURL(value.server)

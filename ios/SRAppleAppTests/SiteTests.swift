@@ -29,6 +29,15 @@ final class SiteTests: XCTestCase {
         XCTAssertEqual(parsed.code.count, 43)
     }
 
+    @MainActor func testReadsTheOpenCodeAsNobodysCode() throws {
+        // /welcome, signed out: no code at all. Scanned, the phone signs in
+        // with its own Apple ID instead (`CodePairing.signInAsThisPhone`).
+        let open = #"{"type":"sr-pair","version":1,"server":"https://strangeramblings.com"}"#
+        let parsed = try PairingPayload.parse(open)
+        XCTAssertNil(parsed.code)
+        XCTAssertThrowsError(try PairingPayload.parse(try payload(code: "short")))
+    }
+
     @MainActor func testRefusesPlainHTTP() throws {
         XCTAssertThrowsError(try PairingPayload.parse(try payload(server: "http://strangeramblings.com")))
     }

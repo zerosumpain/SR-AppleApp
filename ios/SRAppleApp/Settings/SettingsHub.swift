@@ -352,7 +352,10 @@ struct ConnectionsScreen: View {
             Button("Connect") {
                 if let payload = scanned {
                     scanned = nil
-                    redeem(payload.code, server: URL(string: payload.server))
+                    Task {
+                        await pairing.scanned(payload, companion: companion)
+                        await site.check()
+                    }
                 }
             }
         } message: { Text(scanned?.server ?? "") }
