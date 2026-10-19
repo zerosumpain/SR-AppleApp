@@ -13,6 +13,8 @@ on:
       - 'server/health-catalogue.json'
       - 'scripts/install-signing.sh'
       - 'scripts/asc-watch-profiles.py'
+      - 'scripts/asc-adhoc.py'
+      - 'scripts/publish-adhoc.sh'
       - '.github/workflows/testflight.yml'
   workflow_dispatch:
     inputs:
@@ -20,6 +22,21 @@ on:
         description: 'Verify a signed archive without uploading to TestFlight'
         type: boolean
         default: false
+      # The ad-hoc copy (scripts/asc-adhoc.py) is exported beside every upload,
+      # for phones that cannot use TestFlight. SR-Main's /install enrolment
+      # dispatches this with testflight off and the phone's UDID.
+      testflight:
+        description: 'Upload to TestFlight (off = the ad-hoc copy only)'
+        type: boolean
+        default: true
+      adhoc_udid:
+        description: 'Add this phone to the ad-hoc copy (its UDID)'
+        type: string
+        default: ''
+      adhoc_name:
+        description: "That phone's name on the developer account, e.g. Rory's iPhone"
+        type: string
+        default: ''
 permissions:
   contents: read
 # Merges close together upload in turn, and an upload in progress is never cut
@@ -31,9 +48,13 @@ jobs:
   testflight:
     runs-on: macos-26
     environment: testflight
-    timeout-minutes: 35
+    timeout-minutes: 40
+    # Write, for the ad-hoc copy's draft release only (scripts/publish-adhoc.sh).
+    permissions:
+      contents: write
     env:
       VERIFY_ONLY: ${{ inputs.verify_only }}
+      UPLOAD: ${{ inputs.testflight }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       BUNDLE_ID: ${{ vars.APPLE_BUNDLE_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -47,6 +68,16 @@ jobs:
       WATCH_PROVISION_PROFILE_BASE64: ${{ secrets.WATCH_PROVISION_PROFILE_BASE64 }}
       WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.WIDGET_PROVISION_PROFILE_BASE64 }}
     steps:
+      # Before anything can print it. Read from the event payload, not an
+      # `env:` block: a step's env is printed in its log header, and these
+      # logs are public.
+      - name: Mask the phone's UDID
+        run: |
+          UDID=$(jq -r '.inputs.adhoc_udid // empty' "$GITHUB_EVENT_PATH")
+          if [ -n "$UDID" ]; then
+            echo "::add-mask::$UDID"
+            echo "::add-mask::$(printf '%s' "$UDID" | tr '[:lower:]' '[:upper:]')"
+          fi
       - uses: actions/checkout@v4
       - name: Verify current Apple toolchain
         run: |
@@ -85,9 +116,25 @@ jobs:
           apps=("$RUNNER_TEMP"/SRAppleApp.xcarchive/Products/Applications/*.app)
           test "${#apps[@]}" -eq 1
           codesign --verify --deep --strict "${apps[0]}"
-          if [ "$VERIFY_ONLY" != 'true' ]; then
+          if [ "$VERIFY_ONLY" != 'true' ] && [ "$UPLOAD" != 'false' ]; then
             xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/SRAppleApp.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
           fi
+      # Never costs the TestFlight upload: on a merge, or a dispatch that also
+      # uploads, a failure here is a warning. Dispatched for the ad-hoc copy
+      # alone, it is the whole point, so it fails the run.
+      - name: Ad-hoc copy
+        if: ${{ inputs.verify_only != true }}
+        continue-on-error: ${{ github.event_name == 'push' || inputs.testflight }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/asc-adhoc.py
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/SRAppleApp.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-adhoc.plist" -exportPath "$RUNNER_TEMP/adhoc"
+          ipas=("$RUNNER_TEMP"/adhoc/*.ipa)
+          test "${#ipas[@]}" -eq 1
+          mv "${ipas[0]}" "$RUNNER_TEMP/SRAppleApp.ipa"
+          bash scripts/publish-adhoc.sh "$RUNNER_TEMP/SRAppleApp.ipa" "$RUNNER_TEMP/build.json"
       - name: Remove signing material
         if: always()
         run: |
@@ -96,4 +143,8 @@ jobs:
           for UUID in "${WATCH_PROFILE_UUID:-}" "${WIDGET_PROFILE_UUID:-}" "${LIVE_PROFILE_UUID:-}" "${SHARE_PROFILE_UUID:-}"; do
             if [ -n "$UUID" ]; then rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$UUID.mobileprovision"; fi
           done
+          if [ -f "$RUNNER_TEMP/adhoc-profile-uuids" ]; then
+            while read -r UUID; do rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$UUID.mobileprovision"; done < "$RUNNER_TEMP/adhoc-profile-uuids"
+          fi
+          rm -rf "$RUNNER_TEMP/adhoc" "$RUNNER_TEMP/SRAppleApp.ipa"
           if [ -n "$PROFILE_UUID" ]; then rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"; fi

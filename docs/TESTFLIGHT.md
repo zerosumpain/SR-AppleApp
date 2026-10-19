@@ -74,3 +74,30 @@ The existing local preview is for browser tests with synthetic records. It canno
 TestFlight builds expire after 90 days. A sustainable family rollout needs refreshed beta builds or an appropriate App Store distribution route. An uploaded simulator artifact cannot be sideloaded as a signed phone app.
 
 References: [Apple SDK upload requirements](https://developer.apple.com/news/upcoming-requirements/?id=04282026a), [Apple Developer membership](https://developer.apple.com/programs/enroll/), [TestFlight](https://developer.apple.com/testflight/), [external testers](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers).
+
+## Phones that cannot use TestFlight (ad hoc)
+
+TestFlight needs an App Store account of 13 or over, so a younger child's phone
+cannot install from it. Every run of **Upload to TestFlight** therefore also
+exports an **ad-hoc** copy (`scripts/asc-adhoc.py`): signed with the same
+Apple Distribution certificate and a fresh Ad Hoc profile per target, listing
+every enabled iOS device on the developer account. The newest copy is kept in
+one **draft** release, "Ad-hoc build" (`scripts/publish-adhoc.sh`). It's a draft
+because this repository is public and the IPA lists the UDIDs it installs on.
+
+SR-Main serves it: `/admin/access/devices` → *Install without TestFlight*.
+- **Make a link for a phone** (24 hours), and open it on that phone in Safari.
+- It downloads a one-time profile. Installing it (Settings → Profile Downloaded) makes iOS
+  post the phone's UDID to the site, which dispatches this workflow with
+  `testflight` off and `adhoc_udid` / `adhoc_name` set.
+- About half an hour later, the same phone installs from `/install/<token>`, the one install page.
+  Each later merge refreshes the copy there.
+
+Or by hand: Actions → Upload to TestFlight → Run workflow, with *testflight*
+off, the UDID (Finder or the Windows Apple Devices app: click the serial number
+until it shows UDID) and a name. The UDID is read from the event payload and
+masked, never put in a step's `env:`, because step env is printed in public logs.
+
+A copy only installs on the phones listed when it was built. On another phone
+iOS says "Unable to install". A failure here never costs the TestFlight upload
+on a merge.
