@@ -14,7 +14,7 @@ final class SiteTests: XCTestCase {
     // scanner is a "point your paired phone at my server" button.
 
     private func payload(
-        type: String = "sr-native-pair",
+        type: String = "sr-pair",
         version: Int = 1,
         server: String = "https://strangeramblings.com",
         code: String = String(repeating: "a", count: 43)
@@ -23,27 +23,49 @@ final class SiteTests: XCTestCase {
         return String(data: try JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
     }
 
-    func testAcceptsOurOwnPairingPayload() throws {
-        let parsed = try SitePairing.parse(try payload())
+    @MainActor func testAcceptsTheOnePairingCode() throws {
+        let parsed = try PairingPayload.parse(try payload())
         XCTAssertEqual(parsed.server, "https://strangeramblings.com")
-        XCTAssertEqual(parsed.code.count, 43)
+        XCTAssertEqual(parsed.code?.count, 43)
     }
 
-    func testRefusesPlainHTTP() throws {
-        XCTAssertThrowsError(try SitePairing.parse(try payload(server: "http://strangeramblings.com")))
+    @MainActor func testReadsTheOpenCodeAsNobodysCode() throws {
+        // /welcome, signed out: no code at all. Scanned, the phone signs in
+        // with its own Apple ID instead (`CodePairing.signInAsThisPhone`).
+        let open = #"{"type":"sr-pair","version":1,"server":"https://strangeramblings.com"}"#
+        let parsed = try PairingPayload.parse(open)
+        XCTAssertNil(parsed.code)
+        XCTAssertThrowsError(try PairingPayload.parse(try payload(code: "short")))
     }
 
-    func testRefusesAnotherAppsQRCode() throws {
-        // The companion pairing envelope is `sr-companion-pair`; scanning one
-        // here must not silently point the site client at the health server.
-        XCTAssertThrowsError(try SitePairing.parse(try payload(type: "sr-companion-pair")))
-        XCTAssertThrowsError(try SitePairing.parse("https://example.com"))
-        XCTAssertThrowsError(try SitePairing.parse("not json at all"))
+    @MainActor func testRefusesPlainHTTP() throws {
+        XCTAssertThrowsError(try PairingPayload.parse(try payload(server: "http://strangeramblings.com")))
     }
 
-    func testRefusesAFutureVersion() throws {
+    @MainActor func testRefusesTheOldPairOfCodesByName() throws {
+        // The two codes the one code replaced, each minted for whoever was
+        // signed in to the browser showing it. Refused, and told what to do.
+        for old in ["sr-companion-pair", "sr-native-pair"] {
+            XCTAssertThrowsError(try PairingPayload.parse(try payload(type: old))) { error in
+                XCTAssertTrue(error.localizedDescription.contains("one code"), error.localizedDescription)
+            }
+        }
+        XCTAssertThrowsError(try PairingPayload.parse("https://example.com"))
+        XCTAssertThrowsError(try PairingPayload.parse("not json at all"))
+    }
+
+    @MainActor func testRefusesAFutureVersion() throws {
         // A v2 payload may mean something different by the same field names.
-        XCTAssertThrowsError(try SitePairing.parse(try payload(version: 2)))
+        XCTAssertThrowsError(try PairingPayload.parse(try payload(version: 2)))
+    }
+
+    @MainActor func testTellsTheSiteTheCodesHashNotTheCode() {
+        // What `welcome/app?confirm=` and `register/apple` are sent while the
+        // phone signs in: SR-Main checks it against sha256(code), hex.
+        XCTAssertEqual(
+            CodePairing.hash("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
     }
 
     // MARK: - Transcript rendering

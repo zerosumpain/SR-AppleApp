@@ -94,7 +94,7 @@ final class CompanionTests: XCTestCase {
     @MainActor func testPairingQRValidation() throws {
         let code = String(repeating: "a", count: 43)
         func payload(_ server: String = "https://strangeramblings.com", version: Int = 1, token: String? = nil) throws -> String {
-            let object: [String: Any] = ["type": "sr-companion-pair", "version": version, "server": server, "code": token ?? code]
+            let object: [String: Any] = ["type": "sr-pair", "version": version, "server": server, "code": token ?? code]
             return String(data: try JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
         }
         XCTAssertEqual(try PairingPayload.parse(payload()).code, code)

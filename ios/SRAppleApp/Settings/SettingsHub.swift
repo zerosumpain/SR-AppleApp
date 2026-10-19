@@ -284,31 +284,30 @@ struct DevicePrivacyScreen: View {
     }
 }
 
-/// Both pairings, and the difference between them, on one screen.
+/// This phone's connections, paired with ONE code.
 ///
-/// They are two credentials to two different servers and conflating them would
-/// mean revoking a phone's health sync to stop it reading chat. The two panels
-/// say which is which — the likeliest mistake by a wide margin is scanning the
-/// wrong QR, so the scanner names that error specifically when it happens.
+/// Health & location (the companion server) and chat & news (this site) are
+/// still two credentials, so revoking one never takes the other — but they are
+/// set up together, from the one code at strangeramblings.com/welcome, and
+/// always as the same person: the code connects only a phone signed in as the
+/// person it was made for, and health & location are then fetched through the
+/// site (`CodePairing`). Before 2026-10-19 there were two QR codes for whoever
+/// was signed in to the browser showing them, and a son's phone became his
+/// father's.
 struct ConnectionsScreen: View {
     @ObservedObject var companion: Companion
     @ObservedObject var site: SitePairingModel
     @ObservedObject var connections: ConnectionsStore
     @ObservedObject private var access = AccessStore.shared
+    @ObservedObject private var pairing = CodePairing.shared
 
-    @State private var scanningSite = false
-    @State private var scannedSite: SitePairing?
-    @State private var confirmSite = false
-
-    @State private var scanningCompanion = false
-    @State private var scannedCompanion: PairingPayload?
-    @State private var confirmCompanion = false
-    @State private var server = ""
-    @State private var code = ""
+    @State private var scanning = false
+    @State private var scanned: PairingPayload?
+    @State private var confirmScanned = false
+    @State private var typed = ""
     @State private var showCode = false
     @State private var confirmDisconnect = false
-    private enum Field: Hashable { case server, code }
-    @FocusState private var focus: Field?
+    @FocusState private var typing: Bool
 
     var body: some View {
         List {
@@ -320,22 +319,8 @@ struct ConnectionsScreen: View {
                 SiteConnectionsSection(store: connections)
             }
 
-            // MARK: Website
-            //
-            // The owner's: a QR to scan, a credential to revoke. A member's
-            // phone is paired and unpaired by the app itself, so all it shows
-            // is that it is connected — never a scanner or a prompt.
-            if access.current.owner {
-                websiteSection
-            } else if site.paired {
-                Section {
-                    SRRow(title: "Connected to strangeramblings.com", icon: "checkmark.circle.fill", tone: SR.good)
-                        .srGlassRow()
-                } header: {
-                    SRSectionLabel(text: "The website")
-                }
-            }
-
+            pairSection
+            websiteSection
             companionSection
         }
         .listStyle(.insetGrouped)
@@ -348,46 +333,32 @@ struct ConnectionsScreen: View {
             await site.check()
             await connections.refresh()
         }
-        .sheet(isPresented: $scanningSite, onDismiss: { confirmSite = scannedSite != nil }) {
+        .sheet(isPresented: $scanning, onDismiss: { confirmScanned = scanned != nil }) {
             PairingScanner { value in
-                do { scannedSite = try SitePairing.parse(value) }
+                do { scanned = try PairingPayload.parse(value) }
                 catch {
-                    scannedSite = nil
-                    site.message = error.localizedDescription
+                    scanned = nil
+                    pairing.message = error.localizedDescription
                 }
             }
         }
-        .sheet(isPresented: $scanningCompanion, onDismiss: { confirmCompanion = scannedCompanion != nil }) {
-            PairingScanner { value in
-                do { scannedCompanion = try PairingPayload.parse(value) }
-                catch {
-                    scannedCompanion = nil
-                    companion.message = error.localizedDescription
-                }
-            }
+        .sheet(item: $pairing.pending, onDismiss: { Task { await site.check() } }) { _ in
+            ConfirmIdentitySheet(pairing: pairing, companion: companion)
         }
         // The origin, shown before anything is sent to it. A QR is a URL
         // somebody else controls, so the confirmation names where it points.
-        .alert("Connect to this server?", isPresented: $confirmSite) {
-            Button("Cancel", role: .cancel) { scannedSite = nil }
+        .alert("Connect to this server?", isPresented: $confirmScanned) {
+            Button("Cancel", role: .cancel) { scanned = nil }
             Button("Connect") {
-                if let payload = scannedSite {
-                    scannedSite = nil
-                    Task { await site.pair(payload) }
+                if let payload = scanned {
+                    scanned = nil
+                    Task {
+                        await pairing.scanned(payload, companion: companion)
+                        await site.check()
+                    }
                 }
             }
-        } message: { Text(scannedSite?.server ?? "") }
-        .alert("Connect to this server?", isPresented: $confirmCompanion) {
-            Button("Cancel", role: .cancel) { scannedCompanion = nil }
-            Button("Connect") {
-                if let payload = scannedCompanion {
-                    server = payload.server
-                    code = payload.code
-                    scannedCompanion = nil
-                    connectCompanion()
-                }
-            }
-        } message: { Text(scannedCompanion?.server ?? "") }
+        } message: { Text(scanned?.server ?? "") }
         .confirmationDialog("Disconnect this iPhone?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) { Task { await companion.disconnect() } }
         } message: {
@@ -395,10 +366,90 @@ struct ConnectionsScreen: View {
         }
     }
 
-    /// The website's pairing — the owner's QR flow, unchanged.
-    private var websiteSection: some View {
+    /// The one code: scanned, or typed when the other screen is not to hand.
+    private var pairSection: some View {
         Section {
-            if site.paired {
+            Button {
+                SRHaptic.tap()
+                typing = false
+                scanned = nil
+                scanning = true
+            } label: {
+                SRRow(title: pairing.busy ? "Connecting…" : "Pair with a code",
+                      subtitle: "Scan it at strangeramblings.com/welcome",
+                      icon: "qrcode.viewfinder")
+            }
+            .buttonStyle(.plain)
+            .disabled(pairing.busy)
+            .srGlassRow()
+            .accessibilityIdentifier("pair-scan")
+
+            typedCode
+
+            if let message = pairing.message {
+                Text(message)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.error)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .srGlassRow()
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("pair-message")
+            }
+        } header: {
+            SRSectionLabel(text: "Pair this iPhone")
+        } footer: {
+            Text("One code connects everything: chat, news, health and location. It only works on a phone signed in as the person it was made for — the app checks, and asks you to sign in if it needs to.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .padding(.vertical, 4)
+        }
+    }
+
+    private var typedCode: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SRSectionLabel(text: "Or type it")
+            Group {
+                if showCode { TextField("Pairing code", text: $typed) }
+                else { SecureField("Pairing code", text: $typed) }
+            }
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .font(SR.Text.body(15))
+            .padding(.horizontal, 12).padding(.vertical, 12)
+            .frame(minHeight: SR.tapTarget)
+            .background(SR.surface)
+            .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
+            .focused($typing)
+            .submitLabel(.go)
+            .onSubmit { redeem(typed, server: nil) }
+
+            Toggle(isOn: $showCode) {
+                Text("Show pairing code").font(SR.Text.secondary()).foregroundStyle(SR.inkSecondary)
+            }
+            .tint(SR.accent)
+
+            Button { redeem(typed, server: nil) } label: {
+                Text("CONNECT")
+                    .font(SR.Text.label())
+                    .tracking(1.3)
+                    .foregroundStyle(SR.paper)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(pairing.busy || typed.isEmpty ? SR.inkGhost : SR.accent)
+            }
+            .buttonStyle(.plain)
+            .disabled(pairing.busy || typed.isEmpty)
+            .accessibilityIdentifier("pair-typed")
+        }
+        .padding(.vertical, 10)
+        .srGlassRow()
+    }
+
+    /// The website's credential: who this phone is signed in as, and a way out.
+    @ViewBuilder
+    private var websiteSection: some View {
+        if site.paired {
+            Section {
                 SRRow(title: "Connected", subtitle: site.ownerEmail, icon: "checkmark.circle.fill", tone: SR.good)
                     .srGlassRow()
                 Button(role: .destructive) { SRHaptic.tap(); site.signOut() } label: {
@@ -406,44 +457,30 @@ struct ConnectionsScreen: View {
                 }
                 .buttonStyle(.plain)
                 .srGlassRow()
-            } else {
-                Button {
-                    SRHaptic.tap()
-                    scannedSite = nil
-                    scanningSite = true
-                } label: {
-                    SRRow(title: site.busy ? "Connecting…" : "Scan the chat & news code",
-                          subtitle: "strangeramblings.com/welcome",
-                          icon: "qrcode.viewfinder")
+                if let message = site.message {
+                    Text(message)
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .srGlassRow()
+                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.plain)
-                .disabled(site.busy)
-                .srGlassRow()
-                .accessibilityIdentifier("site-pair-scan")
+            } header: {
+                SRSectionLabel(text: "The website", trailing: "Connected")
+            } footer: {
+                Text("Chat threads, the news desk, your health figures and alerts. A device token, not a password — the website can revoke it at any moment, and it expires after ninety days.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .padding(.vertical, 4)
             }
-            if let message = site.message {
-                Text(message)
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(site.paired ? SR.inkMuted : SR.error)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .srGlassRow()
-                    .padding(.vertical, 6)
-            }
-        } header: {
-            SRSectionLabel(text: "The website", trailing: site.paired ? "Connected" : nil)
-        } footer: {
-            Text("Chat threads, the news desk, your health figures and alerts. A device token, not a password — the website can revoke it at any moment, and it expires after ninety days.")
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
-                .padding(.vertical, 4)
         }
     }
 
-    /// The companion's pairing. Everybody's: it is how the app learns who is
-    /// holding it.
+    /// The companion's credential: health uploads and family location.
+    @ViewBuilder
     private var companionSection: some View {
-        Section {
-            if companion.paired {
+        if companion.paired {
+            Section {
                 if let profile = companion.profile {
                     SRRow(title: "Connected", subtitle: profile.name, icon: "checkmark.circle.fill", tone: SR.good)
                         .srGlassRow()
@@ -462,105 +499,46 @@ struct ConnectionsScreen: View {
                 .buttonStyle(.plain)
                 .disabled(companion.busy)
                 .srGlassRow()
-            } else {
+            } header: {
+                SRSectionLabel(text: "Health & location", trailing: "Connected")
+            } footer: {
+                Text("Apple Health uploads and family location. A different server and a different credential: disconnecting either leaves the other running.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .padding(.vertical, 4)
+            }
+        } else if site.paired {
+            // Paired to the site but not the companion — someone whose health
+            // connection was turned off, or never offered. Fetched through the
+            // site, so it is the same person; not in the family, nothing happens.
+            Section {
                 Button {
                     SRHaptic.tap()
-                    focus = nil
-                    scannedCompanion = nil
-                    scanningCompanion = true
+                    Task {
+                        if let problem = await CodePairing.connectCompanion(companion, replacing: false) {
+                            pairing.message = problem
+                        }
+                    }
                 } label: {
-                    SRRow(title: "Pair by QR code",
-                          subtitle: "The health & location code on the same page",
-                          icon: "qrcode.viewfinder")
+                    SRRow(title: companion.busy ? "Connecting…" : "Connect health & location", icon: "heart.text.square")
                 }
                 .buttonStyle(.plain)
                 .disabled(companion.busy)
                 .srGlassRow()
-                .accessibilityIdentifier("companion-pair-scan")
-
-                manualPairing
+                .accessibilityIdentifier("companion-connect")
+            } header: {
+                SRSectionLabel(text: "Health & location")
             }
-            if companion.paired == false, !companion.message.isEmpty {
-                Text(companion.message)
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .srGlassRow().padding(.vertical, 6)
-            }
-        } header: {
-            SRSectionLabel(text: "The companion", trailing: companion.paired ? "Connected" : nil)
-        } footer: {
-            Text("Apple Health uploads and family location. A different server and a different credential: disconnecting either leaves the other running.")
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
-                .padding(.vertical, 4)
         }
     }
 
-    /// The typed fallback. Kept because a QR needs a second screen, and the one
-    /// time you need to pair is the time the other screen is not to hand.
-    private var manualPairing: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SRSectionLabel(text: "Or enter it by hand")
-
-            TextField("HTTPS server address", text: $server)
-                .textContentType(.URL)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(SR.Text.body(15))
-                .padding(.horizontal, 12).padding(.vertical, 12)
-                .frame(minHeight: SR.tapTarget)
-                .background(SR.surface)
-                .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-                .focused($focus, equals: .server)
-                .submitLabel(.next)
-                .onSubmit { focus = .code }
-
-            Group {
-                if showCode { TextField("One-time pairing code", text: $code) }
-                else { SecureField("One-time pairing code", text: $code) }
-            }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .font(SR.Text.body(15))
-            .padding(.horizontal, 12).padding(.vertical, 12)
-            .frame(minHeight: SR.tapTarget)
-            .background(SR.surface)
-            .overlay(Rectangle().strokeBorder(SR.line, lineWidth: 1))
-            .focused($focus, equals: .code)
-            .submitLabel(.go)
-            .onSubmit { connectCompanion() }
-
-            Toggle(isOn: $showCode) {
-                Text("Show pairing code").font(SR.Text.secondary()).foregroundStyle(SR.inkSecondary)
-            }
-            .tint(SR.accent)
-
-            Button { connectCompanion() } label: {
-                Text("CONNECT")
-                    .font(SR.Text.label())
-                    .tracking(1.3)
-                    .foregroundStyle(SR.paper)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(companion.busy || code.isEmpty ? SR.inkGhost : SR.accent)
-            }
-            .buttonStyle(.plain)
-            .disabled(companion.busy || code.isEmpty)
-        }
-        .padding(.vertical, 10)
-        .srGlassRow()
-    }
-
-    private func connectCompanion() {
-        guard !companion.busy, !code.isEmpty else { return }
-        focus = nil
+    private func redeem(_ code: String, server: URL?) {
+        guard !pairing.busy, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        typing = false
         Task {
-            await companion.pair(server: server, code: code)
-            if companion.paired {
-                code = ""
-                SRHaptic.ok()
+            if await pairing.pair(code: code, server: server, companion: companion) == .connected {
+                typed = ""
+                await site.check()
             }
         }
     }

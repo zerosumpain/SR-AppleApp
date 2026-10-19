@@ -89,7 +89,7 @@ final class OnboardingTests: XCTestCase {
         attach(app, "Today, not yet connected")
     }
 
-    @MainActor func testSettingsHoldsBothPairingsOnOneScreen() {
+    @MainActor func testSettingsPairsWithOneCode() {
         let app = XCUIApplication()
         app.launchPastWelcome()
         XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
@@ -100,13 +100,12 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(connections.waitForExistence(timeout: 10), "no Connections row in settings")
         connections.tap()
 
-        // The companion's pairing, which is how the app learns who this is.
-        // The website's QR is the owner's, and nobody is known yet.
-        XCTAssertTrue(app.buttons["companion-pair-scan"].waitForExistence(timeout: 10),
-                      "no way to scan the companion's code")
-        XCTAssertFalse(app.buttons["site-pair-scan"].exists,
-                       "the website's QR is offered before anybody said this is the owner")
-        attach(app, "Settings — the companion connection")
+        // One code for everything, whoever this turns out to be. The two
+        // scanners it replaced must not come back.
+        XCTAssertTrue(app.buttons["pair-scan"].waitForExistence(timeout: 10), "no way to scan the pairing code")
+        XCTAssertFalse(app.buttons["companion-pair-scan"].exists, "the old health & location scanner is back")
+        XCTAssertFalse(app.buttons["site-pair-scan"].exists, "the old chat & news scanner is back")
+        attach(app, "Settings — pair with one code")
     }
 
     @MainActor func testTheManualPairingCodeCanStillBeRevealed() {
@@ -115,7 +114,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
         app.buttons["settings-connections"].tap()
-        XCTAssertTrue(app.buttons["companion-pair-scan"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["pair-scan"].waitForExistence(timeout: 10))
 
         let reveal = app.switches.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Show pairing code")

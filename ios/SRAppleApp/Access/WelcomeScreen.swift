@@ -10,9 +10,13 @@ import UserNotifications
 /// the app as it always opened.
 struct WelcomeScreen: View {
     @ObservedObject var registration: RegistrationStore
+    let companion: Companion
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var pairing = CodePairing.shared
     @State private var enteringCode = false
+    @State private var scanning = false
+    @State private var scanned: PairingPayload?
 
     var body: some View {
         ScrollView {
@@ -22,14 +26,28 @@ struct WelcomeScreen: View {
                 SRPageHeader(
                     kicker: "Strange Ramblings",
                     title: "Ask for an account",
-                    strap: "Sign in so John knows who you are. He reviews every request, and this app opens once he has said yes."
+                    strap: "Scan the code at strangeramblings.com/welcome, or sign in. Family John has already added are straight in; anyone else waits for him to say yes."
                 )
 
                 VStack(spacing: 12) {
+                    // The code on strangeramblings.com/welcome. Family the owner
+                    // has already added are straight in with their Apple ID.
+                    Button {
+                        SRHaptic.tap()
+                        scanned = nil
+                        scanning = true
+                    } label: {
+                        SRButtonLabel(title: "Scan the code", icon: "qrcode.viewfinder", fill: true)
+                    }
+                    .srButton(.prominent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("welcome-scan")
+
                     SignInWithAppleButton(.continue) { request in
                         request.requestedScopes = [.fullName, .email]
                         request.nonce = registration.startAppleSignIn()
                     } onCompletion: { result in
+                        pairing.message = nil
                         Task { await registration.signInWithApple(result) }
                     }
                     .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
@@ -39,6 +57,7 @@ struct WelcomeScreen: View {
 
                     Button {
                         SRHaptic.tap()
+                        pairing.message = nil
                         Task { await registration.signInWithGoogle(webAuthenticationSession) }
                     } label: {
                         SRButtonLabel(title: "Continue with Google", icon: "globe", fill: true)
@@ -47,12 +66,12 @@ struct WelcomeScreen: View {
                     .controlSize(.large)
                     .accessibilityIdentifier("welcome-google")
                 }
-                .disabled(registration.busy)
+                .disabled(registration.busy || pairing.busy)
 
-                if registration.busy {
+                if registration.busy || pairing.busy {
                     ProgressView().frame(maxWidth: .infinity)
                 }
-                if let message = registration.message {
+                if let message = pairing.message ?? registration.message {
                     Text(message)
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.error)
@@ -82,7 +101,24 @@ struct WelcomeScreen: View {
         }
         .srPaper()
         .sheet(isPresented: $enteringCode) {
-            PairingCodeSheet(registration: registration)
+            PairingCodeSheet(registration: registration, companion: companion)
+        }
+        .sheet(isPresented: $scanning, onDismiss: {
+            guard let payload = scanned else { return }
+            scanned = nil
+            Task { await pairing.scanned(payload, companion: companion) }
+        }) {
+            PairingScanner { value in
+                do { scanned = try PairingPayload.parse(value) }
+                catch {
+                    scanned = nil
+                    pairing.message = error.localizedDescription
+                }
+            }
+        }
+        // The typed-code sheet presents its own while it is up.
+        .sheet(item: Binding(get: { enteringCode ? nil : pairing.pending }, set: { pairing.pending = $0 })) { _ in
+            ConfirmIdentitySheet(pairing: pairing, companion: companion)
         }
     }
 }
@@ -90,11 +126,14 @@ struct WelcomeScreen: View {
 /// "I have a pairing code": type it, or go on without one.
 ///
 /// A typed code is asked of the site first as the App Review code, then
-/// redeemed as an ordinary one-time pairing code (`RegistrationStore.submit`).
-/// "Continue without a code" is the old way in — the app, unconnected, with
-/// the QR scanner under Settings → Connections.
+/// redeemed as the one pairing code (`CodePairing`) — which asks for a sign-in
+/// first when this phone is signed in as nobody, and connects only the person
+/// the code is for. "Continue without a code" is the old way in — the app,
+/// unconnected, with the scanner under Settings → Connections.
 struct PairingCodeSheet: View {
     @ObservedObject var registration: RegistrationStore
+    let companion: Companion
+    @ObservedObject private var pairing = CodePairing.shared
     @Environment(\.dismiss) private var dismiss
     @State private var code = ""
     @State private var problem: String?
@@ -107,7 +146,7 @@ struct PairingCodeSheet: View {
                     SRPageHeader(
                         kicker: "Already invited",
                         title: "Enter your code",
-                        strap: "Type the pairing code you were given. Codes from a QR can be scanned instead, from Settings once you are in."
+                        strap: "Type the code from strangeramblings.com/welcome — one code connects everything. It only works for the person it was made for."
                     )
 
                     TextField("Pairing code", text: $code)
@@ -138,10 +177,10 @@ struct PairingCodeSheet: View {
                     }
                     .srButton(.prominent)
                     .controlSize(.large)
-                    .disabled(registration.busy || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(registration.busy || pairing.busy || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("code-submit")
 
-                    if registration.busy {
+                    if registration.busy || pairing.busy {
                         ProgressView().frame(maxWidth: .infinity)
                     }
 
@@ -170,19 +209,28 @@ struct PairingCodeSheet: View {
                         .accessibilityIdentifier("code-cancel")
                 }
             }
+            .sheet(item: $pairing.pending, onDismiss: {
+                // Spent: this phone is in. Refused: say why, here.
+                if SiteClient.shared.isPaired && pairing.message == nil { dismiss() } else { problem = pairing.message }
+            }) { _ in
+                ConfirmIdentitySheet(pairing: pairing, companion: companion)
+            }
         }
     }
 
     private func submit() async {
-        guard !registration.busy else { return }
+        guard !registration.busy, !pairing.busy else { return }
         focused = false
         problem = nil
-        if let refusal = await registration.submit(code: code) {
-            SRHaptic.bad()
-            problem = refusal
-        } else {
+        if await registration.enterReviewDemo(ifCode: code) {
             SRHaptic.ok()
             dismiss()
+            return
+        }
+        switch await pairing.pair(code: code, server: nil, companion: companion) {
+        case .connected: dismiss()
+        case .needsSignIn: break // the confirm sheet below takes it from here
+        case .refused(let why): problem = why
         }
     }
 }

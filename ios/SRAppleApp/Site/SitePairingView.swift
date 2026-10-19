@@ -41,7 +41,7 @@ final class SitePairingModel: ObservableObject {
             // already forgotten.
             SiteClient.shared.signOut()
             paired = false
-            message = "This iPhone was disconnected. Pair it again from the website."
+            message = "This iPhone was disconnected. Pair it again with your own code from strangeramblings.com/welcome."
         } catch {
             // A network failure is not a revocation. Keep the credential.
             message = "Could not reach the site. It will retry."

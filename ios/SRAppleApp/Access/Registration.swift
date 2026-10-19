@@ -119,30 +119,15 @@ final class RegistrationStore: ObservableObject {
 
     // MARK: - A code typed on Welcome
 
-    /// "I have a pairing code", typed. First asked of the site as the App
-    /// Review code (`api/native/review-demo`): a yes starts the review demo
-    /// and nothing else happens. Otherwise it is an ordinary one-time pairing
-    /// code, redeemed on the site like a scanned one. Nil when it worked;
-    /// otherwise the sentence for the sheet.
-    func submit(code raw: String) async -> String? {
+    /// "I have a pairing code", typed: first asked of the site as the App
+    /// Review code (`api/native/review-demo`). True when it was, and the review
+    /// demo has started; otherwise the caller redeems it as the one pairing
+    /// code (`CodePairing`), like a scanned one.
+    func enterReviewDemo(ifCode raw: String) async -> Bool {
         let code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !code.isEmpty else { return "Type the code you were given." }
-        busy = true
-        message = nil
-        defer { busy = false }
-        if await SiteClient.shared.isReviewDemoCode(code) {
-            ReviewDemo.shared.enter()
-            return nil
-        }
-        do {
-            try await SiteClient.shared.redeem(code: code)
-        } catch {
-            return "That code did not work. Check it and try again, or continue without one and scan a QR code in Settings → Connections."
-        }
-        skipped = true
-        persist()
-        await refresh()
-        return nil
+        guard !code.isEmpty, await SiteClient.shared.isReviewDemoCode(code) else { return false }
+        ReviewDemo.shared.enter()
+        return true
     }
 
     // MARK: - Signing in
@@ -170,6 +155,7 @@ final class RegistrationStore: ObservableObject {
                 return
             }
             try await SiteClient.shared.redeem(code: code)
+            signedInHere = true
             await refresh()
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             // Closing the sheet is a choice, not a failure.
@@ -177,6 +163,11 @@ final class RegistrationStore: ObservableObject {
             message = error.localizedDescription
         }
     }
+
+    /// Set by a sign-in from Welcome until the site says where this person
+    /// stands: someone already allowed is then `active` — so health and
+    /// location connect through the site — rather than a phone with no status.
+    private var signedInHere = false
 
     /// The nonce for the Apple sign-in in flight. Apple signs its SHA-256 into
     /// the identity token and the site gets the nonce itself, so a token
@@ -225,6 +216,7 @@ final class RegistrationStore: ObservableObject {
                     "api/native/register/apple", body: try JSONEncoder().encode(body)
                 )
                 try await SiteClient.shared.redeem(code: reply.code)
+                signedInHere = true
                 await refresh()
             } catch {
                 message = error.localizedDescription
@@ -256,12 +248,13 @@ final class RegistrationStore: ObservableObject {
                 name = me.name ?? name
                 email = me.email ?? email
             } else {
-                // A member or the owner. Only a phone that registered here
-                // records it; a phone paired by QR never had a status.
-                if status != nil { status = .active }
+                // A member or the owner. Only a phone that signed in here
+                // records it; a phone paired by a code never had a status.
+                if status != nil || signedInHere { status = .active }
                 let flags = (try? JSONDecoder().decode(AppAccess.self, from: data)) ?? .nothing
                 AccessStore.shared.adopt(siteRole: me.role, flags: flags)
             }
+            signedInHere = false
             persist()
             return before != nil && before != .active && status == .active
         } catch SiteError.expired {
@@ -274,15 +267,21 @@ final class RegistrationStore: ObservableObject {
         }
     }
 
-    /// Approved: connect health and location through the site, no QR. A
-    /// refusal (not in the family) is fine — Health just stays unconnected.
+    /// Approved, or signed in here as someone already allowed: connect health
+    /// and location through the site, no code. A refusal (not in the family)
+    /// is fine — Health just stays unconnected.
     func connectCompanion(_ companion: Companion) async {
         guard status == .active, !companion.paired, SiteClient.shared.isPaired else { return }
-        struct Pair: Decodable { let server: String; let code: String }
-        guard let pair: Pair = try? await SiteClient.shared.send(
-            "api/native/companion-pair", method: "POST", body: Data("{}".utf8)
-        ) else { return }
-        await companion.pair(server: pair.server, code: pair.code)
+        _ = await CodePairing.connectCompanion(companion, replacing: false)
+    }
+
+    /// The one pairing code was redeemed (`CodePairing`): this phone is in, as
+    /// whoever the code was for. Welcome is set aside, as a typed code always
+    /// set it aside, and the site says what this person may see.
+    func pairedByCode() async {
+        skipped = true
+        persist()
+        await refresh()
     }
 
     /// Take the request back: the site deletes it and this phone's credential.

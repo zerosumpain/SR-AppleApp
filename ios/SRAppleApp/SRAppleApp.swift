@@ -452,7 +452,7 @@ private struct EntryGate: View {
     private var gate: some View {
         switch registration.entry(companionPaired: companionPaired ?? companion.paired) {
         case .welcome:
-            WelcomeScreen(registration: registration)
+            WelcomeScreen(registration: registration, companion: companion)
         case .reviewing(let status):
             ReviewScreen(registration: registration, status: status)
         case .app:
