@@ -12,7 +12,11 @@ struct FamilyMapCanvas: View {
     var interactive: Bool = false
     var showTrails: Bool = false
     var selected: String? = nil
+    /// The closest the map frames its people, across: a neighbourhood for the
+    /// family, a little wider for one person's page.
+    var minSpanMetres: CLLocationDistance = FamilyMapFraming.familySpan
     @Binding var camera: MapCameraPosition
+    @AppStorage(FamilyMapLook.key) private var look: FamilyMapLook = .satellite
 
     var body: some View {
         Map(position: $camera, interactionModes: interactive ? MapInteractionModes.all : []) {
@@ -35,7 +39,95 @@ struct FamilyMapCanvas: View {
                 }
             }
         }
-        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
+        .mapStyle(look.style)
+        // Framed on the people, never the trails, and never closer than
+        // `minSpanMetres`. The automatic camera fitted everything drawn: one
+        // pin (a person's page, or everyone at home) zoomed to the rooftops,
+        // and a long trail zoomed the whole family out. Re-framed as people
+        // move until somebody pans or zooms; then the map is theirs.
+        .onAppear(perform: frame)
+        .onChange(of: FamilyMapFraming.key(people)) { _, _ in frame() }
+    }
+
+    private func frame() {
+        guard !camera.positionedByUser,
+              let region = FamilyMapFraming.region(people.compactMap { $0.position?.coordinate }, minSpanMetres: minSpanMetres)
+        else { return }
+        camera = .region(region)
+    }
+}
+
+/// How a family map frames its people. PURE.
+enum FamilyMapFraming {
+    /// About a neighbourhood across: the closest the family map comes in.
+    static let familySpan: CLLocationDistance = 1_500
+    /// One person's page opens a little wider: where they are, and around it.
+    static let personSpan: CLLocationDistance = 2_000
+    /// Room around the outermost pins, as a share of the spread.
+    static let margin = 1.35
+
+    /// The region that holds every point with a little margin, and is at least
+    /// `minSpanMetres` across both ways. Nil with no points.
+    static func region(_ points: [CLLocationCoordinate2D], minSpanMetres: CLLocationDistance) -> MKCoordinateRegion? {
+        guard let first = points.first else { return nil }
+        var minLat = first.latitude, maxLat = first.latitude, minLon = first.longitude, maxLon = first.longitude
+        for p in points.dropFirst() {
+            minLat = min(minLat, p.latitude); maxLat = max(maxLat, p.latitude)
+            minLon = min(minLon, p.longitude); maxLon = max(maxLon, p.longitude)
+        }
+        let centre = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2)
+        let metresPerDegreeLat = 111_320.0
+        let metresPerDegreeLon = max(1, metresPerDegreeLat * cos(centre.latitude * .pi / 180))
+        let span = MKCoordinateSpan(
+            latitudeDelta: max((maxLat - minLat) * margin, minSpanMetres / metresPerDegreeLat),
+            longitudeDelta: max((maxLon - minLon) * margin, minSpanMetres / metresPerDegreeLon)
+        )
+        return MKCoordinateRegion(center: centre, span: span)
+    }
+
+    /// Changes when somebody moves far enough to matter (about 100 m), not
+    /// with every fix: the camera is not chasing GPS jitter.
+    static func key(_ people: [FamilyPerson]) -> String {
+        people.compactMap { p in
+            p.position.map { "\(p.subject):\(($0.lat * 1000).rounded()),\(($0.lon * 1000).rounded())" }
+        }.joined(separator: "|")
+    }
+}
+
+/// Satellite (imagery with roads and names on top) or the plain street map.
+/// Remembered on the phone: it is a way of looking, not a visit.
+enum FamilyMapLook: String {
+    case satellite, streets
+
+    static let key = "family-map-look"
+
+    var style: MapStyle {
+        switch self {
+        case .satellite: return .hybrid(elevation: .realistic, pointsOfInterest: .excludingAll)
+        case .streets: return .standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll)
+        }
+    }
+}
+
+/// Flips the family map between satellite and streets. A glyph the size of
+/// the tracks switch, beside it.
+struct FamilyMapLookButton: View {
+    @AppStorage(FamilyMapLook.key) private var look: FamilyMapLook = .satellite
+
+    var body: some View {
+        Button {
+            SRHaptic.select()
+            look = look == .satellite ? .streets : .satellite
+        } label: {
+            Image(systemName: look == .satellite ? "map" : "globe.europe.africa.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(SR.ink)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(look == .satellite ? "Show the street map" : "Show satellite")
+        .accessibilityIdentifier("family-map-look")
     }
 }
 
