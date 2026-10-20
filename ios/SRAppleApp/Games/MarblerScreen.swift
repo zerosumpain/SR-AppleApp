@@ -92,7 +92,8 @@ final class MarblerModel: ObservableObject {
         }
         #endif
         var parts = URLComponents(url: page, resolvingAgainstBaseURL: false)
-        parts?.queryItems = (parts?.queryItems ?? []) + [URLQueryItem(name: "app", value: String(bridgeVersion))]
+        let items = (parts?.queryItems ?? []) + [URLQueryItem(name: "app", value: String(bridgeVersion))]
+        parts?.queryItems = items
         return parts?.url ?? page
     }
 
