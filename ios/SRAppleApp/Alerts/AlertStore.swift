@@ -43,6 +43,16 @@ final class AlertStore: ObservableObject {
     /// alert has a new id, so it arrives on Today whatever was cleared before.
     @Published private(set) var clearedFromToday: Set<String>
 
+    /// The urgent alert Today showed last time, kept so the next launch puts
+    /// its banner up from the first frame. The banner is a top inset over the
+    /// whole page: arriving with the first refresh a second or two after
+    /// launch, it moved every card under a thumb already on its way down. Read
+    /// only until that first refresh lands (`forToday`), never on the Alerts
+    /// screen, and kept a day at most.
+    @Published private(set) var launchUrgent: SiteAlert?
+    /// The inbox has been read from the site at least once since launch.
+    @Published private(set) var refreshed = false
+
     private let client = SiteClient.shared
     private let defaults: UserDefaults
     private var elsewhere: AnyCancellable?
@@ -54,6 +64,13 @@ final class AlertStore: ObservableObject {
     static let changedElsewhere = Notification.Name("sr.alerts.changed-elsewhere")
 
     static let clearedKey = "today-cleared-alerts"
+    static let launchUrgentKey = "today-launch-urgent"
+    static let launchUrgentMaxAge: TimeInterval = 24 * 60 * 60
+
+    private struct SavedUrgent: Codable {
+        let alert: SiteAlert
+        let savedAt: Date
+    }
     /// Enough to outlast the inbox the phone asks for (60), with room over; the
     /// oldest ids fall off first, and by then their alerts have too.
     static let clearedCap = 200
@@ -61,6 +78,12 @@ final class AlertStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         clearedFromToday = Set(defaults.stringArray(forKey: Self.clearedKey) ?? [])
+        // Not in the demo (its inbox is a fixture, and a remembered banner
+        // would make one UI test's launch depend on the last), and only on the
+        // owner's lane: the site's alerts are theirs.
+        if !SRDemo.isOn, AccessStore.ownerSite {
+            launchUrgent = Self.savedUrgent(defaults: defaults)
+        }
         // Hopped to the main actor by the Task, not by `receive(on:)`: a
         // RunLoop hop waits for the run loop to turn, which an async test does
         // not guarantee.
@@ -91,6 +114,9 @@ final class AlertStore: ObservableObject {
             let feed: AlertFeed = try await client.send("api/native/notifications?limit=25&inbox=60")
             recent = feed.recent
             unread = feed.unread
+            refreshed = true
+            launchUrgent = nil
+            if !SRDemo.isOn { Self.saveUrgent(TodayAlerts.urgent(in: recent, dismissed: []), defaults: defaults) }
             await raise(feed.pending)
             message = nil
         } catch SiteError.unpaired {
@@ -98,6 +124,8 @@ final class AlertStore: ObservableObject {
             // every screen already says so.
             recent = []
             unread = 0
+            launchUrgent = nil
+            Self.clearLaunchUrgent(defaults: defaults)
         } catch {
             message = error.localizedDescription
         }
@@ -163,6 +191,10 @@ final class AlertStore: ObservableObject {
     /// dot that comes back on the next refresh.
     func markRead(_ id: String) async {
         guard AccessStore.ownerSite else { return }
+        if launchUrgent?.id == id {
+            launchUrgent = nil
+            Self.clearLaunchUrgent(defaults: defaults)
+        }
         guard let index = recent.firstIndex(where: { $0.id == id }), !recent[index].read else {
             // Not in the inbox the phone holds (Today's first paint): tell the
             // site anyway; the next refresh brings the count into line.
@@ -176,6 +208,34 @@ final class AlertStore: ObservableObject {
             "api/native/notifications",
             body: try JSONSerialization.data(withJSONObject: ["read": [id]])
         )
+    }
+
+    /// What Today's banner reads: the inbox once it has been read, and until
+    /// then the urgent alert remembered from last time.
+    var forToday: [SiteAlert] {
+        refreshed ? recent : (launchUrgent.map { [$0] } ?? recent)
+    }
+
+    nonisolated static func savedUrgent(defaults: UserDefaults = .standard, now: Date = Date()) -> SiteAlert? {
+        guard let data = defaults.data(forKey: launchUrgentKey),
+              let saved = try? JSONDecoder().decode(SavedUrgent.self, from: data),
+              now.timeIntervalSince(saved.savedAt) <= launchUrgentMaxAge
+        else { return nil }
+        return saved.alert
+    }
+
+    nonisolated static func saveUrgent(_ alert: SiteAlert?, defaults: UserDefaults = .standard, now: Date = Date()) {
+        guard let alert, let data = try? JSONEncoder().encode(SavedUrgent(alert: alert, savedAt: now)) else {
+            clearLaunchUrgent(defaults: defaults)
+            return
+        }
+        defaults.set(data, forKey: launchUrgentKey)
+    }
+
+    /// Also when the site credential goes (`SiteClient`): an alert title must
+    /// not outlive the access it came with.
+    nonisolated static func clearLaunchUrgent(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: launchUrgentKey)
     }
 
     // MARK: - Clearing Today

@@ -3,7 +3,7 @@ import Foundation
 /// Something the site wanted to tell you.
 ///
 /// Typed optional destinations preserve compatibility with older notifications.
-struct SiteAlert: Decodable, Identifiable, Hashable {
+struct SiteAlert: Codable, Identifiable, Hashable {
     let id: String
     let category: String
     let title: String
