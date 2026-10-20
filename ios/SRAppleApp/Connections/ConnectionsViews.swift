@@ -233,10 +233,26 @@ struct ConnectionAttentionRow: View {
 struct ConnectionsSheet: View {
     @ObservedObject var store: ConnectionsStore
     @Environment(\.dismiss) private var dismiss
+    @State private var phoneName = PhoneIdentity.phoneName
 
     var body: some View {
         NavigationStack {
             List {
+                // The one thing that tells two of a person's phones apart on
+                // the owner's device list. Sent with the next request, not
+                // saved by a button — see `PhoneIdentity`.
+                Section {
+                    TextField("Rory's iPhone", text: $phoneName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .onChange(of: phoneName) { _, value in PhoneIdentity.phoneName = value }
+                        .accessibilityIdentifier("connections-phone-name")
+                        .srGlassRow()
+                } header: {
+                    SRSectionLabel(text: "This iPhone's name", trailing: nil)
+                } footer: {
+                    Text("How the device list at strangeramblings.com refers to this phone.")
+                }
                 if !store.personal.isEmpty {
                     Section {
                         ForEach(store.personal) { item in

@@ -217,6 +217,7 @@ final class SiteClient {
         req.httpBody = body
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if body != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        PhoneIdentity.apply(to: &req)
         // Settings → View as: the site answers this request as that person's
         // phone would be answered — their threads, their stories — and refuses
         // anything but a read. Without it the look showed the OWNER's data
@@ -384,6 +385,7 @@ final class SiteClient {
         var req = URLRequest(url: url.appending(path: "api/native/pair"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        PhoneIdentity.apply(to: &req)
         if let token, url.host() == origin.host(), url.port == origin.port {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -428,6 +430,7 @@ final class SiteClient {
         req.httpMethod = "POST"
         req.httpBody = body
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        PhoneIdentity.apply(to: &req)
         let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {

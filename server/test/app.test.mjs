@@ -1048,13 +1048,20 @@ test('household devices lists the family\'s live phones only, and revokes only w
   assert.equal(status, 200);
   assert.deepEqual(body.devices.map(d => d.email).sort(), ['alex@example.test', 'sam@example.test']);
   const alex = body.devices.find(d => d.email === 'alex@example.test');
-  assert.deepEqual(Object.keys(alex).sort(), ['created', 'email', 'expires', 'id', 'label', 'lastUsed', 'name']);
+  assert.deepEqual(Object.keys(alex).sort(), ['app', 'created', 'deviceName', 'email', 'expires', 'id', 'label', 'lastUsed', 'model', 'name', 'os']);
   assert.equal(alex.label, 'Test phone');
   assert.equal(alex.name, 'alex');
-  assert.equal(alex.lastUsed, null);
+  assert.equal(alex.lastUsed, null, 'never used yet');
+  assert.equal(alex.app, null, 'nothing said about itself yet');
+  assert.ok(Math.abs(Date.parse(alex.created) - Date.now()) < 5000, 'issue time is stored, not derived');
   assert.match(alex.id, /^[0-9a-f]{64}$/);
   assert.ok(Date.parse(alex.expires) > Date.now());
-  assert.equal(Date.parse(alex.expires) - Date.parse(alex.created), 90 * 86400000);
+  assert.equal(Date.parse(alex.expires) - Date.parse(alex.created), 3600000, 'the fixture\'s TTL, from the stored issue time');
+  // A credential from before `created` was stored: every device token is
+  // issued with DEVICE_TTL, so its pairing time is derived from its expiry.
+  db.prepare("UPDATE credentials SET created=NULL WHERE user_id='sam' AND kind='device' AND expires>?").run(Date.now());
+  const sam = (await household(request, 'household/devices')).body.devices.find(d => d.email === 'sam@example.test');
+  assert.equal(Date.parse(sam.expires) - Date.parse(sam.created), 90 * 86400000);
   const robinId = db.prepare("SELECT hash FROM credentials WHERE user_id='robin' AND kind='device'").get().hash;
   assert.equal((await household(request, `household/devices/${robinId}`, { method: 'DELETE' })).status, 404, 'another family');
   assert.equal((await request('me', { user: 'robin' })).status, 200, 'robin still paired');
@@ -1261,4 +1268,70 @@ test('a person moves to another address in place; never the owner, never onto a 
   assert.equal((await household(request, 'household/users/email', { method: 'PUT', body: { from: 'alex@example.test', to: 'someone-new@example.test' } })).status, 409, 'the owner');
   assert.equal(db.prepare("SELECT count(*) n FROM users WHERE email='someone-new@example.test'").get().n, 0);
   assert.equal((await household(request, 'household/users/email', { method: 'PUT', body: { from: 'sam.google@example.test', to: 'no-at' } })).status, 400);
+});
+
+// --- Telemetry: what a phone says about itself (telemetry.mjs) ------------
+
+test('a device request stamps last use and the phone\'s own description; a silent app moves only the time', async t => {
+  const { request, db } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  const alexRow = () => db.prepare("SELECT * FROM credentials WHERE user_id='alex' AND kind='device'").get();
+  assert.equal(alexRow().last_used, null);
+
+  const telemetry = { 'X-SR-App': '0.1.136/136/68136470abcd', 'X-SR-Device': 'iPhone15,2/26.0.1/Rory%27s%20iPhone' };
+  assert.equal((await request('me', { headers: telemetry })).status, 200);
+  let row = alexRow();
+  assert.ok(row.last_used > Date.now() - 5000);
+  assert.deepEqual([row.app_version, row.app_build, row.app_commit, row.os_version, row.device_model, row.device_name],
+    ['0.1.136', 136, '68136470abcd', '26.0.1', 'iPhone15,2', "Rory's iPhone"]);
+  const firstSeen = row.app_seen;
+  assert.ok(firstSeen > 0);
+
+  // Same build again: the description stands, `app_seen` does not move.
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await request('me', { headers: telemetry });
+  assert.equal(alexRow().app_seen, firstSeen, 'running the same build since the first sighting');
+
+  // An older app sends nothing: the time moves, the last description stands.
+  await request('me');
+  row = alexRow();
+  assert.equal(row.app_build, 136);
+  assert.equal(row.device_name, "Rory's iPhone");
+
+  // A new build moves `app_seen`; a malformed field is dropped, not stored.
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await request('me', { headers: { 'X-SR-App': '0.1.140/140/notacommit', 'X-SR-Device': 'iPhone15,2/26.1' } });
+  row = alexRow();
+  assert.equal(row.app_build, 140);
+  assert.equal(row.app_commit, '68136470abcd', 'a bad commit leaves the last good one');
+  assert.ok(row.app_seen > firstSeen);
+
+  // The household list carries it, and a refused request still counts as alive.
+  const { body } = await household(request, 'household/devices');
+  const alex = body.devices.find(d => d.email === 'alex@example.test');
+  assert.deepEqual(alex.app, { version: '0.1.140', build: 140, commit: '68136470abcd', since: new Date(row.app_seen).toISOString() });
+  assert.equal(alex.os, '26.1');
+  assert.equal(alex.model, 'iPhone15,2');
+  assert.equal(alex.deviceName, "Rory's iPhone");
+  assert.equal(Date.parse(alex.lastUsed), row.last_used);
+
+  // Bounded: a name over 60 characters, control characters, or a model that
+  // is not a model identifier are dropped — this is a label the owner's page
+  // prints, written by whoever holds a device token.
+  await request('me', { headers: { 'X-SR-Device': 'not a model/26.1/' + encodeURIComponent('x'.repeat(61)) } });
+  row = alexRow();
+  assert.equal(row.device_model, 'iPhone15,2');
+  assert.equal(row.device_name, "Rory's iPhone");
+});
+
+test('telemetry.mjs parses exactly the documented grammar', async () => {
+  const { phoneTelemetry } = await import('../telemetry.mjs');
+  assert.equal(phoneTelemetry({}), null);
+  assert.equal(phoneTelemetry({ 'x-sr-app': 'garbage' }), null);
+  assert.deepEqual(phoneTelemetry({ 'x-sr-app': '0.1.136/136/' }), {
+    appVersion: '0.1.136', appBuild: 136, appCommit: null, deviceModel: null, osVersion: null, deviceName: null,
+  });
+  assert.deepEqual(phoneTelemetry({ 'x-sr-device': 'iPad13,16/18.6/A%2FB' }).deviceName, 'A/B', 'a slash in the name survives encoding');
+  assert.equal(phoneTelemetry({ 'x-sr-device': 'iPhone15,2/26.1/%E0%A4%A' }).deviceName, null, 'bad percent-encoding is dropped');
+  assert.equal(phoneTelemetry({ 'x-sr-app': '1/99999999999/abcdef1' }).appBuild, null, 'a build past int32 is dropped');
+  assert.equal(phoneTelemetry({ 'x-sr-app': '1/-3/abcdef1' }).appBuild, null);
 });

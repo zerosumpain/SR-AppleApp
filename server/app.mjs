@@ -2,8 +2,9 @@ import { accessPolicy } from './access.mjs';
 import QRCode from 'qrcode';
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { DEVICE_TTL, PAIR_CODE_TTL, deleteUser, deleteUserData, ensureUser, hash, issue, mintPairCode } from './store.mjs';
+import { DEVICE_TTL, PAIR_CODE_TTL, deleteUser, deleteUserData, ensureUser, hash, issue, mintPairCode, touchCredential } from './store.mjs';
 import { demoIdentity, sessionIdentity } from './session.mjs';
+import { phoneTelemetry } from './telemetry.mjs';
 import { ASLEEP_STAGES, SEGMENT_GAP_SECONDS, activitiesOf, binSeries, dayBounds, dayIndex, movingSeconds, recordedMetres, segmentsOf, unionSeconds } from './movement.mjs';
 import { KINDS, catalogue, validateHealthRecord } from './catalogue.mjs';
 import { exportPage } from './export.mjs';
@@ -568,11 +569,20 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       if (path === '/api/apple/household/devices' && method === 'GET') {
         const owner = householdOwner([]);
         if (!owner) return send(200, { devices: [] });
-        // No issue time or last use is stored for a credential. Every device
-        // token is issued with DEVICE_TTL by `/api/apple/pair`, so its pairing
-        // time is exactly `expires - DEVICE_TTL`; last use is not tracked.
-        const rows = db.prepare("SELECT c.hash, c.label, c.expires, u.email, u.name FROM credentials c JOIN users u ON u.id=c.user_id WHERE u.family=? AND c.kind='device' AND c.expires>? ORDER BY u.email, c.expires DESC").all(owner.family, Date.now());
-        return send(200, { devices: rows.map(r => ({ id: r.hash, email: r.email, name: r.name, label: r.label, created: new Date(r.expires - DEVICE_TTL).toISOString(), expires: new Date(r.expires).toISOString(), lastUsed: null })) });
+        // A credential issued before `created` existed has none stored; every
+        // device token is issued with DEVICE_TTL by `/api/apple/pair`, so its
+        // pairing time is exactly `expires - DEVICE_TTL`. `app` is what the
+        // phone last said it was running (store.mjs touchCredential), null
+        // from a build that predates the headers.
+        const iso = ms => (ms ? new Date(ms).toISOString() : null);
+        const rows = db.prepare("SELECT c.*, u.email, u.name FROM credentials c JOIN users u ON u.id=c.user_id WHERE u.family=? AND c.kind='device' AND c.expires>? ORDER BY u.email, c.expires DESC").all(owner.family, Date.now());
+        return send(200, { devices: rows.map(r => ({
+          id: r.hash, email: r.email, name: r.name, label: r.label,
+          created: iso(r.created) ?? new Date(r.expires - DEVICE_TTL).toISOString(),
+          expires: new Date(r.expires).toISOString(), lastUsed: iso(r.last_used),
+          app: r.app_build ? { version: r.app_version, build: r.app_build, commit: r.app_commit, since: iso(r.app_seen) } : null,
+          os: r.os_version, model: r.device_model, deviceName: r.device_name
+        })) });
       }
       if (path.startsWith('/api/apple/household/devices/') && method === 'DELETE') {
         const owner = householdOwner([]);
@@ -651,6 +661,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         auth = db.prepare('SELECT c.*, u.email,u.name,u.family,u.sharing,u.steps_sharing FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.hash=? AND c.expires>? AND c.kind=?')
           .get(hash(bearer), Date.now(), 'device') ?? null;
         if (!auth) fail(401, 'Pair this iPhone again');
+        // Telemetry for the owner's device list, before the handler runs so a
+        // refused request still counts as the phone being alive.
+        touchCredential(db, auth.hash, phoneTelemetry(req.headers));
       } else {
         const email = demoIdentity(req.headers.cookie, { demo, secure })
           ?? ((authSecret || process.env.SESSION_INTROSPECTION_URL) ? await sessionIdentity(req.headers.cookie, authSecret) : null);
