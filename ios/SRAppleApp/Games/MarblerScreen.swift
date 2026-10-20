@@ -11,21 +11,59 @@ import WebKit
 //
 // The page posts race events to the `marbler` message handler (see
 // `src/mobile/bridge.ts`); the app answers with haptics and steers through
-// `window.marbler.*`. Each pack course carries the race Node recorded, and
-// the page checks this phone ran the very same race: that and the frame
-// rate are what the spike measures, so the ⋯ menu shows them beside the
-// phone's thermal state.
+// `window.marbler.*`. Bridge 2 (`?app=2`): the app lists the courses and
+// holds the race controls, so the page hides its own. Picking a marble,
+// starting and the results stay on the page, where the race is.
+//
+// Each pack course carries the race Node recorded; the ⋯ menu can replay it
+// and shows whether this phone ran the very same race, beside the frame
+// rate and the phone's thermal state.
 
 /// Navigation value for Marbler, pushed on the Games stack.
 struct MarblerRef: Hashable {}
 
+/// A course in the page's pack, as the course list shows it.
+struct MarblerCourse: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let layout: String
+    let marbles: Int
+    let seconds: Int
+    let odds: Double
+    let today: Bool
+
+    init?(_ d: [String: Any]) {
+        guard let id = d["id"] as? String, let name = d["name"] as? String else { return nil }
+        self.id = id
+        self.name = name
+        layout = d["layout"] as? String ?? ""
+        marbles = d["marbles"] as? Int ?? 0
+        seconds = d["seconds"] as? Int ?? 0
+        odds = (d["odds"] as? NSNumber)?.doubleValue ?? 0
+        today = d["today"] as? Bool ?? false
+    }
+
+    /// "Switchback · 11 marbles · about 3 min".
+    var detail: String {
+        "\(layout) · \(marbles) marbles · about \(max(1, Int((Double(seconds) / 60).rounded()))) min"
+    }
+}
+
 /// What the page has told us, plus the phone's own side of the spike.
 @MainActor
 final class MarblerModel: ObservableObject {
+    @Published var courses: [MarblerCourse] = []
+    @Published var courseId = ""
     @Published var course = ""
+    /// ready (picking a marble), racing, done (results showing).
+    @Published var phase = "ready"
+    @Published var favourite: String?
+    @Published var speed = 1
+    @Published var glow = true
     @Published var fps: Int?
     @Published var minFps: Int?
     @Published var simMs: Double?
+    @Published var recorded = false
     @Published var checks: String?
     @Published var bench: String?
     @Published var error: String?
@@ -33,30 +71,64 @@ final class MarblerModel: ObservableObject {
     /// Set by the web view once it exists, for calls into the page.
     weak var webView: WKWebView?
 
+    /// The bridge version this app speaks; the page hides the controls the app draws.
+    static let bridgeVersion = 2
+
     /// The phone page. A debug build may point it elsewhere (HTTPS only) with
     /// `-marblerURL https://…` as a launch argument.
     static var pageURL: URL {
+        var page = URL(string: "https://strangeramblings.com/projects/marbler/mobile.html")!
         #if DEBUG
         if let text = UserDefaults.standard.string(forKey: "marblerURL"), let url = URL(string: text), url.scheme == "https" {
-            return url
+            page = url
         }
         #endif
-        return URL(string: "https://strangeramblings.com/projects/marbler/mobile.html")!
+        var parts = URLComponents(url: page, resolvingAgainstBaseURL: false)
+        parts?.queryItems = (parts?.queryItems ?? []) + [URLQueryItem(name: "app", value: String(bridgeVersion))]
+        return parts?.url ?? page
     }
 
     func call(_ script: String) {
         webView?.evaluateJavaScript("window.marbler && window.marbler.\(script)")
     }
 
+    /// Pack ids are letters and digits; anything else never reaches the page.
+    func load(_ course: MarblerCourse) {
+        guard course.id.allSatisfy({ $0.isLetter || $0.isNumber }) else { return }
+        call("load('\(course.id)')")
+    }
+
+    func setSpeed(_ value: Int) {
+        speed = value
+        call("setSpeed(\(value))")
+    }
+
+    func setGlow(_ on: Bool) {
+        glow = on
+        call("setFx(\(on))")
+    }
+
     func receive(_ body: Any) {
         guard let m = body as? [String: Any], let type = m["type"] as? String else { return }
         switch type {
+        case "courses":
+            courses = (m["list"] as? [[String: Any]] ?? []).compactMap(MarblerCourse.init)
         case "course":
+            courseId = m["id"] as? String ?? ""
             course = m["name"] as? String ?? ""
             checks = nil
-            bench = nil
+        case "phase":
+            phase = m["phase"] as? String ?? "ready"
+            recorded = m["recorded"] as? Bool ?? false
+            if phase == "ready" { checks = nil }
+        case "favourite":
+            favourite = m["colour"] as? String
         case "finish":
-            if (m["place"] as? Int) == 1 { SRHaptic.tap() }
+            // Your marble home is the moment; somebody else's win is a tap.
+            let place = m["place"] as? Int ?? 0
+            if m["yours"] as? Bool == true { place <= 3 ? SRHaptic.ok() : SRHaptic.select() } else if place == 1 { SRHaptic.tap() }
+        case "burned":
+            SRHaptic.select()
         case "won":
             SRHaptic.ok()
         case "check":
@@ -97,6 +169,7 @@ final class MarblerModel: ObservableObject {
 struct MarblerScreen: View {
     @StateObject private var model = MarblerModel()
     @Environment(\.scenePhase) private var scenePhase
+    @State private var choosing = false
 
     var body: some View {
         MarblerWebView(model: model)
@@ -122,27 +195,29 @@ struct MarblerScreen: View {
                     .background(SR.surface)
                 }
             }
-            .navigationTitle("Marbler")
+            .navigationTitle(model.course.isEmpty ? "Marbler" : model.course)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Section("Spike") {
-                            Text(model.fps.map { "\($0) fps · lowest \(model.minFps ?? $0)" } ?? "fps: waiting")
-                            Text(model.simMs.map { String(format: "Physics %.2f ms a frame", $0) } ?? "Physics: waiting")
-                            Text("Thermal state: \(model.thermalText)")
-                            Text(model.checks ?? "Checks: waiting")
-                            Text(model.bench ?? "Headless check: not run")
-                        }
-                        Button("Run the whole race headless") { model.call("bench()") }
-                        Button("Next course") { model.call("next()") }
-                        Button("Race again") { model.call("again()") }
+                    Button {
+                        SRHaptic.tap()
+                        choosing = true
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "list.bullet")
                     }
-                    .accessibilityIdentifier("marbler-menu")
+                    .disabled(model.courses.isEmpty)
+                    .accessibilityLabel("Courses")
+                    .accessibilityIdentifier("marbler-courses")
                 }
+                ToolbarItem(placement: .topBarTrailing) { menu }
+            }
+            .sheet(isPresented: $choosing) {
+                MarblerCourseList(courses: model.courses, current: model.courseId) { course in
+                    choosing = false
+                    model.load(course)
+                }
+                .presentationDetents([.medium, .large])
             }
             .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
@@ -153,6 +228,95 @@ struct MarblerScreen: View {
                 model.thermal = ProcessInfo.processInfo.thermalState
             }
             .accessibilityIdentifier("marbler-screen")
+    }
+
+    private var menu: some View {
+        Menu {
+            Button {
+                model.call("again()")
+            } label: {
+                Label("New race on this course", systemImage: "arrow.clockwise")
+            }
+            Button {
+                model.call("next()")
+            } label: {
+                Label("Next course", systemImage: "forward")
+            }
+            Picker("Speed", selection: Binding(get: { model.speed }, set: { model.setSpeed($0) })) {
+                Text("1×").tag(1)
+                Text("2×").tag(2)
+                Text("4×").tag(4)
+            }
+            Toggle("Glow", isOn: Binding(get: { model.glow }, set: { model.setGlow($0) }))
+            Button {
+                model.call("setFollow(false)")
+            } label: {
+                Label("Show the whole course", systemImage: "arrow.down.right.and.arrow.up.left")
+            }
+            Section("Spike") {
+                Text(model.fps.map { "\($0) fps · lowest \(model.minFps ?? $0)" } ?? "fps: waiting")
+                Text(model.simMs.map { String(format: "Physics %.2f ms a frame", $0) } ?? "Physics: waiting")
+                Text("Thermal state: \(model.thermalText)")
+                Text(model.recorded ? (model.checks ?? "Checks: waiting") : "Checks: only on the recorded race")
+                Text(model.bench ?? "Headless check: not run")
+                Button("Replay the recorded race") { model.call("again(true)") }
+                Button("Run the recorded race headless") { model.call("bench()") }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityIdentifier("marbler-menu")
+    }
+}
+
+/// The course pack, today's course first.
+struct MarblerCourseList: View {
+    let courses: [MarblerCourse]
+    let current: String
+    let choose: (MarblerCourse) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let today = courses.first(where: \.today) {
+                    Section("Today") { row(today) }
+                }
+                Section("Every course") {
+                    ForEach(courses) { row($0) }
+                }
+            }
+            .navigationTitle("Courses")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .accessibilityIdentifier("marbler-course-list")
+    }
+
+    private func row(_ course: MarblerCourse) -> some View {
+        Button {
+            SRHaptic.select()
+            choose(course)
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(course.name)
+                        .font(SR.Text.title())
+                        .foregroundStyle(SR.ink)
+                    Text(course.detail)
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                }
+                Spacer(minLength: 8)
+                if course.id == current {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(SR.accent)
+                        .accessibilityLabel("Playing now")
+                }
+            }
+            .frame(minHeight: SR.tapTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("marbler-course-\(course.id)")
     }
 }
 
