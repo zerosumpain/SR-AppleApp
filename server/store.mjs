@@ -93,6 +93,22 @@ export function openStore(path) {
   if (!db.prepare('PRAGMA table_info(credentials)').all().some(c => c.name === 'access_version')) {
     db.exec("ALTER TABLE credentials ADD COLUMN access_version TEXT NOT NULL DEFAULT 'legacy'");
   }
+  // Per-phone telemetry, stamped by app.mjs on every device request from what
+  // the phone says in its X-SR-App / X-SR-Device headers (telemetry.mjs), and
+  // read by SR-Main's device list through household/devices. Columns on the
+  // credential rather than a table of their own because the credential IS
+  // the phone here: revoking it must take the record with it, and a phone
+  // paired twice is two phones as far as anyone can tell. `created` is NULL
+  // for a credential issued before this column existed — `household/devices`
+  // falls back to `expires - DEVICE_TTL` for those. `app_seen` is when the
+  // phone was first seen running its current build.
+  const credentialColumns = db.prepare('PRAGMA table_info(credentials)').all();
+  for (const [name, definition] of Object.entries({
+    created: 'INTEGER', last_used: 'INTEGER', app_version: 'TEXT', app_build: 'INTEGER', app_commit: 'TEXT', app_channel: 'TEXT',
+    os_version: 'TEXT', device_model: 'TEXT', device_name: 'TEXT', app_seen: 'INTEGER'
+  })) {
+    if (!credentialColumns.some(c => c.name === name)) db.exec(`ALTER TABLE credentials ADD COLUMN ${name} ${definition}`);
+  }
   if (!db.prepare('PRAGMA table_info(household_views)').all().some(c => c.name === 'revision')) {
     db.exec("ALTER TABLE household_views ADD COLUMN revision TEXT NOT NULL DEFAULT ''");
   }
@@ -251,10 +267,27 @@ export function deleteUser(db, user) {
     return deleted;
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }
-export function issue(db, user, kind, label, ttl) {
+export function issue(db, user, kind, label, ttl, now = Date.now()) {
   const token = secret();
-  db.prepare('INSERT INTO credentials(hash,user_id,kind,label,expires,access_version) VALUES (?,?,?,?,?,(SELECT access_version FROM users WHERE id=?))').run(hash(token), user, kind, label, Date.now() + ttl, user);
+  db.prepare('INSERT INTO credentials(hash,user_id,kind,label,expires,access_version,created) VALUES (?,?,?,?,?,(SELECT access_version FROM users WHERE id=?),?)').run(hash(token), user, kind, label, now + ttl, user, now);
   return token;
+}
+
+/**
+ * A device credential was just used: stamp when, and what the phone said it
+ * is running (telemetry.mjs, or null from an app that sends nothing — then
+ * only the time moves and the last description stands). `app_seen` moves
+ * only when the build changes, so it reads as "running this since".
+ */
+export function touchCredential(db, credentialHash, telemetry, now = Date.now()) {
+  const t = telemetry ?? {};
+  db.prepare(`UPDATE credentials SET last_used=?,
+    app_seen=CASE WHEN ? IS NOT NULL AND app_build IS NOT ? THEN ? ELSE app_seen END,
+    app_version=coalesce(?,app_version), app_build=coalesce(?,app_build), app_commit=coalesce(?,app_commit), app_channel=coalesce(?,app_channel),
+    os_version=coalesce(?,os_version), device_model=coalesce(?,device_model), device_name=coalesce(?,device_name)
+    WHERE hash=?`).run(now, t.appBuild ?? null, t.appBuild ?? null, now,
+    t.appVersion ?? null, t.appBuild ?? null, t.appCommit ?? null, t.appChannel ?? null,
+    t.osVersion ?? null, t.deviceModel ?? null, t.deviceName ?? null, credentialHash);
 }
 
 /** Independent of new uploads: abandoned devices cannot defeat retention. */

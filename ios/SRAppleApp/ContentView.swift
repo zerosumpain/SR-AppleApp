@@ -574,6 +574,12 @@ struct ContentView: View {
                 router.openTrip(trip)
                 return
             }
+            // sr://pair?join=…&server=… — "Open SR" on the install page: the
+            // link that put the app here connects the phone as its person.
+            if let payload = PairingPayload.fromLink(url.absoluteString) {
+                Task { await CodePairing.shared.scanned(payload, companion: companion) }
+                return
+            }
             guard url.isFileURL else { return }
             guard access.allows(.chat) else {
                 if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }

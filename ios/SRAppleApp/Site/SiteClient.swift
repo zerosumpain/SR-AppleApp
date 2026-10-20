@@ -217,6 +217,7 @@ final class SiteClient {
         req.httpBody = body
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if body != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        PhoneIdentity.apply(to: &req)
         // Settings → View as: the site answers this request as that person's
         // phone would be answered — their threads, their stories — and refuses
         // anything but a read. Without it the look showed the OWNER's data
@@ -376,7 +377,9 @@ final class SiteClient {
     /// or `identity`, from a sign-in made just now for this code. A refusal
     /// keeps its status: 428 is "sign in first", 409 is "this is someone
     /// else's code" (`CodePairing`).
-    func redeem(code: String, at server: URL? = nil, identity: String? = nil) async throws {
+    /// `join`: the code is an install link's (`/app/<name>-<tag>`), sent as
+    /// `join` so the site pairs by the link's signature rather than a code row.
+    func redeem(code: String, at server: URL? = nil, identity: String? = nil, join: Bool = false) async throws {
         // Never let a demo session reach the Keychain.
         if SRDemo.isOn { throw SiteError.message("Demo mode: pairing is switched off. Leave the demo in Settings first.") }
         let url = server ?? origin
@@ -384,10 +387,11 @@ final class SiteClient {
         var req = URLRequest(url: url.appending(path: "api/native/pair"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        PhoneIdentity.apply(to: &req)
         if let token, url.host() == origin.host(), url.port == origin.port {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        var body = ["code": code, "label": deviceLabel()]
+        var body = [join ? "join" : "code": code, "label": deviceLabel()]
         if let identity { body["identity"] = identity }
         req.httpBody = try JSONEncoder().encode(body)
 
@@ -428,6 +432,7 @@ final class SiteClient {
         req.httpMethod = "POST"
         req.httpBody = body
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        PhoneIdentity.apply(to: &req)
         let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {

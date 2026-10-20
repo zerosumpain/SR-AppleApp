@@ -19,8 +19,16 @@ struct PairingPayload: Decodable, Equatable {
     let version: Int
     let server: String
     let code: String?
+    /// An install link's code (`/app/<name>-<tag>`): the same link that put
+    /// the app on a phone pairs it, once scanned or opened from here. Never
+    /// in the JSON the site's QR carries; set by `parse` from a link.
+    var join: String? = nil
+
+    /// `rory-Ab12Cd34Ef` — a first name and a ten-character tag.
+    static let joinCodePattern = "^[a-z]{1,20}-[A-Za-z0-9_-]{10}$"
 
     @MainActor static func parse(_ text: String) throws -> PairingPayload {
+        if let link = fromLink(text) { return link }
         guard text.utf8.count <= 2048,
               let data = text.data(using: .utf8),
               let value = try? JSONDecoder().decode(Self.self, from: data) else {
@@ -41,6 +49,29 @@ struct PairingPayload: Decodable, Equatable {
         }
         _ = try API.validateURL(value.server)
         return value
+    }
+
+    /// An install link as the site's QR or "Open SR" button carries it:
+    /// `https://<site>/app/<code>`, or `sr://pair?join=<code>&server=<site>`.
+    /// Nil for anything else, so the JSON parse gets its turn.
+    @MainActor static func fromLink(_ text: String) -> PairingPayload? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.utf8.count <= 512, let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return nil }
+        var server: String?
+        var code: String?
+        if scheme == "https", url.pathComponents.count == 3, url.pathComponents[1] == "app" {
+            code = url.pathComponents[2]
+            server = "https://" + (url.host ?? "") + (url.port.map { ":\($0)" } ?? "")
+        } else if scheme == "sr", url.host == "pair" {
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            code = items.first { $0.name == "join" }?.value
+            server = items.first { $0.name == "server" }?.value
+        } else {
+            return nil
+        }
+        guard let code, code.range(of: joinCodePattern, options: .regularExpression) != nil,
+              let server, (try? API.validateURL(server)) != nil else { return nil }
+        return PairingPayload(type: Self.type, version: 1, server: server, code: nil, join: code)
     }
 }
 

@@ -61,6 +61,7 @@ enum Keychain {
         req.httpMethod = method; req.httpBody = data; req.timeoutInterval = timeout
         if data != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        PhoneIdentity.apply(to: &req)
         let config = URLSessionConfiguration.ephemeral; config.urlCache = nil
         let session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }

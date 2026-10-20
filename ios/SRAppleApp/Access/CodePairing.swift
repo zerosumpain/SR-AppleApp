@@ -28,6 +28,8 @@ final class CodePairing: ObservableObject {
         let id = UUID()
         let code: String
         let server: URL?
+        /// An install link's code rather than a pairing code.
+        var join = false
     }
 
     @Published var pending: Pending?
@@ -43,20 +45,23 @@ final class CodePairing: ObservableObject {
 
     private var appleNonce: String?
 
-    /// Redeem a scanned or typed code. `server` nil means this phone's site.
+    /// Redeem a scanned or typed code — or, with `join`, an install link's
+    /// (`PairingPayload.join`), which the site checks by its signature and
+    /// may answer 428 just like a scanned code. `server` nil means this
+    /// phone's site.
     @discardableResult
-    func pair(code raw: String, server: URL?, identity: String? = nil, companion: Companion) async -> Outcome {
+    func pair(code raw: String, server: URL?, identity: String? = nil, join: Bool = false, companion: Companion) async -> Outcome {
         let code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty else { return refuse("Type the code from strangeramblings.com/welcome.") }
         busy = true
         defer { busy = false }
         message = nil
         do {
-            try await SiteClient.shared.redeem(code: code, at: server, identity: identity)
+            try await SiteClient.shared.redeem(code: code, at: server, identity: identity, join: join)
         } catch SiteError.status(428, _) where identity == nil {
             // Signed in as nobody: try this phone's Apple ID straight away,
             // and offer Google (or another go) only if that does not happen.
-            let waiting = Pending(code: code, server: server)
+            let waiting = Pending(code: code, server: server, join: join)
             busy = false
             if let outcome = await confirmWithApple(AppleIDSheet.run(nonce: startAppleSignIn(), scopes: [.email]), for: waiting, companion: companion) {
                 return outcome
@@ -184,9 +189,11 @@ final class CodePairing: ObservableObject {
         message = registration.message
     }
 
-    /// Whatever was scanned: a person's code, or the open one.
+    /// Whatever was scanned: a person's code, an install link, or the open one.
     func scanned(_ payload: PairingPayload, companion: Companion) async {
-        if let code = payload.code {
+        if let join = payload.join {
+            await pair(code: join, server: URL(string: payload.server), join: true, companion: companion)
+        } else if let code = payload.code {
             await pair(code: code, server: URL(string: payload.server), companion: companion)
         } else {
             await signInAsThisPhone()
@@ -199,7 +206,7 @@ final class CodePairing: ObservableObject {
 
     @discardableResult
     private func finish(_ pending: Pending, identity: String, companion: Companion) async -> Outcome {
-        let outcome = await pair(code: pending.code, server: pending.server, identity: identity, companion: companion)
+        let outcome = await pair(code: pending.code, server: pending.server, identity: identity, join: pending.join, companion: companion)
         if case .refused(let why) = outcome { message = why }
         return outcome
     }
