@@ -39,11 +39,13 @@ final class AppUpdate: ObservableObject {
     /// Ad hoc: the only kind of copy that ships its provisioning profile, and
     /// was built by CI (which stamps `SRCommit`). An Xcode run has the first
     /// but not the second.
-    static var isAdHoc: Bool {
+    // Nonisolated: facts about the bundle, read by `PhoneIdentity` from any
+    // request builder, which the main actor's class would otherwise forbid.
+    nonisolated static var isAdHoc: Bool {
         Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") != nil && !ownCommit.isEmpty
     }
 
-    static var ownCommit: String { (Bundle.main.infoDictionary?["SRCommit"] as? String) ?? "" }
+    nonisolated static var ownCommit: String { (Bundle.main.infoDictionary?["SRCommit"] as? String) ?? "" }
     static var ownBuild: Int { Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0 }
 
     /// Newer means a later build of DIFFERENT code. Adding a phone rebuilds the
