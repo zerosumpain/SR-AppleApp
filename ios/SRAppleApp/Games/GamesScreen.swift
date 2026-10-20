@@ -327,6 +327,7 @@ struct GameCard: View {
         case .categories: return SR.good
         case .liarsDice: return SR.good
         case .drawGuess: return SR.accentInk
+        case .marbleRace: return SR.accent
         }
     }
 }
@@ -359,6 +360,10 @@ struct NewGameSheet: View {
     // Draw & Guess.
     @State private var drawTurns = 1
     @State private var drawSeconds = 80
+    // Marble Race: Marbler's course pack, read from the site, and the pick.
+    @State private var marblePack: MarblerPack?
+    @State private var marbleCourse: MarblerPack.Entry?
+    @State private var marblePackError: String?
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -392,15 +397,22 @@ struct NewGameSheet: View {
                         drawGuessSettings
                     }
 
-                    VStack(alignment: .leading, spacing: SR.cardGap) {
-                        SRSectionLabel(text: "Difficulty")
-                        ForEach(GameDifficulty.allCases) { level in
-                            choice(
-                                title: level.label,
-                                line: level.line(for: game),
-                                selected: difficulty == level,
-                                id: "games-difficulty-\(level.rawValue)"
-                            ) { difficulty = level }
+                    if game == .marbleRace {
+                        marbleRaceSettings
+                    }
+
+                    // Marble Race's course sets how hard it is: no level to pick.
+                    if game != .marbleRace {
+                        VStack(alignment: .leading, spacing: SR.cardGap) {
+                            SRSectionLabel(text: "Difficulty")
+                            ForEach(GameDifficulty.allCases) { level in
+                                choice(
+                                    title: level.label,
+                                    line: level.line(for: game),
+                                    selected: difficulty == level,
+                                    id: "games-difficulty-\(level.rawValue)"
+                                ) { difficulty = level }
+                            }
                         }
                     }
 
@@ -496,7 +508,55 @@ struct NewGameSheet: View {
             return DrawGuessSettings(difficulty: difficulty, turnsEach: drawTurns, seconds: drawSeconds)
                 .createBody(invite: invite)
         }
+        if game == .marbleRace {
+            return MarbleRaceSettings(difficulty: difficulty, course: marbleCourse).createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// The course — Marble Race's race. Today's course unless the host picks another.
+    private var marbleRaceSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Course")
+            if let pack = marblePack {
+                Picker("Course", selection: $marbleCourse) {
+                    ForEach(pack.courses) { course in
+                        Text(course.id == pack.today()?.id ? "\(course.name) · today" : course.name)
+                            .tag(Optional(course))
+                    }
+                }
+                .pickerStyle(.menu)
+                .tint(SR.accent)
+                .accessibilityIdentifier("games-marblerace-course")
+                if let course = marbleCourse {
+                    Text("\(course.layout.capitalized) · \(course.marbles) marbles · about \(max(1, Int((Double(course.seconds) / 60).rounded()))) min")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                }
+            } else if let error = marblePackError {
+                Text("Couldn't load Marbler's courses (\(error)); Start races the first one.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ProgressView().tint(SR.accent)
+            }
+            Text("Everyone backs a different marble, then the same race plays on every phone.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-marblerace-line")
+        }
+        .task {
+            guard marblePack == nil else { return }
+            do {
+                let pack = try await MarblerPack.load()
+                marblePack = pack
+                marbleCourse = marbleCourse ?? pack.today()
+            } catch {
+                marblePackError = error.localizedDescription
+            }
+        }
     }
 
     /// Times round and the clock — Draw & Guess's game.

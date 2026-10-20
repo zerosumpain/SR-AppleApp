@@ -33,6 +33,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case categories
     case liarsDice = "liars-dice"
     case drawGuess = "draw-guess"
+    case marbleRace = "marble-race"
 
     var id: String { rawValue }
 
@@ -48,6 +49,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .categories: return "Categories"
         case .liarsDice: return "Liar's Dice"
         case .drawGuess: return "Draw & Guess"
+        case .marbleRace: return "Marble Race"
         }
     }
 
@@ -64,6 +66,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .categories: return "One letter, a card of categories. Fill every line."
         case .liarsDice: return "Hidden dice, bold bids. Call the liar."
         case .drawGuess: return "Take turns drawing a word while everyone guesses."
+        case .marbleRace: return "Back a marble. Everyone watches the same race."
         }
     }
 
@@ -90,6 +93,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone rolls in secret. Bid on what the whole table holds, or call the last bid a lie. Lose a call, lose a die; last one with dice wins."
         case .drawGuess:
             return "Everyone draws in turn. Pick one of three words, draw it, and the others race to guess. The quicker the guess, the more it scores — for them and for you."
+        case .marbleRace:
+            return "Everyone backs a different marble, then the same race plays on every phone at once. Burn in the fire and it's back to the top; the best-placed marble wins it for its backer."
         }
     }
 
@@ -105,6 +110,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .categories: return "list.bullet.rectangle.fill"
         case .liarsDice: return "dice.fill"
         case .drawGuess: return "scribble.variable"
+        case .marbleRace: return "flag.checkered"
         }
     }
 }
@@ -159,6 +165,8 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.drawGuess, .easy): return "Simple things: animals, food, toys."
         case (.drawGuess, .medium): return "Trickier things to draw, and a few actions."
         case (.drawGuess, .hard): return "Actions, places and ideas that need a whole scene."
+        // The course sets the race; the level changes nothing (the sheet hides it).
+        case (.marbleRace, _): return "The course decides how hard it is."
         }
     }
 
@@ -174,6 +182,8 @@ enum GamePhase: String, Decodable {
     /// `playing` is Wordle Race's, Anagram Blitz's, Quick Maths Sprint's and Boggle's;
     /// `question` and `reveal` are Quiz Night's; `show` and `input` are
     /// Sequence Memory's; `review` is Categories' (answers shown, vetoes open).
+    /// Marble Race's `picking` and `racing` arrive as `unknown` here and are
+    /// read by `MarbleRaceState.phase`, as Liar's Dice reads its own.
     case lobby, countdown, armed, result, playing, question, reveal, show, input, review, finished, closed
     /// A phase this version of the app has not heard of. Shown as "waiting",
     /// never a thrown decode — a newer site must not blank an open game.
@@ -599,6 +609,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// (`DrawGuessLogic.swift`). Nil in every other game's room.
     let drawGuess: DrawGuessState?
 
+    /// Marble Race: the course, the dealt race and who backs what, read from
+    /// the same JSON (`MarbleRaceLogic.swift`). Nil in every other game's room.
+    let marbleRace: MarbleRaceState?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
@@ -676,6 +690,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         } else {
             drawGuess = nil
         }
+        marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -724,6 +739,8 @@ struct CreateGameBody: Encodable, Equatable {
     var dice: Int? = nil
     /// Draw & Guess: times round the table (1 | 2); `seconds` is a drawing's clock.
     var turnsEach: Int? = nil
+    /// Marble Race: the course from Marbler's pack.
+    var course: MarbleRaceState.Course? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -761,6 +778,9 @@ struct GameActionBody: Encodable {
     var since: Int? = nil
     /// The host asking more people into the lobby: `{action:"invite", invite:[playerId]}`.
     var invite: [String]? = nil
+    /// Marble Race: `back {marble}`; `finish {order:[marble,…]}`, first home first.
+    var marble: Int? = nil
+    var order: [Int]? = nil
 }
 
 enum GameNames {

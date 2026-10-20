@@ -70,9 +70,17 @@ final class MarblerModel: ObservableObject {
     @Published var thermal = ProcessInfo.processInfo.thermalState
     /// Set by the web view once it exists, for calls into the page.
     weak var webView: WKWebView?
+    /// A family race (Marble Race): the `room(…)` call for the page, worked out
+    /// afresh each time the page says it is ready — so a page that reloads
+    /// rejoins the race where the room's clock has got to.
+    var roomScript: (() -> String?)?
+    /// A family race ended on this phone: its finish order, by marble index.
+    var onRoomFinished: (([Int]) -> Void)?
+    private var pageReady = false
 
-    /// The bridge version this app speaks; the page hides the controls the app draws.
-    static let bridgeVersion = 2
+    /// The bridge version this app speaks: 2, the app draws the course list
+    /// and controls; 3, it can start a family race with `room(…)`.
+    static let bridgeVersion = 3
 
     /// The phone page. A debug build may point it elsewhere (HTTPS only) with
     /// `-marblerURL https://…` as a launch argument.
@@ -90,6 +98,12 @@ final class MarblerModel: ObservableObject {
 
     func call(_ script: String) {
         webView?.evaluateJavaScript("window.marbler && window.marbler.\(script)")
+    }
+
+    /// Send the family race now if the page is up; otherwise it goes when the page says ready.
+    func sendRoom() {
+        guard pageReady, let script = roomScript?() else { return }
+        call(script)
     }
 
     /// Pack ids are letters and digits; anything else never reaches the page.
@@ -111,6 +125,9 @@ final class MarblerModel: ObservableObject {
     func receive(_ body: Any) {
         guard let m = body as? [String: Any], let type = m["type"] as? String else { return }
         switch type {
+        case "ready":
+            pageReady = true
+            sendRoom()
         case "courses":
             courses = (m["list"] as? [[String: Any]] ?? []).compactMap(MarblerCourse.init)
         case "course":
@@ -131,6 +148,7 @@ final class MarblerModel: ObservableObject {
             SRHaptic.select()
         case "won":
             SRHaptic.ok()
+            if m["room"] as? Bool == true, let order = m["marbles"] as? [Int] { onRoomFinished?(order) }
         case "check":
             let matched = m["matched"] as? Int ?? 0
             if let at = m["divergedAt"] as? Int {
@@ -154,6 +172,8 @@ final class MarblerModel: ObservableObject {
             break
         }
     }
+
+    func pageNotReady() { pageReady = false }
 
     var thermalText: String {
         switch thermal {
@@ -380,6 +400,7 @@ struct MarblerWebView: UIViewRepresentable {
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            model.pageNotReady()
             // iOS killed the page (usually memory): start it again rather than leave a blank screen.
             webView.load(URLRequest(url: MarblerModel.pageURL))
         }
