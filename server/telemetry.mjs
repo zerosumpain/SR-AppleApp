@@ -1,7 +1,7 @@
 // What a phone says about itself, read from two request headers the app
 // sends on every call (ios/SRAppleApp/Access/PhoneIdentity.swift):
 //
-//   X-SR-App:         <version>/<build>/<commit>     0.1.136/136/68136470
+//   X-SR-App:         <version>/<build>/<commit>[/<channel>]   0.1.136/136/68136470/adhoc
 //   X-SR-Device:      <model>/<os>[/<name>]          iPhone15,2/26.0.1/Rory%27s%20iPhone
 //
 // Headers rather than body fields, because every JSON body this server takes
@@ -18,6 +18,8 @@ const VERSION = /^[0-9]+(\.[0-9]+){0,3}$/;
 const COMMIT = /^[0-9a-f]{7,40}$/;
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9,._-]{0,39}$/;
 const NAME_MAX = 60;
+// How the copy got onto the phone; absent from a build older than the field.
+const CHANNELS = ['testflight', 'adhoc', 'xcode'];
 
 function field(value, pattern) {
   return typeof value === 'string' && pattern.test(value) ? value : null;
@@ -43,6 +45,7 @@ export function phoneTelemetry(headers) {
     appVersion: field(app[0], VERSION),
     appBuild: Number.isInteger(build) && build > 0 && build < 2 ** 31 && /^[0-9]+$/.test(app[1]) ? build : null,
     appCommit: field(app[2], COMMIT),
+    appChannel: CHANNELS.includes(app[3]) ? app[3] : null,
     deviceModel: field(device[0], MODEL),
     osVersion: field(device[1], VERSION),
     deviceName: decodedName(device.slice(2).join('/')),

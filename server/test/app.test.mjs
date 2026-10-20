@@ -1277,12 +1277,12 @@ test('a device request stamps last use and the phone\'s own description; a silen
   const alexRow = () => db.prepare("SELECT * FROM credentials WHERE user_id='alex' AND kind='device'").get();
   assert.equal(alexRow().last_used, null);
 
-  const telemetry = { 'X-SR-App': '0.1.136/136/68136470abcd', 'X-SR-Device': 'iPhone15,2/26.0.1/Rory%27s%20iPhone' };
+  const telemetry = { 'X-SR-App': '0.1.136/136/68136470abcd/adhoc', 'X-SR-Device': 'iPhone15,2/26.0.1/Rory%27s%20iPhone' };
   assert.equal((await request('me', { headers: telemetry })).status, 200);
   let row = alexRow();
   assert.ok(row.last_used > Date.now() - 5000);
-  assert.deepEqual([row.app_version, row.app_build, row.app_commit, row.os_version, row.device_model, row.device_name],
-    ['0.1.136', 136, '68136470abcd', '26.0.1', 'iPhone15,2', "Rory's iPhone"]);
+  assert.deepEqual([row.app_version, row.app_build, row.app_commit, row.app_channel, row.os_version, row.device_model, row.device_name],
+    ['0.1.136', 136, '68136470abcd', 'adhoc', '26.0.1', 'iPhone15,2', "Rory's iPhone"]);
   const firstSeen = row.app_seen;
   assert.ok(firstSeen > 0);
 
@@ -1308,7 +1308,7 @@ test('a device request stamps last use and the phone\'s own description; a silen
   // The household list carries it, and a refused request still counts as alive.
   const { body } = await household(request, 'household/devices');
   const alex = body.devices.find(d => d.email === 'alex@example.test');
-  assert.deepEqual(alex.app, { version: '0.1.140', build: 140, commit: '68136470abcd', since: new Date(row.app_seen).toISOString() });
+  assert.deepEqual(alex.app, { version: '0.1.140', build: 140, commit: '68136470abcd', channel: 'adhoc', since: new Date(row.app_seen).toISOString() });
   assert.equal(alex.os, '26.1');
   assert.equal(alex.model, 'iPhone15,2');
   assert.equal(alex.deviceName, "Rory's iPhone");
@@ -1328,8 +1328,10 @@ test('telemetry.mjs parses exactly the documented grammar', async () => {
   assert.equal(phoneTelemetry({}), null);
   assert.equal(phoneTelemetry({ 'x-sr-app': 'garbage' }), null);
   assert.deepEqual(phoneTelemetry({ 'x-sr-app': '0.1.136/136/' }), {
-    appVersion: '0.1.136', appBuild: 136, appCommit: null, deviceModel: null, osVersion: null, deviceName: null,
+    appVersion: '0.1.136', appBuild: 136, appCommit: null, appChannel: null, deviceModel: null, osVersion: null, deviceName: null,
   });
+  assert.equal(phoneTelemetry({ 'x-sr-app': '1/2/abcdef1/beta' }).appChannel, null, 'an unknown channel is dropped');
+  assert.equal(phoneTelemetry({ 'x-sr-app': '1/2/abcdef1/testflight' }).appChannel, 'testflight');
   assert.deepEqual(phoneTelemetry({ 'x-sr-device': 'iPad13,16/18.6/A%2FB' }).deviceName, 'A/B', 'a slash in the name survives encoding');
   assert.equal(phoneTelemetry({ 'x-sr-device': 'iPhone15,2/26.1/%E0%A4%A' }).deviceName, null, 'bad percent-encoding is dropped');
   assert.equal(phoneTelemetry({ 'x-sr-app': '1/99999999999/abcdef1' }).appBuild, null, 'a build past int32 is dropped');

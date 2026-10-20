@@ -104,7 +104,7 @@ export function openStore(path) {
   // phone was first seen running its current build.
   const credentialColumns = db.prepare('PRAGMA table_info(credentials)').all();
   for (const [name, definition] of Object.entries({
-    created: 'INTEGER', last_used: 'INTEGER', app_version: 'TEXT', app_build: 'INTEGER', app_commit: 'TEXT',
+    created: 'INTEGER', last_used: 'INTEGER', app_version: 'TEXT', app_build: 'INTEGER', app_commit: 'TEXT', app_channel: 'TEXT',
     os_version: 'TEXT', device_model: 'TEXT', device_name: 'TEXT', app_seen: 'INTEGER'
   })) {
     if (!credentialColumns.some(c => c.name === name)) db.exec(`ALTER TABLE credentials ADD COLUMN ${name} ${definition}`);
@@ -283,10 +283,10 @@ export function touchCredential(db, credentialHash, telemetry, now = Date.now())
   const t = telemetry ?? {};
   db.prepare(`UPDATE credentials SET last_used=?,
     app_seen=CASE WHEN ? IS NOT NULL AND app_build IS NOT ? THEN ? ELSE app_seen END,
-    app_version=coalesce(?,app_version), app_build=coalesce(?,app_build), app_commit=coalesce(?,app_commit),
+    app_version=coalesce(?,app_version), app_build=coalesce(?,app_build), app_commit=coalesce(?,app_commit), app_channel=coalesce(?,app_channel),
     os_version=coalesce(?,os_version), device_model=coalesce(?,device_model), device_name=coalesce(?,device_name)
     WHERE hash=?`).run(now, t.appBuild ?? null, t.appBuild ?? null, now,
-    t.appVersion ?? null, t.appBuild ?? null, t.appCommit ?? null,
+    t.appVersion ?? null, t.appBuild ?? null, t.appCommit ?? null, t.appChannel ?? null,
     t.osVersion ?? null, t.deviceModel ?? null, t.deviceName ?? null, credentialHash);
 }
 

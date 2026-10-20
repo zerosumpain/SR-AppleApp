@@ -580,7 +580,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           id: r.hash, email: r.email, name: r.name, label: r.label,
           created: iso(r.created) ?? new Date(r.expires - DEVICE_TTL).toISOString(),
           expires: new Date(r.expires).toISOString(), lastUsed: iso(r.last_used),
-          app: r.app_build ? { version: r.app_version, build: r.app_build, commit: r.app_commit, since: iso(r.app_seen) } : null,
+          app: r.app_build ? { version: r.app_version, build: r.app_build, commit: r.app_commit, channel: r.app_channel, since: iso(r.app_seen) } : null,
           os: r.os_version, model: r.device_model, deviceName: r.device_name
         })) });
       }

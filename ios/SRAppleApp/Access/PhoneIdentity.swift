@@ -5,7 +5,7 @@ import UIKit
 /// two headers SR-Main (`$lib/server/native-telemetry`) and the companion
 /// pilot (`server/telemetry.mjs`) both read:
 ///
-///     X-SR-App:     <version>/<build>/<commit>     0.1.136/136/68136470
+///     X-SR-App:     <version>/<build>/<commit>/<channel>   0.1.136/136/68136470/adhoc
 ///     X-SR-Device:  <model>/<os>[/<name>]          iPhone15,2/26.0.1/Rory%27s%20iPhone
 ///
 /// Headers, not body fields: the pilot refuses any JSON field it does not
@@ -36,6 +36,7 @@ enum PhoneIdentity {
             version: info["CFBundleShortVersionString"] as? String ?? "",
             build: info["CFBundleVersion"] as? String ?? "",
             commit: AppUpdate.ownCommit,
+            channel: channel,
             model: modelIdentifier,
             os: UIDevice.current.systemVersion,
             name: phoneName
@@ -49,13 +50,21 @@ enum PhoneIdentity {
     /// Pure, for the tests: the exact header values for these facts. The name
     /// is percent-encoded so a slash in it cannot read as a field break, and
     /// so the header stays ASCII whatever the person typed.
-    static func headers(version: String, build: String, commit: String, model: String, os: String, name: String) -> [String: String] {
-        var out = [appHeader: "\(version)/\(build)/\(commit)", deviceHeader: "\(model)/\(os)"]
+    static func headers(version: String, build: String, commit: String, channel: String, model: String, os: String, name: String) -> [String: String] {
+        var out = [appHeader: "\(version)/\(build)/\(commit)/\(channel)", deviceHeader: "\(model)/\(os)"]
         let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(nameLimit))
         if !trimmed.isEmpty, let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: unreserved) {
             out[deviceHeader] = "\(model)/\(os)/\(encoded)"
         }
         return out
+    }
+
+    /// How this copy got here: a copy built for this phone's UDID carries an
+    /// embedded profile and a CI commit; a TestFlight copy has the commit but
+    /// no embedded profile; an Xcode run has neither.
+    static var channel: String {
+        if AppUpdate.isAdHoc { return "adhoc" }
+        return AppUpdate.ownCommit.isEmpty ? "xcode" : "testflight"
     }
 
     /// `iPhone15,2` — the hardware identifier, which `UIDevice.model` ("iPhone")
