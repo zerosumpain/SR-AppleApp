@@ -99,7 +99,12 @@ import UIKit
         self.gate = outbox.state.gateState
         super.init()
         manager.delegate = self
-        manager.showsBackgroundLocationIndicator = true
+        // No blue location pill in the status bar for everyday family
+        // sharing — a phone on a desk all day showed it all day (John,
+        // 2026-10-20). Honoured with "Always" permission; under "While Using"
+        // iOS shows it regardless. Close tracking turns it on for its stretch
+        // (`beginOutingRadio`), where a visible reminder belongs.
+        manager.showsBackgroundLocationIndicator = false
         applySettings()
     }
 
@@ -219,6 +224,7 @@ import UIKit
         stopWakeRoutes()
         manager.stopUpdatingLocation()
         manager.allowsBackgroundLocationUpdates = false
+        manager.showsBackgroundLocationIndicator = false
         policy = MovementPolicy(settings: outbox.state.location)
         reference = nil
         stillSince = nil
@@ -560,6 +566,7 @@ import UIKit
         running = true
         try? outbox.change { $0.gateState = .tracking; $0.anchor = nil }
         manager.allowsBackgroundLocationUpdates = true
+        manager.showsBackgroundLocationIndicator = true
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .otherNavigation
         manager.desiredAccuracy = kCLLocationAccuracyBest
@@ -644,6 +651,7 @@ import UIKit
         // Back to the preset. When the gate is on and the stretch ended because
         // the phone is still, it may go straight to sleep where it is.
         manager.stopUpdatingLocation()
+        manager.showsBackgroundLocationIndicator = false
         resumeTracking(reason: "After close tracking", kind: .resumed)
         if settings.motion.enabled, reason.hasPrefix("Still"), let here = reference {
             arm(at: here)
