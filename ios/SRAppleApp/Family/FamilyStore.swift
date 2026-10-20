@@ -6,6 +6,13 @@ import Foundation
 ///
 /// Over the COMPANION pairing, not the site's: every phone in the family has
 /// that one, and only the owner's has the other.
+///
+/// A failed read never empties the map. The first request after iOS wakes the
+/// app, or as it changes network, often fails; the map used to go blank then
+/// ("Nobody is sharing a place yet") until the next refresh. Now a failure is
+/// retried once, the last view stays up with its "Updated … ago", and a cold
+/// start opens on the last view this phone was sent (`FamilyViewCache`). Only
+/// the server refusing this phone (401/403) takes the family off the screen.
 @MainActor
 final class FamilyStore: ObservableObject {
     @Published private(set) var view: HouseholdView?
@@ -29,6 +36,11 @@ final class FamilyStore: ObservableObject {
 
     init(companion: Companion) {
         self.companion = companion
+        if !SRDemo.isOn, companion.paired, let cached = FamilyViewCache.load() {
+            real = cached.view
+            updated = cached.updated
+            applyViewingAs()
+        }
     }
 
     func load() async {
@@ -45,31 +57,56 @@ final class FamilyStore: ObservableObject {
         guard companion.paired else {
             real = nil
             view = nil
+            FamilyViewCache.clear()
             loaded = true
             return
         }
         loading = true
         defer { loading = false; loaded = true }
         do {
-            let response: HouseholdViewResponse = try await companion.api.request("household/view", timeout: 12)
+            let response = try await fetchView()
             companion.adoptWatch(response.view?.watch)
             await companion.adoptAccess(response.view?.access)
             AccessStore.shared.adopt(previews: response.view?.previewAs)
             real = response.view
             applyViewingAs()
             updated = response.updated
+            if let fresh = response.view {
+                FamilyViewCache.save(view: fresh, updated: response.updated)
+            } else {
+                FamilyViewCache.clear()
+            }
             message = nil
         } catch {
-            if case .response(let status, _)? = error as? CompanionError, status == 401 || status == 403 {
+            if Self.isRefusal(error) {
                 real = nil; view = nil; updated = nil
                 companion.adoptWatch(nil)
                 AccessStore.shared.adopt(previews: nil)
                 FamilyWidgetBridge.clear()
-            } else if let updated, let date = ISO8601DateFormatter().date(from: updated), Date().timeIntervalSince(date) > 300 {
-                real = nil; view = nil
+                FamilyViewCache.clear()
             }
+            // Anything else — offline, a timeout, the first request after iOS
+            // wakes the app — leaves the last view up; its "Updated … ago"
+            // says how old it is.
             message = error.localizedDescription
         }
+    }
+
+    /// One read, and one more a moment later if the first did not land (a
+    /// refusal is an answer, not a blip: it is not retried).
+    private func fetchView() async throws -> HouseholdViewResponse {
+        do {
+            return try await companion.api.request("household/view", timeout: 12)
+        } catch where !Self.isRefusal(error) {
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+            return try await companion.api.request("household/view", timeout: 12)
+        }
+    }
+
+    /// The companion server refusing this phone: its access has ended.
+    nonisolated static func isRefusal(_ error: Error) -> Bool {
+        if case .response(let status, _)? = error as? CompanionError { return status == 401 || status == 403 }
+        return false
     }
 
     /// Show the person the owner is viewing the app as, or this phone's own
@@ -84,5 +121,50 @@ final class FamilyStore: ObservableObject {
         guard let updated, !shortAgo(updated).isEmpty else { return nil }
         let ago = shortAgo(updated)
         return ago == "0m" ? "Updated just now" : "Updated \(ago) ago"
+    }
+}
+
+/// The last family view this phone was sent, kept on disk so a cold start
+/// opens on where everyone was rather than an empty map while the first read
+/// is in flight (or failing). Positions carry their own ages, and the view its
+/// "Updated … ago"; one older than `maxAge` is not shown at all.
+///
+/// Family positions, so: in this app's own container, excluded from backups,
+/// and deleted wherever the phone loses family access (`FamilyStore` on a
+/// refusal or an unpaired companion; `Companion` and `SiteClient` on revoke).
+enum FamilyViewCache {
+    struct Entry: Codable, Equatable {
+        let view: HouseholdView
+        let updated: String?
+        let savedAt: Date
+    }
+
+    static let maxAge: TimeInterval = 12 * 60 * 60
+
+    static var url: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("family-view.json")
+    }
+
+    static func load(now: Date = Date(), from file: URL = url) -> Entry? {
+        guard let data = try? Data(contentsOf: file),
+              let entry = try? JSONDecoder().decode(Entry.self, from: data),
+              now.timeIntervalSince(entry.savedAt) <= maxAge
+        else { return nil }
+        return entry
+    }
+
+    static func save(view: HouseholdView, updated: String?, now: Date = Date(), to file: URL = url) {
+        guard let data = try? JSONEncoder().encode(Entry(view: view, updated: updated, savedAt: now)) else { return }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard (try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else { return }
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var target = file
+        try? target.setResourceValues(values)
+    }
+
+    static func clear(at file: URL = url) {
+        try? FileManager.default.removeItem(at: file)
     }
 }

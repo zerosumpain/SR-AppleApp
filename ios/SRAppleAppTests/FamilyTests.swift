@@ -285,3 +285,58 @@ final class FamilyTests: XCTestCase {
         XCTAssertNil(p.days)
     }
 }
+
+/// The family view a cold start opens on, and what counts as the server
+/// refusing this phone (the only failure that takes the family off the map).
+final class FamilyViewCacheTests: XCTestCase {
+    private var file: URL!
+
+    override func setUp() {
+        super.setUp()
+        file = FileManager.default.temporaryDirectory.appendingPathComponent("family-view-\(UUID().uuidString).json")
+    }
+
+    override func tearDown() {
+        FamilyViewCache.clear(at: file)
+        super.tearDown()
+    }
+
+    func testAViewComesBackAsItWasSaved() throws {
+        let demo = SRDemoFixtures.householdView(now: Date())
+        let view = try XCTUnwrap(demo.view)
+        let now = Date()
+        FamilyViewCache.save(view: view, updated: demo.updated, now: now, to: file)
+        let entry = try XCTUnwrap(FamilyViewCache.load(now: now, from: file))
+        XCTAssertEqual(entry.view, view, "every person, position and trail survives the round trip")
+        XCTAssertEqual(entry.updated, demo.updated)
+    }
+
+    func testAViewOlderThanTwelveHoursIsNotShown() throws {
+        let view = try XCTUnwrap(SRDemoFixtures.householdView(now: Date()).view)
+        let saved = Date()
+        FamilyViewCache.save(view: view, updated: nil, now: saved, to: file)
+        XCTAssertNotNil(FamilyViewCache.load(now: saved.addingTimeInterval(FamilyViewCache.maxAge - 60), from: file))
+        XCTAssertNil(FamilyViewCache.load(now: saved.addingTimeInterval(FamilyViewCache.maxAge + 60), from: file))
+    }
+
+    func testNothingSavedOrSomethingUnreadableIsNoView() throws {
+        XCTAssertNil(FamilyViewCache.load(from: file))
+        try Data("not json".utf8).write(to: file)
+        XCTAssertNil(FamilyViewCache.load(from: file))
+    }
+
+    func testClearingRemovesIt() throws {
+        let view = try XCTUnwrap(SRDemoFixtures.householdView(now: Date()).view)
+        FamilyViewCache.save(view: view, updated: nil, to: file)
+        FamilyViewCache.clear(at: file)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testOnlyARefusalTakesTheFamilyAway() {
+        XCTAssertTrue(FamilyStore.isRefusal(CompanionError.response(401, "expired")))
+        XCTAssertTrue(FamilyStore.isRefusal(CompanionError.response(403, "not in the family")))
+        XCTAssertFalse(FamilyStore.isRefusal(CompanionError.response(502, "bad gateway")))
+        XCTAssertFalse(FamilyStore.isRefusal(URLError(.networkConnectionLost)), "the first request after a wake")
+        XCTAssertFalse(FamilyStore.isRefusal(URLError(.timedOut)))
+    }
+}

@@ -355,6 +355,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 health.startObservers()
                 retryTask?.cancel(); retryTask = nil
                 FamilyWidgetBridge.clear()
+                FamilyViewCache.clear()
                 message = "Access ended. Collection and uploads are stopped; pair again after access is restored."
                 updateQueue()
                 return
@@ -411,6 +412,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 // Already revoked or expired: it is safe to remove the local credential.
             }
             try Keychain.save(nil); api.token = nil; paired = false
+            FamilyViewCache.clear()
             try outbox.clear(); AccessStore.shared.attach(outbox); health.startObservers(); retryTask?.cancel()
             profile = nil; records = []; family = []; updateQueue(); message = "Disconnected. Uploaded health records remain in your private dashboard."
         } catch { message = "Disconnect pending: \(error.localizedDescription). You can revoke this device on the website." }
@@ -431,6 +433,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         try? outbox.change { $0.sharing = false }
         location.stop()
         try? Keychain.save(nil); api.token = nil; paired = false
+        FamilyViewCache.clear()
         try? outbox.clear(); AccessStore.shared.attach(outbox); health.startObservers()
         profile = nil; records = []; family = []; updateQueue()
         message = "Pair your iPhone to get started."

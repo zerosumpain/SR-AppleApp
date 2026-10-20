@@ -146,10 +146,11 @@ final class AppStoreShotsTests: XCTestCase {
     /// through More.
     @MainActor private func openPage(_ app: XCUIApplication, card id: String, orTab tab: String) {
         let card = byId(app, id)
+        // As `openTab` learned: no swiping to find a card (a swipe can slide one
+        // under the pinned banners, where a tap goes through to the tile behind).
+        // Wait for it to be still, then `tap()`, which scrolls it into view itself.
         if card.waitForExistence(timeout: 15) {
-            for _ in 0..<4 where !card.isHittable { app.swipeUp() }
-        }
-        if card.exists && card.isHittable {
+            card.waitUntilStill()
             card.tap()
         } else {
             XCTAssertTrue(app.openTab(tab), "no way to \(tab)")
