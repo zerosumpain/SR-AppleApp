@@ -37,6 +37,29 @@ final class ColoursUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Home"].isSelected, "the redraw lost the reader's tab")
     }
 
+    /// Settings' own Colours row: Settings is a sheet, and a sheet sits
+    /// outside the tabs' environment — this tap trapped on a missing Router
+    /// (build 121, 2026-10-20) while the Home path above was fine.
+    @MainActor func testSettingsOpensColours() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-SRDemo"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.openSettings(), "no way into Settings")
+        let any = app.descendants(matching: .any)
+        let row = any["settings-colours"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "no Colours row in Settings")
+        for _ in 0..<12 where !row.isHittable { app.swipeUp() }
+        row.tap()
+        let ocean = any["colours-preset-ocean"].firstMatch
+        XCTAssertTrue(ocean.waitForExistence(timeout: 10), "Settings did not open Colours")
+        ocean.tap()
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: ocean)
+        waitForExpectations(timeout: 5)
+        any["colours-done"].firstMatch.tap()
+        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 10), "the app did not survive Settings → Colours")
+    }
+
     /// Arrange Home's Colours row hands over to the Colours sheet.
     @MainActor func testArrangeHomeOpensColours() {
         let app = XCUIApplication()
