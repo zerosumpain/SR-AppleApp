@@ -26,7 +26,12 @@ final class TodayFirstTapTests: XCTestCase {
             let app = launch()
             let card = app.descendants(matching: .any)["today-steps"].firstMatch
             XCTAssertTrue(card.waitForExistence(timeout: 15), "no steps card on Today (launch \(attempt))")
-            for _ in 0..<4 where !card.isHittable { app.swipeUp() }
+            // No swiping to "find" it: `tap()` scrolls a card into view itself,
+            // and only when it must. The card is the second row of Home, just
+            // under the pinned banners (connections, an urgent alert); a blind
+            // swipe up slid it beneath them, and the tap was aimed at the
+            // banners' edge and went through to the tile behind — Family
+            // opened instead (CI 2026-10-20, launch 2).
             card.tap()
             XCTAssertTrue(
                 app.descendants(matching: .any)["steps-hero"].firstMatch.waitForExistence(timeout: 10),
