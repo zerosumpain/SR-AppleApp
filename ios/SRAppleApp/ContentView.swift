@@ -594,25 +594,38 @@ struct ContentView: View {
             router.chat.append(ThreadReference(id: id))
         }
         .sheet(item: $router.sheet) { sheet in
-            switch sheet {
-            case .settings:
-                SettingsScreen(
-                    outbox: outbox,
-                    companion: companion,
-                    location: location,
-                    battery: battery,
-                    site: site,
-                    alerts: alerts,
-                    connections: connections,
-                    target: router.settingsTarget
-                )
-            case .alerts:
-                NavigationStack { AlertsScreen(alerts: alerts) }
-            case .connections:
-                ConnectionsSheet(store: connections)
-            case .colours:
-                SRPaletteSheet()
-            }
+            sheetContent(sheet)
+                // A sheet sits outside the `.environmentObject`s above, so it
+                // is handed them again here: Settings' Colours row reads the
+                // router, and without it the tap trapped (build 121, 10-20).
+                .environmentObject(router)
+                .environmentObject(alerts)
+                .environmentObject(connections)
+                .environmentObject(access)
+                .environmentObject(games)
+        }
+    }
+
+    @ViewBuilder
+    private func sheetContent(_ sheet: Router.Sheet) -> some View {
+        switch sheet {
+        case .settings:
+            SettingsScreen(
+                outbox: outbox,
+                companion: companion,
+                location: location,
+                battery: battery,
+                site: site,
+                alerts: alerts,
+                connections: connections,
+                target: router.settingsTarget
+            )
+        case .alerts:
+            NavigationStack { AlertsScreen(alerts: alerts) }
+        case .connections:
+            ConnectionsSheet(store: connections)
+        case .colours:
+            SRPaletteSheet()
         }
     }
 
