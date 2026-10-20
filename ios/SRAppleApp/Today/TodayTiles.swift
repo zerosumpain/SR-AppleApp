@@ -198,6 +198,11 @@ struct TodayUrgentBanner: View {
         .padding(.trailing, 4)
         .padding(.vertical, 6)
         .srGlass(.ink, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // The whole card answers, not just its button: a tap on the glass's
+        // edge used to fall through to whatever card was scrolled beneath the
+        // banner (Family opened instead of the alert). The ✕ still dismisses.
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onTapGesture(perform: open)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
         .transition(.move(edge: .top).combined(with: .opacity))

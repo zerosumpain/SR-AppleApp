@@ -91,6 +91,13 @@ struct ConnectionsBanner: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(SR.error.opacity(0.55), lineWidth: 1)
         }
+        // The whole card answers, as the details row does: a tap between its
+        // buttons must not fall through to the page scrolled beneath it.
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .onTapGesture {
+            SRHaptic.tap()
+            onDetails()
+        }
         .padding(.horizontal, 12)
         .padding(.top, 4)
         .padding(.bottom, 6)

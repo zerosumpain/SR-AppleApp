@@ -471,6 +471,7 @@ final class SiteClient {
         // family view kept for a cold start.
         FamilyWidgetBridge.clear()
         FamilyViewCache.clear()
+        AlertStore.clearLaunchUrgent()
         FamilyStepsStore.shared.reset()
         FamilyTasksStore.shared.reset()
         FamilyBacklogStore.shared.reset()

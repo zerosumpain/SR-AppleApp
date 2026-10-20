@@ -190,7 +190,7 @@ struct TodayScreen: View {
         // Pinned under the bar, not scrolled with the page: something urgent
         // stays in view until it is opened or waved away.
         .safeAreaInset(edge: .top, spacing: 0) {
-            if access.current.owner, let urgent = TodayAlerts.urgent(in: alerts.recent, dismissed: waved) {
+            if access.current.owner, let urgent = TodayAlerts.urgent(in: alerts.forToday, dismissed: waved) {
                 TodayUrgentBanner(
                     alert: urgent,
                     open: {
