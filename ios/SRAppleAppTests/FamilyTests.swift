@@ -1,5 +1,6 @@
 import XCTest
 import CoreLocation
+import MapKit
 @testable import SRAppleApp
 
 /// The Family tab's model: what the site files for this person, and the few
@@ -338,5 +339,53 @@ final class FamilyViewCacheTests: XCTestCase {
         XCTAssertFalse(FamilyStore.isRefusal(CompanionError.response(502, "bad gateway")))
         XCTAssertFalse(FamilyStore.isRefusal(URLError(.networkConnectionLost)), "the first request after a wake")
         XCTAssertFalse(FamilyStore.isRefusal(URLError(.timedOut)))
+    }
+}
+
+/// How the family maps frame their people: never closer than a neighbourhood
+/// (one pin used to zoom to the rooftops), never fitted to the trails.
+final class FamilyMapFramingTests: XCTestCase {
+    private let home = CLLocationCoordinate2D(latitude: 54.5196, longitude: -1.5720)
+
+    private func metresAcross(_ region: MKCoordinateRegion) -> (ns: Double, ew: Double) {
+        (region.span.latitudeDelta * 111_320,
+         region.span.longitudeDelta * 111_320 * cos(region.center.latitude * .pi / 180))
+    }
+
+    func testOnePersonOpensAtTheirMinimumNotTheRooftops() throws {
+        let region = try XCTUnwrap(FamilyMapFraming.region([home], minSpanMetres: FamilyMapFraming.personSpan))
+        let across = metresAcross(region)
+        XCTAssertEqual(across.ns, 2_000, accuracy: 1)
+        XCTAssertEqual(across.ew, 2_000, accuracy: 1)
+        XCTAssertEqual(region.center.latitude, home.latitude, accuracy: 1e-9)
+    }
+
+    func testEveryoneAtHomeIsANeighbourhoodNotAHouse() throws {
+        let region = try XCTUnwrap(FamilyMapFraming.region([home, home, home], minSpanMetres: FamilyMapFraming.familySpan))
+        XCTAssertEqual(metresAcross(region).ns, 1_500, accuracy: 1)
+    }
+
+    func testPeopleSpreadOutAreAllInWithAMargin() throws {
+        let school = CLLocationCoordinate2D(latitude: 54.5600, longitude: -1.5200) // about 5 km away
+        let region = try XCTUnwrap(FamilyMapFraming.region([home, school], minSpanMetres: FamilyMapFraming.familySpan))
+        XCTAssertEqual(region.span.latitudeDelta, (school.latitude - home.latitude) * FamilyMapFraming.margin, accuracy: 1e-9)
+        XCTAssertEqual(region.span.longitudeDelta, (school.longitude - home.longitude) * FamilyMapFraming.margin, accuracy: 1e-9)
+        XCTAssertEqual(region.center.latitude, (home.latitude + school.latitude) / 2, accuracy: 1e-9)
+    }
+
+    func testNoPeopleNoRegion() {
+        XCTAssertNil(FamilyMapFraming.region([], minSpanMetres: FamilyMapFraming.familySpan))
+    }
+
+    func testTheCameraIgnoresJitterButNotARealMove() throws {
+        func person(_ lat: Double, _ lon: Double) throws -> FamilyPerson {
+            try JSONDecoder().decode(FamilyPerson.self, from: Data("""
+            {"subject":"sam","name":"Sam","self":false,"status":"out","line":"x","batteryPct":null,"lastSeenAt":null,
+             "position":{"lat":\(lat),"lon":\(lon),"at":"2026-10-20T18:00:00Z"},"today":null}
+            """.utf8))
+        }
+        let here = FamilyMapFraming.key([try person(54.51960, -1.57200)])
+        XCTAssertEqual(FamilyMapFraming.key([try person(54.51962, -1.57203)]), here, "a few metres of GPS wobble")
+        XCTAssertNotEqual(FamilyMapFraming.key([try person(54.52300, -1.57200)]), here, "about 400 m north")
     }
 }

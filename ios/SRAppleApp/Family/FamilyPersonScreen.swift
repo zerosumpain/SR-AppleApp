@@ -36,8 +36,15 @@ struct FamilyPersonScreen: View {
     private func content(_ person: FamilyPerson) -> some View {
         VStack(spacing: 0) {
             if person.position != nil {
-                FamilyMapCanvas(people: [person], interactive: true, showTrails: showTracks, selected: person.subject, camera: $camera)
+                FamilyMapCanvas(people: [person], interactive: true, showTrails: showTracks, selected: person.subject,
+                                minSpanMetres: FamilyMapFraming.personSpan, camera: $camera)
                     .frame(height: 280)
+                    .overlay(alignment: .topLeading) {
+                        FamilyMapLookButton()
+                            .frame(width: 40, height: 40)
+                            .srGlass(.paper, in: Circle(), interactive: true)
+                            .padding(10)
+                    }
                     .overlay(alignment: .topTrailing) {
                         if person.today?.trail.isEmpty == false {
                             FamilyTracksButton(on: $showTracks)

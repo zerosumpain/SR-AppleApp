@@ -200,6 +200,12 @@ struct FamilyScreen: View {
             .overlay(alignment: .bottomTrailing) {
                 FamilyMapExpandButton(expanded: false) { mapExpanded = true }.padding(10)
             }
+            .overlay(alignment: .topTrailing) {
+                FamilyMapLookButton()
+                    .frame(width: 40, height: 40)
+                    .srGlass(.paper, in: Circle(), interactive: true)
+                    .padding(10)
+            }
             .accessibilityIdentifier("family-map")
             .fullScreenCover(isPresented: $mapExpanded) {
                 FamilyFullMap(people: view.people, showTracks: $showTracks, camera: $camera) {
@@ -318,8 +324,11 @@ struct FamilyFullMap: View {
             // The buttons INSIDE the safe area: laid over a map that ignores
             // it, the top corner sat under the status bar and took no taps.
             VStack {
-                HStack {
+                HStack(spacing: 10) {
                     Spacer()
+                    FamilyMapLookButton()
+                        .frame(width: 44, height: 44)
+                        .srGlass(.paper, in: Circle(), interactive: true)
                     FamilyTracksButton(on: $tracks)
                         .frame(width: 44, height: 44)
                         .srGlass(.paper, in: Circle(), interactive: true)
