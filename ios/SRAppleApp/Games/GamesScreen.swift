@@ -99,6 +99,40 @@ struct GamesScreen: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("games-leaderboard")
 
+                // Marbler: a marble race played on this phone, on the site's own engine.
+                Button {
+                    SRHaptic.tap()
+                    router.push(MarblerRef(), on: .games)
+                } label: {
+                    SRCard(interactive: true) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "circle.grid.cross.fill")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(SR.accent)
+                                .frame(width: 28)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Marbler")
+                                    .font(SR.Text.title())
+                                    .foregroundStyle(SR.ink)
+                                Text("Watch a marble race, pick a favourite. Runs on this phone.")
+                                    .font(SR.Text.secondary())
+                                    .foregroundStyle(SR.inkMuted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(SR.inkGhost)
+                        }
+                        .frame(minHeight: SR.tapTarget)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("games-marbler")
+
                 section("Play", trailing: nil) {
                     ForEach(GameKind.allCases) { kind in
                         Button {
