@@ -139,6 +139,9 @@ struct FamilyScreen: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
+                    // The owner's own reminder that the family sees a held place.
+                    LocationHoldBanner()
+                        .padding(.top, LocationHoldStore.shared.hold == nil ? 0 : 14)
                     LiveWalksCard(store: walks)
                         .padding(.top, walks.walks.isEmpty ? 0 : 14)
                     RouteGiftsCard(store: gifts)

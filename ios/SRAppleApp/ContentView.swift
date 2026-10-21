@@ -48,7 +48,7 @@ final class Router: ObservableObject {
     /// Pages that live only inside More — not places with a tab of their own.
     /// Wildmind, like Daydream, is the owner's.
     enum MorePage: String, Hashable { case daydream, wildmind }
-    enum SettingsTarget: String, Hashable { case notifications, connections, health, location }
+    enum SettingsTarget: String, Hashable { case notifications, connections, health, location, hold }
 
     /// The palette sheet. A sheet, not a pushed page, so the app behind it
     /// can redraw in the new colours while the reader is still choosing.
@@ -451,6 +451,9 @@ struct ContentView: View {
             await location.askForMotionIfNeeded()
             await site.check()
             await reconcileSite()
+            // What the site holds of the owner's location hold, if anything:
+            // it is the truth the family sees, and it may have ended.
+            await LocationHoldStore.shared.refresh()
             syncFamilyWidgets()
             await alerts.refresh()
             await connections.refresh()

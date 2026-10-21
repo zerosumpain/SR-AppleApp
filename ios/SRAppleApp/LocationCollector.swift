@@ -544,6 +544,8 @@ import UIKit
 
     private func startOuting(leaving place: WatchedPlace) {
         guard outbox.state.sharing, outbox.state.closeTracking, outbox.state.outing == nil else { return }
+        // Held: leaving a watched place must not start a 1 Hz trail of where.
+        guard LocationHold.current() == nil else { return }
         let now = Date()
         try? outbox.change {
             $0.outing = OutingState(placeID: place.id, placeLabel: place.label, startedAt: now, lastMovedAt: now)
@@ -759,6 +761,13 @@ import UIKit
     }
 
     private func record(_ location: CLLocation, moving: Bool, notify: Bool = true) {
+        // The owner's location hold: nothing real leaves the phone while the
+        // site shows the family the held place (`LocationHold`). Dropped, not
+        // queued — a queue would upload the hidden stretch the moment it ended.
+        if LocationHold.current() != nil {
+            status = "Location held · not sharing where you are"
+            return
+        }
         let point = LocationRecord(recorded: timestamp(location.timestamp),
                                    latitude: location.coordinate.latitude,
                                    longitude: location.coordinate.longitude,
