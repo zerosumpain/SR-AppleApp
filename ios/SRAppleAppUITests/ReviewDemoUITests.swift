@@ -146,7 +146,9 @@ final class ReviewDemoUITests: XCTestCase {
     /// Back out of a pushed screen to the root of its stack.
     @MainActor private func back(_ app: XCUIApplication) {
         let back = app.navigationBars.buttons.element(boundBy: 0)
-        if back.waitForExistence(timeout: 5) { back.tap() }
+        // On a tab's first page the bar's first button is the ⊞ hub, not a
+        // Back: tapping it would open the hub over the page we meant to leave.
+        if back.waitForExistence(timeout: 5), back.identifier != "open-hub" { back.tap() }
         _ = app.tabBars.firstMatch.waitForExistence(timeout: 5)
     }
 

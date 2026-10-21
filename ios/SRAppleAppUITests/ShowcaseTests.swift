@@ -1608,7 +1608,8 @@ final class ShowcaseTests: XCTestCase {
     /// Back out of a room to the Games tab.
     @MainActor private func back(_ app: XCUIApplication) {
         let back = app.navigationBars.buttons.element(boundBy: 0)
-        if back.waitForExistence(timeout: 5) { back.tap() }
+        // On the Games root the bar's first button is the ⊞ hub, not a Back.
+        if back.waitForExistence(timeout: 5), back.identifier != "open-hub" { back.tap() }
         settle(app, on: byId(app, "games-screen"))
     }
 

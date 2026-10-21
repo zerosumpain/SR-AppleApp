@@ -48,7 +48,10 @@ extension XCUIApplication {
     func openHub(timeout: TimeInterval = 20) -> Bool {
         let button = buttons["open-hub"].firstMatch
         let hub = descendants(matching: .any)["more-screen"].firstMatch
-        guard button.waitForExistence(timeout: timeout) else { return false }
+        // Already on it: a test's "back" from a tab's first page lands on the
+        // ⊞ (the bar's first button there) and opens the hub itself.
+        if hub.exists { return true }
+        guard button.waitForExistence(timeout: timeout) else { return hub.exists }
         for attempt in 0..<3 {
             if button.exists && button.isHittable { button.tap() }
             if hub.waitForExistence(timeout: attempt == 0 ? 10 : 5) { return true }
