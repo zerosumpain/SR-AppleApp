@@ -459,3 +459,255 @@ struct UndoResult: Codable, Hashable {
     var changes: [String]
     var diff: PlanDiff?
 }
+
+// MARK: - What the phone sends (v8)
+
+/// A day variant (`POST …/proposals {kind:'day', variant}`).
+enum DayVariant: String, Codable, Hashable, CaseIterable, Identifiable {
+    case lighter
+    case rainy
+    case swapDays = "swap-days"
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .lighter: return "Make it lighter"
+        case .rainy: return "Rainy-day version"
+        case .swapDays: return "Swap with another day"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .lighter: return "leaf"
+        case .rainy: return "cloud.rain"
+        case .swapDays: return "arrow.left.arrow.right"
+        }
+    }
+}
+
+/// `POST …/proposals`: ask for one group of alternatives — a swap for a stop,
+/// something for a gap, a nudge on a proposal, a version of a day, trip shapes.
+struct ProposalRequest: Encodable, Hashable {
+    struct Target: Encodable, Hashable {
+        var stopId: String? = nil
+        var wishId: String? = nil
+        var date: String? = nil
+        /// A `DayStage` raw value.
+        var stage: String? = nil
+        var proposalId: String? = nil
+    }
+
+    /// swap, fill, nudge, day, shapes.
+    var kind: String
+    var target: Target
+    var nudge: Nudge? = nil
+    var variant: DayVariant? = nil
+    var withDate: String? = nil
+
+    static func swap(stopId: String, wishId: String?, date: String) -> ProposalRequest {
+        ProposalRequest(kind: "swap", target: Target(stopId: stopId, wishId: wishId, date: date))
+    }
+
+    static func fill(date: String, stage: String, stopId: String? = nil) -> ProposalRequest {
+        ProposalRequest(kind: "fill", target: Target(stopId: stopId, date: date, stage: stage))
+    }
+
+    static func nudge(_ nudge: Nudge, on proposal: TripProposal) -> ProposalRequest {
+        ProposalRequest(kind: "nudge", target: Target(stopId: proposal.scope.stopId, wishId: proposal.scope.wishId,
+                                                      date: proposal.scope.date, stage: proposal.scope.stage,
+                                                      proposalId: proposal.id),
+                        nudge: nudge)
+    }
+
+    static func day(_ variant: DayVariant, date: String, withDate: String? = nil) -> ProposalRequest {
+        ProposalRequest(kind: "day", target: Target(date: date), variant: variant, withDate: withDate)
+    }
+
+    static let shapes = ProposalRequest(kind: "shapes", target: Target())
+}
+
+/// `POST …/proposals/:pid`.
+enum ProposalAction: Encodable, Hashable {
+    case accept
+    case reject(RejectReason, note: String?)
+
+    private enum Keys: String, CodingKey { case action, reason, note }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .accept:
+            try c.encode("accept", forKey: .action)
+        case .reject(let reason, let note):
+            try c.encode("reject", forKey: .action)
+            try c.encode(reason, forKey: .reason)
+            try c.encodeIfPresent(note, forKey: .note)
+        }
+    }
+}
+
+/// `POST …/questions/:qid`: an answer, "You decide" (the assumed answer),
+/// skip, or — a family question, from someone who does not decide — a vote.
+enum QuestionAction: Encodable, Hashable {
+    case answer(String)
+    case decide
+    case skip
+    case vote(String)
+
+    private enum Keys: String, CodingKey { case action, answerId }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .answer(let id):
+            try c.encode("answer", forKey: .action)
+            try c.encode(id, forKey: .answerId)
+        case .decide:
+            try c.encode("decide", forKey: .action)
+        case .skip:
+            try c.encode("skip", forKey: .action)
+        case .vote(let id):
+            try c.encode("vote", forKey: .action)
+            try c.encode(id, forKey: .answerId)
+        }
+    }
+
+    var answerId: String? {
+        switch self {
+        case .answer(let id), .vote(let id): return id
+        case .decide, .skip: return nil
+        }
+    }
+}
+
+/// `PATCH …/brief`: a direct edit, no chat. `confirm` turns an assumed (or
+/// noted) fact into one the person said.
+enum BriefPatch: Encodable, Hashable {
+    case dates(start: String, end: String)
+    case destination(String)
+    case pace(String)
+    case travellers([TripStart.Traveller])
+    case stay(id: String?, name: String, placeQuery: String, fromDate: String, toDate: String)
+    case confirm(key: String)
+    case remove(key: String)
+
+    private enum Keys: String, CodingKey {
+        case field, startDate, endDate, destination, pace, travellers, id, name, placeQuery, fromDate, toDate, key
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .dates(let start, let end):
+            try c.encode("dates", forKey: .field)
+            try c.encode(start, forKey: .startDate)
+            try c.encode(end, forKey: .endDate)
+        case .destination(let place):
+            try c.encode("destination", forKey: .field)
+            try c.encode(place, forKey: .destination)
+        case .pace(let pace):
+            try c.encode("pace", forKey: .field)
+            try c.encode(pace, forKey: .pace)
+        case .travellers(let people):
+            try c.encode("travellers", forKey: .field)
+            try c.encode(people, forKey: .travellers)
+        case .stay(let id, let name, let placeQuery, let fromDate, let toDate):
+            try c.encode("stay", forKey: .field)
+            try c.encodeIfPresent(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encode(placeQuery, forKey: .placeQuery)
+            try c.encode(fromDate, forKey: .fromDate)
+            try c.encode(toDate, forKey: .toDate)
+        case .confirm(let key):
+            try c.encode("confirm", forKey: .field)
+            try c.encode(key, forKey: .key)
+        case .remove(let key):
+            try c.encode("remove", forKey: .field)
+            try c.encode(key, forKey: .key)
+        }
+    }
+}
+
+/// `POST …/undo`: back to a version (default: the one before the latest).
+struct UndoBody: Encodable, Hashable {
+    var toVersion: Int?
+}
+
+/// `POST …/pack`: build, refresh, or "Look further".
+struct PackAction: Encodable, Hashable {
+    /// build, refresh, more.
+    var action: String
+    var theme: String? = nil
+}
+
+/// `POST /api/native/trips` with the guided start.
+struct StartBody: Encodable {
+    var start: TripStart
+    var async = true
+}
+
+extension TripStart {
+    /// The server reads `age`, `personId` and `text` as nullable but present.
+    private enum Keys: String, CodingKey { case destination, startDate, endDate, travellers, pace, confirmNotes, text }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(destination, forKey: .destination)
+        try c.encode(startDate, forKey: .startDate)
+        try c.encode(endDate, forKey: .endDate)
+        try c.encode(travellers, forKey: .travellers)
+        try c.encode(pace, forKey: .pace)
+        try c.encode(confirmNotes, forKey: .confirmNotes)
+        try c.encode(text, forKey: .text)
+    }
+}
+
+extension TripStart.Traveller {
+    private enum Keys: String, CodingKey { case name, age, personId }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(name, forKey: .name)
+        try c.encode(age, forKey: .age)
+        try c.encode(personId, forKey: .personId)
+    }
+}
+
+// MARK: - Replies (v8)
+
+/// `PATCH …/brief`.
+struct BriefReply: Codable, Hashable {
+    var brief: TripBrief
+    var planVersion: Int?
+    var changes: [String]?
+}
+
+/// `GET …/versions`: every plan version, newest first, and whether it can be restored.
+struct TripVersionRow: Codable, Hashable, Identifiable {
+    var version: Int
+    /// What made it: "planner", "phone", "undo", "proposal", "answer", "brief"…
+    var source: String?
+    var createdAt: String
+    var changes: [String]
+    var restorable: Bool
+
+    var id: Int { version }
+}
+
+struct VersionsReply: Codable, Hashable {
+    var versions: [TripVersionRow]
+}
+
+/// A durable job, as `POST` (202) and `GET …/trips/jobs/:id` return it.
+struct StagedJobReply: Codable, Hashable {
+    var job: StagedJob
+}
+
+extension StagedJob {
+    /// The trip a start job made — kept as soon as the trip exists.
+    var madeTripId: String? {
+        if case .object(let fields)? = result, let id = fields["id"]?.string { return id }
+        return tripId
+    }
+    var isFinished: Bool { ["done", "failed", "cancelled"].contains(status) }
+}

@@ -99,6 +99,12 @@ final class TripStore: ObservableObject {
     private struct Local: Codable {
         var days: [String: [String: LocalDay]] = [:]
         var marks: [String: [String: TripStopMark]] = [:]
+        /// v8: each trip's latest change and its Undo. Optional, so a file
+        /// written before it existed still reads (a missing key is not a
+        /// default for synthesised Codable).
+        var changes: [String: TripChangeRecord]? = nil
+        /// v8: the answer this phone voted for, by question id.
+        var votes: [String: String]? = nil
     }
 
     @Published private(set) var summaries: [TripSummary] = []
@@ -109,6 +115,14 @@ final class TripStore: ObservableObject {
     @Published var message: String?
     @Published private(set) var refreshedAt: Date?
     @Published private var local = Local()
+    /// v8: what is being sent right now — a proposal's id, a question's id,
+    /// `swap:<stopId>`, `day:<date>`, `undo:<tripId>`, `brief:<tripId>` — so
+    /// its card shows it is working and cannot be tapped twice.
+    @Published private(set) var busy: Set<String> = []
+    /// v8: what became of proposals and questions decided on this phone
+    /// ("Used", "Turned down", "Answered: Carry on"), for a conversation that
+    /// still shows the card it came with.
+    @Published private(set) var decided: [String: String] = [:]
 
     private static let indexFile = "index.json"
     private static let localFile = "local.json"
@@ -408,23 +422,26 @@ final class TripStore: ObservableObject {
     }
 
     /// "Add this" (an editor): straight into the plan. A parent adds it as
-    /// an approved suggestion — the server's one path for a slot's addition;
-    /// the trip's creator, who may not be a parent, asks the planner to.
+    /// an approved suggestion — the server's one path for a slot's addition,
+    /// by id. v8 retired the other path (a sentence through the chat, "Add X
+    /// on Tuesday afternoon", which lost the place and took a minute): a
+    /// creator who is not a parent suggests it, and a parent adds it. The
+    /// planner's own ideas now come as proposals, taken by id.
     func add(_ idea: TripIdea, tripId: String, date: String, stage: DayStage) async -> String? {
         let access = bundles[tripId]?.can ?? .owner
         do {
-            if access.canApprove {
-                let made = try await TripsAPI.suggest(trip: tripId, date: date, stage: stage, wish: idea.wish, note: nil, fitText: idea.fit)
-                if let made {
-                    let decided = try await TripsAPI.decide(trip: tripId, suggestion: made.id, action: "approve")
-                    if let warning = decided.warning {
-                        await adoptServerPlan(tripId)
-                        return warning
-                    }
+            guard access.canApprove else {
+                try await TripsAPI.suggest(trip: tripId, date: date, stage: stage, wish: idea.wish, note: idea.why, fitText: idea.fit)
+                await fetch(tripId)
+                return "Suggested — a parent adds it to the plan."
+            }
+            let made = try await TripsAPI.suggest(trip: tripId, date: date, stage: stage, wish: idea.wish, note: nil, fitText: idea.fit)
+            if let made {
+                let decided = try await TripsAPI.decide(trip: tripId, suggestion: made.id, action: "approve")
+                if let warning = decided.warning {
+                    await adoptServerPlan(tripId)
+                    return warning
                 }
-            } else {
-                let day = clock(tripId).map { TripFormat.day(date, zone: $0.zone) } ?? date
-                _ = try await TripsAPI.converse("Add \(idea.title) on \(day), \(stage.label.lowercased()).", trip: tripId)
             }
             await adoptServerPlan(tripId)
             return nil
@@ -452,11 +469,253 @@ final class TripStore: ObservableObject {
     }
 
     /// The demo's Rome day (`-SRDemo` and the review demo), held in memory
-    /// only: nothing a real trip keeps on disk is touched.
-    func adoptDemo(_ bundle: TripBundle, marks: [String: TripStopMark]) {
+    /// only: nothing a real trip keeps on disk is touched. v8: and the trip
+    /// being planned, before it starts.
+    func adoptDemo(_ bundle: TripBundle, marks: [String: TripStopMark], planning: TripBundle? = nil) {
         bundles[bundle.trip.id] = bundle
         summaries = [bundle.summary]
         local.marks[bundle.trip.id] = marks
+        if let planning {
+            bundles[planning.trip.id] = planning
+            summaries.append(planning.summary)
+        }
+    }
+
+    // MARK: v8: decisions — propose, research, ask
+    //
+    // The brief, the questions, the proposals and the pack live on the
+    // trip's bundle (kept on disk like the rest), so nothing a card shows is
+    // view state: a sheet closed mid-decision, or a relaunch, finds them
+    // where they were. Each action changes the phone's copy the moment the
+    // server answers (`TripBundle.settle`), then the bundle is read again.
+
+    /// The latest change on a trip and its Undo, until put away.
+    func lastChange(_ tripId: String) -> TripChangeRecord? { local.changes?[tripId] }
+
+    func dismissChange(_ tripId: String) {
+        local.changes?[tripId] = nil
+        persistLocal()
+    }
+
+    /// The answer this phone voted for.
+    func vote(_ questionId: String) -> String? { local.votes?[questionId] }
+
+    func isBusy(_ id: String) -> Bool { busy.contains(id) }
+
+    private func keep(_ change: TripChangeRecord) {
+        var all = local.changes ?? [:]
+        all[change.tripId] = change
+        local.changes = all
+        persistLocal()
+    }
+
+    /// Change the phone's copy of a trip's decisions, and keep it.
+    private func edit(_ tripId: String, _ change: (inout TripBundle) -> Void) {
+        guard var bundle = bundles[tripId] else { return }
+        change(&bundle)
+        bundles[tripId] = bundle
+        TripFiles.write(bundle, Self.bundleFile(tripId))
+    }
+
+    /// `GET …/decisions`: the brief, questions and proposals, without the
+    /// whole bundle — after a pull, or when a sheet opens.
+    func refreshDecisions(_ tripId: String) async {
+        guard bundles[tripId].map(TripDecisions.speaksV8) == true || SRDemo.isOn else { return }
+        guard let wire = try? await TripsAPI.decisions(trip: tripId) else { return }
+        edit(tripId) { b in
+            b.brief = wire.brief
+            b.questions = wire.questions
+            b.answered = wire.answered
+            b.proposals = wire.proposals
+            b.pack = wire.pack
+        }
+    }
+
+    /// Ask for one group of alternatives: a swap, a fill, a day's version, a
+    /// nudge, trip shapes. Kept with the trip's proposals.
+    func requestProposals(_ request: ProposalRequest, tripId: String, busyKey: String) async -> (group: [TripProposal], failure: String?) {
+        guard !busy.contains(busyKey) else { return ([], nil) }
+        busy.insert(busyKey)
+        defer { busy.remove(busyKey) }
+        do {
+            let group = try await TripsAPI.proposals(request, trip: tripId)
+            edit(tripId) { $0.merge(group: group) }
+            if group.isEmpty { return ([], "Nothing fitted there — try another nudge, or tell the planner.") }
+            return (group, nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
+    /// "Like this, but closer": new alternatives for the same slot. The group
+    /// it was nudged from goes, so the slot shows one set of ideas.
+    func nudge(_ nudge: Nudge, on proposal: TripProposal, tripId: String) async -> (group: [TripProposal], failure: String?) {
+        let result = await requestProposals(.nudge(nudge, on: proposal), tripId: tripId, busyKey: "nudge:\(proposal.groupId)")
+        if let first = result.group.first, first.groupId != proposal.groupId {
+            edit(tripId) { b in b.proposals = b.proposals?.filter { $0.groupId != proposal.groupId } }
+        }
+        return result
+    }
+
+    /// What became of a decision.
+    enum Outcome {
+        case done(TripChangeRecord?)
+        /// The plan moved: the re-checked proposal, to show and ask again.
+        case stale(TripProposal)
+        case failed(String)
+    }
+
+    /// Use this: the server replays the proposal's checked ops.
+    func accept(_ proposal: TripProposal, tripId: String) async -> Outcome {
+        guard !busy.contains(proposal.id) else { return .failed("Already sending that.") }
+        busy.insert(proposal.id)
+        defer { busy.remove(proposal.id) }
+        do {
+            switch try await TripsAPI.decide(.accept, proposal: proposal.id, trip: tripId) {
+            case .accepted(let result):
+                edit(tripId) { $0.settle(accepted: proposal) }
+                decided[proposal.id] = "Used"
+                let change = TripChangeRecord.of(result, tripId: tripId, title: "Used \(proposal.title)")
+                keep(change)
+                await adoptServerPlan(tripId)
+                return .done(change)
+            case .stale(let fresh):
+                edit(tripId) { $0.replace(fresh) }
+                return .stale(fresh)
+            case .closed(let why):
+                edit(tripId) { $0.settle(rejected: proposal) }
+                await fetch(tripId)
+                return .failed(why)
+            case .rejected:
+                return .done(nil)
+            }
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    /// Not this, with why — a preference signal, not just a dismissal.
+    func reject(_ proposal: TripProposal, reason: RejectReason, tripId: String) async -> String? {
+        guard !busy.contains(proposal.id) else { return nil }
+        busy.insert(proposal.id)
+        defer { busy.remove(proposal.id) }
+        do {
+            switch try await TripsAPI.decide(.reject(reason, note: nil), proposal: proposal.id, trip: tripId) {
+            case .closed(let why):
+                edit(tripId) { $0.settle(rejected: proposal) }
+                return why
+            default:
+                edit(tripId) { $0.settle(rejected: proposal) }
+                decided[proposal.id] = "Turned down: \(reason.label.lowercased())"
+                return nil
+            }
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// A member's way with a proposal: suggest its place for that slot, for
+    /// a parent to approve. Members never accept.
+    func suggest(_ proposal: TripProposal, tripId: String) async -> String? {
+        guard let place = proposal.place, let date = proposal.scope.date else {
+            return "This one can't be suggested from here — tell the planner instead."
+        }
+        let stage = proposal.scope.stage.flatMap(DayStage.init(rawValue:)) ?? .afternoon
+        let wish = WishDraft(title: proposal.title, placeQuery: place.name, priority: "nice", durationMin: nil,
+                             partOfDay: stage == .evening ? "evening" : (stage == .morning ? "morning" : "afternoon"),
+                             fixedDate: date, fixedStartMin: nil, note: nil,
+                             place: TripPlace(name: place.name, location: place.location, osmId: nil, address: nil))
+        return await suggest(wish, tripId: tripId, date: date, stage: stage, note: proposal.why, fitText: proposal.tradeoffs.fitText)
+    }
+
+    /// Answer a question (or You decide, skip, or — a member — vote).
+    func answer(_ question: TripQuestion, _ action: QuestionAction, tripId: String) async -> Outcome {
+        guard !busy.contains(question.id) else { return .failed("Already sending that.") }
+        busy.insert(question.id)
+        defer { busy.remove(question.id) }
+        do {
+            let result = try await TripsAPI.answer(action, question: question.id, trip: tripId)
+            var settled = result.question ?? question
+            if result.question == nil {
+                // An answer without the question echoed: settle it here.
+                switch action {
+                case .vote: break
+                case .skip: settled.status = .skipped
+                case .decide:
+                    settled.status = .answered
+                    settled.answerId = question.defaultAnswerId
+                case .answer(let id):
+                    settled.status = .answered
+                    settled.answerId = id
+                }
+            }
+            edit(tripId) { $0.settle(question: settled) }
+            if case .vote(let id) = action {
+                var votes = local.votes ?? [:]
+                votes[question.id] = id
+                local.votes = votes
+                persistLocal()
+                return .done(nil)
+            }
+            let chosen = question.answers.first { $0.id == (action == .decide ? question.defaultAnswerId : action.answerId) }
+            let title: String
+            switch action {
+            case .skip: title = "Skipped: \(question.prompt)"
+            case .decide: title = "You let the planner decide: " + (chosen?.label.lowercased() ?? "its suggestion")
+            default: title = "You answered: " + (chosen?.label.lowercased() ?? "done")
+            }
+            decided[question.id] = title
+            let change = TripChangeRecord.of(result, tripId: tripId, title: title)
+            // A skip or the answer already assumed may change nothing: no card for that.
+            let moved = !(change.diff.changes.isEmpty && change.diff.lines.isEmpty)
+            if moved { keep(change) }
+            if result.planVersion != nil { await adoptServerPlan(tripId) } else { await fetch(tripId) }
+            return .done(moved ? change : nil)
+        } catch {
+            await fetch(tripId)
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    /// Undo: back to the version before a change. The server appends a new
+    /// version (history is never rewritten), which says "Undone: …".
+    func undo(_ change: TripChangeRecord) async -> String? {
+        let key = "undo:\(change.tripId)"
+        guard !busy.contains(key) else { return nil }
+        busy.insert(key)
+        defer { busy.remove(key) }
+        do {
+            let result = try await TripsAPI.undo(toVersion: change.undoTo, trip: change.tripId)
+            let diff = result.diff ?? PlanDiff(lines: result.changes, changes: [], dates: [], walkDeltaM: nil, dropped: [])
+            keep(TripChangeRecord(id: UUID().uuidString.lowercased(), tripId: change.tripId, title: "Undone: \(change.title.prefix(1).lowercased() + change.title.dropFirst())",
+                                    diff: diff, lines: result.changes, undoTo: nil, planVersion: result.planVersion, at: Date(), remember: nil))
+            await adoptServerPlan(change.tripId)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Restore an earlier version from the plan's history.
+    func restore(_ version: Int, tripId: String) async -> String? {
+        await undo(TripChangeRecord(id: "restore", tripId: tripId, title: "Back to version \(version)", diff: .empty, lines: [],
+                                    undoTo: version, planVersion: nil, at: Date(), remember: nil))
+    }
+
+    /// A direct edit to the brief — dates, who, pace — or "Right" on a guess.
+    func patchBrief(_ patch: BriefPatch, tripId: String) async -> String? {
+        let key = "brief:\(tripId)"
+        guard !busy.contains(key) else { return nil }
+        busy.insert(key)
+        defer { busy.remove(key) }
+        do {
+            let reply = try await TripsAPI.patchBrief(patch, trip: tripId)
+            edit(tripId) { $0.brief = reply.brief }
+            if reply.planVersion != nil { await adoptServerPlan(tripId) } else { await fetch(tripId) }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 }
 
