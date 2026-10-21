@@ -123,7 +123,7 @@ jobs:
       # uploads, a failure here is a warning. Dispatched for the ad-hoc copy
       # alone, it is the whole point, so it fails the run.
       - name: Ad-hoc copy
-        if: ${{ inputs.verify_only != true }}
+        if: ${{ inputs.verify_only != true && github.ref == 'refs/heads/main' }}
         continue-on-error: ${{ github.event_name == 'push' || inputs.testflight }}
         env:
           GH_TOKEN: ${{ github.token }}
