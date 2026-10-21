@@ -9,6 +9,10 @@ import UniformTypeIdentifiers
 // link and names it; this sheet does no fetching of its own beyond the
 // family's names for the picker.
 //
+// v8: or onto a trip coming up — "Add to a trip" — as one turn of its
+// planning conversation (TripShareShared.swift, ShareTrips.swift), which the
+// planner turns into a suggestion or a question on the trip.
+//
 // An extension is killed for memory or slowness long before an app is, so
 // it stays thin: no images, no page reads, one request to send.
 
@@ -37,6 +41,7 @@ final class ShareViewController: UIViewController {
         Task { @MainActor in
             await model.read(items)
             await model.loadPeople()
+            await model.loadTrips()
         }
     }
 }
@@ -56,6 +61,20 @@ final class ShareModel: ObservableObject {
     @Published var forId: String?
     @Published var people: [FamilyTaskPerson] = []
     @Published var me: FamilyTaskMe?
+    /// v8: trips still to come, and where this share goes.
+    @Published var trips: [TripShareTarget] = []
+    @Published var destination: Destination = .backlog
+
+    enum Destination: Hashable {
+        case backlog
+        case trip(String)
+    }
+
+    /// The trip picked, if one is.
+    var trip: TripShareTarget? {
+        guard case .trip(let id) = destination else { return nil }
+        return trips.first { $0.id == id }
+    }
 
     var finish: () -> Void = {}
     var cancel: () -> Void = {}
@@ -95,6 +114,13 @@ final class ShareModel: ObservableObject {
         me = board.me
     }
 
+    /// The trips this share could go to. None (no credential, no trips, no
+    /// signal) leaves the sheet exactly as it was: the backlog alone.
+    func loadTrips() async {
+        guard signedIn, let all = await TripSharePost.trips() else { return }
+        trips = TripShare.targets(all, now: Date())
+    }
+
     var headline: String {
         if let url { return FamilyBacklogText.host(url.absoluteString) ?? url.absoluteString }
         return "An idea"
@@ -104,6 +130,10 @@ final class ShareModel: ObservableObject {
         guard phase == .ready else { return }
         guard signedIn else {
             phase = .failed("Open SR on this phone first. Sharing works once the Family pages are there for you.")
+            return
+        }
+        if let trip {
+            await send(to: trip)
             return
         }
         phase = .sending
@@ -122,6 +152,27 @@ final class ShareModel: ObservableObject {
             FamilyBacklogQueue.add(share)
             phase = .finished("No signal — it'll go when SR next opens.")
             done(after: 1.6)
+        case .notSignedIn:
+            phase = .failed("SR isn't signed in for the family on this phone. Open SR to sort it out.")
+        case .refused(let reason):
+            phase = .failed(reason)
+        }
+    }
+
+    /// One turn to the trip's planner, left to run. Never queued: the
+    /// planner has to answer it, so offline says so instead.
+    private func send(to trip: TripShareTarget) async {
+        guard let text = TripShare.turn(url: url, text: text, note: note) else {
+            phase = .failed("There's nothing here to tell the planner — share a link or some text.")
+            return
+        }
+        phase = .sending
+        switch await TripSharePost.send(text, to: trip.id) {
+        case .sent:
+            phase = .finished("Sent to the planner for \(trip.title). It comes back on the trip as a suggestion or a question.")
+            done(after: 1.6)
+        case .unreachable:
+            phase = .failed("Couldn't reach the planner, so nothing was sent. Try again with a signal.")
         case .notSignedIn:
             phase = .failed("SR isn't signed in for the family on this phone. Open SR to sort it out.")
         case .refused(let reason):
@@ -167,24 +218,44 @@ struct ShareSheet: View {
                             .foregroundStyle(FamilyWidgetInk.ink)
                     }
                 } else {
+                    // v8: a trip coming up is somewhere else this can go.
+                    if !model.trips.isEmpty {
+                        Section {
+                            Picker("Add to", selection: $model.destination) {
+                                Text("Family backlog").tag(ShareModel.Destination.backlog)
+                                ForEach(model.trips) { trip in
+                                    Text(TripShare.label(trip)).tag(ShareModel.Destination.trip(trip.id))
+                                }
+                            }
+                        } header: {
+                            Text("Add to a trip")
+                        }
+                    }
                     Section {
-                        TextField("Note (optional)", text: $model.note, axis: .vertical)
+                        TextField(model.trip == nil ? "Note (optional)" : "Anything to tell the planner (optional)",
+                                  text: $model.note, axis: .vertical)
                             .lineLimit(1...4)
-                        Picker("For", selection: $model.forId) {
-                            Text("Everyone").tag(String?.none)
-                            ForEach(model.people) { person in
-                                Text(person.id == model.me?.id ? "\(person.name) (you)" : person.name).tag(Optional(person.id))
+                        if model.trip == nil {
+                            Picker("For", selection: $model.forId) {
+                                Text("Everyone").tag(String?.none)
+                                ForEach(model.people) { person in
+                                    Text(person.id == model.me?.id ? "\(person.name) (you)" : person.name).tag(Optional(person.id))
+                                }
                             }
                         }
                     } footer: {
-                        Text("Everyone in the family sees the backlog.")
+                        if let trip = model.trip {
+                            Text("The planner reads it and comes back on \(trip.title) with a suggestion or a question.")
+                        } else {
+                            Text("Everyone in the family sees the backlog.")
+                        }
                     }
                 }
             }
             .scrollContentBackground(.hidden)
             .background(FamilyWidgetInk.paper)
             .tint(FamilyWidgetInk.accent)
-            .navigationTitle("Family backlog")
+            .navigationTitle(model.trip == nil ? "Family backlog" : "Add to a trip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

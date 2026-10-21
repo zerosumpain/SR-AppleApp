@@ -186,4 +186,51 @@ final class TripReachTests: XCTestCase {
         XCTAssertEqual(HomeTripWords.caption(destination: "Rome, Italy", start: "2026-10-26", end: "2026-10-30"), "Rome · Mon 26 – Fri 30 Oct")
         XCTAssertNil(HomeTripWords.dates(start: "soon", end: "later"))
     }
+
+    // MARK: - Share → Add to a trip
+
+    private func target(_ id: String, start: String, end: String, status: String? = "planned") -> TripShareTarget {
+        TripShareTarget(id: id, title: "Trip \(id)", destination: "Rome, Italy", timeZone: "Europe/Rome",
+                        startDate: start, endDate: end, status: status)
+    }
+
+    func testAShareIsOfferedTheTripsStillToComeSoonestFirst() {
+        // 21 Oct 2026, 12:00 in Rome.
+        let now = Date(timeIntervalSince1970: 1_792_576_800)
+        let trips = [
+            target("later", start: "2026-12-01", end: "2026-12-04"),
+            target("over", start: "2026-10-01", end: "2026-10-04"),
+            target("soon", start: "2026-10-26", end: "2026-10-30"),
+            target("running", start: "2026-10-20", end: "2026-10-21"),
+            target("done", start: "2026-10-26", end: "2026-10-30", status: "done"),
+            target("draft", start: "2026-11-10", end: "2026-11-12", status: "draft"),
+        ]
+        XCTAssertEqual(TripShare.targets(trips, now: now).map(\.id), ["running", "soon", "draft", "later"])
+    }
+
+    func testATripInThePickerSaysItsDates() {
+        XCTAssertEqual(TripShare.label(target("r", start: "2026-10-26", end: "2026-10-30")), "Trip r · 26–30 Oct")
+        XCTAssertEqual(TripShare.label(target("r", start: "2026-10-30", end: "2026-11-02")), "Trip r · 30 Oct – 2 Nov")
+        XCTAssertEqual(TripShare.label(target("r", start: "2026-10-26", end: "2026-10-26")), "Trip r · 26 Oct")
+        XCTAssertEqual(TripShare.label(target("r", start: "", end: "")), "Trip r")
+    }
+
+    func testThePlannerIsToldTheTitleTheLinkAndTheNote() {
+        let link = URL(string: "https://example.org/colosseum")
+        XCTAssertEqual(TripShare.turn(url: link, text: "Colosseum underground tours", note: nil),
+                       "Colosseum underground tours https://example.org/colosseum")
+        // A caption with the link in it says the link once.
+        XCTAssertEqual(TripShare.turn(url: link, text: "Look https://example.org/colosseum", note: " for Sam "),
+                       "Look https://example.org/colosseum — for Sam")
+        XCTAssertEqual(TripShare.turn(url: link, text: nil, note: nil), "https://example.org/colosseum")
+        XCTAssertNil(TripShare.turn(url: nil, text: "  ", note: "just a note"))
+        XCTAssertEqual(TripShare.turn(url: nil, text: String(repeating: "a", count: 5000), note: nil)?.count, TripShare.maxText)
+    }
+
+    func testTheTurnStartsAsAJob() throws {
+        let data = try JSONEncoder().encode(TripShareTurn(text: "Hello", async: true))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["text"] as? String, "Hello")
+        XCTAssertEqual(object["async"] as? Bool, true)
+    }
 }
