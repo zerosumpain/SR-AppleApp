@@ -6,13 +6,14 @@ import Combine
 /// buttons, and sending what one of them answered.
 extension TripQuestionPushes {
     /// A question's category as iOS takes it. Every button runs in the
-    /// BACKGROUND (`options: []`), as every other alert's does, so it works the
-    /// same from a lock-screen banner as from a wrist. Opening the trip stays
-    /// the default tap.
+    /// BACKGROUND, so it works the same from a lock-screen banner as from a
+    /// wrist, but asks for Face ID first (`.authenticationRequired`), as
+    /// "Approve" does: an answer changes the family's plan, and a locked phone
+    /// in someone else's hand should not. Opening the trip stays the default tap.
     static func notificationCategory(_ category: Category) -> UNNotificationCategory {
         UNNotificationCategory(
             identifier: category.identifier,
-            actions: category.buttons.map { UNNotificationAction(identifier: $0.id, title: $0.title, options: []) },
+            actions: category.buttons.map { UNNotificationAction(identifier: $0.id, title: $0.title, options: [.authenticationRequired]) },
             intentIdentifiers: [],
             options: []
         )
