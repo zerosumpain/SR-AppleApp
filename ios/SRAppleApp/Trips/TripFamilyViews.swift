@@ -5,14 +5,15 @@ import CoreLocation
 // "Make a suggestion" in each stage of a day, suggestions waiting for a
 // parent, and every leg in the mode you would rather take.
 
-// MARK: - A new trip
+// MARK: - A new trip, in a sentence
 
-/// "New trip": the planner's opening question, and the first message makes
-/// the trip (`POST /api/native/trips`). It opens as soon as it exists, with
-/// the conversation carrying on in Edit plan.
-struct TripNewSheet: View {
+/// "Type instead": the planner's opening question, and the first message
+/// makes the trip (`POST /api/native/trips`). It opens as soon as it exists,
+/// with the conversation carrying on. v8: the guided start (`TripStartFlow`)
+/// is the main way in; this is its "or just tell the planner", pushed inside
+/// that sheet's navigation — never a sheet of its own.
+struct TripStartTextView: View {
     let onCreated: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var network = TripNetwork.shared
     /// Making a trip asks the planner: a job (v6), kept by `TripJobs`.
@@ -34,53 +35,45 @@ struct TripNewSheet: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                TripMessageBubble(message: TripMessage(
+                    id: "new-trip-ask", role: .assistant,
+                    text: "Where to, when, and who's coming? Say it however it comes — I'll assume what I need to and show you, look up the journey, and draft a plan you can change.",
+                    ops: [], planVersion: nil, surface: "phone", createdAt: ""
+                ))
+                if case .running(_, let asked) = jobs.states[key] {
                     TripMessageBubble(message: TripMessage(
-                        id: "new-trip-ask", role: .assistant,
-                        text: "Where to, when, and who's coming? Say it however it comes — I'll ask for anything I need, look up the journey, and draft a plan you can change.",
-                        ops: [], planVersion: nil, surface: "phone", createdAt: ""
+                        id: "new-trip-said", role: .user, text: asked ?? "", ops: [], planVersion: nil, surface: "phone", createdAt: ""
                     ))
-                    if case .running(let since, let asked) = jobs.states[key] {
-                        TripMessageBubble(message: TripMessage(
-                            id: "new-trip-said", role: .user, text: asked ?? "", ops: [], planVersion: nil, surface: "phone", createdAt: ""
-                        ))
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("Making the trip… \(max(0, Int(context.date.timeIntervalSince(since)))) s")
-                                    .font(SR.Text.secondary(13))
-                                    .foregroundStyle(SR.inkMuted)
-                                    .monospacedDigit()
-                                Spacer(minLength: 4)
-                                Button("Cancel") { jobs.cancel(key) }.font(SR.Text.label(12))
-                            }
-                        }
-                    }
-                    if let failure {
-                        Label(failure, systemImage: "exclamationmark.triangle")
+                    // Staged progress when the server reports it; never a seconds counter.
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text(jobs.stages[key]?.first { $0.state == .running }?.label.appending("…") ?? "Making the trip…")
                             .font(SR.Text.secondary(13))
-                            .foregroundStyle(SR.error)
+                            .foregroundStyle(SR.inkMuted)
+                        Spacer(minLength: 4)
+                        Button("Cancel") { jobs.cancel(key) }.font(SR.Text.title(14))
                     }
                 }
-                .padding(SR.gutter)
+                if let failure {
+                    Label(failure, systemImage: "exclamationmark.triangle")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.error)
+                }
             }
-            .safeAreaInset(edge: .bottom) { composer }
-            .srPaper()
-            .navigationTitle("New trip")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
-            }
-            .onAppear { typing = true }
-            // Made: open it (also when it finished while this sheet was away).
-            .onChange(of: jobs.created[key]) { _, id in
-                guard let id else { return }
-                jobs.clear(key)
-                dismiss()
-                onCreated(id)
-            }
+            .padding(SR.gutter)
+        }
+        .safeAreaInset(edge: .bottom) { composer }
+        .srPaper()
+        .navigationTitle("Tell the planner")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { typing = true }
+        // Made: open it (also when it finished while this was away).
+        .onChange(of: jobs.created[key]) { _, id in
+            guard let id else { return }
+            jobs.clear(key)
+            onCreated(id)
         }
         .accessibilityIdentifier("trip-new")
     }
@@ -88,15 +81,10 @@ struct TripNewSheet: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
             if network.online || SRDemo.isOn {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Self.starters, id: \.self) { starter in
-                            Button { draft = starter } label: {
-                                Text(starter).font(SR.Text.secondary(13)).lineLimit(1)
-                            }
-                            .srButton(.regular)
-                            .controlSize(.small)
-                        }
+                TripFlow(spacing: 8, lineSpacing: 8) {
+                    ForEach(Self.starters, id: \.self) { starter in
+                        Button { draft = starter } label: { TripChip(starter, style: .tradeoff) }
+                            .buttonStyle(.plain)
                     }
                 }
                 HStack(alignment: .bottom, spacing: 8) {
@@ -106,10 +94,10 @@ struct TripNewSheet: View {
                         .focused($typing)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .srGlass(.paper, in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
                         .accessibilityIdentifier("trip-new-field")
                     Button { send() } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
+                        Image(systemName: "arrow.up.circle.fill").font(SR.Text.display(30))
                     }
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
                     .accessibilityLabel("Start the trip")
@@ -253,7 +241,7 @@ struct TripSlotPanel: View {
     }
 
     private var tryAgain: some View {
-        Button { ask() } label: { SRButtonLabel(title: "Try again", icon: "arrow.clockwise") }
+        Button { ask() } label: { TripButtonLabel("Try again", icon: "arrow.clockwise") }
             .srButton(.regular)
             .controlSize(.small)
             .disabled(!(network.online || SRDemo.isOn))
@@ -323,9 +311,8 @@ struct TripIdeaCard: View {
                 Text(idea.title).font(SR.Text.title(15)).foregroundStyle(onDark ? SR.cream : SR.ink)
                 if idea.nearby {
                     // Found on the map around the gap, not by the planner.
-                    Text("NEARBY")
-                        .font(SR.Text.label(10))
-                        .tracking(1)
+                    Text("Nearby")
+                        .font(SR.Text.label(12))
                         .foregroundStyle(onDark ? SR.creamOnDark : SR.inkMuted)
                         .accessibilityLabel("Found nearby")
                 }
@@ -339,7 +326,7 @@ struct TripIdeaCard: View {
                     .font(SR.Text.secondary(12)).foregroundStyle(onDark ? SR.errorOnDark : SR.warn)
             }
             Button(action: action) {
-                if busy { ProgressView() } else { SRButtonLabel(title: actionLabel, icon: "plus") }
+                if busy { ProgressView() } else { TripButtonLabel(actionLabel, icon: "plus") }
             }
             .srButton(.prominent)
             .controlSize(.small)
@@ -372,10 +359,10 @@ struct TripSuggestionCard: View {
             }
             if canApprove {
                 HStack(spacing: 8) {
-                    Button { decide("approve") } label: { SRButtonLabel(title: "Approve", icon: "checkmark") }
+                    Button { decide("approve") } label: { TripButtonLabel("Approve", icon: "checkmark") }
                         .srButton(.prominent)
                         .accessibilityIdentifier("trip-suggestion-approve")
-                    Button { decide("reject") } label: { SRButtonLabel(title: "Reject", icon: "xmark") }
+                    Button { decide("reject") } label: { TripButtonLabel("Reject", icon: "xmark") }
                         .srButton(.regular)
                     if busy { ProgressView() }
                 }
@@ -531,7 +518,7 @@ struct TripDayIdeasMenu: View {
                     .accessibilityIdentifier("trip-suggest-\(group.stage.rawValue)")
                 }
             } label: {
-                SRButtonLabel(title: bundle.can.canEdit ? "Ideas for this day" : "Make a suggestion", icon: "sparkles")
+                TripButtonLabel(bundle.can.canEdit ? "Ideas for this day" : "Make a suggestion", icon: "sparkles")
             }
             .srButton(.regular)
             .disabled(!(network.online || SRDemo.isOn))
