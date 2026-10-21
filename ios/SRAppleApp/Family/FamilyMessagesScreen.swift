@@ -4,29 +4,26 @@ import SwiftUI
 /// and their answers under it — an emoji from the quick set, or a reply.
 ///
 /// Reached from Chat ("msg family" beside "jkai"), from a tapped message
-/// notification, and from Today's JkAi & Msgs tile for somebody without Chat.
-/// Reads as a conversation: oldest at the top, the box to write in at the foot.
+/// notification, and from the hub for somebody without Chat.
+///
+/// Threads (John, 2026-10-21): each message is a card with the sender's
+/// circle, the words, the emoji, and who answered — their circles and the
+/// newest reply. A tap opens the thread (`FamilyThreadScreen`), where the
+/// replies hang under the message, indented, each with its person's circle.
+/// The thread that moved last is at the foot, by the box to start a new one.
 struct FamilyMessagesScreen: View {
     @ObservedObject private var store = FamilyMessagesStore.shared
+    @EnvironmentObject private var router: Router
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
-    @FocusState private var composerFocused: Bool
-    /// The message a text reply is being written to.
-    @State private var replying: FamilyMessage?
-    @State private var replyDraft = ""
-    /// A message or text reply of mine, waiting on "Delete?".
-    @State private var deleting: Deleting?
-
-    struct Deleting: Identifiable {
-        let id: String
-        let title: String
-        let detail: String
-    }
+    /// A message of mine, waiting on "Delete?".
+    @State private var deleting: FamilyThreadDeleting?
 
     var body: some View {
+        let faces = FamilyFaces()
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                LazyVStack(alignment: .leading, spacing: 10) {
                     if store.thread.isEmpty {
                         if store.loaded {
                             SREmpty(
@@ -40,7 +37,7 @@ struct FamilyMessagesScreen: View {
                         }
                     }
                     ForEach(store.thread) { message in
-                        card(message).id(message.id)
+                        card(message, faces: faces).id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -53,7 +50,18 @@ struct FamilyMessagesScreen: View {
             }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
-        .safeAreaInset(edge: .bottom) { composer }
+        .safeAreaInset(edge: .bottom) {
+            FamilyMessageComposer(
+                draft: $draft,
+                placeholder: "Start a thread for the family",
+                busy: store.busy == "new",
+                error: store.thread.isEmpty ? nil : store.message,
+                identifier: "family-msg"
+            ) {
+                let text = draft
+                Task { if await store.send(text) { draft = "" } }
+            }
+        }
         .srPaper()
         .accessibilityIdentifier("family-messages-screen")
         .navigationTitle("msg family")
@@ -63,97 +71,334 @@ struct FamilyMessagesScreen: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.load() } }
         }
-        .alert(
-            replying.map { "Reply to \($0.fromName)" } ?? "Reply",
-            isPresented: Binding(get: { replying != nil }, set: { if !$0 { replying = nil } })
-        ) {
-            TextField("Your reply", text: $replyDraft)
-            Button("Send") {
-                guard let message = replying else { return }
-                let text = replyDraft
-                replyDraft = ""
-                Task { await store.reply(to: message.id, text) }
+        .familyThreadDelete($deleting, store: store)
+    }
+
+    private func open(_ message: FamilyMessage) {
+        SRHaptic.tap()
+        router.push(FamilyThreadRef(id: message.id), on: router.tab)
+    }
+
+    // MARK: - A thread's card
+
+    /// The sender's circle beside their words; the emoji in a line of chips;
+    /// then who answered — their circles, overlapped, and the newest reply.
+    /// The whole card opens the thread; a long press still answers in place.
+    private func card(_ message: FamilyMessage, faces: FamilyFaces) -> some View {
+        Button { open(message) } label: {
+            HStack(alignment: .top, spacing: 10) {
+                FamilyFace(subject: message.fromSubject, id: message.fromId, name: message.fromName, size: 36, faces: faces)
+                VStack(alignment: .leading, spacing: 4) {
+                    FamilyMessageByline(name: message.mine ? "You" : message.fromName, at: message.at,
+                                        mine: message.mine, trailing: message.mine && message.recipients > 0 ? "to \(message.recipients)" : nil)
+                    Text(message.body)
+                        .font(SR.Text.body(15))
+                        .foregroundStyle(SR.ink)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    FamilyMessageTally(tally: message.tally)
+                    if let last = message.textReplies.last {
+                        repliesLine(message, last: last, faces: faces)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button("Cancel", role: .cancel) { replyDraft = "" }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .srGlassCard(.paper)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         }
-        .confirmationDialog(
-            deleting?.title ?? "Delete?",
-            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-            titleVisibility: .visible,
-            presenting: deleting
-        ) { target in
-            Button("Delete", role: .destructive) {
-                Task { await store.delete(target.id) }
+        .buttonStyle(.plain)
+        .opacity(store.busy == message.id ? 0.5 : 1)
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        .contextMenu {
+            FamilyMessageAnswers(message: message, store: store, deleting: $deleting) { open(message) }
+        }
+        .accessibilityIdentifier("family-message-\(message.id)")
+        .accessibilityHint("Opens the thread. Touch and hold to answer with an emoji.")
+    }
+
+    /// "3 replies · Robin: Pepperoni please!" under the circles of who said them.
+    private func repliesLine(_ message: FamilyMessage, last: FamilyMessageReply, faces: FamilyFaces) -> some View {
+        let count = message.textReplies.count
+        return HStack(spacing: 8) {
+            HStack(spacing: -8) {
+                ForEach(message.repliers.prefix(4)) { reply in
+                    FamilyFace(subject: reply.fromSubject, id: reply.fromId, name: reply.fromName, size: 22, faces: faces)
+                }
             }
-            Button("Cancel", role: .cancel) {}
-        } message: { target in
-            Text(target.detail)
+            (Text(count == 1 ? "1 reply" : "\(count) replies").font(SR.Text.bodyMedium(13)).foregroundColor(SR.accentDeep)
+                + Text(" · \(last.mine ? "You" : last.fromName): \(last.body)").font(SR.Text.secondary(13)).foregroundColor(SR.inkSecondary))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(SR.inkGhost)
+                .accessibilityHidden(true)
+        }
+        .padding(.top, 4)
+    }
+}
+
+/// A thread, by its message: what `FamilyMessagesScreen` and a tapped message
+/// notification push.
+struct FamilyThreadRef: Hashable {
+    let id: String
+}
+
+/// One thread: the message at the top with its sender's circle, then every
+/// reply under it. The sender's own follow-ups sit in line with the message;
+/// everybody else's are indented under it, joined by the thread's line — so
+/// who started it and who answered is plain at a glance.
+struct FamilyThreadScreen: View {
+    let ref: FamilyThreadRef
+    @ObservedObject private var store = FamilyMessagesStore.shared
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = ""
+    @State private var deleting: FamilyThreadDeleting?
+
+    /// How far an answer from somebody else sits in from the message.
+    static let indent: CGFloat = 30
+
+    var body: some View {
+        let faces = FamilyFaces()
+        Group {
+            if let message = store.threadMessage(ref.id) {
+                thread(message, faces: faces)
+            } else if store.loaded {
+                SREmpty(title: "This thread has gone", icon: "bubble.left.and.exclamationmark.bubble.right",
+                        message: "Its sender deleted it.")
+                    .frame(maxHeight: .infinity)
+            } else {
+                ProgressView().tint(SR.accent).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .srPaper()
+        .accessibilityIdentifier("family-thread-screen")
+        .navigationTitle(store.threadMessage(ref.id).map { $0.mine ? "Your thread" : "\($0.fromName)'s thread" } ?? "Thread")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { if store.threadMessage(ref.id) == nil { await store.load() } }
+        .srRefreshable { await store.load() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await store.load() } }
+        }
+        .familyThreadDelete($deleting, store: store) { id in
+            // The thread itself went: there is nothing left to stand on.
+            if id == ref.id { dismiss() }
         }
     }
 
-    // MARK: - A message
-
-    /// One message, as short as it reads: name and time on one line, the
-    /// words, then the answers in a line of chips. No row of buttons under
-    /// each — a long press on the message is where an emoji or a reply is
-    /// picked (John, 2026-10-05).
-    private func card(_ message: FamilyMessage) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(message.mine ? "You" : message.fromName)
-                    .font(SR.Text.bodyMedium(14))
-                    .foregroundStyle(message.mine ? SR.accentDeep : SR.ink)
-                Text(FamilyMessages.when(message.at))
-                    .font(SR.Text.label())
-                    .foregroundStyle(SR.inkMuted)
-                Spacer(minLength: 0)
-                if message.mine && message.recipients > 0 {
-                    Text("to \(message.recipients)")
-                        .font(SR.Text.label())
-                        .foregroundStyle(SR.inkMuted)
-                }
-            }
-            Text(message.body)
-                .font(SR.Text.body(15))
-                .foregroundStyle(SR.ink)
-                .fixedSize(horizontal: false, vertical: true)
-
-            let tally = message.tally
-            if !tally.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(tally) { t in
-                        Text(t.count > 1 ? "\(t.emoji) \(t.count)" : t.emoji)
-                            .font(SR.Text.secondary(13))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(t.mine ? SR.accent.opacity(0.22) : SR.ink.opacity(0.06)))
-                            .accessibilityLabel("\(t.emoji) from \(t.names.joined(separator: ", "))")
+    private func thread(_ message: FamilyMessage, faces: FamilyFaces) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    root(message, faces: faces)
+                    ForEach(Array(message.textReplies.enumerated()), id: \.element.id) { index, reply in
+                        replyRow(reply, in: message, last: index == message.textReplies.count - 1, faces: faces)
                     }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: message.textReplies.last?.id) { _, _ in
+                withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 6) {
+                // The quick emoji, for a message somebody else sent: one tap,
+                // as from the notification.
+                if !message.mine {
+                    reactionsBar(message)
+                }
+                FamilyMessageComposer(
+                    draft: $draft,
+                    placeholder: message.mine ? "Add to your thread" : "Reply to \(message.fromName)",
+                    busy: store.busy == message.id,
+                    error: store.message,
+                    identifier: "family-thread"
+                ) {
+                    let text = draft
+                    Task { if await store.reply(to: message.id, text) { draft = "" } }
                 }
             }
+        }
+    }
 
-            ForEach(message.textReplies) { reply in
-                (Text(reply.mine ? "You " : "\(reply.fromName) ").font(SR.Text.bodyMedium(13)).foregroundColor(SR.ink)
-                    + Text(reply.body).font(SR.Text.secondary(13)).foregroundColor(SR.inkSecondary))
+    // MARK: - The message
+
+    private func root(_ message: FamilyMessage, faces: FamilyFaces) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            FamilyFace(subject: message.fromSubject, id: message.fromId, name: message.fromName, size: 40, faces: faces)
+            VStack(alignment: .leading, spacing: 6) {
+                FamilyMessageByline(name: message.mine ? "You" : message.fromName, at: message.at, mine: message.mine,
+                                    trailing: message.mine && message.recipients > 0 ? "to \(message.recipients)" : nil)
+                Text(message.body)
+                    .font(SR.Text.body(17))
+                    .foregroundStyle(SR.ink)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 8)
-                    .overlay(alignment: .leading) { Rectangle().fill(SR.accent.opacity(0.5)).frame(width: 2) }
+                    .textSelection(.enabled)
+                FamilyMessageTally(tally: message.tally)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .srGlassCard(.paper)
+        .contextMenu { FamilyMessageAnswers(message: message, store: store, deleting: $deleting, open: nil) }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("family-thread-message")
+    }
+
+    // MARK: - A reply
+
+    /// The thread's line runs down the left from the message's circle; an
+    /// answer from somebody else steps in from it, the sender's own stays on it.
+    private func replyRow(_ reply: FamilyMessageReply, in message: FamilyMessage, last: Bool, faces: FamilyFaces) -> some View {
+        let fromSender = message.isFromSender(reply)
+        let tint = faces.colour(subject: reply.fromSubject, id: reply.fromId)
+        return HStack(alignment: .top, spacing: 8) {
+            FamilyFace(subject: reply.fromSubject, id: reply.fromId, name: reply.fromName, size: fromSender ? 32 : 28, faces: faces)
+            VStack(alignment: .leading, spacing: 3) {
+                FamilyMessageByline(name: reply.mine ? "You" : reply.fromName, at: reply.at, mine: reply.mine, trailing: nil)
+                Text(reply.body)
+                    .font(SR.Text.body(15))
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(tint.opacity(fromSender ? 0.10 : 0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .padding(.leading, fromSender ? 4 : Self.indent)
+        .padding(.top, 10)
+        // The thread: a line from the message down past every answer.
+        .background(alignment: .topLeading) {
+            Rectangle()
+                .fill(SR.line)
+                .frame(width: 2)
+                .frame(maxHeight: last ? 26 : .infinity, alignment: .top)
+                .padding(.leading, 20 - 1)
+        }
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = reply.body
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+            if reply.mine {
+                Button(role: .destructive) {
+                    deleting = FamilyThreadDeleting(id: reply.id, title: "Delete your reply?", detail: "“\(reply.body)” goes for everyone.")
+                } label: {
+                    Label("Delete my reply", systemImage: "trash")
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(reply.mine ? "You" : reply.fromName)\(fromSender ? "" : ", replying"): \(reply.body)")
+        .accessibilityIdentifier("family-reply-\(reply.id)")
+    }
+
+    private func reactionsBar(_ message: FamilyMessage) -> some View {
+        HStack(spacing: 6) {
+            ForEach(store.reactions, id: \.self) { emoji in
+                let given = message.replies.contains { $0.reaction && $0.mine && $0.body == emoji }
+                Button {
+                    SRHaptic.tap()
+                    Task {
+                        if given, let mine = message.replies.first(where: { $0.reaction && $0.mine && $0.body == emoji }) {
+                            await store.delete(mine.id)
+                        } else {
+                            await store.reply(to: message.id, emoji)
+                        }
+                    }
+                } label: {
+                    Text(emoji)
+                        .font(.system(size: 20))
+                        .frame(width: 40, height: 36)
+                        .background(Capsule().fill(given ? SR.accent.opacity(0.22) : SR.surface))
+                        .overlay(Capsule().strokeBorder(SR.line, lineWidth: given ? 0 : 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(given ? "Take back \(emoji)" : "Reply \(emoji)")
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper)
-        .opacity(store.busy == message.id ? 0.5 : 1)
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-        .contextMenu { answers(message) }
-        .accessibilityIdentifier("family-message-\(message.id)")
-        .accessibilityHint(message.mine ? "Touch and hold to delete it." : "Touch and hold to answer with an emoji or a reply.")
+        .disabled(store.busy != nil)
+        .accessibilityIdentifier("family-thread-reactions")
     }
+}
 
-    /// The long press: the quick emoji, three to a row, then Reply and Copy.
-    @ViewBuilder
-    private func answers(_ message: FamilyMessage) -> some View {
+// MARK: - Shared pieces
+
+/// "Robin · 5m", the name in the person's weight, the time quiet.
+struct FamilyMessageByline: View {
+    let name: String
+    let at: String
+    let mine: Bool
+    let trailing: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(name)
+                .font(SR.Text.bodyMedium(14))
+                .foregroundStyle(mine ? SR.accentDeep : SR.ink)
+            Text(FamilyMessages.when(at))
+                .font(SR.Text.label())
+                .foregroundStyle(SR.inkMuted)
+            Spacer(minLength: 0)
+            if let trailing {
+                Text(trailing)
+                    .font(SR.Text.label())
+                    .foregroundStyle(SR.inkMuted)
+            }
+        }
+    }
+}
+
+/// The emoji answers in a line of chips: each once, with how many.
+struct FamilyMessageTally: View {
+    let tally: [FamilyMessages.Tally]
+
+    var body: some View {
+        if !tally.isEmpty {
+            HStack(spacing: 4) {
+                ForEach(tally) { t in
+                    Text(t.count > 1 ? "\(t.emoji) \(t.count)" : t.emoji)
+                        .font(SR.Text.secondary(13))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(t.mine ? SR.accent.opacity(0.22) : SR.ink.opacity(0.06)))
+                        .accessibilityLabel("\(t.emoji) from \(t.names.joined(separator: ", "))")
+                }
+            }
+        }
+    }
+}
+
+/// The long press on a message: the quick emoji, three to a row, then Reply
+/// (open the thread), Copy, and taking back what is mine.
+struct FamilyMessageAnswers: View {
+    let message: FamilyMessage
+    @ObservedObject var store: FamilyMessagesStore
+    @Binding var deleting: FamilyThreadDeleting?
+    /// Opens the thread to reply in; nil inside the thread, where the box is.
+    let open: (() -> Void)?
+
+    var body: some View {
         if !message.mine {
             let reactions = store.reactions
             ForEach(Array(stride(from: 0, to: reactions.count, by: 3)), id: \.self) { start in
@@ -168,11 +413,10 @@ struct FamilyMessagesScreen: View {
                 }
                 .controlGroupStyle(.compactMenu)
             }
-            Button {
-                replyDraft = ""
-                replying = message
-            } label: {
-                Label("Reply", systemImage: "arrowshape.turn.up.left")
+        }
+        if let open {
+            Button(action: open) {
+                Label(message.mine ? "Open the thread" : "Reply", systemImage: "arrowshape.turn.up.left")
             }
         }
         Button {
@@ -181,7 +425,7 @@ struct FamilyMessagesScreen: View {
             Label("Copy", systemImage: "doc.on.doc")
         }
         // What this person sent, and only that: their own emoji go at once,
-        // a line or the message itself asks first.
+        // the message itself asks first.
         ForEach(message.replies.filter { $0.mine && $0.reaction }) { reply in
             Button(role: .destructive) {
                 Task { await store.delete(reply.id) }
@@ -189,16 +433,9 @@ struct FamilyMessagesScreen: View {
                 Label("Remove my \(reply.body)", systemImage: "minus.circle")
             }
         }
-        ForEach(message.textReplies.filter(\.mine)) { reply in
-            Button(role: .destructive) {
-                deleting = Deleting(id: reply.id, title: "Delete your reply?", detail: "“\(reply.body)” goes for everyone.")
-            } label: {
-                Label("Delete my reply", systemImage: "trash")
-            }
-        }
         if message.mine {
             Button(role: .destructive) {
-                deleting = Deleting(
+                deleting = FamilyThreadDeleting(
                     id: message.id,
                     title: "Delete this message?",
                     detail: "It goes for everyone, with its replies. A notification someone already has stays on their phone."
@@ -209,38 +446,69 @@ struct FamilyMessagesScreen: View {
             .accessibilityIdentifier("family-message-delete")
         }
     }
+}
 
-    // MARK: - Composer
+/// A message or reply of mine, waiting on "Delete?".
+struct FamilyThreadDeleting: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+}
 
-    private var sendable: Bool { FamilyMessages.sendable(draft) != nil && store.busy == nil }
+extension View {
+    /// The "Delete?" a message or a reply of mine asks first.
+    func familyThreadDelete(_ target: Binding<FamilyThreadDeleting?>, store: FamilyMessagesStore,
+                            deleted: @escaping (String) -> Void = { _ in }) -> some View {
+        confirmationDialog(
+            target.wrappedValue?.title ?? "Delete?",
+            isPresented: Binding(get: { target.wrappedValue != nil }, set: { if !$0 { target.wrappedValue = nil } }),
+            titleVisibility: .visible,
+            presenting: target.wrappedValue
+        ) { item in
+            Button("Delete", role: .destructive) {
+                Task { if await store.delete(item.id) { deleted(item.id) } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { item in
+            Text(item.detail)
+        }
+    }
+}
 
-    private var composer: some View {
+/// The box at the foot of msg family and of a thread.
+struct FamilyMessageComposer: View {
+    @Binding var draft: String
+    let placeholder: String
+    let busy: Bool
+    let error: String?
+    let identifier: String
+    let send: () -> Void
+
+    private var sendable: Bool { FamilyMessages.sendable(draft) != nil && !busy }
+
+    var body: some View {
         VStack(spacing: 6) {
-            if let message = store.message, !store.thread.isEmpty {
-                SRBanner(text: message, tone: SR.error)
+            if let error {
+                SRBanner(text: error, tone: SR.error)
             }
             SRGlassGroup(spacing: 10) {
                 HStack(alignment: .bottom, spacing: 10) {
-                    TextField("Message the family", text: $draft, axis: .vertical)
+                    TextField(placeholder, text: $draft, axis: .vertical)
                         .font(SR.Text.body())
                         .foregroundStyle(SR.ink)
                         .lineLimit(1...6)
-                        .focused($composerFocused)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 12)
                         .frame(minHeight: 48)
                         .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .accessibilityIdentifier("family-msg-composer")
+                        .accessibilityIdentifier("\(identifier)-composer")
 
                     Button {
-                        let text = draft
                         SRHaptic.tap()
-                        Task {
-                            if await store.send(text) { draft = "" }
-                        }
+                        send()
                     } label: {
                         Group {
-                            if store.busy == "new" {
+                            if busy {
                                 ProgressView().tint(SR.paper)
                             } else {
                                 Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold))
@@ -248,13 +516,13 @@ struct FamilyMessagesScreen: View {
                         }
                         .foregroundStyle(sendable ? SR.paper : SR.inkMuted)
                         .frame(width: 48, height: 48)
-                        .srGlass(sendable || store.busy == "new" ? .accent : .paper, in: Circle(), interactive: true)
+                        .srGlass(sendable || busy ? .accent : .paper, in: Circle(), interactive: true)
                         .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!sendable)
-                    .accessibilityLabel("Send to the family")
-                    .accessibilityIdentifier("family-msg-send")
+                    .accessibilityLabel("Send")
+                    .accessibilityIdentifier("\(identifier)-send")
                 }
             }
         }

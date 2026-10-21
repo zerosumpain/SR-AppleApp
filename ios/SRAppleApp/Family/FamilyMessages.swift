@@ -2,7 +2,10 @@ import Foundation
 import SwiftUI
 
 // "msg family": a line pushed to everyone else in the family, and their
-// replies — an emoji from the quick set or a line of text — under it.
+// replies — an emoji from the quick set or a line of text — under it. Each
+// message is a THREAD: its replies hang under it, the sender's own follow-ups
+// in line with the message and everybody else's indented, each line marked
+// with its person's circle (John, 2026-10-21).
 //
 // The contract is SR-Main's `GET/POST /api/native/family/messages` and
 // `POST /api/native/family/messages/:id/replies`. The site pushes each message
@@ -16,15 +19,19 @@ struct FamilyMessageReply: Codable, Identifiable, Equatable {
     var id: String
     var fromId: String
     var fromName: String
+    /// The sender's place in the household (the map's subject), for their
+    /// circle and colour; nil from an older site or for somebody not on it.
+    var fromSubject: String?
     var mine: Bool
     var body: String
     var reaction: Bool
     var at: String
 
-    init(id: String, fromId: String, fromName: String, mine: Bool, body: String, reaction: Bool, at: String) {
+    init(id: String, fromId: String, fromName: String, fromSubject: String? = nil, mine: Bool, body: String, reaction: Bool, at: String) {
         self.id = id
         self.fromId = fromId
         self.fromName = fromName
+        self.fromSubject = fromSubject
         self.mine = mine
         self.body = body
         self.reaction = reaction
@@ -36,6 +43,7 @@ struct FamilyMessageReply: Codable, Identifiable, Equatable {
         id = try c.decode(String.self, forKey: .id)
         fromId = (try? c.decodeIfPresent(String.self, forKey: .fromId)) ?? ""
         fromName = (try? c.decodeIfPresent(String.self, forKey: .fromName)) ?? "Someone"
+        fromSubject = (try? c.decodeIfPresent(String.self, forKey: .fromSubject)) ?? nil
         mine = (try? c.decodeIfPresent(Bool.self, forKey: .mine)) ?? false
         body = (try? c.decodeIfPresent(String.self, forKey: .body)) ?? ""
         reaction = (try? c.decodeIfPresent(Bool.self, forKey: .reaction)) ?? FamilyMessages.reactions.contains(body)
@@ -47,6 +55,7 @@ struct FamilyMessage: Codable, Identifiable, Equatable {
     var id: String
     var fromId: String
     var fromName: String
+    var fromSubject: String?
     var mine: Bool
     var body: String
     var at: String
@@ -54,11 +63,12 @@ struct FamilyMessage: Codable, Identifiable, Equatable {
     var recipients: Int
     var replies: [FamilyMessageReply]
 
-    init(id: String, fromId: String, fromName: String, mine: Bool, body: String, at: String,
+    init(id: String, fromId: String, fromName: String, fromSubject: String? = nil, mine: Bool, body: String, at: String,
          pushed: Int = 0, recipients: Int = 0, replies: [FamilyMessageReply] = []) {
         self.id = id
         self.fromId = fromId
         self.fromName = fromName
+        self.fromSubject = fromSubject
         self.mine = mine
         self.body = body
         self.at = at
@@ -72,6 +82,7 @@ struct FamilyMessage: Codable, Identifiable, Equatable {
         id = try c.decode(String.self, forKey: .id)
         fromId = (try? c.decodeIfPresent(String.self, forKey: .fromId)) ?? ""
         fromName = (try? c.decodeIfPresent(String.self, forKey: .fromName)) ?? "Someone"
+        fromSubject = (try? c.decodeIfPresent(String.self, forKey: .fromSubject)) ?? nil
         mine = (try? c.decodeIfPresent(Bool.self, forKey: .mine)) ?? false
         body = (try? c.decodeIfPresent(String.self, forKey: .body)) ?? ""
         at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? ""
@@ -95,6 +106,24 @@ struct FamilyMessage: Codable, Identifiable, Equatable {
 
     /// The text answers, oldest first.
     var textReplies: [FamilyMessageReply] { replies.filter { !$0.reaction } }
+
+    /// A reply from whoever started the thread: drawn in line with the
+    /// message, where everybody else's are indented under it.
+    func isFromSender(_ reply: FamilyMessageReply) -> Bool {
+        if !fromId.isEmpty, !reply.fromId.isEmpty { return reply.fromId == fromId }
+        return mine && reply.mine
+    }
+
+    /// When the thread last moved: the message, or its newest reply.
+    var lastActivity: Date? {
+        ([at] + replies.map(\.at)).compactMap(parseTimestamp).max()
+    }
+
+    /// Everybody who answered in words, once each, in the order they first did.
+    var repliers: [FamilyMessageReply] {
+        var seen = Set<String>()
+        return textReplies.filter { seen.insert($0.fromId.isEmpty ? $0.fromName : $0.fromId).inserted }
+    }
 }
 
 struct FamilyMessagesFeed: Codable, Equatable {
@@ -179,8 +208,17 @@ final class FamilyMessagesStore: ObservableObject {
     @Published private(set) var busy: String?
     @Published var message: String?
 
-    /// Oldest first, the way a conversation reads.
-    var thread: [FamilyMessage] { (feed?.messages ?? []).reversed() }
+    /// The threads, the one that moved last at the foot — the way a
+    /// conversation reads, and where the box to write in is.
+    var thread: [FamilyMessage] {
+        (feed?.messages ?? []).reversed().enumerated().sorted { a, b in
+            let x = a.element.lastActivity ?? .distantPast, y = b.element.lastActivity ?? .distantPast
+            return x == y ? a.offset < b.offset : x < y
+        }.map(\.element)
+    }
+
+    /// One thread, by its message.
+    func threadMessage(_ id: String) -> FamilyMessage? { feed?.messages.first { $0.id == id } }
 
     /// The newest message or reply, for the thread list's row.
     private var newest: (who: String, body: String, at: String)? {

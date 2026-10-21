@@ -299,6 +299,9 @@ import Combine
         // category); `Router.openFamilyPage` refuses it for somebody without them.
         if let page = FamilyPage.from(category: category, userInfo: response.notification.request.content.userInfo) {
             Self.pending.familyPage = page
+            // A message or a reply opens on its thread.
+            Self.pending.familyThread = page == .messages
+                ? response.notification.request.content.userInfo["messageId"] as? String : nil
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
@@ -344,6 +347,8 @@ import Combine
     var gameKind: String?
     /// The step board or the task list, from a tapped family notification.
     var familyPage: FamilyPage?
+    /// The msg family thread that notification was about.
+    var familyThread: String?
     /// A trip day, from a tapped trip alert.
     var trip: TripLink?
     var openAlerts = false
@@ -367,8 +372,9 @@ import Combine
             tab = nil
         }
         if let familyPage {
-            router.openFamilyPage(familyPage)
+            router.openFamilyPage(familyPage, thread: familyThread)
             self.familyPage = nil
+            familyThread = nil
             tab = nil
         }
         if let trip {

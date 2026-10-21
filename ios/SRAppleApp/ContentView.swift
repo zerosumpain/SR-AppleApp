@@ -103,11 +103,15 @@ final class Router: ObservableObject {
     /// The step board or the task list — a tapped push, a widget, a link.
     /// Pushed onto the Family tab, which everyone with the boards has.
     /// Somebody without them — no family, or no site credential — lands on Today.
-    func openFamilyPage(_ page: FamilyPage) {
+    ///
+    /// `thread`: a msg family message to open above the list — a tapped
+    /// message or reply notification lands in its thread.
+    func openFamilyPage(_ page: FamilyPage, thread: String? = nil) {
         let access = AccessStore.shared
         guard access.familyBoards else { show(.today); return }
         var path = NavigationPath()
         path.append(page)
+        if page == .messages, let thread { path.append(FamilyThreadRef(id: thread)) }
         // "msg family" lives beside jkai in Chat, for whoever has Chat.
         if page == .messages, access.allows(.chat) {
             chat = path
@@ -716,6 +720,8 @@ struct ContentView: View {
             // Talk, Chronicle and Inventions, from the Wildmind page.
             .navigationDestination(for: WildmindPage.self) { WildmindPageView(page: $0) }
             .navigationDestination(for: FamilyPage.self) { familyPage($0) }
+            // One msg family thread, from the list or a tapped message.
+            .navigationDestination(for: FamilyThreadRef.self) { FamilyThreadScreen(ref: $0).id($0.id) }
             // Landgrab's map: from its own card in the hub and from Steps.
             .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
             .placeDestinations()
