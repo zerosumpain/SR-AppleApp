@@ -1,7 +1,7 @@
 #!/bin/bash
 # Keep the newest ad-hoc copies as draft releases (tag adhoc-<run>), where
 # SR-Main's /install page fetches the RELEASED one with its own token (SR-Main
-# `$lib/github/adhoc-builds`, `$lib/server/app-release`). The owner chooses on
+# `$lib/github/adhoc-builds`, `$lib/github/app-release`). The owner chooses on
 # /admin/access/app which build the family's phones are offered, so a new copy
 # waits there until he releases it — and an older one must still be here to
 # roll back to. Hence the newest KEEP drafts, not one.
