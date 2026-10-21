@@ -122,8 +122,14 @@ jobs:
       # Never costs the TestFlight upload: on a merge, or a dispatch that also
       # uploads, a failure here is a warning. Dispatched for the ad-hoc copy
       # alone, it is the whole point, so it fails the run.
+      #
+      # From `main` only. The ad-hoc copy is the family's (the one draft is
+      # replaced on every publish), and a branch is the owner trying a build
+      # on TestFlight before they get it (2026-10-21). SR-Main's
+      # `latestAppBuild` likewise counts only `main` runs, so a branch run
+      # never prompts their phones to update either.
       - name: Ad-hoc copy
-        if: ${{ inputs.verify_only != true }}
+        if: ${{ inputs.verify_only != true && github.ref == 'refs/heads/main' }}
         continue-on-error: ${{ github.event_name == 'push' || inputs.testflight }}
         env:
           GH_TOKEN: ${{ github.token }}
