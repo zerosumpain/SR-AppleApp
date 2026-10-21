@@ -31,6 +31,9 @@ struct TripDayScreen: View {
     /// v8: a proposal to show on the map as the day opens (Preview from the
     /// trip page or the conversation).
     var preview: String? = nil
+    /// v8: a group of alternatives to open the drawer on (a planner's swap
+    /// from the trip page).
+    var group: String? = nil
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var offPlan = TripOffPlan.shared
     @EnvironmentObject private var router: Router
@@ -116,10 +119,14 @@ struct TripDayScreen: View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: toast?.id)
         .onAppear {
-            if let preview, !previewTaken {
-                previewTaken = true
+            guard !previewTaken else { return }
+            previewTaken = true
+            if let preview {
                 previewProposal = preview
                 detent = .peek
+            } else if let group {
+                shownGroup = group
+                detent = .half
             }
         }
         .fullScreenCover(item: $following) { detail in
@@ -885,7 +892,7 @@ struct TripStopPeek: View {
                     Button { onSwap() } label: { TripButtonLabel("Swap", icon: "arrow.triangle.2.circlepath") }
                         .srButton(.regular)
                         .accessibilityHint("Shows checked alternatives for \(stop.title)")
-                        .accessibilityIdentifier("trip.swap.ask")
+                        .accessibilityIdentifier("trip.stop.swap")
                 }
                 if let i = day.index(of: stop.id), let leg = day.leg(before: i) {
                     let from = day.stops[i - 1]

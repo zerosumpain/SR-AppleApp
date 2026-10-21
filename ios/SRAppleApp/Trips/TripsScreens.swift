@@ -20,6 +20,8 @@ struct TripDayRef: Hashable {
     let date: String
     /// v8: a proposal to show on the day's map as it opens (Preview).
     var preview: String? = nil
+    /// v8: a group of alternatives (a swap) to show in the day's drawer.
+    var group: String? = nil
 }
 /// The city guide, a page of its own.
 struct TripGuideRef: Hashable { let tripId: String }
@@ -35,7 +37,7 @@ extension View {
         self
             .navigationDestination(for: TripsListRef.self) { TripsListScreen(start: $0.start) }
             .navigationDestination(for: TripRef.self) { TripScreen(tripId: $0.tripId, talk: $0.talk, shapes: $0.shapes) }
-            .navigationDestination(for: TripDayRef.self) { TripDayScreen(tripId: $0.tripId, date: $0.date, preview: $0.preview) }
+            .navigationDestination(for: TripDayRef.self) { TripDayScreen(tripId: $0.tripId, date: $0.date, preview: $0.preview, group: $0.group) }
             .navigationDestination(for: TripStopRef.self) { TripStopScreen(ref: $0) }
             .navigationDestination(for: TripStoryRef.self) { TripStoryScreen(tripId: $0.tripId) }
             .navigationDestination(for: TripGuideRef.self) { TripGuideScreen(tripId: $0.tripId) }
@@ -578,6 +580,10 @@ struct TripScreen: View {
                 ForEach(groups) { group in
                     if group.kind == .shape {
                         shapesRow(group).srPlainRow()
+                    } else if group.kind == .swap, let date = group.proposals.first?.scope.date {
+                        // A swap is weighed over its day's map, where Preview
+                        // draws it: the card opens the day with it in the drawer.
+                        swapRow(group, date: date).srPlainRow()
                     } else {
                         TripProposalPager(
                             group: group, tripId: tripId,
@@ -768,6 +774,44 @@ struct TripScreen: View {
         .buttonStyle(.plain)
         .padding(.vertical, 6)
         .accessibilityIdentifier("trips.shapes.open")
+    }
+
+    /// A planner's swap on the planning home: what it replaces, how many
+    /// ideas, and Swap — which opens the day with them over its map.
+    private func swapRow(_ group: TripDecisions.ProposalGroup, date: String) -> some View {
+        let zone = TripClock(store.bundles[tripId]?.trip.timeZone ?? "UTC").zone
+        let first = group.proposals.first
+        let when = [TripFormat.day(date, zone: zone), TripDecisions.fitParts(first?.tradeoffs.fitText).time].compactMap { $0 }.joined(separator: " ")
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(SR.Text.title(17))
+                    .foregroundStyle(TripPalette.accent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.heading).font(SR.Text.title(17)).foregroundStyle(SR.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(when) · \(group.proposals.count == 1 ? "1 idea, checked" : "\(group.proposals.count) ideas, each checked")")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkSecondary)
+                    if let why = first?.why, !why.isEmpty {
+                        Text(why).font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted)
+                            .lineLimit(2)
+                    }
+                }
+            }
+            Button {
+                SRHaptic.tap()
+                router.today.append(TripDayRef(tripId: tripId, date: date, group: group.id))
+            } label: { TripButtonLabel("Swap", icon: "map", fill: true) }
+                .srButton(.regular)
+                .accessibilityHint("Opens \(TripFormat.day(date, zone: zone)) with the ideas over its map")
+                .accessibilityIdentifier("trip.swap.open")
+        }
+        .padding(16)
+        .srGlassCard(.paper)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
     }
 
     /// "From your notes" when the journeys came from them.

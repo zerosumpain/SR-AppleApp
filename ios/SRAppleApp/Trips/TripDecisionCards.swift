@@ -671,11 +671,12 @@ struct TripCompareView: View {
     }
 
     private var footer: String {
-        guard let date = left.scope.date ?? right.scope.date,
-              let parts = TripClock.components(date),
-              let day = { var c = Calendar(identifier: .gregorian); c.timeZone = zone; return c.date(from: parts) }() else {
+        guard let date = left.scope.date ?? right.scope.date, let parts = TripClock.components(date) else {
             return "Both are checked against the plan."
         }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        guard let day = calendar.date(from: parts) else { return "Both are checked against the plan." }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.timeZone = zone

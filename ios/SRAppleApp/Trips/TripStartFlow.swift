@@ -450,9 +450,13 @@ struct TripStartFlow: View {
 
     static func freshDraft() -> TripStartDraft {
         let calendar = Calendar.current
-        let start = calendar.date(byAdding: .day, value: 14, to: calendar.startOfDay(for: Date())) ?? Date()
-        let end = calendar.date(byAdding: .day, value: 3, to: start) ?? start
-        return TripStartDraft(startDate: start.addingTimeInterval(12 * 3600), endDate: end.addingTimeInterval(12 * 3600))
+        // The demo starts where its planning trip is: Rome, five days out.
+        let ahead = SRDemo.isOn ? 5 : 14
+        let start = calendar.date(byAdding: .day, value: ahead, to: calendar.startOfDay(for: Date())) ?? Date()
+        let end = calendar.date(byAdding: .day, value: SRDemo.isOn ? 4 : 3, to: start) ?? start
+        var draft = TripStartDraft(startDate: start.addingTimeInterval(12 * 3600), endDate: end.addingTimeInterval(12 * 3600))
+        if SRDemo.isOn { draft.destination = "Rome, Italy" }
+        return draft
     }
 }
 

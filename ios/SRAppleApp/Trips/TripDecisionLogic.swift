@@ -385,7 +385,9 @@ enum TripDecisions {
         let n = diff.changes.isEmpty ? diff.lines.count : diff.changes.count
         guard n > 0 else { return "Nothing moved" }
         let what = n == 1 ? "1 change" : "\(n) changes"
-        let dates = Set(diff.changes.compactMap { $0.date ?? $0.fromDate } + diff.dates)
+        // The server's own list of days that changed leads; a move's other day
+        // is said in its line ("moves to Thu").
+        let dates = diff.dates.isEmpty ? Array(Set(diff.changes.compactMap { $0.date ?? $0.fromDate })) : diff.dates
         if dates.count == 1, let only = dates.first { return "\(what) · \(TripFormat.day(only, zone: zone))" }
         return what
     }
