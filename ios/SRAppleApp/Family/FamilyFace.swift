@@ -12,8 +12,14 @@ struct FamilyFaces {
     private let colours: [String: Color]
     private let initials: [String: String]
 
+    /// From the family view this phone was last sent.
     @MainActor
-    init(view: HouseholdView? = FamilyStore.current?.view) {
+    init() {
+        self.init(view: FamilyStore.current?.view)
+    }
+
+    @MainActor
+    init(view: HouseholdView?) {
         let people = view?.people ?? []
         colours = SR.PersonHue.assign(people.map(\.subject))
         initials = view?.initials ?? [:]
