@@ -19,13 +19,17 @@ final class TripQuestionAlertsTests: XCTestCase {
         XCTAssertEqual(TripQuestionPushes.dismissAction, UNNotificationDismissActionIdentifier)
     }
 
-    func testEveryAnswerButtonStaysInTheBackground() {
+    func testEveryAnswerButtonStaysInTheBackgroundAndAsksForFaceID() {
         let registered = TripQuestionPushes.notificationCategory(category("q1", [("a0", "Back to the flat"), ("a1", "Carry on"), ("decide", "You decide")]))
         XCTAssertEqual(registered.identifier, "trip-q-q1")
         XCTAssertEqual(registered.actions.map(\.identifier), ["a0", "a1", "decide"])
         XCTAssertEqual(registered.actions.map(\.title), ["Back to the flat", "Carry on", "You decide"])
-        // A foreground action from a wrist can only be passed on, not done.
-        for action in registered.actions { XCTAssertTrue(action.options.isEmpty, action.identifier) }
+        // A foreground action from a wrist can only be passed on, not done; and
+        // an answer changes the family's plan, so a locked phone asks first (as Approve does).
+        for action in registered.actions {
+            XCTAssertFalse(action.options.contains(.foreground), action.identifier)
+            XCTAssertTrue(action.options.contains(.authenticationRequired), action.identifier)
+        }
     }
 
     func testRegisteringKeepsEveryOtherCategoryAndSwapsTheQuestions() {
