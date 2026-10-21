@@ -14,7 +14,7 @@
 //
 //   node scripts/check-dynamic-type.mjs
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 const ROOT = 'ios';
 
@@ -45,6 +45,38 @@ function swiftFiles(dir) {
   return out;
 }
 
+/**
+ * Files where the SYSTEM face may not be fixed either: `.system(size:)` is
+ * the same mistake in SF Pro, and an SF Symbol sized that way stays small
+ * while the words beside it grow. A ratchet, file by file: the trip screens
+ * first (plan §5.5), so a file is added here once it is clean, and the rest
+ * of the app follows. Text styles (`.font(.footnote)`) or `@ScaledMetric`
+ * are the fix.
+ */
+const NO_FIXED_SYSTEM = new Set([
+  'ios/SRAppleApp/Trips/TripCurrency.swift',
+  'ios/SRAppleApp/Trips/TripDrawer.swift',
+  'ios/SRAppleApp/Trips/TripLink.swift',
+  'ios/SRAppleApp/Trips/TripLive.swift',
+  'ios/SRAppleApp/Trips/TripMap.swift',
+  'ios/SRAppleApp/Trips/TripMapScene.swift',
+  'ios/SRAppleApp/Trips/TripMeals.swift',
+  'ios/SRAppleApp/Trips/TripOffPlan.swift',
+  'ios/SRAppleApp/Trips/TripOffPlanRules.swift',
+  'ios/SRAppleApp/Trips/TripOptionsSheet.swift',
+  'ios/SRAppleApp/Trips/TripQuestionFocus.swift',
+  'ios/SRAppleApp/Trips/TripReady.swift',
+  'ios/SRAppleApp/Trips/TripShareShared.swift',
+  'ios/SRAppleApp/Trips/TripStopScreen.swift',
+  'ios/SRAppleApp/Trips/TripStory.swift',
+  'ios/SRAppleApp/Trips/TripWeather.swift',
+  'ios/SRAppleApp/Trips/TripWeatherStore.swift',
+  'ios/SRAppleApp/Home/HomeTripWords.swift',
+  'ios/SRAppleApp/Home/HomeTripsDoor.swift',
+  'ios/SRAppleApp/Alerts/TripQuestionPushes.swift',
+  'ios/SRAppleApp/Alerts/TripQuestionAlerts.swift',
+]);
+
 const offences = [];
 for (const file of swiftFiles(ROOT)) {
   const lines = readFileSync(file, 'utf8').split('\n');
@@ -54,7 +86,8 @@ for (const file of swiftFiles(ROOT)) {
     const fixed =
       /Font\s*\.\s*custom\s*\(/.test(code) ||
       /\.custom\(\s*(SR\.)?Face\./.test(code) ||
-      /UIFont\(name:/.test(code);
+      /UIFont\(name:/.test(code) ||
+      (NO_FIXED_SYSTEM.has(file.split(sep).join('/')) && /\.system\(\s*size:/.test(code));
     if (!fixed) return;
     // Tested against the RAW line, so an inline exemption comment counts.
     if (ALLOWED.some((pattern) => pattern.test(line))) return;
@@ -63,13 +96,14 @@ for (const file of swiftFiles(ROOT)) {
 }
 
 if (offences.length > 0) {
-  console.error('check-dynamic-type: a bundled face was asked for at a FIXED size.\n');
+  console.error('check-dynamic-type: a font was asked for at a FIXED size.\n');
   for (const offence of offences) console.error(`  ${offence}`);
   console.error(`
 A font built this way never answers the reader's text setting. Use the helpers
 in SR.Text (or SR.body / SR.mono, which scale too), or pass \`relativeTo:\`
 yourself. In UIKit the equivalent is SRChrome.scaled(_:_:_:), which wraps
-UIFontMetrics.
+UIFontMetrics. In the files listed in NO_FIXED_SYSTEM, \`.system(size:)\` is
+caught too: use a text style (\`.font(.footnote.weight(.semibold))\`) instead.
 `);
   process.exit(1);
 }

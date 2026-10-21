@@ -1,0 +1,73 @@
+import XCTest
+@testable import SRAppleApp
+
+/// Trips v8, craft (plan §5.5): money that follows the destination, and map
+/// pins VoiceOver can reach.
+///
+/// Foundation only: the Linux harness runs this file too.
+final class TripCraftTests: XCTestCase {
+
+    // MARK: - Money
+
+    func testThePriceWearsTheMoneyOfWhereTheTripIs() {
+        XCTAssertEqual(TripCurrency.symbol(price: "18", timeZone: "Europe/Rome"), "eurosign.circle")
+        // Edinburgh is not the euro.
+        XCTAssertEqual(TripCurrency.symbol(price: "Free", timeZone: "Europe/London"), "sterlingsign.circle")
+        XCTAssertEqual(TripCurrency.symbol(price: nil, timeZone: "Europe/Zurich"), "francsign.circle")
+        XCTAssertEqual(TripCurrency.symbol(price: nil, timeZone: "America/New_York"), "dollarsign.circle")
+        // Somewhere it does not know: no guess.
+        XCTAssertEqual(TripCurrency.symbol(price: "200 kr", timeZone: "Europe/Stockholm"), "banknote")
+        XCTAssertEqual(TripCurrency.symbol(price: nil, timeZone: nil), "banknote")
+    }
+
+    func testASymbolInThePriceWins() {
+        XCTAssertEqual(TripCurrency.symbol(price: "£12.50", timeZone: "Europe/Rome"), "sterlingsign.circle")
+        XCTAssertEqual(TripCurrency.symbol(price: "€18, under-18s free", timeZone: "Europe/London"), "eurosign.circle")
+        XCTAssertEqual(TripCurrency.symbol(price: "EUR 20", timeZone: nil), "eurosign.circle")
+        // A word that starts like a currency's code is not one.
+        XCTAssertEqual(TripCurrency.symbol(price: "Free for Europeans", timeZone: "Europe/London"), "sterlingsign.circle")
+    }
+
+    // MARK: - Pins VoiceOver can reach
+
+    /// The hotel, the Pantheon (next), Trevi, back to the hotel.
+    private func day() -> PlannedDay {
+        let hotel = TripLatLng(lat: 41.895, lng: 12.474)
+        func stop(_ id: String, _ title: String, _ kind: StopKind, _ at: TripLatLng, _ a: Double) -> PlannedStop {
+            PlannedStop(id: id, kind: kind, wishId: kind == .wish ? id : nil, title: title, location: at,
+                        arriveMin: a, departMin: a + 30, waitSec: 0, locked: false, bookingId: nil, warnings: [])
+        }
+        return PlannedDay(
+            date: "2026-10-27", stayId: "h",
+            stops: [stop("s1", "Hotel Artemide", .stay, hotel, 540),
+                    stop("pantheon", "Pantheon", .wish, TripLatLng(lat: 41.8986, lng: 12.4769), 570),
+                    stop("trevi", "Trevi Fountain", .wish, TripLatLng(lat: 41.9009, lng: 12.4833), 860),
+                    stop("s2", "Hotel Artemide", .stay, hotel, 1080)],
+            legs: [], warnings: []
+        )
+    }
+
+    func testEveryPinSaysItsNumberTitleAndTime() {
+        let scene = TripMapScene.day(day(), stages: [.morning, .morning, .afternoon, .evening], done: [], nextId: "pantheon", selectedId: nil)
+        // The hotel twice is one pin, as it is drawn.
+        XCTAssertEqual(scene.pins.map(\.label), ["Hotel Artemide, 09:00", "1. Pantheon, 09:30, next", "2. Trevi Fountain, 14:20"])
+    }
+
+    func testADonePinSaysSo() {
+        let scene = TripMapScene.day(day(), stages: [.morning, .morning, .afternoon, .evening], done: ["pantheon"], nextId: "trevi", selectedId: nil)
+        XCTAssertEqual(scene.pins.first { $0.id == "pantheon" }?.label, "1. Pantheon, 09:30, done")
+        XCTAssertEqual(scene.pins.first { $0.id == "trevi" }?.label, "2. Trevi Fountain, 14:20, next")
+    }
+
+    func testTheOverviewSpeaksForEachDayNotEachDot() {
+        let scene = TripMapScene.overview([day()], stays: [])
+        XCTAssertEqual(scene.pins.compactMap(\.label), ["Day 1, from Pantheon, 2 places"])
+        XCTAssertEqual(scene.pins.count, 2, "the second visit is a dot with no element of its own")
+    }
+
+    func testEveningLiftsOnADarkScreenOnly() {
+        XCTAssertEqual(TripMapScene.stageColorOnDark(.evening), 0x5A55A8)
+        XCTAssertEqual(TripMapScene.stageColor(.evening), 0x15123A)
+        XCTAssertEqual(TripMapScene.stageColorOnDark(.morning), TripMapScene.stageColor(.morning))
+    }
+}

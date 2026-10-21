@@ -121,7 +121,9 @@ struct TripDaySky: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .frame(maxWidth: open ? 260 : nil, alignment: .leading)
-                .srGlass(.paper, in: RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: true)
+                // A chip while shut (a capsule, as every chip), a card once
+                // opened out (the cards' one radius).
+                .srGlass(.paper, in: open ? AnyShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)) : AnyShape(Capsule()), interactive: true)
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)

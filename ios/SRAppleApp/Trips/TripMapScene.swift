@@ -69,6 +69,10 @@ enum TripMapScene {
         var badge: Badge
         /// Drawn above every other pin: the next stop, the picked one.
         var top = false
+        /// What VoiceOver says for it — "3. Trevi Fountain, 14:20" — so a pin
+        /// is reachable without sight (plan §5.5). Nil: not an element of its
+        /// own (the overview's small dots, which its numbered pin speaks for).
+        var label: String? = nil
     }
 
     struct Scene: Hashable {
@@ -89,6 +93,13 @@ enum TripMapScene {
         case .afternoon: return 0xE85D00
         case .evening: return 0x15123A
         }
+    }
+
+    /// The same, on a dark screen (not the map, whose tiles stay light):
+    /// evening's indigo would vanish into the ground, so it lifts to #5A55A8
+    /// (2026-10-21). The other three read on either.
+    static func stageColorOnDark(_ stage: DayStage) -> UInt32 {
+        stage == .evening ? 0x5A55A8 : stageColor(stage)
     }
 
     static let ink: UInt32 = 0x15123A
@@ -216,7 +227,8 @@ enum TripMapScene {
                             glyph: .symbol(option.kind == "cafe" ? "cup.and.saucer.fill" : "fork.knife"),
                             fill: stageColor(stage), size: isPicked ? 30 : 22, ring: isPicked ? ink : nil
                         ),
-                        top: isPicked
+                        top: isPicked,
+                        label: "\(option.name), a place for \(stop.title.lowercased()) around \(TripFormat.time(stop.arriveMin))"
                     ))
                 }
                 continue
@@ -238,10 +250,19 @@ enum TripMapScene {
             out.append(Pin(
                 id: stop.id, at: at,
                 badge: Badge(glyph: glyph, fill: fill, size: size, ring: ring, faded: isDone && !isPicked),
-                top: isNext || isPicked
+                top: isNext || isPicked,
+                label: spoken(stop, number: numbers[stop.id], next: isNext, done: isDone)
             ))
         }
         return out
+    }
+
+    /// "3. Trevi Fountain, 14:20", "Hotel Artemide, 09:00" — and ", next" or
+    /// ", done" when that is what the pin's ring or fading says.
+    static func spoken(_ stop: PlannedStop, number: Int?, next: Bool = false, done: Bool = false) -> String {
+        var words = (number.map { "\($0). " } ?? "") + stop.title + ", " + TripFormat.time(stop.arriveMin)
+        if next { words += ", next" } else if done { words += ", done" }
+        return words
     }
 
     /// A meal option's pin: `meal-option:<meal stop id>|<option id>`.
@@ -281,13 +302,15 @@ enum TripMapScene {
                 scene.pins.append(Pin(
                     id: day.date, at: at,
                     badge: k == 0 ? Badge(glyph: .number(d + 1), fill: color, size: 30) : Badge(glyph: .dot, fill: color, size: 12),
-                    top: k == 0
+                    top: k == 0,
+                    label: k == 0 ? "Day \(d + 1), from \(stop.title), \(visits.count) \(visits.count == 1 ? "place" : "places")" : nil
                 ))
             }
             scene.frame += framePoints(day)
         }
         for stay in stays {
-            scene.pins.append(Pin(id: "stay:\(stay.id)", at: stay.location, badge: Badge(glyph: .symbol("bed.double.fill"), fill: ink, size: 28), top: true))
+            scene.pins.append(Pin(id: "stay:\(stay.id)", at: stay.location, badge: Badge(glyph: .symbol("bed.double.fill"), fill: ink, size: 28), top: true,
+                                  label: "\(stay.name), where you stay"))
             scene.frame.append(stay.location)
         }
         return scene
