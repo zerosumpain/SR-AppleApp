@@ -394,12 +394,22 @@ struct TripScreen: View {
         .navigationTitle(store.bundles[tripId]?.trip.title ?? "Trip")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let bundle = store.bundles[tripId], bundle.can.mayDelete || (TripDecisions.speaksV8(bundle) && TripDecisions.canDecide(bundle.can)) {
+            if let bundle = store.bundles[tripId], bundle.can.mayDelete || TripDecisions.speaksV8(bundle) {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         if TripDecisions.speaksV8(bundle) && TripDecisions.canDecide(bundle.can) {
                             Button { sheet = .brief(nil) } label: { Label("The brief", systemImage: "list.bullet.rectangle") }
                             Button { sheet = .versions } label: { Label("Plan history", systemImage: "clock.arrow.circlepath") }
+                        }
+                        // v8.1: everyone's own: quick questions as notifications for this trip, on or off.
+                        if let on = bundle.questionPushes {
+                            Button {
+                                Task { _ = await store.setQuestionPushes(!on, tripId: tripId) }
+                            } label: {
+                                Label(on ? "Question notifications: on" : "Question notifications: off", systemImage: on ? "bell" : "bell.slash")
+                            }
+                            .accessibilityHint(on ? "Turns them off for this trip" : "Turns them on for this trip")
+                            .accessibilityIdentifier("trip.questionPushes")
                         }
                         // Only whoever started the trip may delete it (the site's `canDelete`).
                         if bundle.can.mayDelete {
@@ -853,16 +863,23 @@ struct TripDayListRow: View {
         let zone = TripClock(bundle.trip.timeZone).zone
         let full = TripFullness.of(day, bundle: bundle)
         let isToday = day.date == today
+        let sketch = lead ? [] : TripDaySketchLogic.points(day)
         HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                Circle().fill(TripPalette.day(number - 1))
-                Text("\(number)")
-                    .font(SR.Text.label(lead ? 15 : 13).monospacedDigit())
-                    .foregroundStyle(Color.white)
+            if !sketch.isEmpty {
+                // v8.1: the day's route, small (mockup 4b); the number rides in its corner.
+                TripDaySketch(points: sketch, number: number)
+                    .overlay { if isToday { RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous).stroke(SR.accent, lineWidth: 2) } }
+            } else {
+                ZStack {
+                    Circle().fill(TripPalette.day(number - 1))
+                    Text("\(number)")
+                        .font(SR.Text.label(lead ? 15 : 13).monospacedDigit())
+                        .foregroundStyle(Color.white)
+                }
+                .frame(width: disc * (lead ? 34.0 / 28 : 1), height: disc * (lead ? 34.0 / 28 : 1))
+                .overlay { if isToday && !lead { Circle().stroke(SR.accent, lineWidth: 2).padding(-3) } }
+                .accessibilityHidden(true)
             }
-            .frame(width: disc * (lead ? 34.0 / 28 : 1), height: disc * (lead ? 34.0 / 28 : 1))
-            .overlay { if isToday && !lead { Circle().stroke(SR.accent, lineWidth: 2).padding(-3) } }
-            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(lead ? "Today" : TripFormat.day(day.date, zone: zone) + (isToday ? " · today" : ""))

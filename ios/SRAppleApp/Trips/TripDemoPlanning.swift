@@ -174,6 +174,7 @@ extension TripDemo {
             .filter { !state.proposals.contains($0.id) && !state.groups.contains($0.groupId) }
         bundle.proposals = TripDecisions.canDecide(bundle.can) ? wire.proposals + rain.filter { r in !wire.proposals.contains { $0.groupId == r.groupId } } : []
         bundle.pack = wire.pack
+        bundle.questionPushes = true
         return bundle
     }
 

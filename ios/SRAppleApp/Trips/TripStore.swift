@@ -703,6 +703,21 @@ final class TripStore: ObservableObject {
     }
 
     /// A direct edit to the brief — dates, who, pace — or "Right" on a guess.
+    /// v8.1: turn this trip's question notifications on or off for this person.
+    func setQuestionPushes(_ on: Bool, tripId: String) async -> String? {
+        let key = "pushes:\(tripId)"
+        guard !busy.contains(key) else { return nil }
+        busy.insert(key)
+        defer { busy.remove(key) }
+        do {
+            let now = try await TripsAPI.setQuestionPushes(on, trip: tripId)
+            edit(tripId) { $0.questionPushes = now }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func patchBrief(_ patch: BriefPatch, tripId: String) async -> String? {
         let key = "brief:\(tripId)"
         guard !busy.contains(key) else { return nil }

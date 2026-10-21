@@ -417,6 +417,8 @@ struct TripBundle: Codable, Hashable {
     var proposals: [TripProposal]? = nil
     /// v8: the research pack's summary.
     var pack: PackSummary? = nil
+    /// v8.1: whether this person gets this trip's question notifications (off = they turned them off).
+    var questionPushes: Bool? = nil
 
     var segments: [TransportSegment] { transport ?? [] }
     var can: TripAccess { access ?? .owner }

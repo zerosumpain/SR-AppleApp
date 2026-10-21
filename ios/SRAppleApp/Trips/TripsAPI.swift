@@ -277,6 +277,14 @@ enum TripsAPI {
 
     /// "approve", "reject" or "withdraw". 409 when someone decided first.
     @discardableResult
+    /// v8.1: `PUT …/question-pushes {on}` — this person's question notifications for the trip. Returns whether they are on.
+    static func setQuestionPushes(_ on: Bool, trip id: String) async throws -> Bool {
+        struct Reply: Decodable { let on: Bool }
+        let (data, http) = try await exchange(path(id) + "/question-pushes", method: "PUT", body: try JSONEncoder().encode(["on": on]))
+        try check(http, data)
+        return (try? JSONDecoder().decode(Reply.self, from: data).on) ?? on
+    }
+
     static func decide(trip id: String, suggestion sid: String, action: String) async throws -> Decided {
         let body = try JSONEncoder().encode(["action": action])
         // Approving adds the wish and re-solves the plan: give it time.
