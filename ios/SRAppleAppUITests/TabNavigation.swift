@@ -1,52 +1,59 @@
 import XCTest
 
-/// Seven places for the owner, and an iPhone shows five: Games, News and Flows
-/// sit behind the app's own "More" hub. A member with Family and Games
-/// has four and no More. Every test that opens a tab by name goes through here,
-/// so a tab moving under More — or back — changes one place, not every test.
+/// Five places at most on the bar, the same for everyone: Home, Family,
+/// Games, Chat, Health. News, Flows, Daydream, Wildmind, the family boards and
+/// Settings are in the hub — the ⊞ (`open-hub`) at the top left of every tab's
+/// first page. Every test that opens a place by name goes through here, so a
+/// place moving between the bar and the hub changes one place, not every test.
 extension XCUIApplication {
-    /// Opens a tab by its label, through More when it is not on the bar.
-    /// Returns false when neither route finds it.
+    /// Opens a place by its label: its tab when it has one, else its card in
+    /// the hub. "More" opens the hub itself. Returns false when neither route
+    /// finds it.
     @MainActor @discardableResult
     func openTab(_ name: String, timeout: TimeInterval = 20) -> Bool {
+        if name == "More" { return openHub(timeout: timeout) }
         let direct = tabBars.buttons[name]
         if direct.waitForExistence(timeout: 2) {
             direct.tap()
             return true
         }
-        let more = tabBars.buttons["More"]
         // A swipe up the page folds the iOS 26 bar down to the selected tab
-        // alone (`tabBarMinimizeBehavior(.onScrollDown)`), and neither the
-        // tab nor More is on it then. A swipe back down opens it out again.
-        if !more.waitForExistence(timeout: 2) {
-            swipeDown()
-            if direct.waitForExistence(timeout: 2) {
-                direct.tap()
-                return true
-            }
+        // alone (`tabBarMinimizeBehavior(.onScrollDown)`), so the tab may be
+        // there and folded away. A swipe back down opens it out again.
+        swipeDown()
+        if direct.waitForExistence(timeout: 2) {
+            direct.tap()
+            return true
         }
-        guard more.waitForExistence(timeout: timeout) else { return false }
-        // The app's own More hub: one card per place, `more-<tab>`.
+        guard openHub(timeout: timeout) else { return false }
+        // The hub: one card per place, `more-<place>`.
         let card = descendants(matching: .any)["more-\(name.lowercased())"].firstMatch
-        // A tap on the bar while the app is still settling from launch can be
-        // lost: the hub not appearing is the sign, and tapping again is the
-        // fix. Re-tapping a selected tab only pops it to its root, which is
-        // where the hub is anyway.
-        for attempt in 0..<3 {
-            more.tap()
-            if card.waitForExistence(timeout: attempt == 0 ? 10 : 5) { break }
-        }
-        guard card.exists else { return false }
+        guard card.waitForExistence(timeout: 10) else { return false }
         // The connections banner slides in above the hub when the demo's
         // store loads, and moves every card down as it does. A tap aimed
         // while that happens lands on whatever slid into the card's old place
         // — the banner's own details button, which opens a sheet over
         // everything. Wait for the card to be still, then tap: `tap()` scrolls
-        // a card below the fold into view itself. (Gating on `isHittable` and
-        // swiping instead lost the Tasks card in the review-demo test.)
+        // a card below the fold into view itself.
         card.waitUntilStill()
         card.tap()
         return true
+    }
+
+    /// Opens the hub from the page on screen — the ⊞ at the top left of a
+    /// tab's first page. A tap while the app is still settling from launch
+    /// can be lost: the hub not appearing is the sign, and tapping again is
+    /// the fix.
+    @MainActor @discardableResult
+    func openHub(timeout: TimeInterval = 20) -> Bool {
+        let button = buttons["open-hub"].firstMatch
+        let hub = descendants(matching: .any)["more-screen"].firstMatch
+        guard button.waitForExistence(timeout: timeout) else { return false }
+        for attempt in 0..<3 {
+            if button.exists && button.isHittable { button.tap() }
+            if hub.waitForExistence(timeout: attempt == 0 ? 10 : 5) { return true }
+        }
+        return false
     }
 }
 
@@ -71,27 +78,12 @@ extension XCUIElement {
 }
 
 extension XCUIApplication {
-    /// Opens Settings wherever this person keeps it: the cog on Today when the
-    /// bar has no More (an unknown phone, a member with four places), else
-    /// the Settings row at the foot of the More hub.
+    /// Opens Settings: the row at the foot of the hub, for everyone.
     @MainActor @discardableResult
     func openSettings(timeout: TimeInterval = 10) -> Bool {
-        let cog = buttons["open-settings"]
-        let more = tabBars.buttons["More"]
-        // Whichever turns up first: the cog on Today, or the More tab.
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline && !(cog.exists && cog.isHittable) && !more.exists {
-            _ = cog.waitForExistence(timeout: 0.5)
-        }
-        if cog.exists && cog.isHittable {
-            cog.tap()
-            return true
-        }
-        guard more.exists else { return false }
-        more.tap()
+        guard openHub(timeout: max(timeout, 20)) else { return false }
         // Settings is the hub's last row, below the fold on a phone.
         let row = buttons["open-settings"]
-        guard descendants(matching: .any)["more-screen"].firstMatch.waitForExistence(timeout: timeout) else { return false }
         for _ in 0..<8 where !(row.exists && row.isHittable) { swipeUp() }
         guard row.exists && row.isHittable else { return false }
         row.tap()

@@ -12,7 +12,7 @@ import Combine
 /// write, which is what every one of those entry points needs.
 @MainActor
 final class Router: ObservableObject {
-    enum Tab: String, Hashable { case today, chat, health, family, games, news, flows, more }
+    enum Tab: String, Hashable { case today, chat, health, family, games, news, flows }
 
     @Published var tab: Tab = .today
     /// Today's own stack: Trips push onto it (no tab of their own).
@@ -23,9 +23,11 @@ final class Router: ObservableObject {
     @Published var games = NavigationPath()
     @Published var news = NavigationPath()
     @Published var flows = NavigationPath()
-    /// The app's own More tab: its first entry is the place opened from the
-    /// hub (a `Tab`), and that place's own pushes follow it on the same stack.
-    @Published var more = NavigationPath()
+    /// The tab whose stack the hub was last opened on. The hub is not a tab:
+    /// it is pushed onto whichever tab you are on (`openHub`), and what it
+    /// opens — News, Flows, Daydream, Steps — is pushed above it on the same
+    /// stack, so there is one bar, one back button and the tab bar stays.
+    @Published private(set) var hubHost: Tab = .today
     /// The one modal, whichever it currently is.
     ///
     /// NOT two `.sheet(isPresented:)` modifiers on the same view. SwiftUI
@@ -67,30 +69,40 @@ final class Router: ObservableObject {
         sheet = .alerts
     }
 
-    /// The daydream loop's notes, a page in More — the owner's alone. More
-    /// is always on an owner's bar (seven places, five slots), so there is
-    /// always a stack to push it onto.
+    /// The daydream loop's notes, a page in the hub — the owner's alone.
+    /// Opened from outside (a notification, a commission) it lands on Home
+    /// with the hub beneath it, so Back walks to the hub and then Home.
     func openDaydream() {
-        guard AccessStore.shared.current.owner, AccessStore.shared.allows(.more) else { return }
-        var path = NavigationPath()
-        path.append(MorePage.daydream)
-        more = path
-        tab = .more
+        guard AccessStore.shared.current.owner else { return }
+        openFromHub(MorePage.daydream)
     }
 
-    /// Wildmind, a page in More — the owner's alone, like Daydream.
+    /// Wildmind, a page in the hub — the owner's alone, like Daydream.
     func openWildmind() {
-        guard AccessStore.shared.current.owner, AccessStore.shared.allows(.more) else { return }
+        guard AccessStore.shared.current.owner else { return }
+        openFromHub(MorePage.wildmind)
+    }
+
+    /// The hub, pushed onto the tab that is open: the ⊞ in every page's bar.
+    func openHub() {
+        hubHost = tab
+        append(HubRef(), to: tab)
+    }
+
+    /// Something the hub holds, opened from outside the app's screens: Home's
+    /// stack becomes hub-then-it, and Home is shown.
+    private func openFromHub<Value: Hashable>(_ value: Value) {
         var path = NavigationPath()
-        path.append(MorePage.wildmind)
-        more = path
-        tab = .more
+        path.append(HubRef())
+        path.append(value)
+        today = path
+        hubHost = .today
+        tab = .today
     }
 
     /// The step board or the task list — a tapped push, a widget, a link.
-    /// Pushed onto More when there is one, else onto the Family tab (a member
-    /// with four places has no More). Somebody without them — no family, or
-    /// no site credential — lands on Today.
+    /// Pushed onto the Family tab, which everyone with the boards has.
+    /// Somebody without them — no family, or no site credential — lands on Today.
     func openFamilyPage(_ page: FamilyPage) {
         let access = AccessStore.shared
         guard access.familyBoards else { show(.today); return }
@@ -102,10 +114,7 @@ final class Router: ObservableObject {
             tab = .chat
             return
         }
-        if access.allows(.more) {
-            more = path
-            tab = .more
-        } else if access.allows(.family) {
+        if access.allows(.family) {
             family = path
             tab = .family
         } else {
@@ -174,13 +183,10 @@ final class Router: ObservableObject {
             self.tab = .today
             return
         }
-        // A place inside More opens as More with that place pushed, so its
-        // back button leads to the hub and the bar stays where it was.
-        if inMore(tab) {
-            var path = NavigationPath()
-            path.append(tab)
-            more = path
-            self.tab = .more
+        // A place in the hub (News, Flows) opens on Home with the hub
+        // beneath it, so its back button leads to the hub.
+        if inHub(tab) {
+            openFromHub(tab)
             return
         }
         switch tab {
@@ -190,48 +196,49 @@ final class Router: ObservableObject {
         case .games: games = NavigationPath()
         case .news: news = NavigationPath()
         case .flows: flows = NavigationPath()
-        case .more: more = NavigationPath()
         case .today: break
         }
         self.tab = tab
     }
 
-    /// Whether `tab` lives inside More for this person rather than on the bar.
-    func inMore(_ tab: Tab) -> Bool { AccessStore.shared.inMore.contains(tab) }
+    /// Whether `tab` lives in the hub for this person rather than on the bar.
+    func inHub(_ tab: Tab) -> Bool { AccessStore.shared.inHub.contains(tab) }
 
-    /// Push onto a place's stack, wherever that place is on the bar — its own
-    /// tab, or inside More behind the hub. Games, News and Flows push through
-    /// this rather than onto `games`/`news`/`flows` directly.
+    /// Push onto a place's stack, wherever that place is — its own tab, or the
+    /// stack the hub was opened on. Games, News and Flows push through this
+    /// rather than onto `games`/`news`/`flows` directly.
     func push<Value: Hashable>(_ value: Value, on tab: Tab) {
-        if inMore(tab) { more.append(value); return }
-        switch tab {
-        case .chat: chat.append(value)
-        case .health: health.append(value)
-        case .family: family.append(value)
-        case .games: games.append(value)
-        case .news: news.append(value)
-        case .flows: flows.append(value)
-        case .more: more.append(value)
-        case .today: break
-        }
+        append(value, to: inHub(tab) ? hubHost : tab)
     }
 
-    /// Pop the top of a place's stack, never past the place itself — inside
-    /// More the bottom entry is the place, and popping it would land on the hub.
+    /// Push onto the stack the hub is on — a card in the hub opening its page.
+    func pushFromHub<Value: Hashable>(_ value: Value) {
+        append(value, to: hubHost)
+    }
+
+    /// Pop the top of a place's stack.
     func pop(on tab: Tab) {
-        if inMore(tab) {
-            if more.count > 1 { more.removeLast() }
-            return
-        }
-        switch tab {
+        let host = inHub(tab) ? hubHost : tab
+        switch host {
+        case .today: if !today.isEmpty { today.removeLast() }
         case .chat: if !chat.isEmpty { chat.removeLast() }
         case .health: if !health.isEmpty { health.removeLast() }
         case .family: if !family.isEmpty { family.removeLast() }
         case .games: if !games.isEmpty { games.removeLast() }
         case .news: if !news.isEmpty { news.removeLast() }
         case .flows: if !flows.isEmpty { flows.removeLast() }
-        case .more: if !more.isEmpty { more.removeLast() }
-        case .today: break
+        }
+    }
+
+    private func append<Value: Hashable>(_ value: Value, to tab: Tab) {
+        switch tab {
+        case .today: today.append(value)
+        case .chat: chat.append(value)
+        case .health: health.append(value)
+        case .family: family.append(value)
+        case .games: games.append(value)
+        case .news: news.append(value)
+        case .flows: flows.append(value)
         }
     }
 
@@ -330,7 +337,7 @@ struct ContentView: View {
     private var tabs: some View {
         TabView(selection: tabBinding) {
             NavigationStack(path: $router.today) {
-                TodayScreen(companion: companion, alerts: alerts, site: site, family: family)
+                hosted(TodayScreen(companion: companion, alerts: alerts, site: site, family: family))
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
             .tabItem { SRTabIcon.label("Home", "square.grid.2x2.fill") }
@@ -342,28 +349,22 @@ struct ContentView: View {
             // Where everyone is, straight after Today, which leads with it. Over
             // the COMPANION pairing, which every phone in the family has — so,
             // unlike Chat or News, not behind `paired`. The bar's order is
-            // `AccessPolicy.tabs`; this follows it.
+            // `AccessPolicy.bar`; this follows it.
             if access.allows(.family) {
                 NavigationStack(path: $router.family) {
-                    FamilyScreen(store: family, companion: companion)
+                    hosted(FamilyScreen(store: family, companion: companion))
                         .srConnectionsBanner(connections) { router.openConnections() }
-                        // Steps and Tasks, for a member with no More to hold them.
-                        .navigationDestination(for: FamilyPage.self) { familyPage($0) }
-                        // Landgrab's map, from the Steps page. On the stack's
-                        // root, like every destination here: one declared on
-                        // the pushed Steps page did nothing on a phone.
-                        .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
                 }
                 .tabItem { SRTabIcon.label("Family", "person.2.wave.2") }
                 .tag(Router.Tab.family)
             }
 
-            // Games, News and Flows: each its own tab while the bar has room,
-            // otherwise all three behind our own More (see `AccessPolicy.inMore`).
-            // Games straight after Family, so a member given both sees them together.
-            if access.allows(.games) && !router.inMore(.games) {
+            // Games straight after Family, so whoever has both sees them
+            // together — the owner as well as the family (John, 2026-10-21:
+            // one layout for everyone).
+            if access.allows(.games) {
                 NavigationStack(path: $router.games) {
-                    place(.games).placeDestinations()
+                    hosted(place(.games))
                 }
                 .tabItem { SRTabIcon.label("Games", "gamecontroller") }
                 .badge(games.invites.count)
@@ -372,63 +373,22 @@ struct ContentView: View {
 
             if access.allows(.chat) {
                 NavigationStack(path: $router.chat) {
-                    paired(what: "your threads") { ThreadListScreen() }
+                    hosted(paired(what: "your threads") { ThreadListScreen() })
                         .srConnectionsBanner(connections) { router.openConnections() }
-                        // "msg family", beside a new jkai thread.
-                        .navigationDestination(for: FamilyPage.self) { familyPage($0) }
                 }
                 .tabItem { SRTabIcon.label("Chat", "bubble.left.and.bubble.right") }
                 .tag(Router.Tab.chat)
             }
 
             NavigationStack(path: $router.health) {
-                HealthScreen(companion: companion)
+                hosted(HealthScreen(companion: companion))
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
             .tabItem { SRTabIcon.label("Health", "heart.text.square") }
             .tag(Router.Tab.health)
 
-            if access.allows(.news) && !router.inMore(.news) {
-                NavigationStack(path: $router.news) {
-                    place(.news).placeDestinations()
-                }
-                .tabItem { SRTabIcon.label("News", "newspaper") }
-                .tag(Router.Tab.news)
-            }
-
-            if access.allows(.flows) && !router.inMore(.flows) {
-                NavigationStack(path: $router.flows) {
-                    place(.flows).placeDestinations()
-                }
-                .tabItem { SRTabIcon.label("Flows", "point.3.connected.trianglepath.dotted") }
-                .tag(Router.Tab.flows)
-            }
-
-            // One stack for the hub and whatever it opens, so a game has one
-            // bar and one back button, and popping it lands on a screen that
-            // has a tab bar — neither was true of iOS's own More.
-            if access.allows(.more) {
-                NavigationStack(path: $router.more) {
-                    MoreScreen(places: access.inMore, games: games, companion: companion)
-                        .srConnectionsBanner(connections) { router.openConnections() }
-                        .navigationDestination(for: Router.Tab.self) { place($0) }
-                        .navigationDestination(for: Router.MorePage.self) { page in
-                            switch page {
-                            case .daydream: DaydreamScreen()
-                            case .wildmind: WildmindScreen()
-                            }
-                        }
-                        // Talk, Chronicle and Inventions, from the Wildmind page.
-                        .navigationDestination(for: WildmindPage.self) { WildmindPageView(page: $0) }
-                        .navigationDestination(for: FamilyPage.self) { familyPage($0) }
-                        // Landgrab's map: from its own card here and from Steps.
-                        .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
-                        .placeDestinations()
-                }
-                .tabItem { SRTabIcon.label("More", "square.grid.3x3.square") }
-                .badge(games.invites.count)
-                .tag(Router.Tab.more)
-            }
+            // News and Flows have no tab: they are in the hub, pushed onto
+            // whichever tab it was opened on (see `AccessPolicy.inHub`).
         }
         // The deeper accent: the selected tab's label is 10-point text on
         // glass, where `SR.accent` measures 3.5:1 and this holds 4.8:1.
@@ -527,8 +487,8 @@ struct ContentView: View {
         // code a member's phone asked for.
         .onChange(of: access.current) { _, _ in
             if !AccessStore.ownerSite { CommissionStore.shared.clear() }
-            // Also when a place moved between the bar and More: its old tab is gone.
-            if !access.allows(router.tab) || router.inMore(router.tab) { router.tab = .today }
+            // Also when a place is no longer on the bar: its old tab is gone.
+            if !access.allows(router.tab) || router.inHub(router.tab) { router.tab = .today }
             syncGamesPoll()
             syncFamilyWidgets()
             Task { await reconcileSite(); drainPending() }
@@ -735,8 +695,34 @@ struct ContentView: View {
         )
     }
 
-    /// Games, News or Flows — the same screen whether it is a tab of its own
-    /// or opened from More.
+    /// A tab's root, with everything any tab may push registered on it: the
+    /// hub and what it opens (News, Flows, Daydream, Wildmind, the family
+    /// boards, Landgrab's map) and what Games, News and Flows push. Every
+    /// stack has the same set because the hub is opened on whichever tab is
+    /// showing — and each type is registered ONCE per stack here, never again
+    /// on a root, or SwiftUI picks one of the two at random.
+    private func hosted<Root: View>(_ root: Root) -> some View {
+        root
+            .navigationDestination(for: HubRef.self) { _ in
+                MoreScreen(places: access.inHub, games: games, companion: companion)
+            }
+            .navigationDestination(for: Router.Tab.self) { place($0) }
+            .navigationDestination(for: Router.MorePage.self) { page in
+                switch page {
+                case .daydream: DaydreamScreen()
+                case .wildmind: WildmindScreen()
+                }
+            }
+            // Talk, Chronicle and Inventions, from the Wildmind page.
+            .navigationDestination(for: WildmindPage.self) { WildmindPageView(page: $0) }
+            .navigationDestination(for: FamilyPage.self) { familyPage($0) }
+            // Landgrab's map: from its own card in the hub and from Steps.
+            .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
+            .placeDestinations()
+    }
+
+    /// Games, News or Flows — Games as its tab's root, News and Flows pushed
+    /// from the hub.
     @ViewBuilder
     private func place(_ tab: Router.Tab) -> some View {
         switch tab {

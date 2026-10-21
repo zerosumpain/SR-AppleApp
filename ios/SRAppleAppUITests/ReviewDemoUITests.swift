@@ -43,7 +43,7 @@ final class ReviewDemoUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "the review code did not open the app")
         XCTAssertTrue(badge(app).waitForExistence(timeout: 10), "no Demo strip")
         // Everything, as an owner would see it.
-        for tab in ["Home", "Family", "Chat", "Health", "More"] {
+        for tab in ["Home", "Family", "Games", "Chat", "Health"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab) in the demo")
         }
         attach(app, "Review demo — Today")

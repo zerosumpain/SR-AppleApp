@@ -117,7 +117,7 @@ final class ShowcaseTests: XCTestCase {
 
     // MARK: - More
 
-    /// The More tab, with the Wildmind card.
+    /// The hub (⊞ on every page), with the Wildmind card.
     @MainActor func testShowcaseMore() {
         let app = launch()
         soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")

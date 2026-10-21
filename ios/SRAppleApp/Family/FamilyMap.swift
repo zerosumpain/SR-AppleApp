@@ -15,6 +15,9 @@ struct FamilyMapCanvas: View {
     /// The closest the map frames its people, across: a neighbourhood for the
     /// family, a little wider for one person's page.
     var minSpanMetres: CLLocationDistance = FamilyMapFraming.familySpan
+    /// A place chosen on the strip above the map: frame these points instead
+    /// of everyone, and keep them framed as people move. Nil: everyone.
+    var focus: [CLLocationCoordinate2D]? = nil
     @Binding var camera: MapCameraPosition
     @AppStorage(FamilyMapLook.key) private var look: FamilyMapLook = .satellite
 
@@ -45,15 +48,29 @@ struct FamilyMapCanvas: View {
         // pin (a person's page, or everyone at home) zoomed to the rooftops,
         // and a long trail zoomed the whole family out. Re-framed as people
         // move until somebody pans or zooms; then the map is theirs.
-        .onAppear(perform: frame)
+        .onAppear { frame() }
         .onChange(of: FamilyMapFraming.key(people)) { _, _ in frame() }
+        // A place chosen (or "Everyone" again) is a request to look there now,
+        // whoever last moved the map.
+        .onChange(of: focusKey) { _, _ in frame(force: true) }
     }
 
-    private func frame() {
-        guard !camera.positionedByUser,
-              let region = FamilyMapFraming.region(people.compactMap { $0.position?.coordinate }, minSpanMetres: minSpanMetres)
+    private var focusKey: String {
+        guard let focus else { return "everyone" }
+        return focus.map { p in "\((p.latitude * 1e4).rounded()),\((p.longitude * 1e4).rounded())" }.joined(separator: "|")
+    }
+
+    private func frame(force: Bool = false) {
+        let points = focus ?? people.compactMap { $0.position?.coordinate }
+        let span = focus == nil ? minSpanMetres : FamilyMapFraming.placeSpan
+        guard force || !camera.positionedByUser,
+              let region = FamilyMapFraming.region(points, minSpanMetres: span)
         else { return }
-        camera = .region(region)
+        if force {
+            withAnimation(.snappy) { camera = .region(region) }
+        } else {
+            camera = .region(region)
+        }
     }
 }
 
@@ -63,6 +80,8 @@ enum FamilyMapFraming {
     static let familySpan: CLLocationDistance = 1_500
     /// One person's page opens a little wider: where they are, and around it.
     static let personSpan: CLLocationDistance = 2_000
+    /// One place chosen on the strip: the place and its street.
+    static let placeSpan: CLLocationDistance = 600
     /// Room around the outermost pins, as a share of the spread.
     static let margin = 1.35
 

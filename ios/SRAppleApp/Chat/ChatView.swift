@@ -167,9 +167,7 @@ struct ThreadListScreen: View {
         .searchable(text: $store.query, prompt: "Search the archive")
         .onChange(of: store.query) { _, _ in store.search() }
         .srRefreshable { await store.load() }
-        .toolbar {
-            ToolbarItem(placement: .principal) { SRBarMark() }
-        }
+        .srTabBar()
         .overlay {
             if store.conversations.isEmpty && !store.loading {
                 SREmpty(

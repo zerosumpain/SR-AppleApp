@@ -1,18 +1,19 @@
 import SwiftUI
 
-/// The More tab: Daydream, then Games, News and Flows once the bar is full,
-/// and Settings at the foot.
+/// The hub: everything that is not a tab — News, Flows, Daydream, the family
+/// boards — and Settings at the foot. Opened by the ⊞ at the top left of every
+/// page (`SRHubButton`), the same for everyone (John, 2026-10-21: "one layout
+/// for all"); there is no More tab.
 ///
-/// Ours, not iOS's. The system More is a navigation controller that wraps each
-/// tab's own `NavigationStack`, so a game opened from it had two bars and two
-/// back buttons — "More" and "Games" — and a game screen that hid the tab bar
-/// could pop back onto a More list with no bar at all, and nothing to press.
-/// Here the hub and everything it opens share ONE stack (`Router.more`): one
-/// bar, one back button, and the hub is always under it.
+/// Not iOS's More. That is a navigation controller wrapping each tab's own
+/// `NavigationStack`, so a page opened from it had two bars and two back
+/// buttons. The hub is pushed onto the tab you are on (`Router.openHub`), and
+/// what it opens is pushed above it on the same stack: one bar, one back
+/// button, the tab bar where it was.
 ///
-/// And a front page rather than a list of names. What is waiting on you comes
-/// first — an invitation, a game you are in — then one card per place saying
-/// what is in it.
+/// A front page rather than a list of names: one card per place saying what
+/// is in it. Games are a tab now, so their invitations are on the tab's badge
+/// and page, not repeated here.
 struct MoreScreen: View {
     /// What sits in More for this person, in bar order.
     let places: [Router.Tab]
@@ -36,9 +37,9 @@ struct MoreScreen: View {
     @ScaledMetric(relativeTo: .body) private var square: CGFloat = 190
     @ScaledMetric(relativeTo: .body) private var short: CGFloat = 82
 
-    /// Games and News, as short doors at the top of More for whoever has
-    /// them — whether or not they also have a tab (John, 2026-10-05).
-    private var shortcuts: [Router.Tab] { [Router.Tab.games, .news].filter { access.allows($0) } }
+    /// News, as a short door at the top of the hub for whoever has it
+    /// (John, 2026-10-05). Games was its partner; it is a tab now.
+    private var shortcuts: [Router.Tab] { [Router.Tab.news].filter { access.allows($0) } }
 
     var body: some View {
         ScrollView {
@@ -46,8 +47,6 @@ struct MoreScreen: View {
             // and a lazy stack whose last child (Settings) is measured at a
             // different height than it was estimated at loops at the bottom.
             VStack(alignment: .leading, spacing: SR.sectionGap) {
-                if access.allows(.games) { waiting }
-
                 // Every tile the same size, so the page reads as a set of
                 // doors rather than a list to scroll: Games and News short
                 // (1×2), everything else square (2×2), two to a row. One
@@ -87,7 +86,6 @@ struct MoreScreen: View {
                 if backlog.board == nil { await backlog.load() }
                 if landgrab.board == nil { await landgrab.load() }
             }
-            if games.lobby == nil { await games.load() }
         }
         .srRefreshable {
             if access.familyBoards {
@@ -96,14 +94,13 @@ struct MoreScreen: View {
                 await backlog.load()
                 await landgrab.load()
             }
-            await games.load()
         }
     }
 
     private func familyCard(_ page: FamilyPage) -> some View {
         Button {
             SRHaptic.tap()
-            router.openFamilyPage(page)
+            router.pushFromHub(page)
         } label: {
             switch page {
             case .steps:
@@ -156,7 +153,7 @@ struct MoreScreen: View {
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, wildmind, steps, tasks, backlog, landgrab, sync, settings
+        case daydream, wildmind, steps, tasks, backlog, messages, landgrab, sync, settings
         case place(Router.Tab)
     }
 
@@ -168,11 +165,13 @@ struct MoreScreen: View {
         // The family's step board and task list: pages, not tabs, for
         // everyone with the family and the site credential.
         if access.familyBoards { all += [.steps, .tasks, .backlog] }
+        // "msg family" lives in Chat; somebody without Chat finds it here.
+        if access.familyBoards && !access.allows(.chat) { all.append(.messages) }
         // Landgrab, once its board has somebody on it — hidden, like the
         // section on Steps, when the site says no or has nothing.
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
-        // Games and News are the short doors above the grid, not squares.
-        all += places.filter { $0 != .games && $0 != .news }.map(Item.place)
+        // News is the short door above the grid, not a square.
+        all += places.filter { $0 != .news }.map(Item.place)
         // Sync now and Settings last, tiles like the rest.
         all += [.sync, .settings]
         return all
@@ -186,11 +185,11 @@ struct MoreScreen: View {
         return stride(from: 0, to: items.count, by: 2).map { Array(items[$0..<min($0 + 2, items.count)]) }
     }
 
-    /// Games or News, one unit tall and two across, as Today's tiles are.
+    /// News, one unit tall and two across, as Today's tiles are.
     private func shortcut(_ place: Router.Tab) -> some View {
         Button {
             SRHaptic.tap()
-            router.show(place)
+            router.pushFromHub(place)
         } label: {
             TodayTileCard(title: place == .games ? "Games" : "News") {
                 TodayTileGlyph(
@@ -211,7 +210,7 @@ struct MoreScreen: View {
         case .daydream:
             Button {
                 SRHaptic.tap()
-                router.more.append(Router.MorePage.daydream)
+                router.pushFromHub(Router.MorePage.daydream)
             } label: {
                 MoreCard(
                     icon: "sparkles",
@@ -226,7 +225,7 @@ struct MoreScreen: View {
         case .wildmind:
             Button {
                 SRHaptic.tap()
-                router.more.append(Router.MorePage.wildmind)
+                router.pushFromHub(Router.MorePage.wildmind)
             } label: {
                 MoreCard(
                     icon: "mountain.2",
@@ -243,11 +242,12 @@ struct MoreScreen: View {
         case .steps: familyCard(.steps)
         case .tasks: familyCard(.tasks)
         case .backlog: familyCard(.backlog)
+        case .messages: familyCard(.messages)
         case .landgrab:
             Button {
                 SRHaptic.tap()
                 if let week = landgrab.board.flatMap(Landgrab.currentWeek) {
-                    router.more.append(LandgrabMapRef(week: week.start))
+                    router.pushFromHub(LandgrabMapRef(week: week.start))
                 }
             } label: {
                 MoreCard(
@@ -263,7 +263,7 @@ struct MoreScreen: View {
         case .place(let place):
             Button {
                 SRHaptic.tap()
-                router.show(place)
+                router.pushFromHub(place)
             } label: {
                 MorePlaceCard(place: place, games: games)
             }
@@ -301,38 +301,26 @@ struct MoreScreen: View {
             .accessibilityIdentifier("open-settings")
         }
     }
+}
 
-    /// Invitations and games in progress — the reason to open More at all,
-    /// one tap from the room rather than two screens away.
-    @ViewBuilder
-    private var waiting: some View {
-        if !games.invites.isEmpty || !games.rooms.isEmpty {
-            VStack(alignment: .leading, spacing: SR.cardGap) {
-                SRSectionLabel(text: "Waiting for you")
-                ForEach(games.invites) { invite in
-                    GameInviteCard(
-                        invite: invite,
-                        busy: games.busy == invite.roomId,
-                        join: {
-                            Task {
-                                if await games.join(invite) { router.openGame(invite.roomId, game: invite.game) }
-                            }
-                        },
-                        decline: { Task { await games.decline(invite) } }
-                    )
-                }
-                ForEach(games.rooms) { room in
-                    Button {
-                        SRHaptic.tap()
-                        router.openGame(room.id, game: room.game)
-                    } label: {
-                        GameRoomRow(room: room)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("more-room-\(room.id)")
-                }
-            }
+/// Navigation value for the hub, pushed onto whichever tab it is opened on.
+struct HubRef: Hashable {}
+
+/// The ⊞ at the top left of every tab's first page: the hub, one tap away,
+/// in the same place on every page and for everyone.
+struct SRHubButton: View {
+    @EnvironmentObject private var router: Router
+
+    var body: some View {
+        Button {
+            SRHaptic.tap()
+            router.openHub()
+        } label: {
+            Image(systemName: "square.grid.2x2")
         }
+        .accessibilityLabel("More")
+        .accessibilityHint("News, Flows, the family boards and Settings")
+        .accessibilityIdentifier("open-hub")
     }
 }
 

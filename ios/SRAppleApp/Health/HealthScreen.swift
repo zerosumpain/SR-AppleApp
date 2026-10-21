@@ -40,43 +40,27 @@ struct HealthScreen: View {
     @ObservedObject private var access = AccessStore.shared
     @EnvironmentObject private var router: Router
 
+    /// The strip under the bar: the areas of /health, a tap from the top —
+    /// the same furniture as Family's places and Games' sections. The owner's:
+    /// the areas are the owner's /health.
+    static let areas: [(chip: SRChip, route: HealthRoute)] = [
+        (SRChip(id: "activities", title: "Activities", icon: "figure.run"), .activities),
+        (SRChip(id: "sleep", title: "Sleep", icon: "bed.double.fill"), .sleep),
+        (SRChip(id: "insights", title: "Insights", icon: "sparkle.magnifyingglass"), .insights),
+        (SRChip(id: "routes", title: "Routes", icon: "map.fill"), .routes),
+        (SRChip(id: "segments", title: "Segments", icon: "flag.checkered"), .segments),
+    ]
+
     var body: some View {
-        List {
+        VStack(spacing: 0) {
             if access.current.owner {
-                if let summary = store.summary {
-                    // The ink band: readiness in today's rings and the four
-                    // figures. Not a door to a Readiness screen any more —
-                    // that screen repeated this card and Insights' read.
-                    HealthCompactHero(summary: summary, rings: rings.rings).srInkRow()
-                } else if store.unavailable {
-                    SREmpty(
-                        title: "Health is not answering",
-                        icon: "heart.slash",
-                        message: "The health service did not reply. Your uploaded records are still here.",
-                        actionLabel: "Try again",
-                        action: reload
-                    )
-                    .srBareRow()
-                } else if store.loading {
-                    HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                        .padding(.vertical, 40)
-                        .srBareRow()
-                }
-                // The areas stand whether or not the summary answered: each
-                // screen behind them loads for itself.
-                Section {
-                    HealthAreasGrid(
-                        week: store.summary?.week,
-                        hub: hub.hub,
-                        noticed: noticed.notes.filter(feedback.isShowing).count
-                    )
-                    .srBareRow()
+                SRChipStrip(chips: Self.areas.map(\.chip), identifier: "health-strip") { chip in
+                    guard let area = Self.areas.first(where: { $0.chip.id == chip.id }) else { return }
+                    router.push(area.route, on: .health)
                 }
             }
-            heartSection
-            family
+            list
         }
-        .listStyle(.insetGrouped)
         .srGround(.vital)
         .navigationTitle("Health")
         // Inline, not large. A large title renders BLANK on this OS with this
@@ -94,8 +78,8 @@ struct HealthScreen: View {
             rings.start()
             try? await companion.refresh()
         }
+        .srTabBar()
         .toolbar {
-            ToolbarItem(placement: .principal) { SRBarMark() }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { router.openSettings(.health) } label: { Image(systemName: "gearshape") }
                     .accessibilityLabel("Health settings")
@@ -138,6 +122,46 @@ struct HealthScreen: View {
             async let notes: Void = noticed.load()
             _ = await (deep, heartRate, notes)
         }
+    }
+
+    private var list: some View {
+        List {
+            if access.current.owner {
+                if let summary = store.summary {
+                    // The ink band: readiness in today's rings and the four
+                    // figures. Not a door to a Readiness screen any more —
+                    // that screen repeated this card and Insights' read.
+                    HealthCompactHero(summary: summary, rings: rings.rings).srInkRow()
+                } else if store.unavailable {
+                    SREmpty(
+                        title: "Health is not answering",
+                        icon: "heart.slash",
+                        message: "The health service did not reply. Your uploaded records are still here.",
+                        actionLabel: "Try again",
+                        action: reload
+                    )
+                    .srBareRow()
+                } else if store.loading {
+                    HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                        .padding(.vertical, 40)
+                        .srBareRow()
+                }
+                // The areas stand whether or not the summary answered: each
+                // screen behind them loads for itself.
+                Section {
+                    HealthAreasGrid(
+                        week: store.summary?.week,
+                        hub: hub.hub,
+                        noticed: noticed.notes.filter(feedback.isShowing).count
+                    )
+                    .srBareRow()
+                }
+            }
+            heartSection
+            family
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
     }
 
     /// See `ThreadListScreen.startThread` — a closure that is only a `Task`
