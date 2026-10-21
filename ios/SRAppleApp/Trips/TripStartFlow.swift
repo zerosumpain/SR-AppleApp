@@ -492,7 +492,7 @@ struct TripResearchProgress: View {
                         .foregroundStyle(SR.ink)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
-                    Text("Usually 1 to 3 minutes. What it finds is kept for this trip.")
+                    Text("Usually 2 to 4 minutes. What it finds is kept for this trip.")
                         .font(SR.Text.secondary(14))
                         .foregroundStyle(SR.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)

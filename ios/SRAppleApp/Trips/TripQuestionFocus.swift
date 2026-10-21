@@ -26,9 +26,10 @@ final class TripQuestionFocus: ObservableObject {
         pending.removeValue(forKey: tripId)
     }
 
-    /// The scroll id a question card wears, so it can be scrolled to:
-    /// `.id(TripQuestionFocus.anchor(question.id))`.
-    nonisolated static func anchor(_ questionId: String) -> String { "trip-question-\(questionId)" }
+    /// The scroll id the question stack wears. Every question maps to it:
+    /// the stack shows them in turn, most important on top, so a link to
+    /// any of them lands on the stack.
+    nonisolated static func anchor(_ questionId: String) -> String { "trip-questions" }
 }
 
 extension View {

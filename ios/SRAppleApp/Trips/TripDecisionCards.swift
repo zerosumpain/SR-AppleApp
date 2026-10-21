@@ -788,6 +788,8 @@ struct TripChangesCard: View {
                     Button { undo() } label: {
                         if store.isBusy("undo:\(change.tripId)") { ProgressView() } else {
                             TripButtonLabel(TripDecisions.undoLabel(change.diff), icon: "arrow.uturn.backward")
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
                     .srButton(.regular)

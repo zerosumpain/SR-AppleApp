@@ -564,13 +564,9 @@ struct TripScreen: View {
                     TripSectionHeading(title: TripDecisions.questionsHeading(questions.count), note: "Each changes the plan")
                         .padding(.top, 8)
                         .srPlainRow()
-                    // Every open question has an anchor here; the stack shows them in turn.
-                    ForEach(questions.dropFirst()) { q in
-                        Color.clear.frame(height: 0)
-                            .id(TripQuestionFocus.anchor(q.id))
-                            .listRowSeparator(.hidden)
-                            .srPlainRow()
-                    }
+                    // One anchor for the stack: a link to any open question lands
+                    // here (zero-height rows still took a list row's height each,
+                    // leaving a gap above the card in the first screenshots).
                     TripQuestionStack(questions: questions, tripId: tripId)
                         .padding(.bottom, 4)
                         .id(TripQuestionFocus.anchor(questions[0].id))

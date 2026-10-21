@@ -599,7 +599,7 @@ extension TripDemo {
         let d = planDates(now: now)
         let range = TripFormat.range(d[0], d[4], zone: TripClock(zone).zone)
         let steps: [(String, String, String)] = [
-            ("brief", "Setting up the trip", "Rome, \(range), 4 travellers"),
+            ("brief", "Setting up the trip", "Rome, \(range), 5 travellers"),
             ("places", "Finding places", "Found 38 places, 9 of them less visited"),
             ("food", "Finding places to eat", "14 near where you'll be"),
             ("booking", "Checking what needs booking", "3 need booking — Colosseum underground about 14 days ahead"),
