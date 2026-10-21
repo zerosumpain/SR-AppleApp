@@ -1,32 +1,12 @@
 import XCTest
 @testable import SRAppleApp
 
-/// Trips v8, craft (plan §5.5): money that follows the destination, and map
-/// pins VoiceOver can reach.
+/// Trips v8, craft (plan §5.5): map pins VoiceOver can reach. (The money
+/// that follows the destination is the planning batch's
+/// `TripDecisions.currencySymbol`, tested with it.)
 ///
 /// Foundation only: the Linux harness runs this file too.
 final class TripCraftTests: XCTestCase {
-
-    // MARK: - Money
-
-    func testThePriceWearsTheMoneyOfWhereTheTripIs() {
-        XCTAssertEqual(TripCurrency.symbol(price: "18", timeZone: "Europe/Rome"), "eurosign.circle")
-        // Edinburgh is not the euro.
-        XCTAssertEqual(TripCurrency.symbol(price: "Free", timeZone: "Europe/London"), "sterlingsign.circle")
-        XCTAssertEqual(TripCurrency.symbol(price: nil, timeZone: "Europe/Zurich"), "francsign.circle")
-        XCTAssertEqual(TripCurrency.symbol(price: nil, timeZone: "America/New_York"), "dollarsign.circle")
-        // Somewhere it does not know: no guess.
-        XCTAssertEqual(TripCurrency.symbol(price: "200 kr", timeZone: "Europe/Stockholm"), "banknote")
-        XCTAssertEqual(TripCurrency.symbol(price: nil, timeZone: nil), "banknote")
-    }
-
-    func testASymbolInThePriceWins() {
-        XCTAssertEqual(TripCurrency.symbol(price: "£12.50", timeZone: "Europe/Rome"), "sterlingsign.circle")
-        XCTAssertEqual(TripCurrency.symbol(price: "€18, under-18s free", timeZone: "Europe/London"), "eurosign.circle")
-        XCTAssertEqual(TripCurrency.symbol(price: "EUR 20", timeZone: nil), "eurosign.circle")
-        // A word that starts like a currency's code is not one.
-        XCTAssertEqual(TripCurrency.symbol(price: "Free for Europeans", timeZone: "Europe/London"), "sterlingsign.circle")
-    }
 
     // MARK: - Pins VoiceOver can reach
 
@@ -63,11 +43,5 @@ final class TripCraftTests: XCTestCase {
         let scene = TripMapScene.overview([day()], stays: [])
         XCTAssertEqual(scene.pins.compactMap(\.label), ["Day 1, from Pantheon, 2 places"])
         XCTAssertEqual(scene.pins.count, 2, "the second visit is a dot with no element of its own")
-    }
-
-    func testEveningLiftsOnADarkScreenOnly() {
-        XCTAssertEqual(TripMapScene.stageColorOnDark(.evening), 0x5A55A8)
-        XCTAssertEqual(TripMapScene.stageColor(.evening), 0x15123A)
-        XCTAssertEqual(TripMapScene.stageColorOnDark(.morning), TripMapScene.stageColor(.morning))
     }
 }

@@ -95,13 +95,6 @@ enum TripMapScene {
         }
     }
 
-    /// The same, on a dark screen (not the map, whose tiles stay light):
-    /// evening's indigo would vanish into the ground, so it lifts to #5A55A8
-    /// (2026-10-21). The other three read on either.
-    static func stageColorOnDark(_ stage: DayStage) -> UInt32 {
-        stage == .evening ? 0x5A55A8 : stageColor(stage)
-    }
-
     static let ink: UInt32 = 0x15123A
     static let accent: UInt32 = 0x5233F0
     static let petrol: UInt32 = 0x087078

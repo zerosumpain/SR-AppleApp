@@ -54,7 +54,6 @@ function swiftFiles(dir) {
  * are the fix.
  */
 const NO_FIXED_SYSTEM = new Set([
-  'ios/SRAppleApp/Trips/TripCurrency.swift',
   'ios/SRAppleApp/Trips/TripDrawer.swift',
   'ios/SRAppleApp/Trips/TripLink.swift',
   'ios/SRAppleApp/Trips/TripLive.swift',

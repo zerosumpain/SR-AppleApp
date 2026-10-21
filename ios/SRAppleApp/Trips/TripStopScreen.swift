@@ -376,7 +376,8 @@ enum TripPlaceWhy {
     }
 
     /// Its hours that day first, then how long, the price, booking. The
-    /// price wears the money of where the trip is (`TripCurrency`).
+    /// price wears the money of where the trip is — no euro in Edinburgh
+    /// (`TripDecisions.currencySymbol`, the planning batch's).
     static func chips(facts: TripFacts?, date: String, clock: TripClock, stop: PlannedStop, timeZone: String? = nil) -> [Chip] {
         guard let facts else { return [] }
         var out: [Chip] = []
@@ -391,7 +392,7 @@ enum TripPlaceWhy {
         }
         if let visit = facts.typicalVisitSec { out.append(Chip(icon: "hourglass", text: TripFormat.duration(seconds: visit))) }
         if let price = facts.priceText {
-            out.append(Chip(icon: TripCurrency.symbol(price: price, timeZone: timeZone ?? clock.zone.identifier), text: price))
+            out.append(Chip(icon: TripDecisions.currencySymbol(timeZone: timeZone ?? clock.zone.identifier, costText: price), text: price))
         }
         if facts.bookingRequired == true { out.append(Chip(icon: "ticket", text: "Book ahead")) }
         return out
