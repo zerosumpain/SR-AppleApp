@@ -55,6 +55,8 @@ struct MoreScreen: View {
                 // would clip its own words.
                 let folded = typeSize.isAccessibilitySize
                 VStack(spacing: SR.cardGap) {
+                    // Trips, so hiding the Home tile never hides them.
+                    HomeTripsDoor()
                     if !shortcuts.isEmpty {
                         HStack(spacing: SR.cardGap) {
                             ForEach(shortcuts, id: \.self) { shortcut($0) }
