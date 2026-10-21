@@ -1564,10 +1564,10 @@ struct TripOffPlanCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .srGlass(.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous), interactive: true)
+                .srGlass(.clear, in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous), interactive: true)
                 .overlay {
                     if previewing == choice.id {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(SR.accent, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous).stroke(SR.accent, lineWidth: 2)
                     }
                 }
             }

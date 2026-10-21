@@ -335,7 +335,7 @@ struct TripIdeaCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background((onDark ? Color.white : SR.ink).opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background((onDark ? Color.white : SR.ink).opacity(0.06), in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 }
@@ -374,7 +374,7 @@ struct TripSuggestionCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .overlay(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
             .strokeBorder(onDark ? SR.accentOnDark : SR.accent, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("trip-suggestion")
