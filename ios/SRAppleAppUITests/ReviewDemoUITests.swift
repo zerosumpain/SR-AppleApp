@@ -43,7 +43,7 @@ final class ReviewDemoUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "the review code did not open the app")
         XCTAssertTrue(badge(app).waitForExistence(timeout: 10), "no Demo strip")
         // Everything, as an owner would see it.
-        for tab in ["Home", "Family", "Chat", "Health", "More"] {
+        for tab in ["Home", "Family", "Games", "Chat", "Health"] {
             XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab) in the demo")
         }
         attach(app, "Review demo — Today")
@@ -146,7 +146,9 @@ final class ReviewDemoUITests: XCTestCase {
     /// Back out of a pushed screen to the root of its stack.
     @MainActor private func back(_ app: XCUIApplication) {
         let back = app.navigationBars.buttons.element(boundBy: 0)
-        if back.waitForExistence(timeout: 5) { back.tap() }
+        // On a tab's first page the bar's first button is the ⊞ hub, not a
+        // Back: tapping it would open the hub over the page we meant to leave.
+        if back.waitForExistence(timeout: 5), back.identifier != "open-hub" { back.tap() }
         _ = app.tabBars.firstMatch.waitForExistence(timeout: 5)
     }
 

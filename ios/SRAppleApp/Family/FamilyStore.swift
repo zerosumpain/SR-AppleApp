@@ -34,8 +34,13 @@ final class FamilyStore: ObservableObject {
     /// is viewing the app as somebody, that person's view instead.
     private var real: HouseholdView?
 
+    /// The app's one store, for what reads the family without being handed
+    /// it — msg family's circles (`FamilyFaces`).
+    private(set) static weak var current: FamilyStore?
+
     init(companion: Companion) {
         self.companion = companion
+        Self.current = self
         if !SRDemo.isOn, companion.paired, let cached = FamilyViewCache.load() {
             real = cached.view
             updated = cached.updated

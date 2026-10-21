@@ -226,8 +226,8 @@ struct TodayScreen: View {
             if companion.paired { await companion.sync() }
             if access.current.owner || access.current.family { await TripStore.shared.refresh() }
         }
+        .srTabBar()
         .toolbar {
-            ToolbarItem(placement: .principal) { SRBarMark() }
             // The bell is the site's inbox, which is the owner's.
             if access.current.owner {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -237,15 +237,7 @@ struct TodayScreen: View {
                     }
                 }
             }
-            // Settings live in More. Without a More (a member with four
-            // places or fewer) the cog stays here, or there would be no way in.
-            if !access.allows(.more) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { SRHaptic.tap(); router.openSettings() } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Settings")
-                        .accessibilityIdentifier("open-settings")
-                }
-            }
+            // Settings are in the hub (⊞), for everyone.
         }
         .task {
             // The Watch's health figures and Today's first alerts come from

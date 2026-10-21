@@ -28,13 +28,14 @@ struct SettingsScreen: View {
     /// this phone collects is everyone's.
     @ObservedObject private var access = AccessStore.shared
     @ObservedObject private var bikePresence = BikePresence.shared
+    @ObservedObject private var hold = LocationHoldStore.shared
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var router: Router
     @State private var path = NavigationPath()
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
-    enum Route: Hashable { case notifications, connections, health, location, bike, log, about, viewAs, deleteAccount }
+    enum Route: Hashable { case notifications, connections, health, location, hold, bike, log, about, viewAs, deleteAccount }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -114,6 +115,11 @@ struct SettingsScreen: View {
                 Section {
                     link(.health, "Apple Health", "\(outbox.state.healthEnabled.count) of \(HealthCatalogue.groupOrder.count) categories", "heart.text.square")
                     link(.location, "Location & battery", draft, "location")
+                    // The owner's alone, and only on his own seat: nobody else's
+                    // phone draws it, and View as hides it (`LocationHoldStore.offered`).
+                    if LocationHoldStore.offered {
+                        link(.hold, "Hold my location", hold.hold?.line() ?? "Show the family a fixed place for a while", "location.slash")
+                    }
                     link(.bike, "Bike", bikePresence.bike?.name ?? "Mark rides on your e-bike", "bicycle")
                     link(.log, "Gate history", "When GPS slept, and why", "list.bullet.rectangle")
                 } header: {
@@ -180,6 +186,7 @@ struct SettingsScreen: View {
                 case .connections: ConnectionsScreen(companion: companion, site: site, connections: connections)
                 case .health: AppleHealthScreen(outbox: outbox, companion: companion, location: location)
                 case .location: LocationSettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
+                case .hold: if LocationHoldStore.offered { LocationHoldScreen() }
                 case .bike: BikeScreen(bike: bikePresence)
                 case .log: ActivityLogScreen(outbox: outbox)
                 case .about: AboutScreen()
@@ -201,6 +208,7 @@ struct SettingsScreen: View {
             case .connections: path.append(Route.connections)
             case .health: path.append(Route.health)
             case .location: path.append(Route.location)
+            case .hold: if LocationHoldStore.offered { path.append(Route.hold) }
             case .none: break
             }
         }

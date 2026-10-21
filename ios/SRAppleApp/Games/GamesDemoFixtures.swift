@@ -43,6 +43,8 @@ extension SRDemoFixtures {
     static let demoLiarsDoneRoom = "g_demo_liars_done"
     static let demoDrawGuessRoom = "g_demo_drawguess"
     static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
+    static let demoChessRoom = "g_demo_chess"
+    static let demoChessDoneRoom = "g_demo_chess_done"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -97,6 +99,13 @@ extension SRDemoFixtures {
                        {"id": "g_demo_liars_done", "game": "liars-dice", "phase": "finished", "hostName": "Alex"},
     """#
 
+    /// Chess's two rooms: Alex to move in a Ruy Lopez, and a finished Fool's
+    /// mate. Left out of the store shots, as Categories' are.
+    static let chessLobbyRows = #"""
+    {"id": "g_demo_chess", "game": "chess", "phase": "playing", "hostName": "Alex"},
+                       {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -107,7 +116,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
                    {"id": \(s(demoDrawGuessRoom)), "game": "draw-guess", "phase": "drawing", "hostName": "Sam"},
@@ -137,6 +147,8 @@ extension SRDemoFixtures {
         if id == demoLiarsRoom { return liarsRoom(.bidding, clock: clock) }
         if id == demoLiarsRevealRoom { return liarsRoom(.reveal, clock: clock) }
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
+        if id == demoChessRoom { return chessRoom(finished: false, clock: clock) }
+        if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
@@ -583,6 +595,58 @@ extension SRDemoFixtures {
              "reveal": null, "standings": null, "winnerIds": []}
             """
         }
+    }
+
+    // MARK: Chess
+
+    /// Chess, medium. Playing: Alex (white, me) to move after 1. e4 e5 2. Nf3
+    /// Nc6 3. Bb5 a6 — the Ruy Lopez — with every legal reply lit, six seconds
+    /// into the move. Finished (Sam's game): Sam mated Alex with the Fool's
+    /// mate, 1. f3 e5 2. g4 Qh4#.
+    static func chessRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        func seat(_ id: String, _ name: String, host: Bool, colour: String, clockMs: Int) -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"colour\": \(s(colour)), \"clockMs\": \(clockMs)}"
+        }
+        if finished {
+            return """
+            {"id": \(s(demoChessDoneRoom)), "game": "chess", "difficulty": "medium", "phase": "finished",
+             "hostId": "p_sam", "meId": "p_alex", "mainMs": 600000, "incrementMs": 5000, "rule": "10 min each · +5 s a move",
+             "startedAt": \(ms(now.addingTimeInterval(-70))), "phaseEndsAt": \(ms(now.addingTimeInterval(560))),
+             "fen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3",
+             "turn": "w", "turnId": null, "turnStartedAt": null, "check": true,
+             "whiteId": "p_alex", "blackId": "p_sam", "clocks": {"w": 571000, "b": 594000},
+             "moves": ["f3", "e5", "g4", "Qh4#"], "lastMove": {"from": "d8", "to": "h4"},
+             "captured": {"w": [], "b": []}, "legal": [], "drawOfferBy": null,
+             "result": {"outcome": "checkmate", "winnerId": "p_sam"},
+             "players": [\(seat("p_sam", "Sam", host: true, colour: "b", clockMs: 594000)),
+                         \(seat("p_alex", "Alex", host: false, colour: "w", clockMs: 571000))],
+             "standings": [{"id": "p_sam", "name": "Sam", "place": 1, "colour": "b", "result": "won", "clockMs": 594000},
+                           {"id": "p_alex", "name": "Alex", "place": 2, "colour": "w", "result": "lost", "clockMs": 571000}],
+             "winnerIds": ["p_sam"], "serverNow": \(ms(now))}
+            """
+        }
+        let legal = [
+            ("a2", "a3"), ("a2", "a4"), ("b2", "b3"), ("b2", "b4"), ("c2", "c3"), ("c2", "c4"), ("d2", "d3"), ("d2", "d4"),
+            ("g2", "g3"), ("g2", "g4"), ("h2", "h3"), ("h2", "h4"),
+            ("b1", "a3"), ("b1", "c3"), ("f3", "g1"), ("f3", "h4"), ("f3", "d4"), ("f3", "g5"), ("f3", "e5"),
+            ("b5", "a4"), ("b5", "c4"), ("b5", "d3"), ("b5", "e2"), ("b5", "f1"), ("b5", "c6"), ("b5", "a6"),
+            ("d1", "e2"), ("e1", "e2"), ("e1", "f1"), ("e1", "g1"), ("h1", "g1"), ("h1", "f1"),
+        ].map { "{\"from\": \"\($0.0)\", \"to\": \"\($0.1)\", \"promotes\": false}" }.joined(separator: ", ")
+        return """
+        {"id": \(s(demoChessRoom)), "game": "chess", "difficulty": "medium", "phase": "playing",
+         "hostId": "p_alex", "meId": "p_alex", "mainMs": 600000, "incrementMs": 5000, "rule": "10 min each · +5 s a move",
+         "startedAt": \(ms(now.addingTimeInterval(-50))), "phaseEndsAt": \(ms(now.addingTimeInterval(575))),
+         "fen": "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+         "turn": "w", "turnId": "p_alex", "turnStartedAt": \(ms(now.addingTimeInterval(-6))), "check": false,
+         "whiteId": "p_alex", "blackId": "p_sam", "clocks": {"w": 581000, "b": 592000},
+         "moves": ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6"], "lastMove": {"from": "a7", "to": "a6"},
+         "captured": {"w": [], "b": []}, "legal": [\(legal)], "drawOfferBy": null, "result": null,
+         "players": [\(seat("p_alex", "Alex", host: true, colour: "w", clockMs: 581000)),
+                     \(seat("p_sam", "Sam", host: false, colour: "b", clockMs: 592000))],
+         "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
     }
 
     // MARK: Draw & Guess

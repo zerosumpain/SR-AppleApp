@@ -331,6 +331,15 @@ enum SRDemoFixtures {
         if joined == "api/native/family/landgrab" || joined.hasPrefix("api/native/family/landgrab/") {
             return landgrabRoute(method: method, parts: parts, query: query, clock: clock)
         }
+        // The owner's location hold: held for the demo session only, in memory.
+        if joined == "api/native/family/hold" {
+            return LocationHoldDemo.shared.route(method: method, body: body, clock: clock)
+        }
+        // One person's moves looked back over — `Family/FamilyMoveHistoryDemoFixtures.swift`.
+        // Before the family route: its subject is a query, which that route is not given.
+        if method == "GET", joined == "api/native/family/forecast/history" {
+            return familyMoveHistory(subject: query["subject"] ?? "alex", days: Int(query["days"] ?? "") ?? 90, clock: clock)
+        }
         // msg family — `Family/FamilyMessagesDemoFixtures.swift`.
         if joined == "api/native/family/messages" || joined.hasPrefix("api/native/family/messages/") {
             return familyMessagesRoute(method: method, parts: parts, body: body, clock: clock)

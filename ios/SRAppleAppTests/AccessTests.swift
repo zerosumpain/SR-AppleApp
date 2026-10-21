@@ -141,28 +141,31 @@ final class AccessTests: XCTestCase {
     func testFlowsAreTheOwnersEvenWithEveryOtherFlag() {
         let all = AppAccess(chat: true, news: true, research: true, notes: true, intel: true, family: true)
         XCTAssertFalse(AccessPolicy.tabs(for: all).contains(.flows))
-        XCTAssertEqual(AccessPolicy.tabs(for: all).count, 5, "five tabs fit the bar: no More")
+        XCTAssertFalse(AccessPolicy.inHub(for: all).contains(.flows))
     }
 
-    func testTheOwnersOverflowSitsInTheAppsOwnMore() {
-        XCTAssertEqual(AccessPolicy.inMore(for: .everything), [.games, .news, .flows])
-        XCTAssertEqual(AccessPolicy.bar(for: .everything), [.today, .family, .chat, .health, .more])
-        XCTAssertTrue(AccessPolicy.allows(.more, .everything))
+    /// One layout for everyone (2026-10-21): the owner's bar is the family's
+    /// bar, Games included, and the rest is in the hub — no More tab.
+    func testTheOwnersBarIsEveryonesBar() {
+        XCTAssertEqual(AccessPolicy.bar(for: .everything), [.today, .family, .games, .chat, .health])
+        XCTAssertEqual(AccessPolicy.inHub(for: .everything), [.news, .flows])
     }
 
-    func testNoMoreWhileEverythingFitsTheBar() {
-        let all = AppAccess(chat: true, news: true, research: true, notes: true, intel: true, family: true)
-        XCTAssertEqual(AccessPolicy.inMore(for: all), [])
-        XCTAssertEqual(AccessPolicy.bar(for: all), AccessPolicy.tabs(for: all))
-        XCTAssertFalse(AccessPolicy.allows(.more, all))
-        XCTAssertFalse(AccessPolicy.allows(.more, AppAccess(family: true, games: true)))
+    func testNewsIsInTheHubWhateverTheCount() {
+        let few = AppAccess(news: true)
+        XCTAssertEqual(AccessPolicy.bar(for: few), [.today, .health])
+        XCTAssertEqual(AccessPolicy.inHub(for: few), [.news])
+        let member = AppAccess(family: true, games: true)
+        XCTAssertEqual(AccessPolicy.bar(for: member), [.today, .family, .games, .health])
+        XCTAssertEqual(AccessPolicy.inHub(for: member), [])
     }
 
     func testTheBarNeverHoldsMoreThanFive() {
         let all = AppAccess(chat: true, news: true, family: true, games: true)
         XCTAssertEqual(AccessPolicy.tabs(for: all).count, 6)
-        XCTAssertEqual(AccessPolicy.bar(for: all), [.today, .family, .chat, .health, .more])
-        XCTAssertEqual(AccessPolicy.inMore(for: all), [.games, .news])
+        XCTAssertEqual(AccessPolicy.bar(for: all), [.today, .family, .games, .chat, .health])
+        XCTAssertEqual(AccessPolicy.inHub(for: all), [.news])
+        XCTAssertLessThanOrEqual(AccessPolicy.bar(for: .everything).count, 5)
     }
 
     // MARK: - Automatic site pairing

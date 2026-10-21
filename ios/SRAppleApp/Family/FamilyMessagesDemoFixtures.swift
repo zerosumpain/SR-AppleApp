@@ -48,22 +48,27 @@ final class FamilyMessagesDemo: @unchecked Sendable {
     }
 
     private func seeded(_ clock: SRDemoFixtures.DemoClock) -> [FamilyMessage] {
+        // `who` doubles as the household subject: the demo family's circles
+        // take the same colours as their pins.
         func r(_ id: String, _ who: String, _ name: String, _ body: String, _ ago: Double, mine: Bool = false) -> FamilyMessageReply {
-            FamilyMessageReply(id: id, fromId: who, fromName: name, mine: mine, body: body,
+            FamilyMessageReply(id: id, fromId: "f_\(who)", fromName: name, fromSubject: who, mine: mine, body: body,
                                reaction: FamilyMessages.reactions.contains(body), at: clock.iso(minutesAgo: ago))
         }
         return [
-            FamilyMessage(id: "demo-msg-2", fromId: "f_alex", fromName: "Alex", mine: false,
+            FamilyMessage(id: "demo-msg-2", fromId: "f_alex", fromName: "Alex", fromSubject: "alex", mine: false,
                           body: "Training ran late — home by 7. Save me some dinner?",
                           at: clock.iso(minutesAgo: 25), pushed: 3, recipients: 3,
-                          replies: [r("demo-rep-3", "f_robin", "Robin", "👍", 20)]),
-            FamilyMessage(id: "demo-msg-1", fromId: "f_sam", fromName: "Sam", mine: true,
+                          replies: [r("demo-rep-3", "robin", "Robin", "👍", 20),
+                                    r("demo-rep-5", "sam", "Sam", "Plate's in the oven.", 18, mine: true),
+                                    r("demo-rep-6", "alex", "Alex", "Legend. Leaving now.", 12)]),
+            FamilyMessage(id: "demo-msg-1", fromId: "f_sam", fromName: "Sam", fromSubject: "sam", mine: true,
                           body: "Pizza tonight? Ordering at six.",
                           at: clock.iso(minutesAgo: 140), pushed: 3, recipients: 3,
                           replies: [
-                              r("demo-rep-1", "f_alex", "Alex", "❤️", 130),
-                              r("demo-rep-2", "f_robin", "Robin", "Pepperoni please!", 120),
-                              r("demo-rep-4", "f_kit", "Kit", "👍", 110),
+                              r("demo-rep-1", "alex", "Alex", "❤️", 130),
+                              r("demo-rep-2", "robin", "Robin", "Pepperoni please!", 120),
+                              r("demo-rep-4", "kit", "Kit", "👍", 110),
+                              r("demo-rep-7", "sam", "Sam", "Pepperoni and a margherita it is.", 105, mine: true),
                           ]),
         ]
     }
@@ -81,7 +86,7 @@ final class FamilyMessagesDemo: @unchecked Sendable {
     func send(_ text: String, clock: SRDemoFixtures.DemoClock) -> String? {
         lock.lock(); defer { lock.unlock() }
         count += 1
-        let message = FamilyMessage(id: "demo-msg-new-\(count)", fromId: "f_sam", fromName: "Sam", mine: true,
+        let message = FamilyMessage(id: "demo-msg-new-\(count)", fromId: "f_sam", fromName: "Sam", fromSubject: "sam", mine: true,
                                     body: text, at: clock.iso(minutesAgo: 0), pushed: 3, recipients: 3)
         sent.insert(message, at: 0)
         return #"{"pushed":3,"recipients":3}"#
@@ -90,7 +95,7 @@ final class FamilyMessagesDemo: @unchecked Sendable {
     func reply(_ text: String, to id: String, clock: SRDemoFixtures.DemoClock) -> String? {
         lock.lock(); defer { lock.unlock() }
         count += 1
-        let reply = FamilyMessageReply(id: "demo-rep-new-\(count)", fromId: "f_sam", fromName: "Sam", mine: true, body: text,
+        let reply = FamilyMessageReply(id: "demo-rep-new-\(count)", fromId: "f_sam", fromName: "Sam", fromSubject: "sam", mine: true, body: text,
                                        reaction: FamilyMessages.reactions.contains(text), at: clock.iso(minutesAgo: 0))
         replies[id, default: []].append(reply)
         return #"{"pushed":1}"#

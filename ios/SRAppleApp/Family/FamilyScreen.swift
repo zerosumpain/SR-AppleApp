@@ -23,7 +23,6 @@ struct FamilyScreen: View {
     let companion: Companion
     @State private var companionPaired: Bool?
     @EnvironmentObject private var router: Router
-    @ObservedObject private var access = AccessStore.shared
     /// The travel desk's forecast: next moves and what looks off. Optional —
     /// a phone without the site credential sees the positions alone.
     @ObservedObject private var forecast = FamilyForecastStore.shared
@@ -42,6 +41,9 @@ struct FamilyScreen: View {
     /// The top of the page: the Orbit (how far, which way) or the map
     /// (exactly where). Remembered: it is a way of looking, not a visit.
     @AppStorage("family-top") private var top: FamilyTop = .orbit
+    /// The place chosen on the strip, by its id; nil is everyone. A visit,
+    /// not remembered: the tab opens on the family.
+    @State private var focusPlace: String?
 
     enum FamilyTop: String { case orbit, map }
 
@@ -59,41 +61,16 @@ struct FamilyScreen: View {
         .onReceive(companion.$paired.removeDuplicates()) { companionPaired = $0 }
         .navigationTitle("Family")
         .navigationBarTitleDisplayMode(.inline)
+        .srTabBar()
+        // The page's own two: the alarm and today's lines. Steps, Tasks,
+        // Backlog and msg family are on Home's tiles and in the hub — not
+        // repeated here (John, 2026-10-21). The alarm opens a sheet that has
+        // to be HELD, so sitting beside the tracks glyph costs nothing.
         .toolbar {
-            ToolbarItem(placement: .principal) { SRBarMark() }
-            // The alarm: on the left, away from Steps and Tasks, so it is
-            // never the thing a thumb was reaching past.
             if alarm.available {
-                ToolbarItem(placement: .topBarLeading) { FamilyAlarmButton() }
+                ToolbarItem(placement: .topBarTrailing) { FamilyAlarmButton() }
             }
-            // Today's lines on the map: a glyph the size of the alarm's,
-            // opposite it, instead of a capsule over the map.
             ToolbarItem(placement: .topBarTrailing) { FamilyTracksButton(on: $showTracks) }
-            // Steps and Tasks live in More; with no More (a member with four
-            // places or fewer) they are here instead, or there is no way in.
-            if access.familyBoards && !access.allows(.more) {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { SRHaptic.tap(); router.openFamilyPage(.steps) } label: { Image(systemName: "figure.walk") }
-                        .accessibilityLabel("Steps")
-                        .accessibilityIdentifier("family-open-steps")
-                    Button { SRHaptic.tap(); router.openFamilyPage(.tasks) } label: { Image(systemName: "checklist") }
-                        .accessibilityLabel("Tasks")
-                        .accessibilityIdentifier("family-open-tasks")
-                    Button { SRHaptic.tap(); router.openFamilyPage(.backlog) } label: { Image(systemName: "tray.full") }
-                        .accessibilityLabel("Backlog")
-                        .accessibilityIdentifier("family-open-backlog")
-                }
-            }
-            // msg family lives in Chat; somebody without Chat reaches it here.
-            if access.familyBoards && !access.allows(.chat) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { SRHaptic.tap(); router.openFamilyPage(.messages) } label: {
-                        Image(systemName: "bubble.left.and.text.bubble.right")
-                    }
-                    .accessibilityLabel("msg family")
-                    .accessibilityIdentifier("family-open-messages")
-                }
-            }
         }
         .navigationDestination(for: FamilyPersonRoute.self) { route in
             FamilyPersonScreen(store: store, subject: route.subject)
@@ -126,7 +103,23 @@ struct FamilyScreen: View {
 
     private func content(_ view: HouseholdView) -> some View {
         let colours = SR.PersonHue.assign(view.people.map(\.subject))
+        let favourites = FamilyFavourites.make(view)
+        let focus = favourites.first { $0.id == focusPlace }
         return VStack(spacing: 0) {
+            // Where to look: everyone, or one place.
+            SRChipStrip(
+                chips: FamilyFavourites.chips(favourites, total: view.people.filter(\.placed).count),
+                selected: focus?.id ?? FamilyFavourites.everyone,
+                identifier: "family-places"
+            ) { chip in
+                if chip.id == FamilyFavourites.everyone {
+                    focusPlace = nil
+                } else {
+                    focusPlace = chip.id
+                    // A place is somewhere on a map; the Orbit has no streets.
+                    top = .map
+                }
+            }
             Picker("View", selection: $top) {
                 Text("Orbit").tag(FamilyTop.orbit)
                 Text("Map").tag(FamilyTop.map)
@@ -142,10 +135,13 @@ struct FamilyScreen: View {
                 .frame(height: 300)
                 .padding(.horizontal, SR.gutter)
             } else {
-                mapPanel(view)
+                mapPanel(view, focus: focus?.coordinates)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.cardGap) {
+                    // The owner's own reminder that the family sees a held place.
+                    LocationHoldBanner()
+                        .padding(.top, LocationHoldStore.shared.hold == nil ? 0 : 14)
                     LiveWalksCard(store: walks)
                         .padding(.top, walks.walks.isEmpty ? 0 : 14)
                     RouteGiftsCard(store: gifts)
@@ -192,8 +188,8 @@ struct FamilyScreen: View {
     }
 
     /// The map, as it was before the Orbit: pinned, pannable, expandable.
-    private func mapPanel(_ view: HouseholdView) -> some View {
-        FamilyMapCanvas(people: view.people, interactive: true, showTrails: showTracks, camera: $camera)
+    private func mapPanel(_ view: HouseholdView, focus: [CLLocationCoordinate2D]?) -> some View {
+        FamilyMapCanvas(people: view.people, interactive: true, showTrails: showTracks, focus: focus, camera: $camera)
             // Two thirds of what it was: the people and their moves
             // below are the page now, the map is where.
             .frame(height: 260)
@@ -208,7 +204,7 @@ struct FamilyScreen: View {
             }
             .accessibilityIdentifier("family-map")
             .fullScreenCover(isPresented: $mapExpanded) {
-                FamilyFullMap(people: view.people, showTracks: $showTracks, camera: $camera) {
+                FamilyFullMap(people: view.people, focus: focus, showTracks: $showTracks, camera: $camera) {
                     mapExpanded = false
                 }
             }
@@ -308,6 +304,7 @@ struct FamilyMapExpandButton: View {
 /// The family map, full screen: the same camera, the same tracks switch.
 struct FamilyFullMap: View {
     let people: [FamilyPerson]
+    var focus: [CLLocationCoordinate2D]? = nil
     @Binding var showTracks: Bool
     @Binding var camera: MapCameraPosition
     let close: () -> Void
@@ -319,7 +316,7 @@ struct FamilyFullMap: View {
 
     var body: some View {
         ZStack {
-            FamilyMapCanvas(people: people, interactive: true, showTrails: tracks, camera: $camera)
+            FamilyMapCanvas(people: people, interactive: true, showTrails: tracks, focus: focus, camera: $camera)
                 .ignoresSafeArea()
             // The buttons INSIDE the safe area: laid over a map that ignores
             // it, the top corner sat under the status bar and took no taps.

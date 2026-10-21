@@ -267,6 +267,7 @@ struct FamilyPersonScreen: View {
 struct FamilyPersonForecast: View {
     let forecast: FamilyForecast
     let subject: String
+    @EnvironmentObject private var router: Router
 
     var body: some View {
         let next = forecast.next(for: subject)
@@ -313,6 +314,16 @@ struct FamilyPersonForecast: View {
                             .padding(.horizontal, 4)
                     }
                 }
+                // Every move behind these guesses, looked back over.
+                Button {
+                    SRHaptic.tap()
+                    router.push(FamilyMoveHistoryRef(subject: subject), on: router.tab)
+                } label: {
+                    Label("Their past moves", systemImage: "clock.arrow.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .srButton(.regular)
+                .accessibilityIdentifier("family-person-history")
             }
         }
     }

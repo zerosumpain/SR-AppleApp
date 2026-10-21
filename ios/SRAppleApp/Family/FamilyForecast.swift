@@ -307,6 +307,7 @@ struct FamilyMovesCard: View {
     let moves: [FamilyForecast.NextMove]
     let names: [String: String]
     @ObservedObject private var store = FamilyForecastStore.shared
+    @EnvironmentObject private var router: Router
 
     var body: some View {
         let sorted = moves.sorted { (parseTimestamp($0.leaveAt) ?? .distantFuture) < (parseTimestamp($1.leaveAt) ?? .distantFuture) }
@@ -315,32 +316,46 @@ struct FamilyMovesCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(sorted.enumerated()), id: \.offset) { index, move in
                     if index > 0 { Rectangle().fill(SR.divider).frame(height: 1).padding(.leading, 44) }
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: move.kind == "arriving" ? "location.north.fill" : "clock")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkMuted)
-                            .frame(width: 20)
-                            .padding(.top, 2)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(names[move.subject] ?? move.subject.capitalized)
-                                .font(SR.Text.title(16))
-                                .foregroundStyle(SR.ink)
-                            Text(ForecastWords.nextLine(move))
-                                .font(SR.Text.secondary())
-                                .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text(ForecastWords.ofDays(move.days, move.of, move.dayType))
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkMuted)
+                    // A tap opens their moves looked back over; a long press
+                    // still says this guess is wrong.
+                    Button {
+                        SRHaptic.tap()
+                        router.push(FamilyMoveHistoryRef(subject: move.subject), on: router.tab)
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: move.kind == "arriving" ? "location.north.fill" : "clock")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkMuted)
+                                .frame(width: 20)
+                                .padding(.top, 2)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(names[move.subject] ?? move.subject.capitalized)
+                                    .font(SR.Text.title(16))
+                                    .foregroundStyle(SR.ink)
+                                Text(ForecastWords.nextLine(move))
+                                    .font(SR.Text.secondary())
+                                    .foregroundStyle(move.kind == "arriving" ? SR.accentInk : SR.inkSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(ForecastWords.ofDays(move.days, move.of, move.dayType))
+                                    .font(SR.Text.mono())
+                                    .foregroundStyle(SR.inkMuted)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(SR.inkGhost)
+                                .padding(.top, 4)
+                                .accessibilityHidden(true)
                         }
-                        Spacer(minLength: 0)
+                        .padding(.horizontal, SR.cardPadding)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, SR.cardPadding)
-                    .padding(.vertical, 12)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                     // A long press says the guess is wrong, so it learns.
                     .forecastCorrection(move, name: names[move.subject] ?? move.subject.capitalized)
                     .accessibilityElement(children: .combine)
+                    .accessibilityHint("Shows their past moves")
                     .accessibilityIdentifier("family-next-\(move.subject)")
                 }
             }

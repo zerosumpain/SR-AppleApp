@@ -13,149 +13,171 @@ struct GamesScreen: View {
     /// The game whose card was tapped; the sheet opens on it.
     @State private var starting: GameKind?
 
+    /// The strip under the bar: jump to what is waiting, the games, or the
+    /// leaderboard — the same furniture as Family's places and Health's areas.
+    private var chips: [SRChip] {
+        var out: [SRChip] = []
+        if !store.invites.isEmpty { out.append(SRChip(id: "invites", title: "Invites", icon: "envelope.fill", count: store.invites.count)) }
+        if !store.rooms.isEmpty { out.append(SRChip(id: "rooms", title: "Your games", icon: "play.circle.fill", count: store.rooms.count)) }
+        out.append(SRChip(id: "play", title: "Play", icon: "gamecontroller.fill"))
+        out.append(SRChip(id: "leaderboard", title: "Leaderboard", icon: "trophy.fill"))
+        return out
+    }
+
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: SR.sectionGap) {
-                VStack(alignment: .leading, spacing: 8) {
-                    // No page title: the tab says Games. The one honest
-                    // sentence about delivery. No push certificate: an invite
-                    // rings only a phone with the app open.
-                    Text("Invites reach phones with the app open.")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("games-delivery-note")
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                SRChipStrip(chips: chips, identifier: "games-strip") { chip in
+                    if chip.id == "leaderboard" {
+                        router.push(GameLeaderboardRef(), on: .games)
+                    } else {
+                        withAnimation(.snappy) { proxy.scrollTo("games-\(chip.id)", anchor: .top) }
+                    }
                 }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: SR.sectionGap) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // No page title: the tab says Games. The one honest
+                            // sentence about delivery. No push certificate: an invite
+                            // rings only a phone with the app open.
+                            Text("Invites reach phones with the app open.")
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("games-delivery-note")
+                        }
 
-                if !store.invites.isEmpty {
-                    section("Invitations", trailing: "\(store.invites.count)") {
-                        ForEach(store.invites) { invite in
-                            GameInviteCard(
-                                invite: invite,
-                                busy: store.busy == invite.roomId,
-                                join: {
-                                    Task {
-                                        if await store.join(invite) {
-                                            router.push(GameRoomRef(id: invite.roomId, game: invite.game), on: .games)
-                                        }
+                        if !store.invites.isEmpty {
+                            section("Invitations", trailing: "\(store.invites.count)", id: "games-invites") {
+                                ForEach(store.invites) { invite in
+                                    GameInviteCard(
+                                        invite: invite,
+                                        busy: store.busy == invite.roomId,
+                                        join: {
+                                            Task {
+                                                if await store.join(invite) {
+                                                    router.push(GameRoomRef(id: invite.roomId, game: invite.game), on: .games)
+                                                }
+                                            }
+                                        },
+                                        decline: { Task { await store.decline(invite) } }
+                                    )
+                                }
+                            }
+                        }
+
+                        if !store.rooms.isEmpty {
+                            section("Your games", trailing: nil, id: "games-rooms") {
+                                ForEach(store.rooms) { room in
+                                    // A Button onto the tab's path, not a NavigationLink:
+                                    // the link under an interactive glass card never
+                                    // received the tap in CI; a Button over the same
+                                    // glass (the Tap Duel card) does.
+                                    Button {
+                                        SRHaptic.tap()
+                                        router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
+                                    } label: {
+                                        GameRoomRow(room: room)
                                     }
-                                },
-                                decline: { Task { await store.decline(invite) } }
-                            )
-                        }
-                    }
-                }
-
-                if !store.rooms.isEmpty {
-                    section("Your games", trailing: nil) {
-                        ForEach(store.rooms) { room in
-                            // A Button onto the tab's path, not a NavigationLink:
-                            // the link under an interactive glass card never
-                            // received the tap in CI; a Button over the same
-                            // glass (the Tap Duel card) does.
-                            Button {
-                                SRHaptic.tap()
-                                router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
-                            } label: {
-                                GameRoomRow(room: room)
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("games-room-\(room.id)")
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("games-room-\(room.id)")
                         }
-                    }
-                }
 
-                // Every finished game, every game: today, this week, all time.
-                Button {
-                    SRHaptic.tap()
-                    router.push(GameLeaderboardRef(), on: .games)
-                } label: {
-                    SRCard(interactive: true) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "trophy.fill")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(SR.accent)
-                                .frame(width: 28)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Leaderboard")
-                                    .font(SR.Text.title())
-                                    .foregroundStyle(SR.ink)
-                                Text("High scores and wins — today, this week, all time.")
-                                    .font(SR.Text.secondary())
-                                    .foregroundStyle(SR.inkMuted)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(SR.inkGhost)
-                        }
-                        .frame(minHeight: SR.tapTarget)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isButton)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("games-leaderboard")
-
-                // Marbler: a marble race played on this phone, on the site's own engine.
-                Button {
-                    SRHaptic.tap()
-                    router.push(MarblerRef(), on: .games)
-                } label: {
-                    SRCard(interactive: true) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "circle.grid.cross.fill")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(SR.accent)
-                                .frame(width: 28)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Marbler")
-                                    .font(SR.Text.title())
-                                    .foregroundStyle(SR.ink)
-                                Text("Watch a marble race, pick a favourite. Runs on this phone.")
-                                    .font(SR.Text.secondary())
-                                    .foregroundStyle(SR.inkMuted)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(SR.inkGhost)
-                        }
-                        .frame(minHeight: SR.tapTarget)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isButton)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("games-marbler")
-
-                section("Play", trailing: nil) {
-                    ForEach(GameKind.allCases) { kind in
+                        // Every finished game, every game: today, this week, all time.
                         Button {
                             SRHaptic.tap()
-                            starting = kind
+                            router.push(GameLeaderboardRef(), on: .games)
                         } label: {
-                            GameCard(kind: kind)
+                            SRCard(interactive: true) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "trophy.fill")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundStyle(SR.accent)
+                                        .frame(width: 28)
+                                        .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Leaderboard")
+                                            .font(SR.Text.title())
+                                            .foregroundStyle(SR.ink)
+                                        Text("High scores and wins — today, this week, all time.")
+                                            .font(SR.Text.secondary())
+                                            .foregroundStyle(SR.inkMuted)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(SR.inkGhost)
+                                }
+                                .frame(minHeight: SR.tapTarget)
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isButton)
                         }
                         .buttonStyle(.plain)
-                        // Tap Duel keeps the id it shipped with.
-                        .accessibilityIdentifier(kind == .tapDuel ? "games-new" : "games-new-\(kind.rawValue)")
+                        .accessibilityIdentifier("games-leaderboard")
+
+                        // Marbler: a marble race played on this phone, on the site's own engine.
+                        Button {
+                            SRHaptic.tap()
+                            router.push(MarblerRef(), on: .games)
+                        } label: {
+                            SRCard(interactive: true) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "circle.grid.cross.fill")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundStyle(SR.accent)
+                                        .frame(width: 28)
+                                        .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Marbler")
+                                            .font(SR.Text.title())
+                                            .foregroundStyle(SR.ink)
+                                        Text("Watch a marble race, pick a favourite. Runs on this phone.")
+                                            .font(SR.Text.secondary())
+                                            .foregroundStyle(SR.inkMuted)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(SR.inkGhost)
+                                }
+                                .frame(minHeight: SR.tapTarget)
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isButton)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("games-marbler")
+
+                        section("Play", trailing: nil, id: "games-play") {
+                            ForEach(GameKind.allCases) { kind in
+                                Button {
+                                    SRHaptic.tap()
+                                    starting = kind
+                                } label: {
+                                    GameCard(kind: kind)
+                                }
+                                .buttonStyle(.plain)
+                                // Tap Duel keeps the id it shipped with.
+                                .accessibilityIdentifier(kind == .tapDuel ? "games-new" : "games-new-\(kind.rawValue)")
+                            }
+                        }
                     }
+                    .padding(.horizontal, SR.gutter)
+                    .padding(.top, 4)
+                    .padding(.bottom, 28)
                 }
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.top, 4)
-            .padding(.bottom, 28)
         }
         .accessibilityIdentifier("games-screen")
         .srGround(.warm)
         .navigationTitle("Games")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
+        .srTabBar()
         .task {
             if store.lobby == nil { await store.load() }
             await store.askForNotificationsIfUndecided()
@@ -183,11 +205,12 @@ struct GamesScreen: View {
         }
     }
 
-    private func section<Content: View>(_ title: String, trailing: String?, @ViewBuilder content: () -> Content) -> some View {
+    private func section<Content: View>(_ title: String, trailing: String?, id: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
             SRSectionLabel(text: title, trailing: trailing)
             content()
         }
+        .id(id)
     }
 }
 
@@ -328,6 +351,7 @@ struct GameCard: View {
         case .liarsDice: return SR.good
         case .drawGuess: return SR.accentInk
         case .marbleRace: return SR.accent
+        case .chess: return SR.ink
         }
     }
 }
@@ -417,9 +441,12 @@ struct NewGameSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
-                        SRSectionLabel(text: "Players", trailing: invited.isEmpty ? "Solo" : "\(invited.count + 1)")
+                        SRSectionLabel(text: game == .chess ? "Opponent" : "Players",
+                                       trailing: invited.isEmpty ? (game == .chess ? "Pick one" : "Solo") : "\(invited.count + 1)")
                         if players.isEmpty {
-                            Text("Nobody else in the family can play yet, so this is a solo game.")
+                            Text(game == .chess
+                                 ? "Nobody else in the family can play yet, and chess needs two. The lobby can wait for somebody to pair a phone."
+                                 : "Nobody else in the family can play yet, so this is a solo game.")
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -429,13 +456,20 @@ struct NewGameSheet: View {
                                     title: person.name,
                                     line: nil,
                                     selected: invited.contains(person.id),
-                                    multi: true,
+                                    multi: game != .chess,
                                     id: "games-player-\(person.id)"
                                 ) {
-                                    invited.formSymmetricDifference([person.id])
+                                    if game == .chess {
+                                        // Chess is for two: a pick replaces the last one.
+                                        invited = invited.contains(person.id) ? [] : [person.id]
+                                    } else {
+                                        invited.formSymmetricDifference([person.id])
+                                    }
                                 }
                             }
-                            Text("Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
+                            Text(game == .chess
+                                 ? "Chess is for two: pick the one person to play. The lobby waits for them to join; invites reach phones with the app open."
+                                 : "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)

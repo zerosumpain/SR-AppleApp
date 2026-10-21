@@ -122,38 +122,33 @@ enum AccessPolicy {
     ///
     /// Family is second, beside Today: where everyone is is the thing the app
     /// is opened for, and Today leads with it, so the tab that goes deeper sits
-    /// next to it. Games sits straight after Family: a family member given both
-    /// sees them side by side; the owner, with seven, finds Games under More.
+    /// next to it. Games sits straight after Family.
     static func tabs(for access: AppAccess) -> [Router.Tab] {
         [Router.Tab.today, .family, .games, .chat, .health, .news, .flows].filter { allows($0, access) }
     }
 
-    /// The places that fold into More when the bar is full, in order.
-    static let overflow: [Router.Tab] = [.games, .news, .flows]
+    /// The places that never take a slot on the bar: they are in the hub.
+    static let overflow: [Router.Tab] = [.news, .flows]
 
-    /// What sits in the app's own More tab: nothing while everything fits on
-    /// the bar (five), else every overflow place this person may open.
+    /// What sits in the hub (the ⊞ at the top of every page) for this person:
+    /// News and Flows, whoever may open them.
     ///
-    /// Our own More, not iOS's. The system one wraps each tab's
-    /// `NavigationStack` in a navigation controller of its own — two bars, two
-    /// back buttons, one game — and loses the tab bar when a game that hid it
-    /// is popped. See `MoreScreen`.
-    static func inMore(for access: AppAccess) -> [Router.Tab] {
-        let all = tabs(for: access)
-        guard all.count > 5 else { return [] }
-        return all.filter { overflow.contains($0) }
+    /// The bar used to depend on how many places a person had — the owner,
+    /// with seven, got a More tab with Games inside it; a member with five got
+    /// Games on the bar and Steps/Tasks icons on Family instead. One layout
+    /// for everyone now (John, 2026-10-21): the same five slots at most, and
+    /// everything else one tap away in the same hub.
+    static func inHub(for access: AppAccess) -> [Router.Tab] {
+        tabs(for: access).filter { overflow.contains($0) }
     }
 
-    /// The tab bar itself: `tabs` with the More places replaced by `.more`.
+    /// The tab bar itself: `tabs` without the hub's places — five at most.
     static func bar(for access: AppAccess) -> [Router.Tab] {
-        let more = inMore(for: access)
-        guard !more.isEmpty else { return tabs(for: access) }
-        return tabs(for: access).filter { !more.contains($0) } + [.more]
+        tabs(for: access).filter { !overflow.contains($0) }
     }
 
     static func allows(_ tab: Router.Tab, _ access: AppAccess) -> Bool {
         switch tab {
-        case .more: return !inMore(for: access).isEmpty
         case .today, .health: return true
         case .chat: return access.owner || access.chat
         case .news: return access.owner || access.news
@@ -389,8 +384,8 @@ final class AccessStore: ObservableObject {
     }
 
     var tabs: [Router.Tab] { AccessPolicy.tabs(for: current) }
-    /// The places inside the app's own More tab, in order; empty when they fit on the bar.
-    var inMore: [Router.Tab] { AccessPolicy.inMore(for: current) }
+    /// The places in the hub, in order.
+    var inHub: [Router.Tab] { AccessPolicy.inHub(for: current) }
     func allows(_ tab: Router.Tab) -> Bool { AccessPolicy.allows(tab, current) }
     /// The family's step board and task list — see `AccessPolicy.familyBoards`.
     var familyBoards: Bool { AccessPolicy.familyBoards(current, sitePaired: SiteClient.shared.isPaired) }
