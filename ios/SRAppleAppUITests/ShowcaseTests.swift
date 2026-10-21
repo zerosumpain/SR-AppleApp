@@ -1283,6 +1283,52 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Chess: my move in a Ruy Lopez (both bars with clocks, the board, a
+    /// piece picked up with its squares lit), and a finished Fool's mate.
+    @MainActor func testShowcaseChess() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_chess")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "chess-playing"), seconds: 2)
+            soft(byId(app, "chess-board").exists, "no board")
+            soft(byId(app, "chess-bar-w").exists, "no bar for white")
+            soft(byId(app, "chess-bar-b").exists, "no bar for black")
+            soft(byId(app, "chess-headline").label.contains("Your move"), "not my move")
+            soft(byId(app, "chess-draw").exists, "no Draw button")
+            soft(byId(app, "chess-resign").exists, "no Resign button")
+            attach(app, "Showcase — Chess, my move")
+            let knight = byId(app, "chess-square-f3")
+            if knight.exists {
+                knight.tap()
+                settle(app, on: byId(app, "chess-square-e5"), seconds: 1)
+                soft(byId(app, "chess-square-e5").label.contains("can take"), "the knight's capture is not lit")
+                soft(byId(app, "chess-square-g5").label.contains("can move here"), "the knight's move is not lit")
+                attach(app, "Showcase — Chess, a piece picked up")
+            } else {
+                soft(false, "no f3 square to tap")
+            }
+            back(app)
+        } else {
+            soft(false, "no chess game to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_chess_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "chess-finished"), seconds: 2)
+            soft(byId(app, "chess-standings").exists, "no result table")
+            soft(byId(app, "chess-outcome").label.contains("Checkmate"), "no checkmate sentence")
+            attach(app, "Showcase — Chess, finished")
+            back(app)
+        } else {
+            soft(false, "no finished chess")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.

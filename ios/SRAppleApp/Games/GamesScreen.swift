@@ -351,6 +351,7 @@ struct GameCard: View {
         case .liarsDice: return SR.good
         case .drawGuess: return SR.accentInk
         case .marbleRace: return SR.accent
+        case .chess: return SR.ink
         }
     }
 }
@@ -440,9 +441,12 @@ struct NewGameSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
-                        SRSectionLabel(text: "Players", trailing: invited.isEmpty ? "Solo" : "\(invited.count + 1)")
+                        SRSectionLabel(text: game == .chess ? "Opponent" : "Players",
+                                       trailing: invited.isEmpty ? (game == .chess ? "Pick one" : "Solo") : "\(invited.count + 1)")
                         if players.isEmpty {
-                            Text("Nobody else in the family can play yet, so this is a solo game.")
+                            Text(game == .chess
+                                 ? "Nobody else in the family can play yet, and chess needs two. The lobby can wait for somebody to pair a phone."
+                                 : "Nobody else in the family can play yet, so this is a solo game.")
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -452,13 +456,20 @@ struct NewGameSheet: View {
                                     title: person.name,
                                     line: nil,
                                     selected: invited.contains(person.id),
-                                    multi: true,
+                                    multi: game != .chess,
                                     id: "games-player-\(person.id)"
                                 ) {
-                                    invited.formSymmetricDifference([person.id])
+                                    if game == .chess {
+                                        // Chess is for two: a pick replaces the last one.
+                                        invited = invited.contains(person.id) ? [] : [person.id]
+                                    } else {
+                                        invited.formSymmetricDifference([person.id])
+                                    }
                                 }
                             }
-                            Text("Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
+                            Text(game == .chess
+                                 ? "Chess is for two: pick the one person to play. The lobby waits for them to join; invites reach phones with the app open."
+                                 : "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
