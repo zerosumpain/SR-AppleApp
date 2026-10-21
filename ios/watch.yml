@@ -117,6 +117,8 @@ targets:
       # Backlog page, and the Keychain shelf holding the site credential the
       # app leaves there for the family widgets. Nothing else of the app's.
       - path: SRAppleApp/Family/FamilyBacklogShared.swift
+      # v8: "Add to a trip" — the trips list read thinly, and the turn sent.
+      - path: SRAppleApp/Trips/TripShareShared.swift
       - path: SRAppleApp/Family/FamilyBoardModels.swift
       - path: SRAppleApp/Family/FamilyWidgetShared.swift
       - path: SRAppleApp/Design/SRPaletteShared.swift

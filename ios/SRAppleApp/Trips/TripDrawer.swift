@@ -40,6 +40,9 @@ struct TripDrawer<Header: View, Content: View>: View {
     /// a tall "where you are" never spills out of the drawer.
     @State private var headerHeight: CGFloat = 0
 
+    /// The drawer's top corners: the one radius that is neither a card's
+    /// (`SR.Glass.radius`) nor an inner row's (`SR.Glass.innerRadius`) —
+    /// a sheet's edge over a full-bleed map (trip design rules, 2026-10-21).
     private static var radius: CGFloat { 22 }
     private static var spring: Animation { .spring(response: 0.35, dampingFraction: 0.86) }
 
