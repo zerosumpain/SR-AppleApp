@@ -10,8 +10,12 @@ import UIKit
 /// the /app page uses. iOS still asks before installing; this only means the
 /// person does not have to know when to look.
 ///
-/// A TestFlight or App Store copy never asks: neither carries its provisioning
-/// profile, and the check is skipped without one.
+/// A TestFlight copy asks too, but takes only a build the owner SENT this
+/// phone (`pushed`, from /admin/access/app → Send a build): TestFlight updates
+/// itself, so the family's build is never its business. A pushed build is
+/// offered whatever this phone runs — older is a rollback — and a push of
+/// category `app-update` makes the app ask at once rather than within the hour.
+/// An Xcode run never asks (no `SRCommit`).
 @MainActor
 final class AppUpdate: ObservableObject {
     static let shared = AppUpdate()
@@ -20,7 +24,12 @@ final class AppUpdate: ObservableObject {
         let version: String
         let build: String
         let install: URL
+        /// Sent to this phone by the owner, rather than the family's build.
+        var pushed = false
     }
+
+    /// What a push of this category is: the owner sent this phone a build.
+    nonisolated static let pushCategory = "app-update"
 
     @Published private(set) var available: Available?
     /// Set by a check that found nothing newer, for Settings → About.
@@ -32,6 +41,7 @@ final class AppUpdate: ObservableObject {
             let build: String
             let commit: String?
             let install: String
+            let pushed: Bool?
         }
         let build: Build?
     }
@@ -54,18 +64,27 @@ final class AppUpdate: ObservableObject {
         (Int(build) ?? 0) > own && commit != ownCommit
     }
 
+    /// Whether to offer what the site answered. A build the owner sent this
+    /// phone: any build but the one it runs. The family's: an ad-hoc copy only,
+    /// and only a later build of different code.
+    static func shouldOffer(build: String, commit: String?, pushed: Bool, adHoc: Bool, thanBuild own: Int, commit ownCommit: String) -> Bool {
+        if pushed { return (Int(build) ?? 0) > 0 && Int(build) != own }
+        return adHoc && isNewer(build: build, commit: commit, thanBuild: own, commit: ownCommit)
+    }
+
     private var lastChecked: Date?
     private static let snoozePrefix = "appUpdate.snoozedUntil."
 
     /// On launch and on each return to the foreground, at most hourly; `force`
     /// from Settings. Quiet on every failure: no prompt is the safe answer.
     func check(force: Bool = false) async {
-        guard Self.isAdHoc, !SRDemo.isOn, SiteClient.shared.isPaired else { return }
+        guard !Self.ownCommit.isEmpty, !SRDemo.isOn, SiteClient.shared.isPaired else { return }
         if !force, let lastChecked, Date().timeIntervalSince(lastChecked) < 3600 { return }
         lastChecked = Date()
         guard let reply: Reply = try? await SiteClient.shared.send("api/native/app-update", asSelf: true) else { return }
         guard let latest = reply.build, let url = URL(string: latest.install),
-              Self.isNewer(build: latest.build, commit: latest.commit, thanBuild: Self.ownBuild, commit: Self.ownCommit)
+              Self.shouldOffer(build: latest.build, commit: latest.commit, pushed: latest.pushed == true, adHoc: Self.isAdHoc,
+                               thanBuild: Self.ownBuild, commit: Self.ownCommit)
         else {
             available = nil
             upToDate = true
@@ -73,7 +92,7 @@ final class AppUpdate: ObservableObject {
         }
         upToDate = false
         if !force, let until = UserDefaults.standard.object(forKey: Self.snoozePrefix + latest.build) as? Date, until > Date() { return }
-        available = Available(version: latest.version, build: latest.build, install: url)
+        available = Available(version: latest.version, build: latest.build, install: url, pushed: latest.pushed == true)
     }
 
     /// Ask again tomorrow about this build.
@@ -96,7 +115,7 @@ extension View {
     /// The prompt itself, on the app's root.
     func appUpdatePrompt(_ update: AppUpdate) -> some View {
         alert(
-            "A new version of SR is ready",
+            update.available?.pushed == true ? "A version of SR was sent to this phone" : "A new version of SR is ready",
             isPresented: Binding(get: { update.available != nil }, set: { if !$0, update.available != nil { update.later() } }),
             presenting: update.available
         ) { _ in

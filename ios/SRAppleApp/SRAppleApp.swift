@@ -199,6 +199,13 @@ import Combine
             FamilyAlarmStore.shared.cancelled(id)
             return [.banner, .list]
         }
+        // A build the owner sent this phone, with the app open: ask the site
+        // now, and the app's own prompt offers it. The banner would say the
+        // same thing twice.
+        if category == AppUpdate.pushCategory {
+            Task { await AppUpdate.shared.check(force: true) }
+            return [.list]
+        }
         // A family message or a reply while msg family may be on screen.
         if FamilyPage.from(category: category, userInfo: info) == .messages {
             Task { await FamilyMessagesStore.shared.load() }
@@ -265,6 +272,12 @@ import Combine
             }
             Self.pending.tab = .family
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
+        // A build the owner sent this phone: ask the site now — the hourly
+        // check may have just run — and its prompt offers the install.
+        if category == AppUpdate.pushCategory {
+            await AppUpdate.shared.check(force: true)
             return
         }
         if category == "connections" {
