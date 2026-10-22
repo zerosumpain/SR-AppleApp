@@ -139,6 +139,18 @@ test('unfiltered /health hides workout route/series chunks, but an explicit kind
   assert.equal(explicit.body.records.length, 1);
 });
 
+test('/health ?limit= reads only the newest few; a bad limit is refused', async t => {
+  const { request } = await fixture(t);
+  const at = minutes => new Date(Date.now() - minutes * 60000).toISOString();
+  await request('sync', { method: 'POST', body: batch([1, 2, 3].map(m => ({ ...health(), id: `hr-${m}`, start: at(m), end: at(m) }))) });
+  const one = await request('health?limit=1');
+  assert.deepEqual(one.body.records.map(r => r.id), ['hr-1']);
+  assert.equal(one.body.truncated, true);
+  assert.equal((await request('health?limit=3')).body.truncated, false);
+  assert.equal((await request('health')).body.records.length, 3);
+  for (const bad of ['0', '501', '1.5', 'x']) assert.equal((await request(`health?limit=${bad}`)).status, 400, bad);
+});
+
 test('QR pixels contain the canonical origin and a single-use code; regeneration revokes the previous code', async t => {
   const { PNG } = await import('pngjs');
   const { default: jsQR } = await import('jsqr');

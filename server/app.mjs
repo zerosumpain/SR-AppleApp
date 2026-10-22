@@ -169,6 +169,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
   }
   return createServer(async (req, res) => {
     const send = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    // This request's own answers from Main (see access.mjs): the account
+    // check and a household read after it name the same person once.
+    const seen = new Map();
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -697,7 +700,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { ok: true, signOutAt: `${csrfOrigin}/auth/signout` });
       }
       const account = db.prepare('SELECT * FROM users WHERE id=?').get(auth.user_id);
-      await policy.requireUser(account, auth.kind === 'device' ? auth.access_version : undefined);
+      await policy.requireUser(account, auth.kind === 'device' ? auth.access_version : undefined, seen);
       // Policy changes may have reset consent during the awaited check.
       const current = db.prepare('SELECT sharing,steps_sharing FROM users WHERE id=?').get(auth.user_id);
       auth.sharing = current.sharing; auth.steps_sharing = current.steps_sharing;
@@ -710,7 +713,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // parameter, so there is no way to ask for another person's. `view` is
       // null until SR-Main has pushed one (or after it stopped building one).
       if (path === '/api/apple/household/view' && method === 'GET') {
-        const state = await policy.household(auth.family);
+        const state = await policy.household(auth.family, seen);
         const row = db.prepare('SELECT payload, updated FROM household_views WHERE user_id=? AND revision=? AND updated>?').get(auth.user_id, state.revision, new Date(Date.now() - 5 * 60_000).toISOString());
         return send(200, { view: row ? JSON.parse(row.payload) : null, updated: row?.updated ?? null });
       }
@@ -718,7 +721,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // contract as /api/native/notifications, so a member never needs the
       // owner-only native lane just to hear about a household arrival.
       if (path === '/api/apple/alerts' && method === 'GET') {
-        const state = await policy.household(auth.family);
+        const state = await policy.household(auth.family, seen);
         const rows = db.prepare('SELECT payload FROM alerts WHERE user_id=? AND revision=? AND acked IS NULL ORDER BY created LIMIT 50').all(auth.user_id, state.revision);
         return send(200, { alerts: rows.map(r => JSON.parse(r.payload)) });
       }
@@ -792,16 +795,21 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         return send(200, { records });
       }
       if (path === '/api/apple/health' && method === 'GET') {
-        if ([...url.searchParams.keys()].some(k => !['kind', 'before'].includes(k))) fail(400, 'Health can only be read for the signed-in user');
+        if ([...url.searchParams.keys()].some(k => !['kind', 'before', 'limit'].includes(k))) fail(400, 'Health can only be read for the signed-in user');
         const kind = url.searchParams.get('kind');
         if (kind && !KINDS.has(kind)) fail(400, 'Unknown health category');
         const before = url.searchParams.get('before') ?? '9999';
+        // The phone asks for one — it shows how long ago the newest was — and
+        // 500 records decoded to read the first is what it used to cost.
+        const rawLimit = url.searchParams.get('limit');
+        const pageLimit = rawLimit === null || rawLimit === '' ? 500 : Number(rawLimit);
+        if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > 500) fail(400, 'Invalid limit');
         // Unfiltered, this fed the (retired) dashboard's list — which has no way to draw a
         // route/series chunk and no `value` to show for one (it is gone now). An
         // explicit `?kind=workout_route` still reads them; only the "everything"
         // view excludes the megabyte-sized `points` arrays.
-        const rows = db.prepare(`SELECT payload, received FROM health WHERE user_id=? AND ((? IS NULL AND kind NOT IN ('workout_route','workout_series')) OR kind=?) AND start<? ORDER BY start DESC LIMIT 501`).all(auth.user_id, kind, kind, before);
-        return send(200, { records: rows.slice(0, 500).map(r => ({ ...JSON.parse(r.payload), received: r.received })), truncated: rows.length > 500 });
+        const rows = db.prepare(`SELECT payload, received FROM health WHERE user_id=? AND ((? IS NULL AND kind NOT IN ('workout_route','workout_series')) OR kind=?) AND start<? ORDER BY start DESC LIMIT ?`).all(auth.user_id, kind, kind, before, pageLimit + 1);
+        return send(200, { records: rows.slice(0, pageLimit).map(r => ({ ...JSON.parse(r.payload), received: r.received })), truncated: rows.length > pageLimit });
       }
       // Your own movement, for a map of it (the retired dashboard's Movement
       // tab; SR-Main's /home/people reads the same shape via /household/day).
