@@ -97,6 +97,14 @@ final class HomesteadStore: ObservableObject, GameRoomStoring {
         }
         // A sheet whose moment has gone closes itself.
         if let sheet, !(state.map({ sheet.stillFits($0) }) ?? false) { self.sheet = nil }
+        // A discard I owe takes the one sheet slot, over hand, trade or log:
+        // SwiftUI shows one sheet at a time, so it cannot be a second one.
+        if mustDiscard, sheet != .discard { sheet = .discard }
+    }
+
+    /// Open a sheet from the bar. While I owe a discard, that is the only one.
+    func show(_ next: HomesteadSheet) {
+        sheet = mustDiscard ? .discard : next
     }
 
     // MARK: - Reading the room
@@ -251,15 +259,20 @@ final class HomesteadStore: ObservableObject, GameRoomStoring {
 /// The sheets over the board.
 enum HomesteadSheet: String, Identifiable {
     case hand, bank, trade, log
+    /// After a 7, when I hold too many: cannot be dismissed, and nothing else shows while it is owed.
+    case discard
 
     var id: String { rawValue }
 
     /// Whether the sheet still makes sense for the room as it now is.
     func stillFits(_ state: HomesteadState) -> Bool {
         guard state.phase == .playing else { return false }
+        let owing = state.step == .discard && state.myDiscard > 0
+        if owing { return self == .discard }
         switch self {
         case .hand, .log, .trade: return true
         case .bank: return state.isMyTurn && state.step == .main
+        case .discard: return false
         }
     }
 }

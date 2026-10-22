@@ -27,6 +27,9 @@ final class GameRoomLink {
     private(set) var clock = GameClock()
     private(set) var ended = false
     private var hasRoom = false
+    /// The newest durable `version` delivered, so a late action answer cannot
+    /// undo a change the stream has already shown.
+    private var lastVersion: Int?
     private var streamTask: Task<Void, Never>?
     private var joinTried = false
     /// The sentence of the last 409, for a game whose conflicts say something
@@ -150,8 +153,20 @@ final class GameRoomLink {
         onEnd()
     }
 
-    private func deliver(_ room: GameRoom) {
+    /// Whether an action's answer is older than what this screen already shows.
+    /// Only a durable room carries `version`; anything without one is applied.
+    /// The stream and the snapshot are always the truth (a lost write race can
+    /// move a room's version back); only a POST answer, built before its write
+    /// was flushed, can arrive late.
+    nonisolated static func isStale(answer version: Int?, after last: Int?) -> Bool {
+        guard let version, let last else { return false }
+        return version < last
+    }
+
+    private func deliver(_ room: GameRoom, answer: Bool = false) {
         guard !ended else { return }
+        if answer, Self.isStale(answer: room.version, after: lastVersion) { return }
+        if let v = room.version { lastVersion = answer ? max(v, lastVersion ?? v) : v }
         hasRoom = true
         onRoom(room)
         if room.phase == .closed {
@@ -178,7 +193,7 @@ final class GameRoomLink {
             let received = Self.nowMs()
             if let envelope = try? JSONDecoder().decode(GameRoomEnvelope.self, from: data) {
                 clock.record(serverNow: envelope.room.serverNow, sentAt: sent, receivedAt: received)
-                deliver(envelope.room)
+                deliver(envelope.room, answer: true)
             }
             return .ok
         } catch SiteError.status(let code, _) where code == 404 {

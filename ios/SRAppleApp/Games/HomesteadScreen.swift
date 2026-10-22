@@ -128,14 +128,17 @@ struct HomesteadPlaying: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            HomesteadStrip(state: state, now: { store.serverNow() })
-            HomesteadBoardView(state: state, lit: store.lit, interactive: !store.sending, onTap: { store.tap($0) })
-                .frame(minHeight: 220, maxHeight: .infinity)
-                .overlay(alignment: .top) { refusal }
-            status
-            HomesteadActionBar(state: state, store: store)
+        Group {
+            if typeSize.isAccessibilitySize {
+                // At accessibility sizes the controls cannot all fit under a
+                // board that fills the screen: the board takes a fixed height
+                // and the whole play area scrolls, so Roll and End turn are
+                // always reachable.
+                ScrollView { playArea(board: AnyView(board.frame(height: 300))) }
+                    .scrollBounceBehavior(.basedOnSize)
+            } else {
+                playArea(board: AnyView(board.frame(minHeight: 220, maxHeight: .infinity)))
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, 4)
@@ -151,11 +154,10 @@ struct HomesteadPlaying: View {
             case .bank: HomesteadBankSheet(state: state, store: store)
             case .trade: HomesteadTradeSheet(room: room, state: state, store: store)
             case .log: HomesteadLogSheet(state: state)
+            case .discard:
+                HomesteadDiscardSheet(state: state, store: store)
+                    .interactiveDismissDisabled()
             }
-        }
-        .sheet(isPresented: Binding(get: { store.mustDiscard }, set: { _ in })) {
-            HomesteadDiscardSheet(state: state, store: store)
-                .interactiveDismissDisabled()
         }
         .confirmationDialog(
             "Take a card from…",
@@ -166,6 +168,20 @@ struct HomesteadPlaying: View {
                 Button(state.player(id)?.name ?? "Someone") { store.robFrom(id) }
             }
             Button("Cancel", role: .cancel) { store.foxAsk = nil }
+        }
+    }
+
+    private var board: some View {
+        HomesteadBoardView(state: state, lit: store.lit, interactive: !store.sending, onTap: { store.tap($0) })
+    }
+
+    private func playArea(board: AnyView) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            HomesteadStrip(state: state, now: { store.serverNow() })
+            board.overlay(alignment: .top) { refusal }
+            status
+            HomesteadActionBar(state: state, store: store)
         }
     }
 
@@ -386,16 +402,16 @@ struct HomesteadActionBar: View {
             LazyVGrid(columns: columns, spacing: 8) {
                 primary
                 tool("Hand", icon: "rectangle.stack.fill", badge: state.me.map { "\($0.hand.total)" }, id: "homestead-hand") {
-                    store.sheet = .hand
+                    store.show(.hand)
                 }
                 if state.legal.canTrade || !state.openOffers.isEmpty {
                     tool("Trade", icon: "arrow.left.arrow.right", badge: state.openOffers.isEmpty ? nil : "\(state.openOffers.count)",
-                         id: "homestead-trade") { store.sheet = .trade }
+                         id: "homestead-trade") { store.show(.trade) }
                 }
                 if state.legal.canTrade {
-                    tool("Bank", icon: "building.columns.fill", badge: nil, id: "homestead-bank") { store.sheet = .bank }
+                    tool("Bank", icon: "building.columns.fill", badge: nil, id: "homestead-bank") { store.show(.bank) }
                 }
-                tool("Log", icon: "list.bullet", badge: nil, id: "homestead-log") { store.sheet = .log }
+                tool("Log", icon: "list.bullet", badge: nil, id: "homestead-log") { store.show(.log) }
             }
         }
     }
@@ -403,7 +419,9 @@ struct HomesteadActionBar: View {
     /// Roll, End turn, Skip — the one move the step is waiting on.
     @ViewBuilder
     private var primary: some View {
-        if state.legal.canRoll {
+        if store.mustDiscard {
+            big("Put back cards", icon: "tray.and.arrow.up.fill", id: "homestead-discard") { store.show(.discard) }
+        } else if state.legal.canRoll {
             big("Roll", icon: "dice.fill", id: "homestead-roll") { store.roll() }
         } else if state.step == .roads, state.isMyTurn {
             big("Skip", icon: "forward.fill", id: "homestead-skip") { store.skip() }
@@ -412,14 +430,29 @@ struct HomesteadActionBar: View {
         }
     }
 
+    /// Four across, or two rows of two at accessibility sizes, where four
+    /// labels cannot fit a phone's width.
+    @ViewBuilder
     private var buildRow: some View {
-        HStack(spacing: 6) {
-            ForEach(HomesteadPiece.allCases) { piece in
-                pieceButton(piece)
+        if typeSize.isAccessibilitySize {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+                buildButtons
             }
-            buyButton
+        } else {
+            HStack(spacing: 6) { buildButtons }
         }
     }
+
+    @ViewBuilder
+    private var buildButtons: some View {
+        ForEach(HomesteadPiece.allCases) { piece in
+            pieceButton(piece)
+        }
+        buyButton
+    }
+
+    /// One line in the four-across row; room to wrap when the row is two by two.
+    private var labelLines: Int { typeSize.isAccessibilitySize ? 2 : 1 }
 
     private func pieceButton(_ piece: HomesteadPiece) -> some View {
         let spots = state.legal.spots(for: piece)
@@ -428,7 +461,7 @@ struct HomesteadActionBar: View {
             VStack(spacing: 3) {
                 HStack(spacing: 4) {
                     Image(systemName: icon(piece)).font(.system(size: 13, weight: .bold))
-                    Text(piece.label).font(SR.Text.label(13)).lineLimit(1)
+                    Text(piece.label).font(SR.Text.label(13)).lineLimit(labelLines)
                 }
                 if state.showCosts { HomesteadCostRow(cost: state.cost(piece.costKey), hand: state.me?.hand) }
             }
@@ -452,7 +485,7 @@ struct HomesteadActionBar: View {
             VStack(spacing: 3) {
                 HStack(spacing: 4) {
                     Image(systemName: "book.closed.fill").font(.system(size: 13, weight: .bold))
-                    Text("Card").font(SR.Text.label(13)).lineLimit(1)
+                    Text("Card").font(SR.Text.label(13)).lineLimit(labelLines)
                 }
                 if state.showCosts { HomesteadCostRow(cost: state.cost("card"), hand: state.me?.hand) }
             }

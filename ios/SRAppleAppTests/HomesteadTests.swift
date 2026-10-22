@@ -227,6 +227,29 @@ final class HomesteadTests: XCTestCase {
         XCTAssertTrue(line.contains("dunes"), line)
     }
 
+    func testCoastalSpotsOnOneHexEachReadDifferently() throws {
+        let state = try XCTUnwrap(try decode(SRDemoFixtures.homesteadRoom(id: SRDemoFixtures.demoHomesteadSetupRoom, clock: .init(now: Date()))!).homestead)
+        let board = state.board
+        var corners: [String: [String]] = [:]
+        for id in board.vertexIds {
+            guard let v = HomesteadVertex(id: id), board.land(around: v).count == 1 else { continue }
+            let hex = board.land(around: v)[0]
+            corners[hex.id, default: []].append(HomesteadTargets.spoken(HomesteadTarget(tool: .cottage, id: id), in: state))
+        }
+        var sides: [String: [String]] = [:]
+        for id in board.edgeIds {
+            guard let e = HomesteadEdge(id: id), board.land(beside: e).count == 1 else { continue }
+            let hex = board.land(beside: e)[0]
+            sides[hex.id, default: []].append(HomesteadTargets.spoken(HomesteadTarget(tool: .road, id: id), in: state))
+        }
+        XCTAssertFalse(corners.isEmpty)
+        XCTAssertFalse(sides.isEmpty)
+        for (hex, lines) in corners { XCTAssertEqual(Set(lines).count, lines.count, "\(hex): \(lines)") }
+        for (hex, lines) in sides { XCTAssertEqual(Set(lines).count, lines.count, "\(hex): \(lines)") }
+        XCTAssertEqual(HomesteadTargets.corner(HexCoord(0, 0).corners[0], of: HexCoord(0, 0)), "top")
+        XCTAssertEqual(HomesteadTargets.side(HexCoord(0, 0).sides[4], of: HexCoord(0, 0)), "left")
+    }
+
     // MARK: - The wire (the spec's JSON)
 
     private let specJSON = #"""
@@ -488,6 +511,19 @@ final class HomesteadTests: XCTestCase {
         XCTAssertEqual(state.myDiscard, 4)
         XCTAssertEqual(Set(state.waitingOn), ["p_alex", "p_sam"])
         XCTAssertEqual(state.seated.count, 5)
+    }
+
+    func testADiscardIOweIsTheOnlySheetThatFits() throws {
+        let clock = SRDemoFixtures.DemoClock(now: Date())
+        let owing = try XCTUnwrap(try decode(SRDemoFixtures.homesteadRoom(id: SRDemoFixtures.demoHomesteadDiscardRoom, clock: clock)!).homestead)
+        // One sheet shows at a time: hand, trade or log left open would hide the discard.
+        XCTAssertTrue(HomesteadSheet.discard.stillFits(owing))
+        for other in [HomesteadSheet.hand, .trade, .log, .bank] {
+            XCTAssertFalse(other.stillFits(owing), other.rawValue)
+        }
+        let main = try XCTUnwrap(try decode(SRDemoFixtures.homesteadRoom(id: SRDemoFixtures.demoHomesteadRoom, clock: clock)!).homestead)
+        XCTAssertFalse(HomesteadSheet.discard.stillFits(main), "nothing owed: the discard sheet closes")
+        XCTAssertTrue(HomesteadSheet.hand.stillFits(main))
     }
 
     // MARK: - Drafts and bodies

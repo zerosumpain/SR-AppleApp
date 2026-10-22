@@ -1312,18 +1312,27 @@ enum HomesteadTargets {
         func names(_ hexes: [HomesteadHex]) -> String {
             GameNamesList.join(hexes.map(\.spoken))
         }
+        // On the coast a spot touches one land hex, and several spots touch the
+        // same one: say where on it, so each lit spot reads differently.
+        func place(_ v: HomesteadVertex, _ land: [HomesteadHex]) -> String {
+            guard land.count == 1, let hex = land.first, let word = corner(v, of: hex.coord) else { return names(land) }
+            return "\(word) corner of \(hex.spoken)"
+        }
         switch target.tool {
         case .cottage:
             guard let v = HomesteadVertex(id: target.id) else { return "Cottage spot" }
-            var line = "Cottage spot, \(names(board.land(around: v)))"
+            var line = "Cottage spot, \(place(v, board.land(around: v)))"
             if let harbour = board.harbour(at: target.id) { line += ", harbour \(harbour.label)" }
             return line
         case .town:
             guard let v = HomesteadVertex(id: target.id) else { return "Town spot" }
-            return "Make a town here, \(names(board.land(around: v)))"
+            return "Make a town here, \(place(v, board.land(around: v)))"
         case .road:
             guard let e = HomesteadEdge(id: target.id) else { return "Road spot" }
             let land = board.land(beside: e)
+            if land.count == 1, let hex = land.first, let word = side(e, of: hex.coord) {
+                return "Road spot, \(word) side of \(hex.spoken)"
+            }
             return land.isEmpty ? "Road spot" : "Road spot beside \(names(land))"
         case .fox:
             guard let hex = board.hex(target.id) else { return "Move the fox here" }
@@ -1332,6 +1341,20 @@ enum HomesteadTargets {
             if !victims.isEmpty { line += ", next to \(GameNamesList.join(victims))" }
             return line
         }
+    }
+}
+
+extension HomesteadTargets {
+    /// Where a corner sits on a hex, as the board shows it (corners clockwise from the top).
+    static func corner(_ v: HomesteadVertex, of hex: HexCoord) -> String? {
+        let words = ["top", "upper-right", "lower-right", "bottom", "lower-left", "upper-left"]
+        return hex.corners.firstIndex(of: v).map { words[$0] }
+    }
+
+    /// Where a side sits on a hex (sides clockwise from the upper right).
+    static func side(_ e: HomesteadEdge, of hex: HexCoord) -> String? {
+        let words = ["upper-right", "right", "lower-right", "lower-left", "left", "upper-left"]
+        return hex.sides.firstIndex(of: e).map { words[$0] }
     }
 }
 

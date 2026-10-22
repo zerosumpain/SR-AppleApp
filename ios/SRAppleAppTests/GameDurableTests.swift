@@ -223,6 +223,17 @@ final class GameDurableTests: XCTestCase {
     }
     #endif
 
+    // MARK: - Late action answers
+
+    func testALateActionAnswerOlderThanTheStreamIsDropped() {
+        // Sam's discard reached me over the stream as v11; my own answer (v10) lands after it.
+        XCTAssertTrue(GameRoomLink.isStale(answer: 10, after: 11))
+        XCTAssertFalse(GameRoomLink.isStale(answer: 11, after: 11), "the same version is the same room")
+        XCTAssertFalse(GameRoomLink.isStale(answer: 12, after: 11))
+        XCTAssertFalse(GameRoomLink.isStale(answer: 10, after: nil), "nothing seen yet")
+        XCTAssertFalse(GameRoomLink.isStale(answer: nil, after: 11), "a room that is not durable has no version: always applied")
+    }
+
     private func json(_ body: CreateGameBody) throws -> [String: Any] {
         try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any])
     }
