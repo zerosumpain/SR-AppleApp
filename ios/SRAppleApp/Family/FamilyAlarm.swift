@@ -1,6 +1,7 @@
 import AVFoundation
 import AudioToolbox
 import CoreLocation
+import MediaPlayer
 import SwiftUI
 import UserNotifications
 
@@ -12,8 +13,8 @@ import UserNotifications
 /// - **App open (or opened from the alert):** the siren plays on a `.playback`
 ///   audio session, which iOS does NOT silence with the ring/silent switch,
 ///   on a loop until somebody taps Silence, with the phone vibrating under it.
-///   It plays at the phone's media volume — no app may raise the system
-///   volume itself.
+///   The phone's volume is driven to 100% and held there while it rings
+///   (`FullVolume`), then put back where it was.
 /// - **App in the background or the phone locked:** the push carries the same
 ///   siren or morse file as its sound (28 s), time-sensitive so it breaks
 ///   through a Focus that allows it. A switched-to-silent phone vibrates but
@@ -227,6 +228,7 @@ final class AlarmPlayer {
         // Not mixable: this is the only thing that should be heard.
         try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true)
+        FullVolume.shared.hold()
         if let url = Bundle.main.url(forResource: kind.sound, withExtension: "caf"),
            let player = try? AVAudioPlayer(contentsOf: url) {
             player.numberOfLoops = -1
@@ -247,7 +249,78 @@ final class AlarmPlayer {
         player = nil
         buzz?.cancel()
         buzz = nil
+        FullVolume.shared.release()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
+
+/// The phone's volume at 100% while the alarm rings, whatever it was set to.
+///
+/// iOS has no API for an app to set the system volume. The only way is the
+/// slider inside an `MPVolumeView`, kept in the window but invisible (which
+/// also keeps the system volume HUD from popping up). Apple does not support
+/// this, and it only works while the app is in the foreground: a locked phone
+/// needs a critical alert, which carries its own volume.
+///
+/// Pressing volume down while it rings is pushed straight back up — Silence is
+/// the way to quiet it. On release the volume goes back to what it was.
+@MainActor
+final class FullVolume {
+    static let shared = FullVolume()
+    private var view: MPVolumeView?
+    private var watch: NSKeyValueObservation?
+    private var before: Float?
+
+    func hold() {
+        guard watch == nil else { return }
+        let session = AVAudioSession.sharedInstance()
+        before = session.outputVolume
+        let view = MPVolumeView(frame: CGRect(x: -2000, y: -2000, width: 1, height: 1))
+        view.alpha = 0.01
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        keyWindow?.addSubview(view)
+        self.view = view
+        watch = session.observe(\.outputVolume) { [weak self] _, _ in
+            Task { @MainActor in
+                guard let self, self.watch != nil else { return }
+                if AVAudioSession.sharedInstance().outputVolume < 0.99 { self.set(1) }
+            }
+        }
+        // The slider is not wired up until the view has been laid out once.
+        Task {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard watch != nil else { return }
+            set(1)
+        }
+    }
+
+    func release() {
+        guard watch != nil else { return }
+        watch?.invalidate()
+        watch = nil
+        if let before { set(before) }
+        before = nil
+        // Leave the view a moment so the restore lands before it goes.
+        let view = self.view
+        self.view = nil
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            view?.removeFromSuperview()
+        }
+    }
+
+    private func set(_ level: Float) {
+        guard let slider = view?.subviews.compactMap({ $0 as? UISlider }).first else { return }
+        slider.setValue(level, animated: false)
+        slider.sendActions(for: .valueChanged)
+    }
+
+    private var keyWindow: UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
     }
 }
 
