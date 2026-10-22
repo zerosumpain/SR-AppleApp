@@ -99,6 +99,31 @@ final class MissionTests: XCTestCase {
         XCTAssertNil(room.chess)
     }
 
+    func testCountsWaitOnlyOnPeopleStillAtTheTable() throws {
+        // Robin (p_d) has left: the server votes for him, so the phone does not wait on him.
+        let room = try decode(votingJSON)
+        XCTAssertEqual(MissionRules.stillToVote(room), 2, "Sam and Alex, not Robin")
+        XCTAssertEqual(MissionRules.cardsIn(room).of, 3)
+    }
+
+    func testAMissionCardsTeamLeaveIsNotCountedAsStillToPlay() throws {
+        let json = #"""
+        { "id":"g_m", "game":"mission", "difficulty":"easy", "phase":"mission", "hostId":"p_a", "meId":"p_a",
+          "seats":5, "mission":1, "team":["p_a","p_b"],
+          "players":[{"id":"p_a","name":"Sam","status":"joined","seated":true,"onTeam":true,"played":true},
+                     {"id":"p_b","name":"Robin","status":"left","seated":true,"onTeam":true,"played":false}],
+          "serverNow":1 }
+        """#
+        let cards = MissionRules.cardsIn(try decode(json))
+        XCTAssertEqual(cards.played, 1)
+        XCTAssertEqual(cards.of, 1, "the leaver's card is the server's to play")
+    }
+
+    func testTheMissionFootnoteIsTheSameForEitherSide() {
+        // One constant, no side in it: a crew phone and a spy phone read alike.
+        XCTAssertTrue(MissionRules.missionFootnote.contains("Sabotage"))
+    }
+
     func testAFinishedRoomShowsEveryRoleAndTheResult() throws {
         let json = #"""
         { "id":"g_m", "game":"mission", "difficulty":"hard", "phase":"finished", "hostId":"p_a", "meId":"p_a",

@@ -446,10 +446,12 @@ struct NewGameSheet: View {
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
                         SRSectionLabel(text: game == .chess ? "Opponent" : "Players",
-                                       trailing: invited.isEmpty ? (game == .chess ? "Pick one" : "Solo") : "\(invited.count + 1)")
+                                       trailing: invited.isEmpty ? (game == .chess ? "Pick one" : game == .mission ? "Invite 4+" : "Solo") : "\(invited.count + 1)")
                         if players.isEmpty {
                             Text(game == .chess
                                  ? "Nobody else in the family can play yet, and chess needs two. The lobby can wait for somebody to pair a phone."
+                                 : game == .mission
+                                 ? "Nobody else in the family can play yet, and Secret Mission needs at least four others. The lobby can wait for people to pair phones."
                                  : "Nobody else in the family can play yet, so this is a solo game.")
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)

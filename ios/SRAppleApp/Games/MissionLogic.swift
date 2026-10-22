@@ -383,6 +383,29 @@ enum MissionRules {
         }
     }
 
+    /// The mission card footnote. One line for every team member: a crew phone
+    /// and a spy phone must look the same from across the table.
+    static let missionFootnote = "Nobody will see which you played — only how many sabotages there were. The crew can only succeed: Sabotage does nothing for them."
+
+    /// Who is still at the table. A leaver's vote and card are played by the
+    /// server, so nobody waits on them.
+    static func stillHere(_ room: GameRoom) -> Set<String> {
+        Set(room.players.filter(\.joined).map(\.id))
+    }
+
+    /// Votes still to come from people at the table.
+    static func stillToVote(_ room: GameRoom) -> Int {
+        let here = stillHere(room)
+        return (room.mission?.seatsById ?? []).filter { $0.seated && !$0.voted && here.contains($0.id) }.count
+    }
+
+    /// Mission cards in, out of the team members still at the table.
+    static func cardsIn(_ room: GameRoom) -> (played: Int, of: Int) {
+        let here = stillHere(room)
+        let team = (room.mission?.team ?? []).filter(here.contains)
+        return (team.filter { room.mission?.seat($0)?.played == true }.count, team.count)
+    }
+
     /// The fraction of a clock left, 0…1 (1 when it is unknown).
     static func timeLeft(endsAt: Double?, totalMs: Double, now: Double?) -> Double {
         guard let endsAt, let now, totalMs > 0 else { return 1 }

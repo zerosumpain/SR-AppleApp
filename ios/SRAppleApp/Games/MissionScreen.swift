@@ -440,7 +440,7 @@ struct MissionPlaying: View {
                     .font(SR.Text.bodyMedium(15))
                     .foregroundStyle(SR.ink)
                     .accessibilityIdentifier("mission-my-vote")
-                let waiting = (state?.seatsById ?? []).filter { $0.seated && !$0.voted }.count
+                let waiting = MissionRules.stillToVote(room)
                 Text(waiting == 0 ? "Counting…" : "Waiting for \(waiting) more. Votes show when everyone is in.")
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkMuted)
@@ -524,16 +524,17 @@ struct MissionPlaying: View {
                         .foregroundStyle(SR.ink)
                         .accessibilityIdentifier("mission-my-card")
                 } else {
+                    // Both buttons and one footnote on every team member's phone:
+                    // the layout must not show which side you are on. A crew tap
+                    // on Sabotage does nothing (and the server refuses it anyway).
                     HStack(spacing: 10) {
-                        if store.maySabotage {
-                            Button { store.play(sabotage: true) } label: {
-                                SRButtonLabel(title: "Sabotage", icon: "bolt.slash.fill", fill: true)
-                            }
-                            .srButton(.regular)
-                            .controlSize(.large)
-                            .disabled(!store.canPlay)
-                            .accessibilityIdentifier("mission-sabotage")
+                        Button { store.play(sabotage: true) } label: {
+                            SRButtonLabel(title: "Sabotage", icon: "bolt.slash.fill", fill: true)
                         }
+                        .srButton(.regular)
+                        .controlSize(.large)
+                        .disabled(!store.canPlay)
+                        .accessibilityIdentifier("mission-sabotage")
                         Button { store.play(sabotage: false) } label: {
                             SRButtonLabel(title: "Succeed", icon: "checkmark.seal.fill", fill: true)
                         }
@@ -542,17 +543,14 @@ struct MissionPlaying: View {
                         .disabled(!store.canPlay)
                         .accessibilityIdentifier("mission-succeed")
                     }
-                    Text(store.maySabotage
-                         ? "Nobody will see which you played — only how many sabotages there were."
-                         : "The crew can only succeed. Cover your screen anyway, so nobody can tell.")
+                    Text(MissionRules.missionFootnote)
                         .font(SR.Text.mono())
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            let team = state?.team ?? []
-            let played = team.filter { state?.seat($0)?.played == true }.count
-            Text("\(played) of \(team.count) cards in. \(state.map { $0.needed == 1 ? "One sabotage fails it." : "\($0.needed) sabotages fail it." } ?? "")")
+            let cards = MissionRules.cardsIn(room)
+            Text("\(cards.played) of \(cards.of) cards in. \(state.map { $0.needed == 1 ? "One sabotage fails it." : "\($0.needed) sabotages fail it." } ?? "")")
                 .font(SR.Text.secondary())
                 .foregroundStyle(SR.inkMuted)
                 .accessibilityIdentifier("mission-cards-in")
@@ -663,7 +661,9 @@ struct MissionPlaying: View {
         let seat = state?.seat(player.id)
         let me = player.id == room.meId
         let leads = state?.leaderId == player.id && phase != .hunt
-        let knownSpy = state?.secret?.spies.contains(player.id) == true || seat?.side == .spies
+        // Only what the whole table may see: spies are public in the hunt and at
+        // the finish. The spies you know privately stay inside the held role card.
+        let knownSpy = seat?.side == .spies
         return HStack(spacing: 10) {
             GameInitial(name: me ? "You" : player.name, tone: leads ? SR.accent : SR.accentInk)
             Text(player.name + (me ? " (you)" : ""))
