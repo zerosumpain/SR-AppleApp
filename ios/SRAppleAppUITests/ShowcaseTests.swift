@@ -1329,6 +1329,43 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Pass the Plate: my plate in round 2 (six cards, the spoon offered,
+    /// Sam chosen and Robin still choosing, everybody's table), and a finished
+    /// game with the ice cream counted.
+    @MainActor func testShowcasePassThePlate() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_plate")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "plate-playing"), seconds: 2)
+            soft(byId(app, "plate-hand").exists, "no plate")
+            soft(byId(app, "plate-card-41").exists, "no pizza card on my plate")
+            soft(byId(app, "plate-spoon").exists, "no spoon button")
+            soft(byId(app, "plate-waiting").label.contains("Robin"), "not waiting for Robin")
+            soft(byId(app, "plate-seat-p_sam").exists, "no table for Sam")
+            soft(byId(app, "plate-direction").label.contains("right"), "plates not going right in round 2")
+            attach(app, "Showcase — Pass the Plate, my plate")
+            back(app)
+        } else {
+            soft(false, "no Pass the Plate game to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_plate_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "plate-finished"), seconds: 2)
+            soft(byId(app, "plate-standings").exists, "no final scores")
+            soft(byId(app, "plate-standings-p_alex").label.contains("77"), "Alex's 77 is not shown")
+            attach(app, "Showcase — Pass the Plate, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Pass the Plate")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.

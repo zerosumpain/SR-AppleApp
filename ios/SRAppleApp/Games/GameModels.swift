@@ -35,6 +35,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case drawGuess = "draw-guess"
     case marbleRace = "marble-race"
     case chess
+    case passThePlate = "pass-the-plate"
 
     var id: String { rawValue }
 
@@ -52,6 +53,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Draw & Guess"
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
+        case .passThePlate: return "Pass the Plate"
         }
     }
 
@@ -70,6 +72,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Take turns drawing a word while everyone guesses."
         case .marbleRace: return "Back a marble. Everyone watches the same race."
         case .chess: return "The classic. Two players, a clock each."
+        case .passThePlate: return "Take a card, pass the plate. Three rounds of picnic."
         }
     }
 
@@ -100,6 +103,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone backs a different marble, then the same race plays on every phone at once. Burn in the fire and it's back to the top; the best-placed marble wins it for its backer."
         case .chess:
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
+        case .passThePlate:
+            return "Everyone gets a plate of food cards. Take one in secret, show it together, pass the plate on. Collect pancake pairs, whole pizzas, piles of popcorn and the most strawberries, and save room for ice cream."
         }
     }
 
@@ -117,6 +122,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "scribble.variable"
         case .marbleRace: return "flag.checkered"
         case .chess: return "checkerboard.rectangle"
+        case .passThePlate: return "fork.knife"
         }
     }
 }
@@ -176,6 +182,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.chess, .easy): return "15 minutes each, and 10 seconds back every move."
         case (.chess, .medium): return "10 minutes each, 5 seconds back a move."
         case (.chess, .hard): return "5 minutes each, 3 seconds back a move. Blitz."
+        case (.passThePlate, .easy): return "A simpler deck, and every card shows what it adds. 40 s a turn."
+        case (.passThePlate, .medium): return "The full deck, gravy and spoons too, with your running total. 30 s a turn."
+        case (.passThePlate, .hard): return "The full deck and no hints. 20 s a turn."
         }
     }
 
@@ -630,6 +639,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// JSON (`ChessLogic.swift`). Nil in every other game's room.
     let chess: ChessState?
 
+    /// Pass the Plate: my plate, everybody's table and the round scores, read
+    /// from the same JSON (`PassThePlateLogic.swift`). Nil in every other game's room.
+    let passThePlate: PassThePlateState?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
@@ -714,6 +727,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         }
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
+        passThePlate = game == GameKind.passThePlate.rawValue ? (try? PassThePlateState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -813,6 +827,8 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
+    /// Pass the Plate: `pick {cards:[uid]}`, or two uids with a serving spoon.
+    var cards: [Int]? = nil
 }
 
 enum GameNames {

@@ -45,6 +45,8 @@ extension SRDemoFixtures {
     static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
     static let demoChessRoom = "g_demo_chess"
     static let demoChessDoneRoom = "g_demo_chess_done"
+    static let demoPlateRoom = "g_demo_plate"
+    static let demoPlateDoneRoom = "g_demo_plate_done"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -106,6 +108,13 @@ extension SRDemoFixtures {
                        {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Pass the Plate's two rooms: Alex choosing in round 2, and a finished
+    /// game. Left out of the store shots, as Categories' are.
+    static let plateLobbyRows = #"""
+    {"id": "g_demo_plate", "game": "pass-the-plate", "phase": "picking", "hostName": "Alex"},
+                       {"id": "g_demo_plate_done", "game": "pass-the-plate", "phase": "finished", "hostName": "Sam"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -116,7 +125,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : plateLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : chessLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -149,6 +159,8 @@ extension SRDemoFixtures {
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
         if id == demoChessRoom { return chessRoom(finished: false, clock: clock) }
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
+        if id == demoPlateRoom { return plateRoom(finished: false, clock: clock) }
+        if id == demoPlateDoneRoom { return plateRoom(finished: true, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
@@ -646,6 +658,86 @@ extension SRDemoFixtures {
          "players": [\(seat("p_alex", "Alex", host: true, colour: "w", clockMs: 581000)),
                      \(seat("p_sam", "Sam", host: false, colour: "b", clockMs: 592000))],
          "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Pass the Plate
+
+    /// Pass the Plate, medium, Alex, Sam and Robin. Picking: round 2, turn 4,
+    /// plates going right; Alex (me) holds six cards and has a serving spoon on
+    /// the table, Sam has chosen and Robin has not. Finished (Sam's game): Alex
+    /// wins 77 to 68 to 45 after the ice cream.
+    static func plateRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let kinds = PlateDeck.kinds.map { kind -> String in
+            let k = PlateDeck.fallback(kind)
+            return "{\"kind\": \(s(kind)), \"name\": \(s(k.name)), \"emoji\": \(s(k.emoji)), \"family\": \(s(k.family)), "
+                + "\"count\": 0, \"value\": \(k.value), \"rule\": \(s(k.rule))}"
+        }.joined(separator: ", ")
+        func card(_ uid: Int, _ kind: String, boosted: Bool = false, spent: Bool = false) -> String {
+            "{\"uid\": \(uid), \"kind\": \(s(kind)), \"boosted\": \(boosted), \"spent\": \(spent)}"
+        }
+        func seat(_ id: String, _ name: String, host: Bool, hand: Int, picked: Bool, played: [String],
+                  iceCream: Int, berries: Int, score: Int, soFar: Int?) -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"handCount\": \(hand), \"picked\": \(picked), \"played\": [\(played.joined(separator: ", "))], "
+                + "\"iceCream\": \(iceCream), \"berries\": \(berries), \"score\": \(score), "
+                + "\"roundSoFar\": \(soFar.map(String.init) ?? "null"), \"left\": false}"
+        }
+        let round1 = """
+        {"round": 1, "rows": [
+          {"playerId": "p_alex", "pancakes": 6, "pizza": 12, "popcorn": 3, "pies": 3, "berryCount": 5, "berries": 7, "scoops": 1, "total": 31},
+          {"playerId": "p_sam", "pancakes": 0, "pizza": 12, "popcorn": 6, "pies": 8, "berryCount": 2, "berries": 3, "scoops": 2, "total": 29},
+          {"playerId": "p_robin", "pancakes": 12, "pizza": 0, "popcorn": 1, "pies": 4, "berryCount": 0, "berries": 0, "scoops": 0, "total": 17}]}
+        """
+        if finished {
+            let rounds = round1 + """
+            , {"round": 2, "rows": [
+              {"playerId": "p_alex", "pancakes": 0, "pizza": 12, "popcorn": 6, "pies": 6, "berryCount": 4, "berries": 3, "scoops": 1, "total": 27},
+              {"playerId": "p_sam", "pancakes": 6, "pizza": 0, "popcorn": 10, "pies": 2, "berryCount": 6, "berries": 7, "scoops": 0, "total": 25},
+              {"playerId": "p_robin", "pancakes": 6, "pizza": 12, "popcorn": 0, "pies": 3, "berryCount": 0, "berries": 0, "scoops": 1, "total": 21}]},
+              {"round": 3, "rows": [
+              {"playerId": "p_alex", "pancakes": 6, "pizza": 0, "popcorn": 3, "pies": 2, "berryCount": 3, "berries": 3, "scoops": 2, "total": 14},
+              {"playerId": "p_sam", "pancakes": 0, "pizza": 0, "popcorn": 1, "pies": 6, "berryCount": 7, "berries": 7, "scoops": 1, "total": 14},
+              {"playerId": "p_robin", "pancakes": 6, "pizza": 0, "popcorn": 6, "pies": 0, "berryCount": 1, "berries": 0, "scoops": 0, "total": 12}]}
+            """
+            return """
+            {"id": \(s(demoPlateDoneRoom)), "game": "pass-the-plate", "difficulty": "medium", "phase": "finished",
+             "hostId": "p_sam", "meId": "p_alex", "rounds": 3, "round": 3, "turn": 9, "handSize": 9,
+             "direction": "left", "passTo": "p_sam", "passFrom": "p_robin", "turnMs": 30000, "scoringMs": 8000,
+             "hints": "total", "kinds": [\(kinds)], "startedAt": \(ms(now.addingTimeInterval(-900))),
+             "phaseEndsAt": \(ms(now.addingTimeInterval(540))), "hand": [], "myPick": [], "canTakeTwo": false,
+             "players": [\(seat("p_sam", "Sam", host: true, hand: 0, picked: false, played: [], iceCream: 3, berries: 0, score: 68, soFar: 0)),
+                         \(seat("p_alex", "Alex", host: false, hand: 0, picked: false, played: [], iceCream: 4, berries: 0, score: 77, soFar: 0)),
+                         \(seat("p_robin", "Robin", host: false, hand: 0, picked: false, played: [], iceCream: 1, berries: 0, score: 45, soFar: 0))],
+             "lastTurn": null, "results": [\(rounds)],
+             "dessert": [{"playerId": "p_sam", "scoops": 3, "points": 0}, {"playerId": "p_alex", "scoops": 4, "points": 5},
+                         {"playerId": "p_robin", "scoops": 1, "points": -5}],
+             "standings": [{"id": "p_alex", "name": "Alex", "place": 1, "score": 77, "scoops": 4, "left": false},
+                           {"id": "p_sam", "name": "Sam", "place": 2, "score": 68, "scoops": 3, "left": false},
+                           {"id": "p_robin", "name": "Robin", "place": 3, "score": 45, "scoops": 1, "left": false}],
+             "winnerIds": ["p_alex"], "serverNow": \(ms(now))}
+            """
+        }
+        let hand = [(41, "pizza"), (42, "pie4"), (43, "berry2"), (44, "pancake"), (45, "icecream"), (46, "popcorn")]
+            .map { "{\"uid\": \($0.0), \"kind\": \(s($0.1)), \"gain\": null}" }.joined(separator: ", ")
+        let alex = [card(11, "pizza"), card(12, "pizza"), card(13, "spoon")]
+        let sam = [card(21, "gravy", spent: true), card(22, "pie3", boosted: true), card(23, "berry3")]
+        let robin = [card(31, "popcorn"), card(32, "popcorn"), card(33, "icecream")]
+        return """
+        {"id": \(s(demoPlateRoom)), "game": "pass-the-plate", "difficulty": "medium", "phase": "picking",
+         "hostId": "p_alex", "meId": "p_alex", "rounds": 3, "round": 2, "turn": 4, "handSize": 9,
+         "direction": "right", "passTo": "p_robin", "passFrom": "p_sam", "turnMs": 30000, "scoringMs": 8000,
+         "hints": "total", "kinds": [\(kinds)], "startedAt": \(ms(now.addingTimeInterval(-300))),
+         "phaseEndsAt": \(ms(now.addingTimeInterval(22))),
+         "hand": [\(hand)], "myPick": [], "canTakeTwo": true,
+         "players": [\(seat("p_alex", "Alex", host: true, hand: 6, picked: false, played: alex, iceCream: 1, berries: 0, score: 31, soFar: 0)),
+                     \(seat("p_sam", "Sam", host: false, hand: 6, picked: true, played: sam, iceCream: 2, berries: 3, score: 29, soFar: 6)),
+                     \(seat("p_robin", "Robin", host: false, hand: 6, picked: false, played: robin, iceCream: 1, berries: 0, score: 17, soFar: 3))],
+         "lastTurn": [{"playerId": "p_alex", "cards": [{"uid": 13, "kind": "spoon"}], "auto": false},
+                      {"playerId": "p_sam", "cards": [{"uid": 23, "kind": "berry3"}], "auto": false},
+                      {"playerId": "p_robin", "cards": [{"uid": 33, "kind": "icecream"}], "auto": true}],
+         "results": [\(round1)], "dessert": null, "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
         """
     }
 
