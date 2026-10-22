@@ -35,6 +35,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case drawGuess = "draw-guess"
     case marbleRace = "marble-race"
     case chess
+    case mission
 
     var id: String { rawValue }
 
@@ -52,6 +53,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Draw & Guess"
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
+        case .mission: return "Secret Mission"
         }
     }
 
@@ -70,6 +72,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Take turns drawing a word while everyone guesses."
         case .marbleRace: return "Back a marble. Everyone watches the same race."
         case .chess: return "The classic. Two players, a clock each."
+        case .mission: return "Crew against hidden spies. Five to ten, in one room."
         }
     }
 
@@ -100,6 +103,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone backs a different marble, then the same race plays on every phone at once. Burn in the fire and it's back to the top; the best-placed marble wins it for its backer."
         case .chess:
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
+        case .mission:
+            return "Five to ten of you, in one room. A few are secretly spies. Leaders pick teams, everyone votes, and the team secretly succeeds — or a spy sabotages. Three missions wins it for either side."
         }
     }
 
@@ -117,6 +122,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "scribble.variable"
         case .marbleRace: return "flag.checkered"
         case .chess: return "checkerboard.rectangle"
+        case .mission: return "eye.slash.fill"
         }
     }
 }
@@ -176,6 +182,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.chess, .easy): return "15 minutes each, and 10 seconds back every move."
         case (.chess, .medium): return "10 minutes each, 5 seconds back a move."
         case (.chess, .hard): return "5 minutes each, 3 seconds back a move. Blitz."
+        case (.mission, .easy): return "Crew and spies only. Unhurried clocks."
+        case (.mission, .medium): return "Adds a Lookout who knows the spies, and a Tracker who hunts them."
+        case (.mission, .hard): return "Lookout and Tracker, on short clocks: 60 s to pick, 30 s to vote."
         }
     }
 
@@ -630,6 +639,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// JSON (`ChessLogic.swift`). Nil in every other game's room.
     let chess: ChessState?
 
+    /// Secret Mission: my secret, the votes, the missions and the result, read
+    /// from the same JSON (`MissionLogic.swift`). Nil in every other game's room.
+    let mission: MissionState?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
@@ -714,6 +727,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         }
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
+        mission = game == GameKind.mission.rawValue ? (try? MissionState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -813,6 +827,11 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
+    /// Secret Mission: `propose {team:[playerId]}`, `vote {approve}`, `play {card:"succeed"|"sabotage"}`;
+    /// `guess {playerId}` (as Categories' `playerId`) and `ready` take the rest.
+    var team: [String]? = nil
+    var approve: Bool? = nil
+    var card: String? = nil
 }
 
 enum GameNames {

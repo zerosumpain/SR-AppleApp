@@ -352,6 +352,7 @@ struct GameCard: View {
         case .drawGuess: return SR.accentInk
         case .marbleRace: return SR.accent
         case .chess: return SR.ink
+        case .mission: return SR.error
         }
     }
 }
@@ -472,6 +473,8 @@ struct NewGameSheet: View {
                             }
                             Text(game == .chess
                                  ? "Chess is for two: pick the one person to play. The lobby waits for them to join; invites reach phones with the app open."
+                                 : game == .mission
+                                 ? "Secret Mission needs five to ten people in one room: invite at least four. The lobby waits for them to join."
                                  : "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
@@ -553,6 +556,9 @@ struct NewGameSheet: View {
         }
         if game == .marbleRace {
             return MarbleRaceSettings(difficulty: difficulty, course: marbleCourse).createBody(invite: invite)
+        }
+        if game == .mission {
+            return MissionSettings(difficulty: difficulty).createBody(invite: invite)
         }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
     }
