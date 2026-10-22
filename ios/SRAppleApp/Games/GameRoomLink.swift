@@ -29,6 +29,9 @@ final class GameRoomLink {
     private var hasRoom = false
     private var streamTask: Task<Void, Never>?
     private var joinTried = false
+    /// The sentence of the last 409, for a game whose conflicts say something
+    /// ("Sam no longer has those cards."); most games only re-read the room.
+    private(set) var lastConflict: String?
     private let client = SiteClient.shared
 
     init(roomId: String) {
@@ -137,8 +140,10 @@ final class GameRoomLink {
 
     // MARK: - Actions
 
-    /// POST an action. The answering room is delivered like any other.
-    func post(_ body: GameActionBody) async -> GamePostOutcome {
+    /// POST an action. The answering room is delivered like any other. Any
+    /// `Encodable` body: most games send `GameActionBody`; Homestead sends its
+    /// own `HomesteadMove`.
+    func post<Body: Encodable>(_ body: Body) async -> GamePostOutcome {
         let sent = Self.nowMs()
         do {
             let data = try await client.post("api/native/games/\(roomId)", body: try JSONEncoder().encode(body))
@@ -151,7 +156,8 @@ final class GameRoomLink {
         } catch SiteError.status(let code, _) where code == 404 {
             end()
             return .gone
-        } catch SiteError.status(let code, _) where code == 409 {
+        } catch SiteError.status(let code, let sentence) where code == 409 {
+            lastConflict = sentence
             return .wrongPhase
         } catch SiteError.status(let code, let sentence) where code == 400 {
             return .refused(sentence)

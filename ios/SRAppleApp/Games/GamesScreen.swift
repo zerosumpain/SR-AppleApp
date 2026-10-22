@@ -352,6 +352,7 @@ struct GameCard: View {
         case .drawGuess: return SR.accentInk
         case .marbleRace: return SR.accent
         case .chess: return SR.ink
+        case .homestead: return SR.good
         }
     }
 }
@@ -384,6 +385,8 @@ struct NewGameSheet: View {
     @State private var categoriesSeconds = CategoriesSettings.defaultSeconds
     // Liar's Dice.
     @State private var liarsDice = 5
+    // Homestead: the island size, as an index of `HomesteadSettings.islands`.
+    @State private var homesteadIsland = 0
     // Draw & Guess.
     @State private var drawTurns = 1
     @State private var drawSeconds = 80
@@ -426,6 +429,10 @@ struct NewGameSheet: View {
 
                     if game == .marbleRace {
                         marbleRaceSettings
+                    }
+
+                    if game == .homestead {
+                        homesteadSettings
                     }
 
                     // Marble Race's course sets how hard it is: no level to pick.
@@ -553,6 +560,10 @@ struct NewGameSheet: View {
         }
         if game == .marbleRace {
             return MarbleRaceSettings(difficulty: difficulty, course: marbleCourse).createBody(invite: invite)
+        }
+        if game == .homestead {
+            return HomesteadSettings(difficulty: difficulty, island: HomesteadSettings.island(at: homesteadIsland))
+                .createBody(invite: invite)
         }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
     }
@@ -703,6 +714,24 @@ struct NewGameSheet: View {
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("games-liars-line")
+        }
+    }
+
+    /// Homestead: which island, and that it needs three.
+    private var homesteadSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Island")
+            segments(
+                title: "Size",
+                options: HomesteadSettings.islands.enumerated().map { (value: $0.offset, label: $0.element.label) },
+                selected: $homesteadIsland,
+                id: "games-homestead-island"
+            )
+            Text(HomesteadSettings.line(island: HomesteadSettings.island(at: homesteadIsland)))
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-homestead-line")
         }
     }
 

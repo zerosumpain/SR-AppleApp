@@ -128,12 +128,14 @@ extension SRDemoFixtures {
                    {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"},
                    {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "phase": "playing", "hostName": "Alex"},
                    {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
+                   \(storeShotsSkipsWordle ? "" : homesteadLobbyRows)
                    {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
          "serverNow": \(ms(now))}
         """
     }
 
     static func demoRoom(id: String, meJoined: Bool, clock: DemoClock) -> String {
+        if let homestead = homesteadRoom(id: id, clock: clock) { return homestead }
         if id == demoWordleRoom { return wordleRoom(clock) }
         if id == demoQuizRoom { return quizRoom(reveal: false, clock: clock) }
         if id == demoQuizRevealRoom { return quizRoom(reveal: true, clock: clock) }
