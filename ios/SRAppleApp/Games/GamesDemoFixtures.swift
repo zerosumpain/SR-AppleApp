@@ -117,6 +117,7 @@ extension SRDemoFixtures {
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
          "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : oneClueLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -149,6 +150,7 @@ extension SRDemoFixtures {
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
         if id == demoChessRoom { return chessRoom(finished: false, clock: clock) }
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
+        if let room = oneClueDemoRoom(id: id, clock: clock) { return room }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {

@@ -1329,6 +1329,55 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// One Clue: Alex writing a clue for the word everyone but Sam can see,
+    /// Alex guessing from the clues that survived, and a finished game of
+    /// seven out of ten with every card listed.
+    @MainActor func testShowcaseOneClue() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let writing = byId(app, "games-room-g_demo_oneclue")
+        if scroll(app, to: writing) {
+            writing.tap()
+            settle(app, on: byId(app, "oneclue-clues"), seconds: 2)
+            soft(byId(app, "oneclue-word").label.contains("lighthouse"), "no word for a clue-giver")
+            soft(byId(app, "oneclue-clue-field").exists, "no clue field")
+            soft(byId(app, "oneclue-pips").exists, "no row of cards")
+            soft(byId(app, "oneclue-waiting").label.contains("you"), "not waiting on Alex")
+            attach(app, "Showcase — One Clue, writing a clue")
+            back(app)
+        } else {
+            soft(false, "no One Clue game to resume")
+        }
+
+        let guessing = byId(app, "games-room-g_demo_oneclue_guess")
+        if scroll(app, to: guessing) {
+            guessing.tap()
+            settle(app, on: byId(app, "oneclue-guess"), seconds: 2)
+            soft(!byId(app, "oneclue-word").exists, "the guesser can see the word")
+            soft(byId(app, "oneclue-survivor-p_sam").exists, "no surviving clue")
+            soft(byId(app, "oneclue-cancelled-count").label.contains("2"), "no cancelled count")
+            soft(byId(app, "oneclue-pass").exists, "no Pass")
+            attach(app, "Showcase — One Clue, guessing")
+            back(app)
+        } else {
+            soft(false, "no One Clue guess to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_oneclue_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "oneclue-finished"), seconds: 2)
+            soft(byId(app, "oneclue-standings").exists, "no team table")
+            soft(byId(app, "oneclue-cards").exists, "no card list")
+            attach(app, "Showcase — One Clue, finished")
+            back(app)
+        } else {
+            soft(false, "no finished One Clue")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.
