@@ -216,6 +216,10 @@ final class GameDurableTests: XCTestCase {
                                                           query: [:], body: nil, clock: clock))
         let room = try JSONDecoder().decode(GameRoomEnvelope.self, from: Data(snapshot.utf8)).room
         XCTAssertEqual(room.game, "homestead")
+        // The Homestead fixtures answer with a real board, not a lobby.
+        XCTAssertNotNil(room.homestead)
+        XCTAssertTrue(room.durable)
+        XCTAssertEqual(room.pace, .async)
     }
     #endif
 

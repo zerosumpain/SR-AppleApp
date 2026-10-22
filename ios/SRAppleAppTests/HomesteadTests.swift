@@ -453,8 +453,10 @@ final class HomesteadTests: XCTestCase {
     func testTheDemoLobbyListsTheHomesteadRooms() throws {
         let lobby = try JSONDecoder().decode(GamesLobby.self, from: Data(SRDemoFixtures.gamesLobby(.init(now: Date())).utf8))
         let rooms = lobby.rooms.filter { $0.game == "homestead" }.map(\.id)
-        XCTAssertEqual(rooms, [SRDemoFixtures.demoHomesteadRoom, SRDemoFixtures.demoHomesteadSetupRoom,
-                               SRDemoFixtures.demoHomesteadDiscardRoom, SRDemoFixtures.demoHomesteadDoneRoom])
+        // The two over-days rooms sit at the top of "Your games", then the four quick ones.
+        XCTAssertEqual(rooms, SRDemoFixtures.demoHomesteadAsyncIds
+                       + [SRDemoFixtures.demoHomesteadRoom, SRDemoFixtures.demoHomesteadSetupRoom,
+                          SRDemoFixtures.demoHomesteadDiscardRoom, SRDemoFixtures.demoHomesteadDoneRoom])
     }
 
     func testTheFixtureIslandsHaveTheSpecCounts() throws {

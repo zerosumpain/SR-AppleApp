@@ -6,8 +6,8 @@ import Foundation
 // standard island (Alex, Sam, Robin): placing a first cottage in setup; Alex's
 // main step with an offer of Alex's out, a counter from Sam and Robin's "no
 // thanks"; a 7 on the large island with five at the table, Alex owing four
-// cards; and a finished game Sam won. The two durable lobby rows the durable
-// branch lists (`g_demo_homestead_mine`, `g_demo_homestead_waiting`) answer
+// cards; and a finished game Sam won. The two durable lobby rows in
+// "Your games" (`demoDurableMineRoom`, `demoDurableWaitingRoom`) answer
 // here too: Alex's move over days, and one waiting on Sam to roll.
 //
 // The legal spots are worked out from the geometry so the fixture lights
@@ -20,8 +20,9 @@ extension SRDemoFixtures {
     static let demoHomesteadSetupRoom = "g_demo_homestead_setup"
     static let demoHomesteadDiscardRoom = "g_demo_homestead_discard"
     static let demoHomesteadDoneRoom = "g_demo_homestead_done"
-    /// The durable branch's two lobby rows (its constants live there).
-    static let demoHomesteadAsyncIds = ["g_demo_homestead_mine", "g_demo_homestead_waiting"]
+    /// The two durable lobby rows (`SRDemoFixtures.demoDurableMineRoom` and
+    /// `demoDurableWaitingRoom` in `GamesDemoFixtures.swift`).
+    static let demoHomesteadAsyncIds = [demoDurableMineRoom, demoDurableWaitingRoom]
 
     /// The rooms for the lobby's "Your games", left out of the store shots as
     /// Categories' are.
@@ -36,8 +37,8 @@ extension SRDemoFixtures {
     static func homesteadRoom(id: String, clock: DemoClock) -> String? {
         switch id {
         case demoHomesteadRoom: return homesteadMain(id: id, clock: clock, pace: "live")
-        case "g_demo_homestead_mine": return homesteadMain(id: id, clock: clock, pace: "async")
-        case "g_demo_homestead_waiting": return homesteadWaiting(id: id, clock: clock)
+        case demoDurableMineRoom: return homesteadMain(id: id, clock: clock, pace: "async")
+        case demoDurableWaitingRoom: return homesteadWaiting(id: id, clock: clock)
         case demoHomesteadSetupRoom: return homesteadSetup(clock: clock)
         case demoHomesteadDiscardRoom: return homesteadDiscard(clock: clock)
         case demoHomesteadDoneRoom: return homesteadDone(clock: clock)
@@ -248,6 +249,8 @@ extension SRDemoFixtures {
             "deckCount": 17, "costs": homesteadCosts, "showCosts": difficulty != "hard",
             "offers": [[String: Any]](), "hints": NSNull(), "log": [[String: Any]](),
             "result": NSNull(), "standings": NSNull(), "winnerIds": [String](), "serverNow": ms(now).asNumber,
+            // Homestead is a durable game: the site marks every room of it so.
+            "durable": true, "version": 12,
         ]
         for (key, value) in extra { room[key] = value }
         return homesteadJSON(room)

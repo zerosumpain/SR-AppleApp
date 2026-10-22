@@ -113,8 +113,8 @@ extension SRDemoFixtures {
 
     /// Two Homestead games over days (`pace: async`), for "Your games": Alex
     /// to move with 21 hours left, and one waiting for Sam. Left out of the
-    /// store shots, as Categories' are. Their room snapshots belong to the
-    /// Homestead fixtures; until those merge they open as a lobby.
+    /// store shots, as Categories' are. Their boards come from
+    /// `HomesteadDemoFixtures.homesteadRoom`.
     static func durableLobbyRows(_ now: Date) -> String {
         """
         {"id": \(s(demoDurableMineRoom)), "game": "homestead", "phase": "playing", "hostName": "Sam",
@@ -175,12 +175,6 @@ extension SRDemoFixtures {
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
-        // Placeholder snapshots for the durable rows: a Homestead lobby, until
-        // the Homestead fixtures answer for these ids with a board.
-        if id == demoDurableMineRoom || id == demoDurableWaitingRoom {
-            return gameRoom(id: id, hostIsMe: id == demoDurableWaitingRoom, meJoined: true, invited: [],
-                            game: "homestead", clock: clock)
-        }
         if id == demoQuizInviteRoom {
             return quizLobby(id: id, fields: ["topic": "space", "audience": "kids", "difficulty": "easy"],
                              invited: [], hostIsMe: false, meJoined: meJoined, prep: "writing", clock: clock)
