@@ -740,6 +740,8 @@ struct NewGameSheet: View {
                 .pickerStyle(.segmented)
                 .onChange(of: quizMode) { _, _ in
                     SRHaptic.select()
+                    // "Dinosaurs" is not a Biology topic: each kind starts blank.
+                    topic = ""
                     refusal = nil
                 }
                 .accessibilityIdentifier("games-quiz-mode")
