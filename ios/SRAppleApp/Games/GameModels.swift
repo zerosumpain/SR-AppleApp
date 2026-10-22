@@ -35,6 +35,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case drawGuess = "draw-guess"
     case marbleRace = "marble-race"
     case chess
+    case fakeArtist = "fake-artist"
 
     var id: String { rawValue }
 
@@ -52,6 +53,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Draw & Guess"
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
+        case .fakeArtist: return "Fake Artist"
         }
     }
 
@@ -70,6 +72,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Take turns drawing a word while everyone guesses."
         case .marbleRace: return "Back a marble. Everyone watches the same race."
         case .chess: return "The classic. Two players, a clock each."
+        case .fakeArtist: return "One line each. One of you doesn't know the word."
         }
     }
 
@@ -100,6 +103,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone backs a different marble, then the same race plays on every phone at once. Burn in the fire and it's back to the top; the best-placed marble wins it for its backer."
         case .chess:
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
+        case .fakeArtist:
+            return "Everyone sees the category; everyone but the fake sees the word. Take turns adding one line each to the same picture, then vote for the fake. Caught, the fake can still win by naming the word."
         }
     }
 
@@ -117,6 +122,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "scribble.variable"
         case .marbleRace: return "flag.checkered"
         case .chess: return "checkerboard.rectangle"
+        case .fakeArtist: return "theatermasks.fill"
         }
     }
 }
@@ -176,6 +182,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.chess, .easy): return "15 minutes each, and 10 seconds back every move."
         case (.chess, .medium): return "10 minutes each, 5 seconds back a move."
         case (.chess, .hard): return "5 minutes each, 3 seconds back a move. Blitz."
+        case (.fakeArtist, .easy): return "Everyday words. 30 seconds a line."
+        case (.fakeArtist, .medium): return "Well-known words. 20 seconds a line."
+        case (.fakeArtist, .hard): return "Less common words. 15 seconds a line."
         }
     }
 
@@ -630,6 +639,11 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// JSON (`ChessLogic.swift`). Nil in every other game's room.
     let chess: ChessState?
 
+    /// Fake Artist: the round as this phone may see it, the picture and the
+    /// history, read from the same JSON (`FakeArtistLogic.swift`). Nil in every
+    /// other game's room.
+    let fakeArtist: FakeArtistState?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
@@ -714,6 +728,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         }
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
+        fakeArtist = game == GameKind.fakeArtist.rawValue ? (try? FakeArtistState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -768,6 +783,8 @@ struct CreateGameBody: Encodable, Equatable {
     var turnsEach: Int? = nil
     /// Marble Race: the course from Marbler's pack.
     var course: MarbleRaceState.Course? = nil
+    /// Fake Artist: rounds in the game (3 | 5).
+    var rounds: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -813,6 +830,9 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
+    /// Fake Artist: `stroke {points, end?}` (`points` as Draw & Guess's; `end` lifts the
+    /// finger and ends the turn); `vote {playerId}`; `guess {text}`.
+    var end: Bool? = nil
 }
 
 enum GameNames {

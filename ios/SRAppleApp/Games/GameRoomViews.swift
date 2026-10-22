@@ -52,6 +52,8 @@ struct GameRoomScreen: View {
                 MarbleRaceScreen(roomId: ref.id)
             case .chess?:
                 ChessScreen(roomId: ref.id)
+            case .fakeArtist?:
+                FakeArtistScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",

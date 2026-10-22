@@ -19,7 +19,8 @@ import Foundation
 // Alex's turn to bid over a timed-out raise of Sam's, a call with every cup
 // up, and a finished game. Draw & Guess: one of Sam's mid-drawing with Alex
 // guessing (a close guess of Alex's own in the feed), and one where Alex is
-// drawing. The room stream has no
+// drawing. Fake Artist: Alex's line to draw as an artist, a vote with Alex
+// the fake, and a reveal. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -45,6 +46,9 @@ extension SRDemoFixtures {
     static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
     static let demoChessRoom = "g_demo_chess"
     static let demoChessDoneRoom = "g_demo_chess_done"
+    static let demoFakeArtistRoom = "g_demo_fakeartist"
+    static let demoFakeArtistVoteRoom = "g_demo_fakeartist_vote"
+    static let demoFakeArtistRevealRoom = "g_demo_fakeartist_reveal"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -106,6 +110,14 @@ extension SRDemoFixtures {
                        {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Fake Artist's three rooms: Alex's line to draw, a vote with Alex the
+    /// fake, and a reveal. Left out of the store shots, as Chess's are.
+    static let fakeArtistLobbyRows = #"""
+    {"id": "g_demo_fakeartist", "game": "fake-artist", "phase": "drawing", "hostName": "Alex"},
+                       {"id": "g_demo_fakeartist_vote", "game": "fake-artist", "phase": "voting", "hostName": "Sam"},
+                       {"id": "g_demo_fakeartist_reveal", "game": "fake-artist", "phase": "reveal", "hostName": "Robin"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -116,7 +128,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : fakeArtistLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : chessLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -149,6 +162,9 @@ extension SRDemoFixtures {
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
         if id == demoChessRoom { return chessRoom(finished: false, clock: clock) }
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
+        if id == demoFakeArtistRoom { return fakeArtistRoom(.drawing, clock: clock) }
+        if id == demoFakeArtistVoteRoom { return fakeArtistRoom(.voting, clock: clock) }
+        if id == demoFakeArtistRevealRoom { return fakeArtistRoom(.reveal, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
@@ -645,6 +661,96 @@ extension SRDemoFixtures {
          "captured": {"w": [], "b": []}, "legal": [\(legal)], "drawOfferBy": null, "result": null,
          "players": [\(seat("p_alex", "Alex", host: true, colour: "w", clockMs: 581000)),
                      \(seat("p_sam", "Sam", host: false, colour: "b", clockMs: 592000))],
+         "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Fake Artist
+
+    /// Fake Artist, medium, five players (Alex, Sam, Robin, Kit, Jo), round 2
+    /// of 3, category Places. Drawing: Alex is an artist, the word is
+    /// lighthouse, and it is Alex's line, three lines in. Voting: Alex is the
+    /// fake (no word on this phone), the picture done, Sam and Robin have
+    /// voted. Reveal: Jo was the fake, caught, and named the word.
+    static func fakeArtistRoom(_ phase: FakeArtistPhase, clock: DemoClock) -> String {
+        let now = clock.now
+        func line(_ id: Int, _ color: String, _ points: [[Int]]) -> String {
+            "{\"id\": \(id), \"color\": \(s(color)), \"width\": 14, \"points\": \(points)}"
+        }
+        let seats = [("p_alex", "Alex", "red"), ("p_sam", "Sam", "blue"), ("p_robin", "Robin", "green"),
+                     ("p_kit", "Kit", "orange"), ("p_jo", "Jo", "purple")]
+        let host: String
+        let roomId: String
+        switch phase {
+        case .voting: host = "p_sam"; roomId = demoFakeArtistVoteRoom
+        case .reveal: host = "p_robin"; roomId = demoFakeArtistRevealRoom
+        default: host = "p_alex"; roomId = demoFakeArtistRoom
+        }
+        let turns = ["p_sam", "p_robin", "p_kit", "p_jo", "p_alex", "p_sam", "p_robin", "p_kit", "p_jo", "p_alex"]
+        let tower = [
+            line(1, "blue", [[420, 860], [450, 380], [550, 380], [580, 860]]),
+            line(2, "green", [[400, 380], [500, 300], [600, 380]]),
+            line(3, "orange", [[440, 520], [560, 520]]),
+            line(4, "purple", [[600, 330], [900, 220], [900, 440], [600, 330]]),
+            line(5, "red", [[80, 900], [250, 870], [420, 900], [580, 870], [750, 900], [920, 870]]),
+            line(6, "blue", [[470, 640], [530, 640]]),
+            line(7, "green", [[100, 220], [330, 330], [100, 440]]),
+            line(8, "orange", [[470, 420], [530, 420], [530, 470], [470, 470], [470, 420]]),
+            line(9, "purple", [[430, 760], [570, 760]]),
+            line(10, "red", [[700, 700], [760, 640], [820, 700], [880, 640]]),
+        ]
+        let drawn: [String]
+        let current: String
+        let phaseEndsAt: Date
+        var scores = ["p_alex": 1, "p_sam": 2, "p_robin": 1, "p_kit": 1, "p_jo": 0]
+        switch phase {
+        case .voting:
+            drawn = tower
+            phaseEndsAt = now.addingTimeInterval(41)
+            current = """
+            {"number": 2, "category": "Places", "role": "fake", "word": null, "fakeId": "p_alex",
+             "turns": \(list(turns.map { s($0) })), "turn": null, "artistId": null, "turnStartedAt": null, "skipped": [],
+             "voted": ["p_sam", "p_robin"], "myVote": null, "votes": null, "counts": null,
+             "accusedId": null, "guess": null, "outcome": null, "awarded": null}
+            """
+        case .reveal:
+            drawn = tower
+            phaseEndsAt = now.addingTimeInterval(7)
+            scores["p_jo"] = 2
+            current = """
+            {"number": 2, "category": "Places", "role": "artist", "word": "lighthouse", "fakeId": "p_jo",
+             "turns": \(list(turns.map { s($0) })), "turn": null, "artistId": null, "turnStartedAt": null, "skipped": [],
+             "voted": ["p_alex", "p_sam", "p_robin", "p_kit", "p_jo"], "myVote": "p_jo",
+             "votes": {"p_alex": "p_jo", "p_sam": "p_jo", "p_robin": "p_jo", "p_kit": "p_sam", "p_jo": "p_kit"},
+             "counts": {"p_jo": 3, "p_sam": 1, "p_kit": 1},
+             "accusedId": "p_jo", "guess": "lighthouse", "outcome": "guessed", "awarded": {"p_jo": 2}}
+            """
+        default:
+            drawn = Array(tower.prefix(4))
+            phaseEndsAt = now.addingTimeInterval(14)
+            current = """
+            {"number": 2, "category": "Places", "role": "artist", "word": "lighthouse", "fakeId": null,
+             "turns": \(list(turns.map { s($0) })), "turn": 4, "artistId": "p_alex",
+             "turnStartedAt": \(ms(now.addingTimeInterval(-6))), "skipped": [],
+             "voted": [], "myVote": null, "votes": null, "counts": null,
+             "accusedId": null, "guess": null, "outcome": null, "awarded": null}
+            """
+        }
+        let players = seats.map { id, name, color in
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(id == host), "
+                + "\"score\": \(scores[id] ?? 0), \"color\": \(s(color)), "
+                + "\"isDrawing\": \(phase == .drawing && id == "p_alex")}"
+        }
+        return """
+        {"id": \(s(roomId)), "game": "fake-artist", "difficulty": "medium", "phase": \(s(phase.rawValue)),
+         "hostId": \(s(host)), "meId": "p_alex", "rounds": 3, "laps": 2,
+         "turnMs": 20000, "readMs": 8000, "voteMs": 60000, "guessMs": 30000, "revealMs": 10000,
+         "phaseEndsAt": \(ms(phaseEndsAt)),
+         "current": \(current),
+         "history": [{"number": 1, "category": "Animals", "word": "penguin", "fakeId": "p_sam", "outcome": "escaped"}],
+         "drawing": {"revision": \(20 + drawn.count), "since": null, "strokes": \(list(drawn)), "ops": null},
+         "palette": ["red","blue","green","orange","purple","brown","pink","teal","black","gold"],
+         "players": \(list(players)),
          "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
         """
     }
