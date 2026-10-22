@@ -44,7 +44,9 @@ struct QuizNightScreen: View {
 
     @ViewBuilder
     private var content: some View {
-        if store.ended {
+        if let finished = store.lastFinished, store.ended || store.room?.phase == .closed {
+            QuizFinished(room: finished, store: store, again: newQuiz, done: { dismiss() })
+        } else if store.ended {
             GameEndedView(id: "quiz-ended", done: { dismiss() })
         } else if let room = store.room {
             switch room.phase {
@@ -162,9 +164,18 @@ struct QuizLobbyPanel: View {
         .srGlassCard(.paper)
     }
 
-    /// "for kids · 10 questions · 20 s each".
+    /// "for kids · 10 questions · 20 s each", or "GCSE Biology · AQA ·
+    /// Grades 4–5 · 10 questions · 30 s each".
     private var settingsLine: String {
         let seconds = Int(((room.timeMs ?? QuizTime.fallbackMs(room.difficulty)) / 1000).rounded())
+        if let gcse = room.quizGcse {
+            let tier = gcse.tier.map { " · \($0)" } ?? ""
+            if room.prep == .writing {
+                let topic = room.topic.map { " · “\($0)”" } ?? ""
+                return "\(gcse.line)\(tier)\(topic) · \(seconds) s a question. Writing, then checking every answer."
+            }
+            return "\(gcse.line)\(tier) · \(room.questionCount) questions · \(seconds) s each"
+        }
         let audience = QuizAudience.from(room.audience).phrase
         if room.prep == .writing {
             let topic = room.topic.map { "“\($0)”" } ?? "A topic of jkai’s choosing"
@@ -228,6 +239,13 @@ struct QuizQuestionView: View {
                 .accessibilityIdentifier("quiz-options")
 
                 if revealed {
+                    if let topic = question.topic {
+                        Label(topic, systemImage: "book.closed")
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.inkMuted)
+                            .accessibilityLabel("Spec topic: \(topic)")
+                            .accessibilityIdentifier("quiz-topic")
+                    }
                     if let explain = question.explain {
                         Label(explain, systemImage: "lightbulb")
                             .font(SR.Text.body(15))
@@ -259,8 +277,8 @@ struct QuizQuestionView: View {
                     .font(SR.Text.label())
                     .tracking(SR.kickerTracking)
                     .foregroundStyle(SR.accent)
-                if let title = room.title {
-                    Text(title)
+                if let line = room.quizGcse?.line ?? room.title {
+                    Text(line)
                         .font(SR.Text.secondary())
                         .foregroundStyle(SR.inkMuted)
                         .lineLimit(1)
@@ -742,6 +760,10 @@ struct QuizFinished: View {
                     .accessibilityIdentifier("quiz-standings")
                 }
 
+                if let review = room.quizReview, !review.isEmpty {
+                    QuizReviewSection(items: review, gcse: room.quizGcse != nil)
+                }
+
                 VStack(spacing: 10) {
                     if room.isHost {
                         Button {
@@ -800,3 +822,131 @@ struct QuizFinished: View {
         return "\(right) · \(seconds.formatted(.number.precision(.fractionLength(1)))) s average"
     }
 }
+
+// MARK: - The review
+
+/// Every question again with its answer — what I missed first, and for a GCSE
+/// quiz the spec topics to revise next.
+struct QuizReviewSection: View {
+    let items: [QuizReviewItem]
+    let gcse: Bool
+
+    @State private var open: Set<Int> = []
+
+    private var missed: Int { items.filter { !$0.gotIt }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Go over the answers",
+                           trailing: missed == 0 ? "All right" : "\(missed) to look at")
+
+            let topics = QuizReview.reviseNext(items)
+            if gcse, !topics.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("REVISE NEXT")
+                        .font(SR.Text.label())
+                        .tracking(SR.kickerTracking)
+                        .foregroundStyle(SR.accent)
+                    ForEach(topics.prefix(3), id: \.self) { topic in
+                        Label(topic, systemImage: "book.closed")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(SR.cardPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .srGlassCard(.paper)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("quiz-revise-next")
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(QuizReview.ordered(items).enumerated()), id: \.element.id) { position, item in
+                    if position > 0 { Divider().overlay(SR.divider) }
+                    row(item)
+                }
+            }
+            .padding(.horizontal, SR.cardPadding)
+            .padding(.vertical, 6)
+            .srGlassCard(.paper)
+            .accessibilityIdentifier("quiz-review")
+        }
+    }
+
+    private func row(_ item: QuizReviewItem) -> some View {
+        let expanded = open.contains(item.index)
+        return Button {
+            SRHaptic.select()
+            if expanded { open.remove(item.index) } else { open.insert(item.index) }
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: item.gotIt ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(item.gotIt ? SR.good : SR.error)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Q\(item.index + 1). \(item.prompt)")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.ink)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(summary(item))
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.inkMuted)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(SR.inkGhost)
+                        .accessibilityHidden(true)
+                }
+                if expanded {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Answer: \(QuizNight.letter(item.answerIndex)). \(item.answer)")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.ink)
+                        if let mine = item.myChoice, mine != item.answerIndex, item.options.indices.contains(mine) {
+                            Text("You said \(QuizNight.letter(mine)). \(item.options[mine])")
+                                .font(SR.Text.secondary())
+                                .foregroundStyle(SR.inkSecondary)
+                        }
+                        if let explain = item.explain {
+                            Label(explain, systemImage: "lightbulb")
+                                .font(SR.Text.body(15))
+                                .foregroundStyle(SR.inkSecondary)
+                        }
+                        if let topic = item.topic {
+                            Label(topic, systemImage: "book.closed")
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
+                        }
+                    }
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 27)
+                }
+            }
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(expanded ? "Hides the answer." : "Shows the answer and why.")
+        .accessibilityIdentifier("quiz-review-\(item.index)")
+    }
+
+    /// "You: right · 2 of 3 got it", or "You: no answer · nobody got it".
+    private func summary(_ item: QuizReviewItem) -> String {
+        let me: String
+        if item.myChoice == nil { me = "No answer" } else { me = item.gotIt ? "Right" : "Wrong" }
+        guard item.playerCount > 1 else { return me }
+        let table = item.rightCount == 0 ? "nobody got it" : "\(item.rightCount) of \(item.playerCount) got it"
+        return "\(me) · \(table)"
+    }
+}
+

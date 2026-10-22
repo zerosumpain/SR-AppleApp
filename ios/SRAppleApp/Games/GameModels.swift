@@ -550,6 +550,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     let timeMs: Double?
     /// The open (or revealed) question.
     let question: QuizQuestion?
+    /// GCSE revision: subject, board and grade band. Nil in a general quiz.
+    let quizGcse: QuizGcse?
+    /// Every question again with its answer, once the quiz is finished.
+    let quizReview: [QuizReviewItem]?
 
     // Anagram Blitz. `timeLimitMs`, `startedAt` as Wordle Race's.
     let letterCount: Int
@@ -630,7 +634,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
         case wordLength, maxGuesses, timeLimitMs, hardMode, startedAt, keyboard, secret
-        case audience, topic, title, prep, prepError, questionCount, timeMs, question
+        case audience, topic, title, prep, prepError, questionCount, timeMs, question, gcse, review
         case letterCount, minLength, points, letters, seed, found, missed
         case problemCount, streakBonus, me, recaps
         case tiles, startLength, maxLength
@@ -670,6 +674,11 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         questionCount = (try? c.decodeIfPresent(Int.self, forKey: .questionCount)) ?? 10
         timeMs = (try? c.decodeIfPresent(Double.self, forKey: .timeMs)) ?? nil
         question = (try? c.decodeIfPresent(QuizQuestion.self, forKey: .question)) ?? nil
+        // Read only off a quiz: Categories has a `review` PHASE, and a key of the
+        // same name in another game's room must never decode into this.
+        let isQuiz = game == GameKind.quizNight.rawValue
+        quizGcse = isQuiz ? ((try? c.decodeIfPresent(QuizGcse.self, forKey: .gcse)) ?? nil) : nil
+        quizReview = isQuiz ? ((try? c.decodeIfPresent([QuizReviewItem].self, forKey: .review)) ?? nil) : nil
         letterCount = (try? c.decodeIfPresent(Int.self, forKey: .letterCount)) ?? 7
         minLength = (try? c.decodeIfPresent(Int.self, forKey: .minLength)) ?? 3
         points = (try? c.decodeIfPresent([String: Int].self, forKey: .points)) ?? [:]
@@ -743,6 +752,10 @@ struct CreateGameBody: Encodable, Equatable {
     /// Quiz Night: what about (nil = jkai picks), and who for.
     var topic: String? = nil
     var audience: String? = nil
+    /// Quiz Night GCSE revision: `mode: "gcse"`, a subject id and an exam board.
+    var mode: String? = nil
+    var subject: String? = nil
+    var board: String? = nil
     /// Boggle: tiles a side (4–6), seconds on the clock, classic | every.
     var size: Int? = nil
     var seconds: Int? = nil
