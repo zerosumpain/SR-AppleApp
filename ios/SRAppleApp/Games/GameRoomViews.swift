@@ -146,7 +146,8 @@ struct GameLobby<Store: GameRoomStoring>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 SRPageHeader(
-                    kicker: "\(GameNames.title(room.game)) · \(GameDifficulty.label(for: room.difficulty))",
+                    kicker: "\(GameNames.title(room.game)) · \(GameDifficulty.label(for: room.difficulty))"
+                        + (room.pace == .async ? " · \(GamePace.async.label)" : ""),
                     title: room.isHost ? "Your game" : (room.host.map { "\($0.name)’s game" } ?? "A game"),
                     strap: strap
                 )
@@ -329,7 +330,7 @@ struct GameLobby<Store: GameRoomStoring>: View {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 if let now = store.serverNow() {
                     let left = max(0, Int(((end - now) / 1000).rounded(.down)))
-                    Label("Lobby open for \(left / 60):\(String(format: "%02d", left % 60))", systemImage: "timer")
+                    Label("Lobby open for \(GameDeadline.clock(seconds: left))", systemImage: "timer")
                         .font(SR.Text.mono())
                         .foregroundStyle(left < 30 ? SR.accent : SR.inkMuted)
                         .monospacedDigit()

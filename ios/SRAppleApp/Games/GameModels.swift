@@ -283,6 +283,45 @@ struct GameRoomSummary: Decodable, Equatable, Identifiable {
     let game: String
     let phase: GamePhase
     let hostName: String
+    // Durable rooms (`GameDurable.swift`). An older site sends none of these:
+    // the room is then live, not durable, and never my move.
+    var durable: Bool = false
+    var pace: GamePace = .live
+    /// The room is waiting on me (`waitingOn` on the site includes me).
+    var myTurn: Bool = false
+    /// The names it is waiting on, when it is not me.
+    var waitingFor: [String] = []
+    /// The running decision's deadline, server epoch ms.
+    var dueAt: Double? = nil
+    /// The room's last write, server epoch ms. Nil for an in-memory room.
+    var updatedAt: Double? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case id, game, phase, hostName
+        case durable, pace, myTurn, waitingFor, dueAt, updatedAt
+    }
+
+    init(id: String, game: String, phase: GamePhase, hostName: String, durable: Bool = false,
+         pace: GamePace = .live, myTurn: Bool = false, waitingFor: [String] = [],
+         dueAt: Double? = nil, updatedAt: Double? = nil) {
+        self.id = id; self.game = game; self.phase = phase; self.hostName = hostName
+        self.durable = durable; self.pace = pace; self.myTurn = myTurn; self.waitingFor = waitingFor
+        self.dueAt = dueAt; self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        game = try c.decode(String.self, forKey: .game)
+        phase = try c.decode(GamePhase.self, forKey: .phase)
+        hostName = try c.decode(String.self, forKey: .hostName)
+        durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
+        pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
+        myTurn = (try? c.decodeIfPresent(Bool.self, forKey: .myTurn)) ?? false
+        waitingFor = (try? c.decodeIfPresent([String].self, forKey: .waitingFor)) ?? []
+        dueAt = (try? c.decodeIfPresent(Double.self, forKey: .dueAt)) ?? nil
+        updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil
+    }
 }
 
 /// `GET /api/native/games` — the lobby poll.
@@ -292,11 +331,16 @@ struct GamesLobby: Decodable, Equatable {
     let invites: [GameInvite]
     let rooms: [GameRoomSummary]
     let serverNow: Double
+    /// The paces each game offers, for games that can be played over days
+    /// (`{"homestead": ["live", "async"]}`). Empty from an older site.
+    var paces: [String: [String]] = [:]
 
-    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow }
+    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces }
 
-    init(me: GamePerson, players: [GamePerson], invites: [GameInvite], rooms: [GameRoomSummary], serverNow: Double) {
+    init(me: GamePerson, players: [GamePerson], invites: [GameInvite], rooms: [GameRoomSummary], serverNow: Double,
+         paces: [String: [String]] = [:]) {
         self.me = me; self.players = players; self.invites = invites; self.rooms = rooms; self.serverNow = serverNow
+        self.paces = paces
     }
 
     init(from decoder: Decoder) throws {
@@ -306,6 +350,7 @@ struct GamesLobby: Decodable, Equatable {
         invites = (try? c.decodeIfPresent([GameInvite].self, forKey: .invites)) ?? []
         rooms = (try? c.decodeIfPresent([GameRoomSummary].self, forKey: .rooms)) ?? []
         serverNow = (try? c.decodeIfPresent(Double.self, forKey: .serverNow)) ?? 0
+        paces = (try? c.decodeIfPresent([String: [String]].self, forKey: .paces)) ?? [:]
     }
 }
 
@@ -642,6 +687,12 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// Homestead: the island, hands, legal spots, offers and log, read from the
     /// same JSON (`HomesteadLogic.swift`). Nil in every other game's room.
     let homestead: HomesteadState?
+    /// A durable room (written to the site's database after every move; see
+    /// `GameDurable.swift`), its pace, and its write counter. False, live and
+    /// nil from a room that is not durable, or from an older site.
+    let durable: Bool
+    let pace: GamePace
+    let version: Int?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -653,6 +704,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         case tiles, startLength, maxLength
         case size, scoring, grid, possible
         case categoryCount, reviewMs, maxAnswer, letter, categories
+        case durable, pace, version
     }
 
     init(from decoder: Decoder) throws {
@@ -728,6 +780,9 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
         homestead = game == GameKind.homestead.rawValue ? (try? HomesteadState(from: decoder)) : nil
+        durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
+        pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
+        version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -784,6 +839,10 @@ struct CreateGameBody: Encodable, Equatable {
     var course: MarbleRaceState.Course? = nil
     /// Homestead: the island size (`auto` | `standard` | `large`).
     var island: String? = nil
+    /// A durable game's pace (`live` | `async`) and, over days, hours a turn
+    /// (12 | 24 | 48). Sent only for a game the lobby lists in `paces`.
+    var pace: String? = nil
+    var deadlineHours: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.

@@ -203,6 +203,13 @@ import Combine
         if FamilyPage.from(category: category, userInfo: info) == .messages {
             Task { await FamilyMessagesStore.shared.load() }
         }
+        // A game push ("Your move in …", "… is over", an invite) with the app
+        // open: the room and the lobby re-read now, and the room on screen
+        // swallows it — the board already says whose move it is.
+        if let room = GameTurnPush.roomId(category: category, userInfo: info) {
+            NotificationCenter.default.post(name: GameTurnPush.arrived, object: room)
+            if GameTurnPush.silenced(roomId: room, onScreen: GameRoomsOnScreen.ids) { return [] }
+        }
         return [.banner, .list, .sound, .badge]
     }
 
@@ -305,8 +312,10 @@ import Combine
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
-        // A game invite, pushed by the site or raised by the foreground poll.
-        // Opens the room; `Router.openGame` refuses it for somebody without games.
+        // A game invite, pushed by the site or raised by the foreground poll,
+        // or a durable game's "Your move" / "… is over" push (`kind` turn |
+        // finished, same `roomId` and `game`): each opens the room, days later
+        // too. `Router.openGame` refuses it for somebody without games.
         if category == "game" {
             let info = response.notification.request.content.userInfo
             if let room = info["roomId"] as? String {

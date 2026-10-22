@@ -33,6 +33,10 @@ final class GameRoomLink {
     /// ("Sam no longer has those cards."); most games only re-read the room.
     private(set) var lastConflict: String?
     private let client = SiteClient.shared
+    /// Counted in `GameRoomsOnScreen` while open, so a "your move" push for
+    /// this room is swallowed and re-reads it instead of ringing.
+    private var onScreen = false
+    private var pushObserver: NSObjectProtocol?
 
     init(roomId: String) {
         self.roomId = roomId
@@ -49,6 +53,7 @@ final class GameRoomLink {
     /// Open (or reopen) the room. Idempotent.
     func open() {
         guard streamTask == nil, !ended else { return }
+        showing(true)
         streamTask = Task { [weak self] in
             var backoff: UInt64 = 1
             while !Task.isCancelled {
@@ -70,6 +75,29 @@ final class GameRoomLink {
     func close() {
         streamTask?.cancel()
         streamTask = nil
+        showing(false)
+    }
+
+    /// On screen or not: the push gate, the banner that opening clears, and a
+    /// re-read when a push for this room lands in the foreground.
+    private func showing(_ on: Bool) {
+        guard onScreen != on else { return }
+        onScreen = on
+        if on {
+            GameRoomsOnScreen.opened(roomId)
+            GameRoomsOnScreen.clearDelivered(roomId)
+            let id = roomId
+            pushObserver = NotificationCenter.default.addObserver(
+                forName: GameTurnPush.arrived, object: nil, queue: .main
+            ) { [weak self] note in
+                guard (note.object as? String) == id else { return }
+                Task { @MainActor in await self?.refresh() }
+            }
+        } else {
+            GameRoomsOnScreen.closed(roomId)
+            if let pushObserver { NotificationCenter.default.removeObserver(pushObserver) }
+            pushObserver = nil
+        }
     }
 
     /// The snapshot: `GET api/native/games/<id>`, timed as a round trip.

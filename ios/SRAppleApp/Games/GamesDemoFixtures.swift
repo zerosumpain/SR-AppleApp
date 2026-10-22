@@ -19,7 +19,9 @@ import Foundation
 // Alex's turn to bid over a timed-out raise of Sam's, a call with every cup
 // up, and a finished game. Draw & Guess: one of Sam's mid-drawing with Alex
 // guessing (a close guess of Alex's own in the feed), and one where Alex is
-// drawing. The room stream has no
+// drawing. Durable rooms: two Homestead games over days in "Your games", one
+// Alex's move and one waiting for Sam, and `paces` offering Homestead over
+// days. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -45,6 +47,9 @@ extension SRDemoFixtures {
     static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
     static let demoChessRoom = "g_demo_chess"
     static let demoChessDoneRoom = "g_demo_chess_done"
+    /// Durable rooms played over days: one waiting on Alex, one on Sam.
+    static let demoDurableMineRoom = "g_demo_homestead_mine"
+    static let demoDurableWaitingRoom = "g_demo_homestead_waiting"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -106,6 +111,21 @@ extension SRDemoFixtures {
                        {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Two Homestead games over days (`pace: async`), for "Your games": Alex
+    /// to move with 21 hours left, and one waiting for Sam. Left out of the
+    /// store shots, as Categories' are. Their room snapshots belong to the
+    /// Homestead fixtures; until those merge they open as a lobby.
+    static func durableLobbyRows(_ now: Date) -> String {
+        """
+        {"id": \(s(demoDurableMineRoom)), "game": "homestead", "phase": "playing", "hostName": "Sam",
+                        "durable": true, "pace": "async", "myTurn": true, "waitingFor": ["Alex"],
+                        "dueAt": \(ms(now.addingTimeInterval(21 * 3600 + 600))), "updatedAt": \(ms(now.addingTimeInterval(-3 * 3600)))},
+                       {"id": \(s(demoDurableWaitingRoom)), "game": "homestead", "phase": "playing", "hostName": "Alex",
+                        "durable": true, "pace": "async", "myTurn": false, "waitingFor": ["Sam"],
+                        "dueAt": \(ms(now.addingTimeInterval(30 * 3600))), "updatedAt": \(ms(now.addingTimeInterval(-1 * 3600)))},
+        """
+    }
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -116,7 +136,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : durableLobbyRows(now))
+                   \(storeShotsSkipsWordle ? "" : chessLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -130,6 +151,7 @@ extension SRDemoFixtures {
                    {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
                    \(storeShotsSkipsWordle ? "" : homesteadLobbyRows)
                    {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
+         "paces": {"homestead": ["live", "async"]},
          "serverNow": \(ms(now))}
         """
     }
@@ -153,6 +175,12 @@ extension SRDemoFixtures {
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
+        // Placeholder snapshots for the durable rows: a Homestead lobby, until
+        // the Homestead fixtures answer for these ids with a board.
+        if id == demoDurableMineRoom || id == demoDurableWaitingRoom {
+            return gameRoom(id: id, hostIsMe: id == demoDurableWaitingRoom, meJoined: true, invited: [],
+                            game: "homestead", clock: clock)
+        }
         if id == demoQuizInviteRoom {
             return quizLobby(id: id, fields: ["topic": "space", "audience": "kids", "difficulty": "easy"],
                              invited: [], hostIsMe: false, meJoined: meJoined, prep: "writing", clock: clock)
