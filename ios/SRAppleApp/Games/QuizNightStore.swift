@@ -23,6 +23,9 @@ final class QuizNightStore: ObservableObject, GameRoomStoring {
     /// A new quiz is being asked for ("Play again", or a lobby whose
     /// questions could not be written).
     @Published private(set) var creating = false
+    /// The room as it finished. A finished room closes after ten minutes, but
+    /// the review is revision: it stays on screen until the player leaves.
+    @Published private(set) var lastFinished: GameRoom?
 
     private let link: GameRoomLink
     private var lastPhase: GamePhase?
@@ -70,6 +73,7 @@ final class QuizNightStore: ObservableObject, GameRoomStoring {
         if next.phase == .lobby, previous == .lobby, room?.prep == .writing {
             if next.prep == .ready { SRHaptic.ok() } else if next.prep == .failed { SRHaptic.bad() }
         }
+        if next.phase == .finished { lastFinished = next }
         room = next
     }
 

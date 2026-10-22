@@ -372,6 +372,9 @@ struct NewGameSheet: View {
     // Quiz Night.
     @State private var topic = ""
     @State private var audience: QuizAudience = .family
+    @State private var quizMode: QuizMode = .general
+    @State private var gcseSubject: GcseSubject?
+    @State private var gcseBoard: GcseBoard = .aqa
     // Boggle.
     @State private var boggleSize = 4
     @State private var boggleSeconds = 120
@@ -431,8 +434,8 @@ struct NewGameSheet: View {
                             SRSectionLabel(text: "Difficulty")
                             ForEach(GameDifficulty.allCases) { level in
                                 choice(
-                                    title: level.label,
-                                    line: level.line(for: game),
+                                    title: gcse ? "\(level.label) · \(GcseBand.label(level))" : level.label,
+                                    line: gcse ? GcseBand.line(level, tiered: gcseSubject?.tiered ?? true) : level.line(for: game),
                                     selected: difficulty == level,
                                     id: "games-difficulty-\(level.rawValue)"
                                 ) { difficulty = level }
@@ -486,6 +489,11 @@ struct NewGameSheet: View {
 
                     Button {
                         SRHaptic.tap()
+                        if gcse, gcseSubject == nil {
+                            refusal = "Pick a subject for the GCSE quiz."
+                            SRHaptic.bad()
+                            return
+                        }
                         working = true
                         refusal = nil
                         let payload = request
@@ -525,7 +533,8 @@ struct NewGameSheet: View {
     private var request: CreateGameBody {
         let invite = players.filter { invited.contains($0.id) }.map(\.id)
         if game == .quizNight {
-            return QuizNightSettings(difficulty: difficulty, topic: topic, audience: audience).createBody(invite: invite)
+            return QuizNightSettings(difficulty: difficulty, topic: topic, audience: audience,
+                                     mode: quizMode, subject: gcseSubject, board: gcseBoard).createBody(invite: invite)
         }
         if game == .boggle {
             return BoggleSettings(difficulty: difficulty, size: boggleSize, seconds: boggleSeconds, scoring: boggleScoring)
@@ -716,8 +725,129 @@ struct NewGameSheet: View {
         }
     }
 
-    /// Topic and audience — Quiz Night's own questions.
+    /// A Quiz Night set up as GCSE revision.
+    private var gcse: Bool { game == .quizNight && quizMode == .gcse }
+
+    /// Any topic for an audience, or GCSE revision — Quiz Night's own questions.
     private var quizSettings: some View {
+        VStack(alignment: .leading, spacing: SR.sectionGap) {
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Kind of quiz", selection: $quizMode) {
+                    ForEach(QuizMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: quizMode) { _, _ in
+                    SRHaptic.select()
+                    refusal = nil
+                }
+                .accessibilityIdentifier("games-quiz-mode")
+                if gcse {
+                    Text("Exam-style questions modelled on past papers, pitched at a grade band. The answers come with the working or the mark-scheme reason, and the end of the game lists what to revise.")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if gcse {
+                gcseSettings
+            } else {
+                generalQuizSettings
+            }
+        }
+    }
+
+    /// Subject, exam board, and a topic inside the subject.
+    private var gcseSettings: some View {
+        VStack(alignment: .leading, spacing: SR.sectionGap) {
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                SRSectionLabel(text: "Subject", trailing: gcseSubject == nil ? "Pick one" : nil)
+                DaydreamWrap(spacing: 8) {
+                    ForEach(GcseSubject.all) { subject in
+                        chip(subject.label, selected: gcseSubject == subject, id: "games-gcse-subject-\(subject.id)") {
+                            if gcseSubject != subject {
+                                gcseSubject = subject
+                                // A topic belongs to its subject.
+                                topic = ""
+                            }
+                            refusal = nil
+                        }
+                    }
+                }
+            }
+
+            segments(title: "Exam board",
+                     options: GcseBoard.allCases.enumerated().map { (value: $0.offset, label: $0.element.label) },
+                     selected: Binding(
+                        get: { GcseBoard.allCases.firstIndex(of: gcseBoard) ?? 0 },
+                        set: { gcseBoard = GcseBoard.allCases[$0] }
+                     ),
+                     id: "games-gcse-board")
+
+            if let subject = gcseSubject {
+                VStack(alignment: .leading, spacing: SR.cardGap) {
+                    SRSectionLabel(text: "Topic", trailing: topic.isEmpty ? "Whole subject" : nil)
+                    DaydreamWrap(spacing: 8) {
+                        chip("Whole subject", selected: topic.isEmpty, id: "games-gcse-topic-all") { topic = "" }
+                        ForEach(subject.topics, id: \.self) { heading in
+                            chip(heading, selected: topic == heading, id: "games-gcse-topic-\(heading)") {
+                                topic = topic == heading ? "" : heading
+                            }
+                        }
+                    }
+                    topicField(placeholder: "Or type one: e.g. osmosis, quadratics, Lady Macbeth")
+                }
+            }
+        }
+    }
+
+    /// One tappable choice in a wrapping row.
+    private func chip(_ title: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
+        Button {
+            SRHaptic.select()
+            action()
+        } label: {
+            Text(title)
+                .font(SR.Text.bodyMedium(15))
+                .foregroundStyle(selected ? SR.ink : SR.inkSecondary)
+                .padding(.horizontal, 14)
+                .frame(minHeight: SR.tapTarget)
+                .srGlassCard(selected ? .paper : .clear, radius: SR.Glass.innerRadius + 4, interactive: true)
+                .overlay {
+                    RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                        .strokeBorder(selected ? SR.accent : .clear, lineWidth: 1.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(id)
+    }
+
+    /// The topic text field, capped at the server's limit.
+    private func topicField(placeholder: String) -> some View {
+        TextField(placeholder, text: $topic)
+            .font(SR.Text.body(17))
+            .foregroundStyle(SR.ink)
+            .textInputAutocapitalization(.sentences)
+            .autocorrectionDisabled(false)
+            .submitLabel(.done)
+            .padding(.horizontal, SR.cardPadding)
+            .frame(minHeight: SR.tapTarget + 8)
+            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+            .onChange(of: topic) { _, typed in
+                let capped = QuizNightSettings.limit(typed)
+                if capped != typed { topic = capped }
+                refusal = nil
+            }
+            .accessibilityLabel("Topic")
+            .accessibilityHint("Optional. \(placeholder)")
+            .accessibilityIdentifier("games-quiz-topic")
+    }
+
+    /// Topic and audience — a quiz on anything.
+    private var generalQuizSettings: some View {
         VStack(alignment: .leading, spacing: SR.sectionGap) {
             VStack(alignment: .leading, spacing: SR.cardGap) {
                 SRSectionLabel(text: "Topic", trailing: "\(topic.count)/\(QuizNightSettings.topicLimit)")

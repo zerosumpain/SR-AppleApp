@@ -329,4 +329,97 @@ final class QuizNightTests: XCTestCase {
         XCTAssertEqual(room.timeMs, 15_000)
     }
     #endif
+
+    // MARK: - GCSE revision
+
+    private let gcseFinishedJSON = #"""
+    { "id":"g_g", "game":"quiz-night", "difficulty":"medium", "audience":"family", "mode":"gcse",
+      "gcse": {"subject":"biology","subjectLabel":"Biology","board":"aqa","boardLabel":"AQA",
+               "band":"Grades 4–5","tier":"Foundation and Higher"},
+      "topic":"Cell biology", "title":"Cell biology", "phase":"finished", "prep":"ready", "prepError":null,
+      "hostId":"p_a", "meId":"p_a", "questionCount":3, "timeMs":30000,
+      "players":[{"id":"p_a","name":"Sam","status":"joined","score":900,"isHost":true}],
+      "phaseEndsAt": 1790000600000, "question": null,
+      "standings":[{"id":"p_a","name":"Sam","score":900,"correct":1,"avgMs":4000}], "winnerIds":[],
+      "review": [
+        {"index":0,"prompt":"Which organelle releases energy?","options":["Nucleus","Mitochondria","Ribosome","Vacuole"],
+         "answerIndex":1,"explain":"Aerobic respiration happens in mitochondria.","topic":"Cell biology",
+         "myChoice":1,"rightCount":1,"playerCount":1},
+        {"index":1,"prompt":"What does osmosis move?","options":["Glucose","Water","Ions","Oxygen"],
+         "answerIndex":1,"explain":"Water, across a partially permeable membrane.","topic":"Transport in cells",
+         "myChoice":0,"rightCount":0,"playerCount":1},
+        {"index":2,"prompt":"Magnification = ?","options":["image ÷ real","real ÷ image","image × real","real − image"],
+         "answerIndex":0,"explain":null,"topic":"Cell biology","myChoice":null,"rightCount":0,"playerCount":1}
+      ],
+      "serverNow": 1790000003000 }
+    """#
+
+    func testAGcseRoomSaysItsSubjectBoardAndBand() throws {
+        let room = try decode(gcseFinishedJSON)
+        XCTAssertEqual(room.quizGcse?.subject, "biology")
+        XCTAssertEqual(room.quizGcse?.line, "GCSE Biology · AQA · Grades 4–5")
+        XCTAssertEqual(QuizNight.about(room), "GCSE Biology · AQA · Grades 4–5")
+        XCTAssertEqual(room.timeMs, 30000)
+        // A general quiz has neither.
+        let general = try decode(questionJSON)
+        XCTAssertNil(general.quizGcse)
+        XCTAssertNil(general.quizReview)
+    }
+
+    func testTheReviewPutsWhatIMissedFirstAndNamesTopicsToRevise() throws {
+        let room = try decode(gcseFinishedJSON)
+        let review = try XCTUnwrap(room.quizReview)
+        XCTAssertEqual(review.count, 3)
+        XCTAssertEqual(review[0].answer, "Mitochondria")
+        XCTAssertTrue(review[0].gotIt)
+        XCTAssertFalse(review[2].gotIt)
+        XCTAssertNil(review[2].explain)
+        XCTAssertEqual(QuizReview.ordered(review).map(\.index), [1, 2, 0])
+        XCTAssertEqual(QuizReview.reviseNext(review), ["Transport in cells", "Cell biology"])
+    }
+
+    func testAGcseCreateBodyCarriesSubjectAndBoardButNoAudience() throws {
+        let subject = try XCTUnwrap(GcseSubject.find("chemistry"))
+        let settings = QuizNightSettings(difficulty: .hard, topic: "Rates and equilibrium", audience: .kids,
+                                         mode: .gcse, subject: subject, board: .edexcel)
+        let body = settings.createBody(invite: ["p_b"])
+        XCTAssertEqual(body.mode, "gcse")
+        XCTAssertEqual(body.subject, "chemistry")
+        XCTAssertEqual(body.board, "edexcel")
+        XCTAssertNil(body.audience)
+        XCTAssertEqual(body.topic, "Rates and equilibrium")
+        // GCSE without a subject is not a GCSE request.
+        XCTAssertFalse(QuizNightSettings(difficulty: .easy, topic: nil, audience: .family, mode: .gcse).complete)
+        let general = QuizNightSettings(difficulty: .easy, topic: nil, audience: .family).createBody(invite: [])
+        XCTAssertNil(general.mode)
+        XCTAssertNil(general.subject)
+    }
+
+    func testPlayAgainKeepsAGcseQuizAGcseQuiz() throws {
+        let room = try decode(gcseFinishedJSON)
+        let body = QuizNight.playAgain(from: room)
+        XCTAssertEqual(body.mode, "gcse")
+        XCTAssertEqual(body.subject, "biology")
+        XCTAssertEqual(body.board, "aqa")
+        XCTAssertEqual(body.topic, "Cell biology")
+        XCTAssertEqual(body.difficulty, "medium")
+    }
+
+    func testTheSubjectIdsMatchTheServersList() {
+        // SR-Main src/lib/games/gcse.ts SUBJECTS — a mismatch is a refused Start.
+        XCTAssertEqual(GcseSubject.all.map(\.id), [
+            "maths", "biology", "chemistry", "physics", "combined-science", "english-literature", "english-language",
+            "history", "geography", "computer-science", "religious-studies", "french", "spanish", "german", "business",
+        ])
+        XCTAssertEqual(GcseBoard.allCases.map(\.rawValue), ["aqa", "edexcel", "ocr", "eduqas", "any"])
+    }
+
+    func testARevealCarriesItsSpecTopic() throws {
+        let json = questionJSON
+            .replacingOccurrences(of: #""phase":"question""#, with: #""phase":"reveal""#)
+            .replacingOccurrences(of: #""explain": null,"#, with: #""explain": "Eight since 2006.", "topic": "Space physics","#)
+        let room = try decode(json)
+        XCTAssertEqual(room.question?.topic, "Space physics")
+    }
 }
+
