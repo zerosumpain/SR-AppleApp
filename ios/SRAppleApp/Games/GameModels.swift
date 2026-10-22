@@ -35,6 +35,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case drawGuess = "draw-guess"
     case marbleRace = "marble-race"
     case chess
+    case manhunt
 
     var id: String { rawValue }
 
@@ -52,6 +53,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Draw & Guess"
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
+        case .manhunt: return "Manhunt"
         }
     }
 
@@ -70,6 +72,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Take turns drawing a word while everyone guesses."
         case .marbleRace: return "Back a marble. Everyone watches the same race."
         case .chess: return "The classic. Two players, a clock each."
+        case .manhunt: return "Hide and seek outdoors, on the map."
         }
     }
 
@@ -100,6 +103,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone backs a different marble, then the same race plays on every phone at once. Burn in the fire and it's back to the top; the best-placed marble wins it for its backer."
         case .chess:
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
+        case .manhunt:
+            return "One runner, everyone else hunts, outdoors inside a circle a parent sets. The hunters see each other on the map, but the runner only every few minutes. Get close and tap Catch; the runner wins if the clock runs out."
         }
     }
 
@@ -117,6 +122,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "scribble.variable"
         case .marbleRace: return "flag.checkered"
         case .chess: return "checkerboard.rectangle"
+        case .manhunt: return "figure.run"
         }
     }
 }
@@ -176,6 +182,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.chess, .easy): return "15 minutes each, and 10 seconds back every move."
         case (.chess, .medium): return "10 minutes each, 5 seconds back a move."
         case (.chess, .hard): return "5 minutes each, 3 seconds back a move. Blitz."
+        case (.manhunt, .easy): return "The runner shows up on the map every 5 minutes."
+        case (.manhunt, .medium): return "The runner shows up every 3 minutes."
+        case (.manhunt, .hard): return "The runner shows up every 2 minutes. Hard for the runner."
         }
     }
 
@@ -630,6 +639,11 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// JSON (`ChessLogic.swift`). Nil in every other game's room.
     let chess: ChessState?
 
+    /// Manhunt: the play area, roles, the positions this phone may see, pings
+    /// and the catch, read from the same JSON (`ManhuntLogic.swift`). Nil in
+    /// every other game's room.
+    let manhunt: ManhuntState?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
@@ -714,6 +728,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         }
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
+        manhunt = game == GameKind.manhunt.rawValue ? (try? ManhuntState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -768,6 +783,10 @@ struct CreateGameBody: Encodable, Equatable {
     var turnsEach: Int? = nil
     /// Marble Race: the course from Marbler's pack.
     var course: MarbleRaceState.Course? = nil
+    /// Manhunt: the circle's radius in metres (250–2000) and the game's length
+    /// in minutes (15–60). The centre is sent from the lobby (`area`).
+    var radius: Int? = nil
+    var minutes: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -813,6 +832,15 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
+    /// Manhunt: `position {lat, lng, accuracy, at}` (at: server epoch ms);
+    /// `area {lat, lng, radius?, minutes?}` from the host's lobby; `runner
+    /// {playerId?}` (`playerId` as Categories'); `catch` and `confirm` take nothing.
+    var lat: Double? = nil
+    var lng: Double? = nil
+    var accuracy: Double? = nil
+    var at: Double? = nil
+    var radius: Int? = nil
+    var minutes: Int? = nil
 }
 
 enum GameNames {

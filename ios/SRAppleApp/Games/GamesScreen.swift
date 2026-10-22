@@ -352,6 +352,7 @@ struct GameCard: View {
         case .drawGuess: return SR.accentInk
         case .marbleRace: return SR.accent
         case .chess: return SR.ink
+        case .manhunt: return SR.good
         }
     }
 }
@@ -391,6 +392,9 @@ struct NewGameSheet: View {
     @State private var marblePack: MarblerPack?
     @State private var marbleCourse: MarblerPack.Entry?
     @State private var marblePackError: String?
+    // Manhunt.
+    @State private var manhuntRadius = ManhuntSettings.defaultRadius
+    @State private var manhuntMinutes = ManhuntSettings.defaultMinutes
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -426,6 +430,10 @@ struct NewGameSheet: View {
 
                     if game == .marbleRace {
                         marbleRaceSettings
+                    }
+
+                    if game == .manhunt {
+                        manhuntSettings
                     }
 
                     // Marble Race's course sets how hard it is: no level to pick.
@@ -554,7 +562,41 @@ struct NewGameSheet: View {
         if game == .marbleRace {
             return MarbleRaceSettings(difficulty: difficulty, course: marbleCourse).createBody(invite: invite)
         }
+        if game == .manhunt {
+            return ManhuntSettings(difficulty: difficulty, radius: manhuntRadius, minutes: manhuntMinutes)
+                .createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// The play area and the clock — Manhunt's game. The circle is centred in
+    /// the lobby, on where the host's phone is then.
+    private var manhuntSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Play area")
+            segments(
+                title: "Radius",
+                options: ManhuntSettings.radii.map { (value: $0, label: ManhuntSettings.radiusLabel($0)) },
+                selected: $manhuntRadius,
+                id: "games-manhunt-radius"
+            )
+            segments(
+                title: "Length",
+                options: ManhuntSettings.lengths.map { (value: $0, label: "\($0) min") },
+                selected: $manhuntMinutes,
+                id: "games-manhunt-minutes"
+            )
+            Text(ManhuntSettings.line(radius: manhuntRadius, minutes: manhuntMinutes))
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-manhunt-line")
+            Text("Only a parent can host. Positions are shared only during the game, only with the players, and are never kept.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-manhunt-privacy")
+        }
     }
 
     /// The course — Marble Race's race. Today's course unless the host picks another.
