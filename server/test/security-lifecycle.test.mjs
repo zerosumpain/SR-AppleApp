@@ -14,10 +14,21 @@ async function fixture(t) {
   db.exec("UPDATE users SET access_version='1'");
   const tokens = Object.fromEntries(['owner','family','friend'].map(id => [id, issue(db,id,'device','Synthetic',3600000)]));
   const grants = new Map(['owner','family','friend'].map(id => [`${id}@example.test`, {allowed:id!=='friend',version:'1'}]));
-  let down = false;
+  let down = false, batches = true;
+  const asked = [];
+  // Main's companion-policy: `?email=` for one person, `?emails=` for several
+  // (a Main from before that answers 400 to it, as `batches=false` does).
+  const authority = async url => {
+    if (down) return new Response('',{status:503});
+    const params = new URL(url).searchParams, emails = params.getAll('emails');
+    asked.push(emails.length ? emails : [params.get('email')]);
+    if (!emails.length) return Response.json(grants.get(params.get('email')));
+    if (!batches) return Response.json({error:'Invalid person'},{status:400});
+    return Response.json({people:Object.fromEntries(emails.filter(e => grants.has(e)).map(e => [e, grants.get(e)]))});
+  };
   const app = createApp(db, { origin:'https://example.test', authSecret:secret, serviceOwner:'owner@example.test',
     householdToken:household, serviceToken:healthToken, policyUrl:'http://127.0.0.1/policy', policyToken:'p'.repeat(32),
-    fetchImpl:async url => down ? new Response('',{status:503}) : Response.json(grants.get(new URL(url).searchParams.get('email'))) });
+    fetchImpl:authority });
   await new Promise(resolve => app.listen(0,'127.0.0.1',resolve));
   t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
   const request = async (path, {token=tokens.family,method='GET',body,cookie}={}) => {
@@ -28,7 +39,7 @@ async function fixture(t) {
   };
   const browser = async (id, extra={}) => '__Secure-authjs.session-token='+await encode({secret,salt:'__Secure-authjs.session-token',maxAge:3600,token:{email:`${id}@example.test`,...extra}});
   const state = async () => (await request('household?limit=1',{token:household})).body;
-  return {db,tokens,grants,request,browser,state,setDown:v=>{down=v;}};
+  return {db,tokens,grants,request,browser,state,asked,setDown:v=>{down=v;},setBatches:v=>{batches=v;}};
 }
 
 test('live permissions deny a Friend, stale browser and old device, including remove/re-add', async t => {
@@ -50,6 +61,30 @@ test('authority outage fails closed without deleting valid credentials', async t
   assert.equal((await f.request('me')).status,503);
   assert.equal(f.db.prepare("SELECT count(*) n FROM credentials WHERE user_id='family'").get().n,1);
   f.setDown(false); assert.equal((await f.request('me')).status,200);
+});
+
+test('a household read asks Main twice, not once per member, and remembers nothing for the next request', async t => {
+  const f=await fixture(t);
+  f.asked.length=0;
+  assert.equal((await f.request('household/view')).status,200);
+  // The caller's own check, then everyone else in one call: the caller is not asked twice.
+  assert.deepEqual(f.asked,[['family@example.test'],['friend@example.test','owner@example.test']]);
+  f.asked.length=0;
+  await f.request('household/view');
+  assert.equal(f.asked.length,2,'the next request asks again');
+  f.grants.set('owner@example.test',{allowed:true,version:'2'});
+  await f.request('household/view');
+  assert.equal(f.db.prepare("SELECT count(*) n FROM credentials WHERE user_id='owner'").get().n,0,'a member whose version moved is invalidated by somebody else\'s read');
+});
+
+test('a Main without the batch answers per member; a batch that leaves somebody out fails closed', async t => {
+  const f=await fixture(t);
+  f.setBatches(false); f.asked.length=0;
+  assert.equal((await f.request('alerts')).status,200);
+  assert.deepEqual(f.asked,[['family@example.test'],['friend@example.test','owner@example.test'],['friend@example.test'],['owner@example.test']]);
+  f.setBatches(true); f.grants.delete('owner@example.test');
+  assert.equal((await f.request('alerts')).status,503);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM credentials WHERE user_id='owner'").get().n,1,'an incomplete answer deletes nothing');
 });
 
 test('registration-only JWE is never an ordinary companion session', async t => {

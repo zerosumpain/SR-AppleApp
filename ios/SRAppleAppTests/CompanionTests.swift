@@ -106,5 +106,32 @@ final class CompanionTests: XCTestCase {
         XCTAssertThrowsError(try PairingPayload.parse("https://example.com"))
         XCTAssertThrowsError(try PairingPayload.parse(String(repeating: "x", count: 2049)))
     }
+    /// The sync at open and the Family store share a `household/view` read
+    /// made seconds ago, and never one older than `viewReuse` — the Family
+    /// tab's 15 s poll always asks the server.
+    @MainActor func testAHouseholdViewIsReusedForSecondsOnly() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let companion = Companion(outbox: try Outbox(url: directory.appendingPathComponent("state.json")))
+        let read = Date(timeIntervalSince1970: 100000)
+        XCTAssertNil(companion.reusableView(now: read), "nothing read yet")
+        companion.noteView(HouseholdViewResponse(view: nil, updated: "2026-10-22T08:00:00.000Z"), at: read)
+        XCTAssertEqual(companion.reusableView(now: read.addingTimeInterval(9))?.updated, "2026-10-22T08:00:00.000Z")
+        XCTAssertNil(companion.reusableView(now: read.addingTimeInterval(Companion.viewReuse)))
+        XCTAssertLessThan(Companion.viewReuse, 15, "shorter than the Family tab's poll")
+        // Losing the pairing forgets it.
+        companion.noteView(HouseholdViewResponse(view: nil, updated: nil))
+        companion.forgetAfterAccountDeletion()
+        XCTAssertNil(companion.reusableView())
+    }
+    /// Decoding off the main actor answers, and fails, as the decoder does.
+    func testOffMainDecodingKeepsTheDecodersAnswer() async throws {
+        let profile = try await OffMain.decode(Profile.self, from: Data(#"{"id":"u","name":"Sam","sharing":true}"#.utf8))
+        XCTAssertEqual(profile, Profile(id: "u", name: "Sam", sharing: true))
+        do {
+            _ = try await OffMain.decode(Profile.self, from: Data("{}".utf8))
+            XCTFail("a body missing fields decoded")
+        } catch is DecodingError {}
+    }
 
 }

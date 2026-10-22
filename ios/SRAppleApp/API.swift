@@ -62,16 +62,25 @@ enum Keychain {
         if data != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         PhoneIdentity.apply(to: &req)
-        let config = URLSessionConfiguration.ephemeral; config.urlCache = nil
-        let session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        let (body, response) = try await session.data(for: req)
+        let (body, response) = try await Self.session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let error = try? JSONDecoder().decode(APIError.self, from: body)
             throw CompanionError.response((response as? HTTPURLResponse)?.statusCode ?? 0, error?.error ?? uploadFallbackMessage)
         }
-        return try JSONDecoder().decode(T.self, from: body)
+        return try await OffMain.decode(T.self, from: body)
     }
+    /// One session for every companion call, kept for the app's life. A new
+    /// one per request (as before) paid a fresh TCP and TLS handshake each
+    /// time — twice every 30 s during an outing. Still ephemeral, uncached,
+    /// cookie-less and never following a redirect, as each per-request one
+    /// was; the timeout stays on each `URLRequest`.
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
+    }()
     static let demoRefusal = "Demo mode: nothing is sent from this iPhone. Leave the demo in Settings to connect."
     struct APIError: Decodable { var error: String }
     struct Acknowledgement: Decodable { var accepted: Int? }
@@ -86,6 +95,15 @@ enum Keychain {
             try Keychain.save(response.token); token = response.token
             UserDefaults.standard.set(url, forKey: "server")
         } catch { baseURL = previousURL; token = previousToken; throw error }
+    }
+}
+/// JSON decoding off the main actor. A plain enum's static async function is
+/// nonisolated, so it runs on the global executor (Swift 5 mode), not on the
+/// caller's actor: a 100 KB answer no longer decodes on the frame a scroll is
+/// waiting for. The error is the decoder's own, unchanged.
+enum OffMain {
+    static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
+        try JSONDecoder().decode(type, from: data)
     }
 }
 final class NoRedirects: NSObject, URLSessionTaskDelegate {

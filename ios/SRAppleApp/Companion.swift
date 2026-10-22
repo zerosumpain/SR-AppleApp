@@ -46,6 +46,16 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     private var retryTask: Task<Void, Never>?
     private var drainingAlerts = false
     private var lastAlertDrain: Date?
+    /// The profile `flush` read on its way to uploading, for the `refresh`
+    /// straight after it in `sync`: the same `me` twice within seconds.
+    private var flushedProfile: Profile?
+    /// The last `household/view` answer and when it came. At open the sync
+    /// and the Family store (Today's mini-map) both read it seconds apart, and
+    /// adopt the same watched places and access from it; one read serves both.
+    /// The server files a view every two minutes at most, so a few seconds'
+    /// reuse shows nothing a second read would not have.
+    private var recentView: (response: HouseholdViewResponse, at: Date)?
+    static let viewReuse: TimeInterval = 10
     init(outbox: Outbox) {
         self.outbox = outbox; health = HealthCollector(outbox: outbox); location = LocationCollector(outbox: outbox)
         paired = api.token != nil
@@ -215,11 +225,21 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     func sync(collectingFor seconds: TimeInterval = 120) async {
         guard paired, !busy else { return }
         busy = true; defer { busy = false }
-        do { try await health.collect(until: Date().addingTimeInterval(seconds)); await flush(); try await refresh() }
+        do {
+            try await health.collect(until: Date().addingTimeInterval(seconds))
+            flushedProfile = nil
+            await flush()
+            // Not if that flush lost the pairing: the profile went with it.
+            let fresh = paired ? flushedProfile : nil; flushedProfile = nil
+            try await refresh(reusing: fresh)
+        }
         catch { message = error.localizedDescription }
     }
-    func refresh() async throws {
-        let me: Profile = try await api.request("me")
+    /// `reusing`: a profile read moments ago by the flush this follows, in
+    /// place of asking again. Everyone else reads it fresh.
+    func refresh(reusing fresh: Profile? = nil) async throws {
+        let me: Profile
+        if let fresh { me = fresh } else { me = try await api.request("me") }
         // A re-paired phone starts with local sharing off (`clear()`), while the
         // server may still have this person sharing. The server is the record:
         // adopt it, before `profile` is published, so the household question
@@ -228,18 +248,42 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             try? outbox.change { $0.sharing = true }
             location.start()
         }
-        profile = me
+        // Every sync lands here, and the answer rarely changes: publish only
+        // a change, or each sync re-evaluates every screen observing this.
+        if profile != me { profile = me }
         // Family locations are read only through the scoped FamilyStore view.
-        family = []
+        if !family.isEmpty { family = [] }
         // The watched places ride in the household view. Read on every sync
         // (including background wakes), so a place flagged on the site is
         // watched by the phone without anybody opening the Family tab.
         // And so does what this person may use in the app.
-        if let v: HouseholdViewResponse = try? await api.request("household/view", timeout: 12) {
+        // A view the Family store read seconds ago has been adopted already.
+        if reusableView() == nil, let v: HouseholdViewResponse = try? await api.request("household/view", timeout: 12) {
+            noteView(v)
             adoptWatch(v.view?.watch)
             await adoptAccess(v.view?.access)
         }
-        let h: HealthResponse = try await api.request("health"); records = h.records
+        let latest = try await latestHealth()
+        if records != latest { records = latest }
+    }
+    /// A `household/view` answer read in the last `viewReuse` seconds, or nil.
+    func reusableView(now: Date = Date()) -> HouseholdViewResponse? {
+        guard let recentView, now.timeIntervalSince(recentView.at) < Self.viewReuse else { return nil }
+        return recentView.response
+    }
+    func noteView(_ response: HouseholdViewResponse, at now: Date = Date()) { recentView = (response, now) }
+    /// The newest health record, the only one anything shows ("latest 5m
+    /// ago"). `limit=1` spares decoding 500 of them on every sync; a server
+    /// from before `limit` refuses the parameter with a 400, and is asked
+    /// the old way once.
+    private func latestHealth() async throws -> [HealthRecord] {
+        do {
+            let h: HealthResponse = try await api.request("health", query: [URLQueryItem(name: "limit", value: "1")])
+            return Array(h.records.prefix(1))
+        } catch CompanionError.response(400, _) {
+            let h: HealthResponse = try await api.request("health")
+            return Array(h.records.prefix(1))
+        }
     }
     /// Hand the site's watched places to the collector. Nil — an older site,
     /// or no view yet — changes nothing: an unreadable answer must not stop
@@ -294,6 +338,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             }
             // Reconcile with server before uploads so a browser pause is respected.
             let me: Profile = try await api.request("me")
+            flushedProfile = me
             if !me.sharing && outbox.state.sharing && outbox.state.pendingSharing == nil {
                 try outbox.change { $0.sharing = false; for i in $0.batches.indices { $0.batches[i].locations = [] } }
                 location.stop()
@@ -351,7 +396,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 location.stop()
                 try? outbox.change { $0.sharing = false; $0.pendingSharing = nil; $0.batches = []; $0.healthEnabled.removeAll() }
                 try? Keychain.save(nil)
-                api.token = nil; paired = false; profile = nil; records = []; family = []
+                api.token = nil; paired = false; profile = nil; records = []; family = []; recentView = nil
                 health.startObservers()
                 retryTask?.cancel(); retryTask = nil
                 FamilyWidgetBridge.clear()
@@ -414,7 +459,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             try Keychain.save(nil); api.token = nil; paired = false
             FamilyViewCache.clear()
             try outbox.clear(); AccessStore.shared.attach(outbox); health.startObservers(); retryTask?.cancel()
-            profile = nil; records = []; family = []; updateQueue(); message = "Disconnected. Uploaded health records remain in your private dashboard."
+            profile = nil; records = []; family = []; recentView = nil; updateQueue(); message = "Disconnected. Uploaded health records remain in your private dashboard."
         } catch { message = "Disconnect pending: \(error.localizedDescription). You can revoke this device on the website." }
     }
     /// Settings → Delete account, for a phone paired to this server alone:
@@ -435,7 +480,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         try? Keychain.save(nil); api.token = nil; paired = false
         FamilyViewCache.clear()
         try? outbox.clear(); AccessStore.shared.attach(outbox); health.startObservers()
-        profile = nil; records = []; family = []; updateQueue()
+        profile = nil; records = []; family = []; recentView = nil; updateQueue()
         message = "Pair your iPhone to get started."
     }
     func scheduleRefresh() {
