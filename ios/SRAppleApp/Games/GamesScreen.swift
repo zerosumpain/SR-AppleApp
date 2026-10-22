@@ -67,8 +67,10 @@ struct GamesScreen: View {
                         }
 
                         if !store.rooms.isEmpty {
-                            section("Your games", trailing: nil, id: "games-rooms") {
-                                ForEach(store.rooms) { room in
+                            section("Your games", trailing: yourMovesLabel, id: "games-rooms") {
+                                // My move first, then the most recently changed — a
+                                // game played over days comes back here to resume.
+                                ForEach(store.yourGames) { room in
                                     // A Button onto the tab's path, not a NavigationLink:
                                     // the link under an interactive glass card never
                                     // received the tap in CI; a Button over the same
@@ -77,7 +79,7 @@ struct GamesScreen: View {
                                         SRHaptic.tap()
                                         router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
                                     } label: {
-                                        GameRoomRow(room: room)
+                                        GameRoomRow(room: room, serverNow: { store.serverNow() })
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityIdentifier("games-room-\(room.id)")
@@ -192,7 +194,8 @@ struct GamesScreen: View {
             if let message = store.message { SRBanner(text: message) }
         }
         .sheet(item: $starting) { kind in
-            NewGameSheet(game: kind, players: store.players, busy: store.busy == "new") { request in
+            NewGameSheet(game: kind, players: store.players, busy: store.busy == "new",
+                         paces: store.paceChoices(for: kind)) { request in
                 switch await store.create(request) {
                 case .created(let room):
                     starting = nil
@@ -203,6 +206,12 @@ struct GamesScreen: View {
                 }
             }
         }
+    }
+
+    /// "2 waiting on you" beside "Your games", when durable games wait on me.
+    private var yourMovesLabel: String? {
+        let n = YourGames.myMoves(store.rooms)
+        return n == 0 ? nil : "\(n) waiting on you"
     }
 
     private func section<Content: View>(_ title: String, trailing: String?, id: String, @ViewBuilder content: () -> Content) -> some View {
@@ -265,9 +274,11 @@ struct GameInviteCard: View {
 /// A room I am in, to go back to.
 struct GameRoomRow: View {
     let room: GameRoomSummary
+    /// The server's clock, for a durable game's "21 h left".
+    var serverNow: () -> Double? = { nil }
 
     var body: some View {
-        SRCard(interactive: true) {
+        SRCard(accented: room.myTurn, interactive: true) {
             HStack(spacing: 12) {
                 Image(systemName: GameKind(rawValue: room.game)?.icon ?? "gamecontroller")
                     .font(.system(size: 17, weight: .semibold))
@@ -277,9 +288,26 @@ struct GameRoomRow: View {
                     Text(GameNames.title(room.game))
                         .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
-                    Text("Hosted by \(room.hostName)")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
+                    if room.durable {
+                        // Ticks once a minute: the deadline is hours, not seconds.
+                        TimelineView(.periodic(from: .now, by: 60)) { _ in
+                            Text(YourGames.status(room, atServer: serverNow()) ?? "Hosted by \(room.hostName)")
+                                .font(room.myTurn ? SR.Text.bodyMedium(15) : SR.Text.secondary())
+                                .foregroundStyle(room.myTurn ? SR.accentInk : SR.inkMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("games-room-status-\(room.id)")
+                        }
+                        if room.pace == .async {
+                            Text("Over days · hosted by \(room.hostName)")
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        Text("Hosted by \(room.hostName)")
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
+                    }
                 }
                 Spacer(minLength: 8)
                 SRGlassChip(text: phaseLabel, tone: SR.accentInk)
@@ -361,6 +389,8 @@ struct NewGameSheet: View {
     let game: GameKind
     let players: [GamePerson]
     let busy: Bool
+    /// The paces this game offers (`lobby.paces`); empty = live only, no picker.
+    var paces: [GamePace] = []
     /// Creates the room. Nil when it did (the sheet is then closed by its
     /// owner); otherwise the server's sentence, shown above Start.
     let start: (CreateGameBody) async -> String?
@@ -391,6 +421,8 @@ struct NewGameSheet: View {
     @State private var marblePack: MarblerPack?
     @State private var marbleCourse: MarblerPack.Entry?
     @State private var marblePackError: String?
+    /// Play now or over days, for a durable game that offers both.
+    @State private var paceSettings = GamePaceSettings()
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -403,6 +435,10 @@ struct NewGameSheet: View {
                     SRPageHeader(kicker: "New game", title: game.title, strap: game.line)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("games-game-\(game.rawValue)")
+
+                    if !paces.isEmpty {
+                        paceSection
+                    }
 
                     if game == .quizNight {
                         quizSettings
@@ -529,8 +565,41 @@ struct NewGameSheet: View {
         .presentationDetents([.large])
     }
 
-    /// What Start sends.
+    /// What Start sends: the game's own body, with the pace when it offers one.
     private var request: CreateGameBody {
+        paces.isEmpty ? gameRequest : paceSettings.apply(to: gameRequest)
+    }
+
+    /// Play now, or over days with hours a turn — a durable game's pace.
+    private var paceSection: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Pace")
+            ForEach(paces) { pace in
+                choice(
+                    title: pace.label,
+                    line: pace.line,
+                    selected: paceSettings.pace == pace,
+                    id: "games-pace-\(pace.rawValue)"
+                ) { paceSettings.pace = pace }
+            }
+            if paceSettings.pace == .async {
+                segments(
+                    title: "Time for a turn",
+                    options: GamePace.deadlineHours.map { (value: $0, label: GamePace.hoursLabel($0)) },
+                    selected: $paceSettings.deadlineHours,
+                    id: "games-pace-hours"
+                )
+            }
+            Text(paceSettings.line)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-pace-line")
+        }
+    }
+
+    /// The game's own create body.
+    private var gameRequest: CreateGameBody {
         let invite = players.filter { invited.contains($0.id) }.map(\.id)
         if game == .quizNight {
             return QuizNightSettings(difficulty: difficulty, topic: topic, audience: audience,
