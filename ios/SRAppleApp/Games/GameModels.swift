@@ -35,6 +35,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case drawGuess = "draw-guess"
     case marbleRace = "marble-race"
     case chess
+    case fireworks
 
     var id: String { rawValue }
 
@@ -52,6 +53,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Draw & Guess"
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
+        case .fireworks: return "Fireworks"
         }
     }
 
@@ -70,6 +72,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Take turns drawing a word while everyone guesses."
         case .marbleRace: return "Back a marble. Everyone watches the same race."
         case .chess: return "The classic. Two players, a clock each."
+        case .fireworks: return "Build the show together. You cannot see your own cards."
         }
     }
 
@@ -100,6 +103,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone backs a different marble, then the same race plays on every phone at once. Burn in the fire and it's back to the top; the best-placed marble wins it for its backer."
         case .chess:
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
+        case .fireworks:
+            return "A team game for two to five. Everyone holds their cards facing away, so you see the others' cards but not your own. Give hints, play cards in order from 1 to 5 in each colour, and light the biggest show you can before three misfires."
         }
     }
 
@@ -117,6 +122,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "scribble.variable"
         case .marbleRace: return "flag.checkered"
         case .chess: return "checkerboard.rectangle"
+        case .fireworks: return "sparkles"
         }
     }
 }
@@ -176,6 +182,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.chess, .easy): return "15 minutes each, and 10 seconds back every move."
         case (.chess, .medium): return "10 minutes each, 5 seconds back a move."
         case (.chess, .hard): return "5 minutes each, 3 seconds back a move. Blitz."
+        case (.fireworks, .easy): return "Four misfires allowed, and each card shows what it could still be."
+        case (.fireworks, .medium): return "Five colours, three misfires. 75 seconds a turn."
+        case (.fireworks, .hard): return "A sixth prism colour that every colour hint lights. 60 seconds a turn."
         }
     }
 
@@ -630,6 +639,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// JSON (`ChessLogic.swift`). Nil in every other game's room.
     let chess: ChessState?
 
+    /// Fireworks: the fireworks, tokens, hands (mine as knowledge only) and log,
+    /// read from the same JSON (`FireworksLogic.swift`). Nil in every other game's room.
+    let fireworks: FireworksState?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
@@ -714,6 +727,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         }
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
+        fireworks = game == GameKind.fireworks.rawValue ? (try? FireworksState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -813,6 +827,11 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
+    /// Fireworks: `hint {to, colour}` or `hint {to, rank}` (`to` as Chess's field, a
+    /// player id here); `play {card}` and `discard {card}`, a card id from my hand.
+    var colour: String? = nil
+    var rank: Int? = nil
+    var card: Int? = nil
 }
 
 enum GameNames {

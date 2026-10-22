@@ -45,6 +45,8 @@ extension SRDemoFixtures {
     static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
     static let demoChessRoom = "g_demo_chess"
     static let demoChessDoneRoom = "g_demo_chess_done"
+    static let demoFireworksRoom = "g_demo_fireworks"
+    static let demoFireworksDoneRoom = "g_demo_fireworks_done"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -106,6 +108,14 @@ extension SRDemoFixtures {
                        {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Fireworks' two rooms: Alex's turn mid-show (easy, so Alex's cards say
+    /// what they could be), and a finished hard show. Left out of the store
+    /// shots, as Categories' are.
+    static let fireworksLobbyRows = #"""
+    {"id": "g_demo_fireworks", "game": "fireworks", "phase": "playing", "hostName": "Alex"},
+                       {"id": "g_demo_fireworks_done", "game": "fireworks", "phase": "finished", "hostName": "Sam"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -116,7 +126,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : fireworksLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : chessLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -149,6 +160,8 @@ extension SRDemoFixtures {
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
         if id == demoChessRoom { return chessRoom(finished: false, clock: clock) }
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
+        if id == demoFireworksRoom { return fireworksRoom(finished: false, clock: clock) }
+        if id == demoFireworksDoneRoom { return fireworksRoom(finished: true, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
@@ -646,6 +659,107 @@ extension SRDemoFixtures {
          "players": [\(seat("p_alex", "Alex", host: true, colour: "w", clockMs: 581000)),
                      \(seat("p_sam", "Sam", host: false, colour: "b", clockMs: 592000))],
          "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Fireworks
+
+    /// Fireworks. Playing (easy, three players): Alex's turn, 20 s in, with
+    /// red to 2, yellow 1, blue 3, white 1 and a green 4 misfired; Sam holds
+    /// the red 3 the table needs and has been told it is a 3. Alex's own cards
+    /// arrive as the server sends them — ids and what hints said, never the
+    /// cards. Finished (hard, Sam's game): 22 of 30 when the deck ran out.
+    static func fireworksRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let all = #"["red","yellow","green","blue","white"]"#
+        let anyRank = "[1,2,3,4,5]"
+        func knows(_ colours: String = #"["red","yellow","green","blue","white"]"#, _ ranks: String = "[1,2,3,4,5]",
+                   hinted: Bool = false) -> String {
+            "{\"colours\": \(colours), \"ranks\": \(ranks), \"hinted\": \(hinted)}"
+        }
+        func card(_ id: Int, _ colour: String, _ rank: Int, _ k: String? = nil) -> String {
+            let known = k ?? knows()
+            return "{\"id\": \(id), \"colour\": \(s(colour)), \"rank\": \(rank), \"knows\": \(known), \"could\": null}"
+        }
+        func mine(_ id: Int, _ k: String, could: String) -> String {
+            "{\"id\": \(id), \"colour\": null, \"rank\": null, \"knows\": \(k), \"could\": \(could)}"
+        }
+        func seat(_ id: String, _ name: String, host: Bool, hand: [String]) -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"hand\": [\(hand.joined(separator: ", "))]}"
+        }
+        func entry(_ kind: String, by: String, to: String? = nil, colour: String? = nil, rank: Int? = nil,
+                   cards: [Int] = [], ok: Bool? = nil, auto: Bool = false, card: String? = nil) -> String {
+            let rankText = rank.map(String.init) ?? "null"
+            let okText = ok.map { $0 ? "true" : "false" } ?? "null"
+            let cardText = card ?? "null"
+            return "{\"kind\": \(s(kind)), \"by\": \(s(by)), \"to\": \(s(to)), \"colour\": \(s(colour)), "
+                + "\"rank\": \(rankText), \"cards\": \(cards), "
+                + "\"ok\": \(okText), \"auto\": \(auto), \"card\": \(cardText)}"
+        }
+        func face(_ id: Int, _ colour: String, _ rank: Int) -> String {
+            "{\"id\": \(id), \"colour\": \(s(colour)), \"rank\": \(rank)}"
+        }
+        if finished {
+            let six = #"["red","yellow","green","blue","white","prism"]"#
+            return """
+            {"id": \(s(demoFireworksDoneRoom)), "game": "fireworks", "difficulty": "hard", "phase": "finished",
+             "hostId": "p_sam", "meId": "p_alex",
+             "rule": "Six colours: the prism cards light up for every colour hint. 3 misfires and the show is over.",
+             "colours": \(six), "hintColours": \(all), "turnMs": 60000,
+             "startedAt": \(ms(now.addingTimeInterval(-1500))), "phaseEndsAt": \(ms(now.addingTimeInterval(560))),
+             "turnId": null, "turn": 61, "hints": 3, "maxHints": 8, "misfires": 2, "maxMisfires": 3,
+             "deck": 0, "finalTurns": 0,
+             "stacks": {"red": 5, "yellow": 4, "green": 5, "blue": 3, "white": 3, "prism": 2},
+             "score": 22, "maxScore": 30, "discards": [\(face(9, "green", 1)), \(face(14, "blue", 4)), \(face(31, "prism", 4))],
+             "log": [\(entry("play", by: "p_alex", ok: true, card: face(55, "green", 5)))],
+             "players": [\(seat("p_sam", "Sam", host: true, hand: [card(40, "blue", 4), card(48, "prism", 3)])),
+                         \(seat("p_alex", "Alex", host: false, hand: [card(51, "white", 4), card(57, "red", 1)])),
+                         \(seat("p_robin", "Robin", host: false, hand: [card(44, "yellow", 1), card(59, "prism", 5)]))],
+             "ending": "deck",
+             "standings": [{"id": "p_sam", "name": "Sam", "place": 1, "score": 22, "maxScore": 30, "left": false},
+                           {"id": "p_alex", "name": "Alex", "place": 1, "score": 22, "maxScore": 30, "left": false},
+                           {"id": "p_robin", "name": "Robin", "place": 1, "score": 22, "maxScore": 30, "left": false}],
+             "winnerIds": [], "serverNow": \(ms(now))}
+            """
+        }
+        let sam = [card(17, "red", 3, knows(all, "[3]", hinted: true)), card(18, "green", 1), card(21, "blue", 4),
+                   card(22, "yellow", 1, knows(all, "[1,2,3,4]")), card(26, "white", 5, knows(all, "[1,2,4,5]"))]
+        let robin = [card(19, "green", 2), card(20, "yellow", 2), card(23, "red", 1), card(24, "blue", 1),
+                     card(27, "white", 3)]
+        let alex = [
+            mine(25, knows(#"["blue"]"#, anyRank, hinted: true),
+                 could: #"{"colours": ["blue"], "ranks": [2,3,4,5], "hinted": true}"#),
+            mine(28, knows(all, "[4]", hinted: true),
+                 could: #"{"colours": ["red","yellow","green","blue","white"], "ranks": [4], "hinted": true}"#),
+            mine(29, knows(#"["red","yellow","green","white"]"#, "[1,2,3,5]"),
+                 could: #"{"colours": ["red","yellow","green","white"], "ranks": [1,2,3,5], "hinted": false}"#),
+            mine(30, knows(#"["red","yellow","green","white"]"#, "[1,2,3,5]"),
+                 could: #"{"colours": ["red","yellow","green","white"], "ranks": [1,2,3,5], "hinted": false}"#),
+            mine(32, knows(), could: #"{"colours": ["red","yellow","green","blue","white"], "ranks": [1,2,3,4,5], "hinted": false}"#),
+        ]
+        let log = [
+            entry("play", by: "p_robin", ok: false, card: face(12, "green", 4)),
+            entry("discard", by: "p_alex", card: face(15, "white", 1)),
+            entry("hint", by: "p_robin", to: "p_sam", rank: 3, cards: [17]),
+            entry("hint", by: "p_sam", to: "p_alex", colour: "blue", cards: [25]),
+            entry("hint", by: "p_robin", to: "p_alex", rank: 4, cards: [28]),
+        ].joined(separator: ", ")
+        return """
+        {"id": \(s(demoFireworksRoom)), "game": "fireworks", "difficulty": "easy", "phase": "playing",
+         "hostId": "p_alex", "meId": "p_alex",
+         "rule": "4 misfires and the show is over. Your cards show what they could still be.",
+         "colours": \(all), "hintColours": \(all), "turnMs": 90000,
+         "startedAt": \(ms(now.addingTimeInterval(-600))), "phaseEndsAt": \(ms(now.addingTimeInterval(70))),
+         "turnId": "p_alex", "turn": 14, "hints": 5, "maxHints": 8, "misfires": 1, "maxMisfires": 4,
+         "deck": 26, "finalTurns": null,
+         "stacks": {"red": 2, "yellow": 1, "green": 0, "blue": 3, "white": 1},
+         "score": 7, "maxScore": 25, "discards": [\(face(12, "green", 4)), \(face(15, "white", 1))],
+         "log": [\(log)],
+         "players": [\(seat("p_alex", "Alex", host: true, hand: alex)),
+                     \(seat("p_sam", "Sam", host: false, hand: sam)),
+                     \(seat("p_robin", "Robin", host: false, hand: robin))],
+         "ending": null, "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
         """
     }
 

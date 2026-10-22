@@ -1329,6 +1329,63 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Fireworks: Alex's turn mid-show — the counters, the fireworks, Sam's
+    /// and Robin's hands face up, Alex's own face down with what hints said —
+    /// then a hint put together for Sam with its cards lit, one of Alex's own
+    /// cards picked, and a finished show.
+    @MainActor func testShowcaseFireworks() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_fireworks")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "fireworks-playing"), seconds: 2)
+            soft(byId(app, "fireworks-headline").label.contains("Your turn"), "not my turn")
+            soft(byId(app, "fireworks-stacks").exists, "no fireworks")
+            soft(byId(app, "fireworks-hints").exists, "no hint tokens")
+            soft(byId(app, "fireworks-hand-p_sam").exists, "no hand for Sam")
+            soft(byId(app, "fireworks-my-hand").exists, "no hand of my own")
+            soft(byId(app, "fireworks-card-17").label.contains("Red 3"), "Sam's red 3 is not face up")
+            soft(!byId(app, "fireworks-mine-0").label.contains("Blue 1"), "my own card is face up")
+            attach(app, "Showcase — Fireworks, my turn")
+            let hint = byId(app, "fireworks-hint-p_sam")
+            if hint.exists {
+                hint.tap()
+                let three = byId(app, "fireworks-choice-3")
+                settle(app, on: three, seconds: 1)
+                three.tap()
+                soft(byId(app, "fireworks-card-17").label.contains("points at it"), "the hint does not light the red 3")
+                attach(app, "Showcase — Fireworks, a hint for Sam")
+                hint.tap()
+            } else {
+                soft(false, "no Hint button for Sam")
+            }
+            let card = byId(app, "fireworks-mine-1")
+            if scroll(app, to: card) {
+                card.tap()
+                soft(byId(app, "fireworks-play").isEnabled, "Play is not ready")
+                attach(app, "Showcase — Fireworks, a card picked")
+            }
+            back(app)
+        } else {
+            soft(false, "no fireworks game to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_fireworks_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "fireworks-finished"), seconds: 2)
+            soft(byId(app, "fireworks-standings").exists, "no team table")
+            soft(byId(app, "fireworks-final-score").label.contains("22"), "no team score")
+            attach(app, "Showcase — Fireworks, finished")
+            back(app)
+        } else {
+            soft(false, "no finished fireworks")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.
