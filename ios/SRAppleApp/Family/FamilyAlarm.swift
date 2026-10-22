@@ -161,7 +161,7 @@ final class FamilyAlarmStore: ObservableObject {
         // The same alarm again (a poll after the push): keep ringing, and
         // keep whichever copy says more.
         if incoming?.alarmId == alarm.alarmId {
-            if alarm.lat != nil || alarm.message != nil { incoming = alarm }
+            if alarm.lat != nil || alarm.message != nil, incoming != alarm { incoming = alarm }
             return
         }
         incoming = alarm

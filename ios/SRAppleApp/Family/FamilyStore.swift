@@ -67,21 +67,27 @@ final class FamilyStore: ObservableObject {
             return
         }
         loading = true
-        defer { loading = false; loaded = true }
+        defer { loading = false; if !loaded { loaded = true } }
         do {
             let response = try await fetchView()
             companion.adoptWatch(response.view?.watch)
             await companion.adoptAccess(response.view?.access)
             AccessStore.shared.adopt(previews: response.view?.previewAs)
+            // Polled every 15 s, but the server files a new view every two
+            // minutes or so: a read that changed nothing must not republish
+            // (each publish re-evaluates the map) or rewrite the cache file.
+            let changed = real != response.view || updated != response.updated
             real = response.view
             applyViewingAs()
-            updated = response.updated
-            if let fresh = response.view {
-                FamilyViewCache.save(view: fresh, updated: response.updated)
-            } else {
-                FamilyViewCache.clear()
+            if updated != response.updated { updated = response.updated }
+            if changed {
+                if let fresh = response.view {
+                    FamilyViewCache.save(view: fresh, updated: response.updated)
+                } else {
+                    FamilyViewCache.clear()
+                }
             }
-            message = nil
+            if message != nil { message = nil }
         } catch {
             if Self.isRefusal(error) {
                 real = nil; view = nil; updated = nil
@@ -98,14 +104,19 @@ final class FamilyStore: ObservableObject {
     }
 
     /// One read, and one more a moment later if the first did not land (a
-    /// refusal is an answer, not a blip: it is not retried).
+    /// refusal is an answer, not a blip: it is not retried). A view the sync
+    /// read seconds ago (`Companion.reusableView`) is that read.
     private func fetchView() async throws -> HouseholdViewResponse {
+        if let recent = companion.reusableView() { return recent }
+        let response: HouseholdViewResponse
         do {
-            return try await companion.api.request("household/view", timeout: 12)
+            response = try await companion.api.request("household/view", timeout: 12)
         } catch where !Self.isRefusal(error) {
             try await Task.sleep(nanoseconds: 1_500_000_000)
-            return try await companion.api.request("household/view", timeout: 12)
+            response = try await companion.api.request("household/view", timeout: 12)
         }
+        companion.noteView(response)
+        return response
     }
 
     /// The companion server refusing this phone: its access has ended.
@@ -118,7 +129,8 @@ final class FamilyStore: ObservableObject {
     /// view. Called on every read, and when "View as" changes.
     func applyViewingAs() {
         let shown = AccessStore.shared.viewingAs?.view ?? real
-        view = shown?.showsHousehold == true ? shown : nil
+        let next = shown?.showsHousehold == true ? shown : nil
+        if view != next { view = next }
     }
 
     /// "Updated 2m ago", from when the server filed the view.

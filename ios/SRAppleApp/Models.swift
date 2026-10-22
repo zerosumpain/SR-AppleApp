@@ -3,7 +3,7 @@ import Combine
 import CoreLocation
 
 struct WorkoutEventRecord: Codable, Equatable { var type: String; var start: String; var end: String }
-struct HealthRecord: Codable, Identifiable {
+struct HealthRecord: Codable, Equatable, Identifiable {
     var id: String
     var kind: String
     var start: String
@@ -58,7 +58,7 @@ struct UploadBatch: Codable, Identifiable {
 }
 /// `owner` is optional so a pilot that predates it still decodes; nil means
 /// "not told", which nothing treats as either answer.
-struct Profile: Codable { var id: String; var name: String; var sharing: Bool; var owner: Bool?; var stepsSharing: Bool?; var deletionPending: Bool? }
+struct Profile: Codable, Equatable { var id: String; var name: String; var sharing: Bool; var owner: Bool?; var stepsSharing: Bool?; var deletionPending: Bool? }
 struct FamilyMember: Codable, Identifiable {
     var id: String
     var name: String

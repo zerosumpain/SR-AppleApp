@@ -23,7 +23,12 @@ import MapKit
 /// lives, rather than stacking nine sections a thumb has to scroll past to
 /// reach the one that changed.
 struct HealthScreen: View {
-    @ObservedObject var companion: Companion
+    /// Held, not observed: a tab root observing it redrew the whole tab on
+    /// every fix and upload (the queue count moves with each one) — the #124
+    /// fixes, one tab later. What the tab shows of it is mirrored below, and
+    /// the upload line observes it on its own (`HeartHeader`).
+    let companion: Companion
+    @State private var companionPaired: Bool?
     @StateObject private var store = HealthStore()
     @StateObject private var hub = HealthHubStore()
     @StateObject private var heart = HeartTimelineStore()
@@ -62,6 +67,7 @@ struct HealthScreen: View {
             list
         }
         .srGround(.vital)
+        .onReceive(companion.$paired.removeDuplicates()) { companionPaired = $0 }
         .navigationTitle("Health")
         // Inline, not large. A large title renders BLANK on this OS with this
         // appearance proxy — the bar lays out at full height and paints no text.
@@ -179,7 +185,7 @@ struct HealthScreen: View {
     @ViewBuilder
     private var heartSection: some View {
         Section {
-            if !companion.paired && !Self.demo {
+            if !(companionPaired ?? companion.paired) && !Self.demo {
                 // A fresh install. The rows this section replaced used to say how
                 // to fill it, and the onboarding test is right that an empty tab
                 // must still say that.
@@ -202,19 +208,13 @@ struct HealthScreen: View {
                     .srBareRow()
             }
         } header: {
-            SRSectionLabel(text: "Last 24 hours", trailing: uploadLine)
+            HeartHeader(companion: companion)
         } footer: {
             Text("From this iPhone via Apple Health. Only you can see it. Not a live feed: it moves when the phone syncs.")
                 .font(SR.Text.mono())
                 .foregroundStyle(SR.inkMuted)
                 .padding(.vertical, 4)
         }
-    }
-
-    private var uploadLine: String? {
-        if companion.queueCount > 0 { return "\(companion.queueCount) waiting" }
-        if let latest = companion.records.first { return "latest \(shortAgo(latest.start))" }
-        return nil
     }
 
     @ViewBuilder
@@ -252,6 +252,23 @@ struct HealthScreen: View {
 
 fileprivate extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+/// The heart section's header, the one part of the tab that follows the
+/// upload queue: alone in observing `Companion`, so a fix redraws this line
+/// and not the tab.
+private struct HeartHeader: View {
+    @ObservedObject var companion: Companion
+
+    var body: some View {
+        SRSectionLabel(text: "Last 24 hours", trailing: line)
+    }
+
+    private var line: String? {
+        if companion.queueCount > 0 { return "\(companion.queueCount) waiting" }
+        if let latest = companion.records.first { return "latest \(shortAgo(latest.start))" }
+        return nil
+    }
 }
 
 // MARK: - On the band

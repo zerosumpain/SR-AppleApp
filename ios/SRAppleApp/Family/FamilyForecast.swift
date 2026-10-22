@@ -244,7 +244,7 @@ final class FamilyForecastStore: ObservableObject {
         do {
             var fetched: FamilyForecast = try await SiteClient.shared.send("api/native/family/forecast")
             fetched.next.removeAll { corrected.contains($0.correctionKey) }
-            forecast = fetched
+            if forecast != fetched { forecast = fetched }
             lastLoad = Date()
             // Only this phone's own view: "View as" is somebody else's seat,
             // and their diary is not yours to be reminded of.

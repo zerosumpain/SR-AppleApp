@@ -228,7 +228,8 @@ final class LiveWalksStore: ObservableObject {
 
     func load() async {
         guard SiteClient.shared.isPaired else { return }
-        if let page: LiveWalksPage = try? await SiteClient.shared.send(RouteLivePath.sessions) {
+        // Polled with the Family tab: publish only a list that changed.
+        if let page: LiveWalksPage = try? await SiteClient.shared.send(RouteLivePath.sessions), page.sessions != walks {
             walks = page.sessions
         }
     }

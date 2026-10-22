@@ -241,7 +241,7 @@ final class SiteClient {
         let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            return try await OffMain.decode(T.self, from: data)
         } catch {
             throw SiteError.message("The server sent something this version of the app cannot read.")
         }
@@ -285,7 +285,7 @@ final class SiteClient {
         let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            return try await OffMain.decode(T.self, from: data)
         } catch {
             throw SiteError.message("The server sent something this version of the app cannot read.")
         }
@@ -436,7 +436,7 @@ final class SiteClient {
         let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            return try await OffMain.decode(T.self, from: data)
         } catch {
             throw SiteError.message("The server sent something this version of the app cannot read.")
         }
