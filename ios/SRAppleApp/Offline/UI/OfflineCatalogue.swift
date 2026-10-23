@@ -70,6 +70,10 @@ struct OfflineCatalogueItem: Identifiable {
     var id: String { entry.info.id }
     var info: OfflineGameInfo { entry.info }
 
+    // Not specialised or inlined, like `OfflineGameEntry.init`: twenty games
+    // specialised into `items`' one initializer stalled the Release build.
+    @inline(never)
+    @_semantics("optimize.sil.specialize.generic.never")
     init<Rules: OfflineGameRules, Screen: View>(_ rules: Rules.Type,
                                                  @ViewBuilder screen: @escaping @MainActor (OfflineGameContext<Rules>) -> Screen) {
         entry = OfflineGameEntry(rules)

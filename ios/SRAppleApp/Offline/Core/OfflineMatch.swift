@@ -95,6 +95,13 @@ struct OfflineGameEntry {
     let info: OfflineGameInfo
     let begin: (_ players: [OfflinePlayer], _ seed: UInt64, _ now: Double) -> any OfflineMatch
 
+    // Never specialised or inlined: the catalogue builds twenty of these in
+    // one initializer, and a whole-module Release build that specialised
+    // every game's match and coding into it ran past CI's 30-minute limit
+    // (a per-file build of the same code took 15 minutes). Unspecialised
+    // generic code is plenty fast for one move at a time.
+    @inline(never)
+    @_semantics("optimize.sil.specialize.generic.never")
     init<Rules: OfflineGameRules>(_ rules: Rules.Type) {
         info = Rules.info
         begin = { players, seed, now in OfflineMatchOf<Rules>(players: players, seed: seed, now: now) }
