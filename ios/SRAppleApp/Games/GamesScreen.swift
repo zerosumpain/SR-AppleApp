@@ -354,6 +354,7 @@ struct GameCard: View {
         case .chess: return SR.ink
         case .mission: return SR.error
         case .oneClue: return SR.accentInk
+        case .fakeArtist: return SR.accentDeep
         }
     }
 }
@@ -386,6 +387,8 @@ struct NewGameSheet: View {
     @State private var categoriesSeconds = CategoriesSettings.defaultSeconds
     // Liar's Dice.
     @State private var liarsDice = 5
+    // Odd Artist Out.
+    @State private var fakeRounds = 3
     // Draw & Guess.
     @State private var drawTurns = 1
     @State private var drawSeconds = 80
@@ -428,6 +431,10 @@ struct NewGameSheet: View {
 
                     if game == .marbleRace {
                         marbleRaceSettings
+                    }
+
+                    if game == .fakeArtist {
+                        fakeArtistSettings
                     }
 
                     // Marble Race's course sets how hard it is: no level to pick.
@@ -563,6 +570,9 @@ struct NewGameSheet: View {
         if game == .mission {
             return MissionSettings(difficulty: difficulty).createBody(invite: invite)
         }
+        if game == .fakeArtist {
+            return FakeArtistSettings(difficulty: difficulty, rounds: fakeRounds).createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
     }
 
@@ -608,6 +618,24 @@ struct NewGameSheet: View {
             } catch {
                 marblePackError = error.localizedDescription
             }
+        }
+    }
+
+    /// Rounds — Odd Artist Out's game. It needs four, so the line says so.
+    private var fakeArtistSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Game")
+            segments(
+                title: "Rounds",
+                options: FakeArtistSettings.roundChoices.map { (value: $0, label: FakeArtistSettings.roundsLabel($0)) },
+                selected: $fakeRounds,
+                id: "games-fakeartist-rounds"
+            )
+            Text("Four to ten players. A new fake every round; one line each, twice round, then everyone votes.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-fakeartist-line")
         }
     }
 

@@ -56,6 +56,8 @@ struct GameRoomScreen: View {
                 MissionScreen(roomId: ref.id)
             case .oneClue?:
                 OneClueScreen(roomId: ref.id)
+            case .fakeArtist?:
+                FakeArtistScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",

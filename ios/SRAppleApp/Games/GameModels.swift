@@ -37,6 +37,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case chess
     case mission
     case oneClue = "one-clue"
+    case fakeArtist = "fake-artist"
 
     var id: String { rawValue }
 
@@ -56,6 +57,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .chess: return "Chess"
         case .mission: return "Secret Mission"
         case .oneClue: return "One Clue"
+        case .fakeArtist: return "Odd Artist Out"
         }
     }
 
@@ -76,6 +78,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .chess: return "The classic. Two players, a clock each."
         case .mission: return "Crew against hidden spies. Five to ten, in one room."
         case .oneClue: return "One word each. Matching clues cancel out."
+        case .fakeArtist: return "One line each. One of you doesn't know the word."
         }
     }
 
@@ -110,6 +113,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Five to ten of you, in one room. A few are secretly spies. Leaders pick teams, everyone votes, and the team secretly succeeds — or a spy sabotages. Three missions wins it for either side."
         case .oneClue:
             return "A team game for three to seven. Take turns to guess a secret word; everyone else writes one clue, and any two clues that match cancel out. Ten cards — how many can you get together?"
+        case .fakeArtist:
+            return "Everyone sees the category; everyone but the fake sees the word. Take turns adding one line each to the same picture, then vote for the fake. Caught, the fake can still win by naming the word."
         }
     }
 
@@ -129,6 +134,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .chess: return "checkerboard.rectangle"
         case .mission: return "eye.slash.fill"
         case .oneClue: return "text.bubble.fill"
+        case .fakeArtist: return "theatermasks.fill"
         }
     }
 }
@@ -194,6 +200,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.oneClue, .easy): return "Everyday things: animals, food, toys. 90 seconds for clues."
         case (.oneClue, .medium): return "Places, jobs, weather and sport. 75 seconds for clues."
         case (.oneClue, .hard): return "Ideas like echo and gravity: clues clash more. 60 seconds."
+        case (.fakeArtist, .easy): return "Everyday words. 30 seconds a line."
+        case (.fakeArtist, .medium): return "Well-known words. 20 seconds a line."
+        case (.fakeArtist, .hard): return "Less common words. 15 seconds a line."
         }
     }
 
@@ -654,6 +663,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// One Clue: the card, the clues this phone may see, and every card so
     /// far, read from the same JSON (`OneClueLogic.swift`). Nil in every other game's room.
     let oneClue: OneClueState?
+    /// Odd Artist Out: the round as this phone may see it, the picture and the
+    /// history, read from the same JSON (`FakeArtistLogic.swift`). Nil in every
+    /// other game's room.
+    let fakeArtist: FakeArtistState?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -741,6 +754,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
         mission = game == GameKind.mission.rawValue ? (try? MissionState(from: decoder)) : nil
         oneClue = game == GameKind.oneClue.rawValue ? (try? OneClueState(from: decoder)) : nil
+        fakeArtist = game == GameKind.fakeArtist.rawValue ? (try? FakeArtistState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -795,6 +809,8 @@ struct CreateGameBody: Encodable, Equatable {
     var turnsEach: Int? = nil
     /// Marble Race: the course from Marbler's pack.
     var course: MarbleRaceState.Course? = nil
+    /// Odd Artist Out: rounds in the game (3 | 5).
+    var rounds: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -847,6 +863,9 @@ struct GameActionBody: Encodable {
     var card: String? = nil
     /// One Clue: `{action:"clue", text, lock:true}` locks my clue in; without it, a draft.
     var lock: Bool? = nil
+    /// Odd Artist Out: `stroke {points, end?}` (`points` as Draw & Guess's; `end` lifts the
+    /// finger and ends the turn); `vote {playerId}`; `guess {text}`.
+    var end: Bool? = nil
 }
 
 enum GameNames {

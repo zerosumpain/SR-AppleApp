@@ -1427,6 +1427,52 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Odd Artist Out: Alex's line to draw (the card with the word, the seats in
+    /// their inks, the paper lit in Alex's colour), a vote with Alex the fake
+    /// (no word on the card), and a reveal where the caught fake named it.
+    @MainActor func testShowcaseFakeArtist() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let drawing = byId(app, "games-room-g_demo_fakeartist")
+        if scroll(app, to: drawing) {
+            drawing.tap()
+            settle(app, on: byId(app, "fakeartist-playing"), seconds: 2)
+            soft(byId(app, "fakeartist-card").label.contains("lighthouse"), "the artist's card has no word")
+            soft(byId(app, "fakeartist-canvas").label.contains("Your turn"), "not Alex's turn to draw")
+            soft(byId(app, "fakeartist-seat-p_jo").exists, "no seat for Jo")
+            attach(app, "Showcase — Odd Artist Out, my line")
+            back(app)
+        } else {
+            soft(false, "no Odd Artist Out drawing to resume")
+        }
+
+        let voting = byId(app, "games-room-g_demo_fakeartist_vote")
+        if scroll(app, to: voting) {
+            voting.tap()
+            settle(app, on: byId(app, "fakeartist-playing"), seconds: 2)
+            soft(byId(app, "fakeartist-card").label.contains("fake"), "the fake's card does not say so")
+            soft(!byId(app, "fakeartist-card").label.contains("lighthouse"), "the fake was shown the word")
+            soft(byId(app, "fakeartist-vote-p_sam").exists, "no vote for Sam")
+            attach(app, "Showcase — Odd Artist Out, the vote as the fake")
+            back(app)
+        } else {
+            soft(false, "no Odd Artist Out vote")
+        }
+
+        let reveal = byId(app, "games-room-g_demo_fakeartist_reveal")
+        if scroll(app, to: reveal) {
+            reveal.tap()
+            settle(app, on: byId(app, "fakeartist-reveal"), seconds: 2)
+            soft(byId(app, "fakeartist-reveal").label.contains("named the word"), "no outcome sentence")
+            attach(app, "Showcase — Odd Artist Out, the reveal")
+            back(app)
+        } else {
+            soft(false, "no Odd Artist Out reveal")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.
