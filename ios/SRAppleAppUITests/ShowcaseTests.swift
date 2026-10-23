@@ -1572,6 +1572,42 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Manhunt: Alex hunting — the circle, the other hunters live and Sam at
+    /// the last ping, the clocks and Catch — and a finished hunt Robin caught.
+    @MainActor func testShowcaseManhunt() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let hunting = byId(app, "games-room-g_demo_manhunt")
+        if scroll(app, to: hunting) {
+            hunting.tap()
+            settle(app, on: byId(app, "manhunt-hunt"), seconds: 3)
+            soft(byId(app, "manhunt-map").exists, "no map")
+            soft(byId(app, "manhunt-map").label.contains("at the last ping"), "the runner's ping is not on the map")
+            soft(byId(app, "manhunt-clock").exists, "no time-left clock")
+            soft(byId(app, "manhunt-next-ping").exists, "no next-ping clock")
+            soft(byId(app, "manhunt-catch").exists, "no Catch button")
+            soft(byId(app, "manhunt-headline").label.contains("Hunt them down"), "not hunting")
+            attach(app, "Showcase — Manhunt, hunting")
+            back(app)
+        } else {
+            soft(false, "no manhunt to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_manhunt_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "manhunt-finished"), seconds: 2)
+            soft(byId(app, "manhunt-standings").exists, "no result table")
+            soft(byId(app, "manhunt-outcome").label.contains("Robin caught Sam"), "no catch sentence")
+            attach(app, "Showcase — Manhunt, finished")
+            back(app)
+        } else {
+            soft(false, "no finished manhunt")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.

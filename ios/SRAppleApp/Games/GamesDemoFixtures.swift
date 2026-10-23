@@ -56,6 +56,8 @@ extension SRDemoFixtures {
     static let demoPlateDoneRoom = "g_demo_plate_done"
     static let demoFireworksRoom = "g_demo_fireworks"
     static let demoFireworksDoneRoom = "g_demo_fireworks_done"
+    static let demoManhuntRoom = "g_demo_manhunt"
+    static let demoManhuntDoneRoom = "g_demo_manhunt_done"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -148,6 +150,13 @@ extension SRDemoFixtures {
                        {"id": "g_demo_fireworks_done", "game": "fireworks", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Manhunt's two rooms: Alex hunting with a ping on the map, and a
+    /// finished hunt Robin caught. Left out of the store shots, as Chess's are.
+    static let manhuntLobbyRows = #"""
+    {"id": "g_demo_manhunt", "game": "manhunt", "phase": "hunt", "hostName": "Alex"},
+                       {"id": "g_demo_manhunt_done", "game": "manhunt", "phase": "finished", "hostName": "Alex"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -164,6 +173,7 @@ extension SRDemoFixtures {
                    \(storeShotsSkipsWordle ? "" : fakeArtistLobbyRows)
                    \(storeShotsSkipsWordle ? "" : plateLobbyRows)
                    \(storeShotsSkipsWordle ? "" : fireworksLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : manhuntLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -207,6 +217,8 @@ extension SRDemoFixtures {
         if id == demoPlateDoneRoom { return plateRoom(finished: true, clock: clock) }
         if id == demoFireworksRoom { return fireworksRoom(finished: false, clock: clock) }
         if id == demoFireworksDoneRoom { return fireworksRoom(finished: true, clock: clock) }
+        if id == demoManhuntRoom { return manhuntRoom(finished: false, clock: clock) }
+        if id == demoManhuntDoneRoom { return manhuntRoom(finished: true, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
@@ -1049,6 +1061,59 @@ extension SRDemoFixtures {
                      \(seat("p_sam", "Sam", host: false, hand: sam)),
                      \(seat("p_robin", "Robin", host: false, hand: robin))],
          "ending": null, "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Manhunt
+
+    /// Manhunt, medium, in a public park (synthetic positions round a made-up
+    /// centre). Hunting: Alex (me) and Kit hunt, Sam runs; Robin hunts too.
+    /// Alex sees Kit and Robin live and where Sam was at the last ping, four
+    /// minutes into a 30-minute hunt. Finished: Robin caught Sam.
+    static func manhuntRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let area = #"{"lat": 51.5073, "lng": -0.1657, "radiusM": 500}"#
+        func fix(_ lat: Double, _ lng: Double, ago: Double) -> String {
+            "{\"lat\": \(lat), \"lng\": \(lng), \"accuracy\": 6, \"at\": \(ms(now.addingTimeInterval(-ago))), \"outside\": false}"
+        }
+        func seat(_ id: String, _ name: String, role: String, host: Bool, fix: String?) -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"role\": \(s(role)), \"fix\": \(fix ?? "null")}"
+        }
+        let common = """
+        "game": "manhunt", "difficulty": "medium", "hostId": "p_alex", "meId": "p_alex", "area": \(area),
+         "radius": 500, "minutes": 30, "rule": "The runner shows up every 3 min, and live whenever they step outside the circle. Get within 25 m to catch.",
+         "pingMs": 180000, "headStartMs": 120000, "catchM": 25, "catchSlackM": 25, "claimMs": 20000,
+         "outsideLiveMs": 30000, "fixMinGapMs": 3000, "runnerPick": null, "runnerId": "p_sam"
+        """
+        if finished {
+            return """
+            {"id": \(s(demoManhuntDoneRoom)), "phase": "finished", \(common),
+             "myRole": "hunter", "startedAt": \(ms(now.addingTimeInterval(-1_000))), "huntStartedAt": \(ms(now.addingTimeInterval(-880))),
+             "endsAt": \(ms(now.addingTimeInterval(920))), "nextPingAt": null, "phaseEndsAt": \(ms(now.addingTimeInterval(590))),
+             "runnerLiveUntil": null, "runnerQuiet": false, "claim": null, "catchCooldownUntil": null, "pings": [],
+             "players": [\(seat("p_alex", "Alex", role: "hunter", host: true, fix: nil)),
+                         \(seat("p_sam", "Sam", role: "runner", host: false, fix: nil)),
+                         \(seat("p_robin", "Robin", role: "hunter", host: false, fix: nil))],
+             "result": {"outcome": "caught", "catcherId": "p_robin", "confirmed": true},
+             "standings": [{"id": "p_robin", "name": "Robin", "place": 1, "role": "hunter", "result": "won", "left": false},
+                           {"id": "p_alex", "name": "Alex", "place": 2, "role": "hunter", "result": "team", "left": false},
+                           {"id": "p_sam", "name": "Sam", "place": 3, "role": "runner", "result": "lost", "left": false}],
+             "winnerIds": ["p_robin"], "serverNow": \(ms(now))}
+            """
+        }
+        return """
+        {"id": \(s(demoManhuntRoom)), "phase": "hunt", \(common),
+         "myRole": "hunter", "startedAt": \(ms(now.addingTimeInterval(-360))), "huntStartedAt": \(ms(now.addingTimeInterval(-240))),
+         "endsAt": \(ms(now.addingTimeInterval(1_560))), "nextPingAt": \(ms(now.addingTimeInterval(120))),
+         "phaseEndsAt": \(ms(now.addingTimeInterval(1_560))),
+         "runnerLiveUntil": null, "runnerQuiet": false, "claim": null, "catchCooldownUntil": null,
+         "pings": [{"at": \(ms(now.addingTimeInterval(-60))), "runner": \(fix(51.5101, -0.1612, ago: 61)), "hunters": []}],
+         "players": [\(seat("p_alex", "Alex", role: "hunter", host: true, fix: fix(51.5052, -0.1688, ago: 2))),
+                     \(seat("p_sam", "Sam", role: "runner", host: false, fix: nil)),
+                     \(seat("p_kit", "Kit", role: "hunter", host: false, fix: fix(51.5088, -0.1700, ago: 3))),
+                     \(seat("p_robin", "Robin", role: "hunter", host: false, fix: fix(51.5079, -0.1625, ago: 1)))],
+         "result": null, "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
         """
     }
 

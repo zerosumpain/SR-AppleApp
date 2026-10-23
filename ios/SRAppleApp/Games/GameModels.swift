@@ -40,6 +40,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case fakeArtist = "fake-artist"
     case passThePlate = "pass-the-plate"
     case fireworks
+    case manhunt
 
     var id: String { rawValue }
 
@@ -62,6 +63,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fakeArtist: return "Odd Artist Out"
         case .passThePlate: return "Pass the Plate"
         case .fireworks: return "Fireworks"
+        case .manhunt: return "Manhunt"
         }
     }
 
@@ -85,6 +87,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fakeArtist: return "One line each. One of you doesn't know the word."
         case .passThePlate: return "Take a card, pass the plate. Three rounds of picnic."
         case .fireworks: return "Build the show together. You cannot see your own cards."
+        case .manhunt: return "Hide and seek outdoors, on the map."
         }
     }
 
@@ -125,6 +128,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone gets a plate of food cards. Take one in secret, show it together, pass the plate on. Collect pancake pairs, whole pizzas, piles of popcorn and the most strawberries, and save room for ice cream."
         case .fireworks:
             return "A team game for two to five. Everyone holds their cards facing away, so you see the others' cards but not your own. Give hints, play cards in order from 1 to 5 in each colour, and light the biggest show you can before the misfires run out."
+        case .manhunt:
+            return "One runner, everyone else hunts, outdoors inside a circle a parent sets. The hunters see each other on the map, but the runner only every few minutes. Get close and tap Catch; the runner wins if the clock runs out."
         }
     }
 
@@ -147,6 +152,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fakeArtist: return "theatermasks.fill"
         case .passThePlate: return "fork.knife"
         case .fireworks: return "sparkles"
+        case .manhunt: return "figure.run"
         }
     }
 }
@@ -221,6 +227,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.fireworks, .easy): return "The fourth misfire ends the show. Each card shows what it could still be."
         case (.fireworks, .medium): return "Five colours. The third misfire ends the show. 75 seconds a turn."
         case (.fireworks, .hard): return "A sixth prism colour that every colour hint lights. The third misfire ends it. 60 seconds a turn."
+        case (.manhunt, .easy): return "The runner shows up on the map every 5 minutes."
+        case (.manhunt, .medium): return "The runner shows up every 3 minutes."
+        case (.manhunt, .hard): return "The runner shows up every 2 minutes. Hard for the runner."
         }
     }
 
@@ -691,6 +700,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// Fireworks: the fireworks, tokens, hands (mine as knowledge only) and log,
     /// read from the same JSON (`FireworksLogic.swift`). Nil in every other game's room.
     let fireworks: FireworksState?
+    /// Manhunt: the play area, roles, the positions this phone may see, pings
+    /// and the catch, read from the same JSON (`ManhuntLogic.swift`). Nil in
+    /// every other game's room.
+    let manhunt: ManhuntState?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -781,6 +794,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         fakeArtist = game == GameKind.fakeArtist.rawValue ? (try? FakeArtistState(from: decoder)) : nil
         passThePlate = game == GameKind.passThePlate.rawValue ? (try? PassThePlateState(from: decoder)) : nil
         fireworks = game == GameKind.fireworks.rawValue ? (try? FireworksState(from: decoder)) : nil
+        manhunt = game == GameKind.manhunt.rawValue ? (try? ManhuntState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -837,6 +851,10 @@ struct CreateGameBody: Encodable, Equatable {
     var course: MarbleRaceState.Course? = nil
     /// Odd Artist Out: rounds in the game (3 | 5).
     var rounds: Int? = nil
+    /// Manhunt: the circle's radius in metres (250–2000) and the game's length
+    /// in minutes (15–60). The centre is sent from the lobby (`area`).
+    var radius: Int? = nil
+    var minutes: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -899,6 +917,15 @@ struct GameActionBody: Encodable {
     /// player id here); `play {card}` and `discard {card}`, a card id from my hand.
     var colour: String? = nil
     var rank: Int? = nil
+    /// Manhunt: `position {lat, lng, accuracy, at}` (at: server epoch ms);
+    /// `area {lat, lng, radius?, minutes?}` from the host's lobby; `runner
+    /// {playerId?}` (`playerId` as Categories'); `catch` and `confirm` take nothing.
+    var lat: Double? = nil
+    var lng: Double? = nil
+    var accuracy: Double? = nil
+    var at: Double? = nil
+    var radius: Int? = nil
+    var minutes: Int? = nil
 }
 
 /// The `card` an action posts: a name in Secret Mission (`"succeed"` or

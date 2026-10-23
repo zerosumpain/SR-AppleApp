@@ -62,6 +62,8 @@ struct GameRoomScreen: View {
                 PassThePlateScreen(roomId: ref.id)
             case .fireworks?:
                 FireworksScreen(roomId: ref.id)
+            case .manhunt?:
+                ManhuntScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",
