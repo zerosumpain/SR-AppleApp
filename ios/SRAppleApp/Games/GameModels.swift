@@ -38,6 +38,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case mission
     case oneClue = "one-clue"
     case fakeArtist = "fake-artist"
+    case passThePlate = "pass-the-plate"
 
     var id: String { rawValue }
 
@@ -58,6 +59,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .mission: return "Secret Mission"
         case .oneClue: return "One Clue"
         case .fakeArtist: return "Odd Artist Out"
+        case .passThePlate: return "Pass the Plate"
         }
     }
 
@@ -79,6 +81,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .mission: return "Crew against hidden spies. Five to ten, in one room."
         case .oneClue: return "One word each. Matching clues cancel out."
         case .fakeArtist: return "One line each. One of you doesn't know the word."
+        case .passThePlate: return "Take a card, pass the plate. Three rounds of picnic."
         }
     }
 
@@ -115,6 +118,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "A team game for three to seven. Take turns to guess a secret word; everyone else writes one clue, and any two clues that match cancel out. Ten cards — how many can you get together?"
         case .fakeArtist:
             return "Everyone sees the category; everyone but the fake sees the word. Take turns adding one line each to the same picture, then vote for the fake. Caught, the fake can still win by naming the word."
+        case .passThePlate:
+            return "Everyone gets a plate of food cards. Take one in secret, show it together, pass the plate on. Collect pancake pairs, whole pizzas, piles of popcorn and the most strawberries, and save room for ice cream."
         }
     }
 
@@ -135,6 +140,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .mission: return "eye.slash.fill"
         case .oneClue: return "text.bubble.fill"
         case .fakeArtist: return "theatermasks.fill"
+        case .passThePlate: return "fork.knife"
         }
     }
 }
@@ -203,6 +209,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.fakeArtist, .easy): return "Everyday words. 30 seconds a line."
         case (.fakeArtist, .medium): return "Well-known words. 20 seconds a line."
         case (.fakeArtist, .hard): return "Less common words. 15 seconds a line."
+        case (.passThePlate, .easy): return "A simpler deck, and every card shows what it adds. 40 s a turn."
+        case (.passThePlate, .medium): return "The full deck, gravy and spoons too, with your running total. 30 s a turn."
+        case (.passThePlate, .hard): return "The full deck and no hints. 20 s a turn."
         }
     }
 
@@ -667,6 +676,9 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// history, read from the same JSON (`FakeArtistLogic.swift`). Nil in every
     /// other game's room.
     let fakeArtist: FakeArtistState?
+    /// Pass the Plate: my plate, everybody's table and the round scores, read
+    /// from the same JSON (`PassThePlateLogic.swift`). Nil in every other game's room.
+    let passThePlate: PassThePlateState?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -755,6 +767,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         mission = game == GameKind.mission.rawValue ? (try? MissionState(from: decoder)) : nil
         oneClue = game == GameKind.oneClue.rawValue ? (try? OneClueState(from: decoder)) : nil
         fakeArtist = game == GameKind.fakeArtist.rawValue ? (try? FakeArtistState(from: decoder)) : nil
+        passThePlate = game == GameKind.passThePlate.rawValue ? (try? PassThePlateState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -866,6 +879,8 @@ struct GameActionBody: Encodable {
     /// Odd Artist Out: `stroke {points, end?}` (`points` as Draw & Guess's; `end` lifts the
     /// finger and ends the turn); `vote {playerId}`; `guess {text}`.
     var end: Bool? = nil
+    /// Pass the Plate: `pick {cards:[uid]}`, or two uids with a serving spoon.
+    var cards: [Int]? = nil
 }
 
 enum GameNames {
