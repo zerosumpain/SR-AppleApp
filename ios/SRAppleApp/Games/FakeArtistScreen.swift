@@ -165,7 +165,7 @@ struct FakeArtistPlaying: View {
     }
 
     private var kicker: String {
-        let round = store.current.map { "ROUND \($0.number) OF \(room.rounds)" } ?? "FAKE ARTIST"
+        let round = store.current.map { "ROUND \($0.number) OF \(room.rounds)" } ?? "ODD ARTIST OUT"
         return "\(round) · \(GameDifficulty.label(for: room.difficulty).uppercased())"
     }
 
