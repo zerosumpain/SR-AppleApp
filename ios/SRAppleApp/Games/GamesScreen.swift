@@ -464,13 +464,9 @@ struct NewGameSheet: View {
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
                         SRSectionLabel(text: game == .chess ? "Opponent" : "Players",
-                                       trailing: invited.isEmpty ? (game == .chess ? "Pick one" : game == .mission ? "Invite 4+" : "Solo") : "\(invited.count + 1)")
+                                       trailing: invited.isEmpty ? sheetTrailing : "\(invited.count + 1)")
                         if players.isEmpty {
-                            Text(game == .chess
-                                 ? "Nobody else in the family can play yet, and chess needs two. The lobby can wait for somebody to pair a phone."
-                                 : game == .mission
-                                 ? "Nobody else in the family can play yet, and Secret Mission needs at least four others. The lobby can wait for people to pair phones."
-                                 : "Nobody else in the family can play yet, so this is a solo game.")
+                            Text(sheetNobody)
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -491,11 +487,7 @@ struct NewGameSheet: View {
                                     }
                                 }
                             }
-                            Text(game == .chess
-                                 ? "Chess is for two: pick the one person to play. The lobby waits for them to join; invites reach phones with the app open."
-                                 : game == .mission
-                                 ? "Secret Mission needs five to ten people in one room: invite at least four. The lobby waits for them to join."
-                                 : "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
+                            Text(sheetPick)
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -588,6 +580,64 @@ struct NewGameSheet: View {
                 .createBody(invite: invite)
         }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// The Players label with nobody invited yet: how many this game needs.
+    private var sheetTrailing: String {
+        switch game {
+        case .chess: return "Pick one"
+        case .mission: return "Invite 4+"
+        case .oneClue: return "Three or more"
+        case .fakeArtist: return "Invite 3+"
+        case .passThePlate: return "Invite 1+"
+        case .fireworks: return FireworksRules.sheetTrailing
+        case .manhunt: return "Invite 2+"
+        default: return "Solo"
+        }
+    }
+
+    /// The line when nobody else in the family has a phone paired yet.
+    private var sheetNobody: String {
+        switch game {
+        case .chess:
+            return "Nobody else in the family can play yet, and chess needs two. The lobby can wait for somebody to pair a phone."
+        case .mission:
+            return "Nobody else in the family can play yet, and Secret Mission needs at least four others. The lobby can wait for people to pair phones."
+        case .oneClue:
+            return "Nobody else in the family can play yet, and One Clue needs three. The lobby can wait for people to pair a phone."
+        case .fakeArtist:
+            return "Nobody else in the family can play yet, and Odd Artist Out needs at least three others. The lobby can wait for people to pair phones."
+        case .passThePlate:
+            return "Nobody else in the family can play yet, and Pass the Plate needs two to five. The lobby can wait for somebody to pair a phone."
+        case .fireworks:
+            return FireworksRules.sheetNobody
+        case .manhunt:
+            return "Nobody else in the family can play yet, and Manhunt needs a runner and two hunters. The lobby can wait for people to pair phones."
+        default:
+            return "Nobody else in the family can play yet, so this is a solo game."
+        }
+    }
+
+    /// The line under the list of people to invite.
+    private var sheetPick: String {
+        switch game {
+        case .chess:
+            return "Chess is for two: pick the one person to play. The lobby waits for them to join; invites reach phones with the app open."
+        case .mission:
+            return "Secret Mission needs five to ten people in one room: invite at least four. The lobby waits for them to join."
+        case .oneClue:
+            return "One Clue is for three to seven: invite at least two. The lobby waits for them to join, and you can ask more in from there."
+        case .fakeArtist:
+            return "Odd Artist Out is for four to ten: invite at least three. The lobby waits for them to join, and you can ask more in from there."
+        case .passThePlate:
+            return "Pass the Plate is for two to five: invite at least one. The lobby waits for them to join, and you can ask more in from there."
+        case .fireworks:
+            return FireworksRules.sheetPick
+        case .manhunt:
+            return "Manhunt is for three to eight, outdoors: invite at least two. The lobby waits for them to join, and you can ask more in from there."
+        default:
+            return "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open."
+        }
     }
 
     /// The play area and the clock — Manhunt's game. The circle is centred in
