@@ -385,7 +385,7 @@ struct NewGameSheet: View {
     @State private var categoriesSeconds = CategoriesSettings.defaultSeconds
     // Liar's Dice.
     @State private var liarsDice = 5
-    // Fake Artist.
+    // Odd Artist Out.
     @State private var fakeRounds = 3
     // Draw & Guess.
     @State private var drawTurns = 1
@@ -612,7 +612,7 @@ struct NewGameSheet: View {
         }
     }
 
-    /// Rounds — Fake Artist's game. It needs four, so the line says so.
+    /// Rounds — Odd Artist Out's game. It needs four, so the line says so.
     private var fakeArtistSettings: some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
             SRSectionLabel(text: "Game")

@@ -1329,7 +1329,7 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
-    /// Fake Artist: Alex's line to draw (the card with the word, the seats in
+    /// Odd Artist Out: Alex's line to draw (the card with the word, the seats in
     /// their inks, the paper lit in Alex's colour), a vote with Alex the fake
     /// (no word on the card), and a reveal where the caught fake named it.
     @MainActor func testShowcaseFakeArtist() {
@@ -1344,10 +1344,10 @@ final class ShowcaseTests: XCTestCase {
             soft(byId(app, "fakeartist-card").label.contains("lighthouse"), "the artist's card has no word")
             soft(byId(app, "fakeartist-canvas").label.contains("Your turn"), "not Alex's turn to draw")
             soft(byId(app, "fakeartist-seat-p_jo").exists, "no seat for Jo")
-            attach(app, "Showcase — Fake Artist, my line")
+            attach(app, "Showcase — Odd Artist Out, my line")
             back(app)
         } else {
-            soft(false, "no Fake Artist drawing to resume")
+            soft(false, "no Odd Artist Out drawing to resume")
         }
 
         let voting = byId(app, "games-room-g_demo_fakeartist_vote")
@@ -1357,10 +1357,10 @@ final class ShowcaseTests: XCTestCase {
             soft(byId(app, "fakeartist-card").label.contains("fake"), "the fake's card does not say so")
             soft(!byId(app, "fakeartist-card").label.contains("lighthouse"), "the fake was shown the word")
             soft(byId(app, "fakeartist-vote-p_sam").exists, "no vote for Sam")
-            attach(app, "Showcase — Fake Artist, the vote as the fake")
+            attach(app, "Showcase — Odd Artist Out, the vote as the fake")
             back(app)
         } else {
-            soft(false, "no Fake Artist vote")
+            soft(false, "no Odd Artist Out vote")
         }
 
         let reveal = byId(app, "games-room-g_demo_fakeartist_reveal")
@@ -1368,10 +1368,10 @@ final class ShowcaseTests: XCTestCase {
             reveal.tap()
             settle(app, on: byId(app, "fakeartist-reveal"), seconds: 2)
             soft(byId(app, "fakeartist-reveal").label.contains("named the word"), "no outcome sentence")
-            attach(app, "Showcase — Fake Artist, the reveal")
+            attach(app, "Showcase — Odd Artist Out, the reveal")
             back(app)
         } else {
-            soft(false, "no Fake Artist reveal")
+            soft(false, "no Odd Artist Out reveal")
         }
     }
 

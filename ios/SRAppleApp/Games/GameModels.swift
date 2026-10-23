@@ -53,7 +53,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Draw & Guess"
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
-        case .fakeArtist: return "Fake Artist"
+        case .fakeArtist: return "Odd Artist Out"
         }
     }
 
@@ -639,7 +639,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// JSON (`ChessLogic.swift`). Nil in every other game's room.
     let chess: ChessState?
 
-    /// Fake Artist: the round as this phone may see it, the picture and the
+    /// Odd Artist Out: the round as this phone may see it, the picture and the
     /// history, read from the same JSON (`FakeArtistLogic.swift`). Nil in every
     /// other game's room.
     let fakeArtist: FakeArtistState?
@@ -783,7 +783,7 @@ struct CreateGameBody: Encodable, Equatable {
     var turnsEach: Int? = nil
     /// Marble Race: the course from Marbler's pack.
     var course: MarbleRaceState.Course? = nil
-    /// Fake Artist: rounds in the game (3 | 5).
+    /// Odd Artist Out: rounds in the game (3 | 5).
     var rounds: Int? = nil
 }
 
@@ -830,7 +830,7 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
-    /// Fake Artist: `stroke {points, end?}` (`points` as Draw & Guess's; `end` lifts the
+    /// Odd Artist Out: `stroke {points, end?}` (`points` as Draw & Guess's; `end` lifts the
     /// finger and ends the turn); `vote {playerId}`; `guess {text}`.
     var end: Bool? = nil
 }

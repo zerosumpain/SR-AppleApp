@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-// Fake Artist's wire pieces and the rules the phone applies itself — which
+// Odd Artist Out's wire pieces and the rules the phone applies itself — which
 // ink is whose, whether it is my turn to draw, what a vote or a lift posts,
 // the sentences of a reveal, the host's options — as pure values, so each is a
 // unit test. The picture is Draw & Guess's (`DrawGuessCanvas`, the same stroke
@@ -11,7 +11,7 @@ import SwiftUI
 // word if it is an artist's, and who the fake is only if it is the fake's own
 // or the vote has caught them. Nothing here works either out.
 
-/// Where a Fake Artist room is. Its own enum, not `GamePhase`: `reading`,
+/// Where a Odd Artist Out room is. Its own enum, not `GamePhase`: `reading`,
 /// `drawing`, `voting` and `guessing` are this game's alone.
 enum FakeArtistPhase: String, Equatable {
     case lobby, countdown, reading, drawing, voting, guessing, reveal, finished, closed, unknown
@@ -125,7 +125,7 @@ struct FakeArtistPastRound: Decodable, Equatable, Identifiable {
     }
 }
 
-/// A player's Fake Artist flags (the rest is `GamePlayer`).
+/// A player's Odd Artist Out flags (the rest is `GamePlayer`).
 struct FakeArtistSeat: Decodable, Equatable {
     let id: String
     /// A palette name; nil before the start.
@@ -158,7 +158,7 @@ struct FakeArtistStanding: Decodable, Equatable {
     }
 }
 
-/// Everything Fake Artist adds to a room, read from the same JSON as
+/// Everything Odd Artist Out adds to a room, read from the same JSON as
 /// `GameRoom` (`GameRoom.fakeArtist`).
 struct FakeArtistState: Decodable, Equatable {
     let phase: FakeArtistPhase
@@ -256,15 +256,40 @@ enum FakeArtistInk {
 // MARK: - Posts
 
 enum FakeArtistPosts {
+    /// The server's cap on one turn's line (`MAX_LINE_POINTS` in fake-artist.ts).
+    static let maxLinePoints = 1500
+    /// Times a lift that failed on the network is sent again, bare.
+    static let liftRetries = 2
+
+    /// The pen's posts trimmed so the line holds at most `maxLinePoints`, given
+    /// `sent` points already queued this turn. `full` means the line is at the
+    /// cap and the finger should lift (the server lifts it there too).
+    static func capped(_ posts: [DrawGuessStrokePost], sent: Int) -> (posts: [DrawGuessStrokePost], sent: Int, full: Bool) {
+        var out: [DrawGuessStrokePost] = []
+        var total = max(0, sent)
+        for post in posts {
+            let space = maxLinePoints - total
+            guard space > 0 else { break }
+            let points = Array(post.points.prefix(space))
+            guard !points.isEmpty else { continue }
+            out.append(DrawGuessStrokePost(id: post.id, color: post.color, width: post.width, points: points))
+            total += points.count
+        }
+        return (out, total, total >= maxLinePoints)
+    }
+
+    /// A bare lift: what is sent again when the lift itself failed to arrive.
+    static func bareLift() -> GameActionBody {
+        var body = GameActionBody(action: "stroke")
+        body.end = true
+        return body
+    }
+
     /// The pen's posts for one turn's line with the last marked as the lift.
     /// No points left to send is a bare lift, for a line already streamed.
     static func lift(_ posts: [DrawGuessStrokePost]) -> [GameActionBody] {
         var bodies = posts.map(\.body)
-        if bodies.isEmpty {
-            var body = GameActionBody(action: "stroke")
-            body.end = true
-            return [body]
-        }
+        if bodies.isEmpty { return [bareLift()] }
         bodies[bodies.count - 1].end = true
         return bodies
     }

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// One Fake Artist room, from lobby to the final standings.
+/// One Odd Artist Out room, from lobby to the final standings.
 ///
 /// The lobby and the 3-2-1 are every game's. Then, round by round: the card
 /// (the category, and the word — or "You're the fake"), then twice round the
@@ -20,7 +20,7 @@ struct FakeArtistScreen: View {
 
     var body: some View {
         content
-            .navigationTitle("Fake Artist")
+            .navigationTitle("Odd Artist Out")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
             .toolbar(immersive ? .hidden : .visible, for: .navigationBar)
@@ -176,7 +176,7 @@ struct FakeArtistPlaying: View {
         case .voting: return "Who's the fake?"
         case .guessing: return store.current?.isFake == true ? "Caught! Name the word" : "\(store.fakeName) was caught"
         case .reveal: return "The reveal"
-        default: return "Fake Artist"
+        default: return "Odd Artist Out"
         }
     }
 
@@ -591,7 +591,7 @@ struct FakeArtistFinished: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: "Fake Artist · \(FakeArtistSettings.about(room)) · final",
+                SRPageHeader(kicker: "Odd Artist Out · \(FakeArtistSettings.about(room)) · final",
                              title: GameResults.title(room, solo: "You scored \(room.me?.score ?? 0)", none: "Nobody scored"),
                              strap: GameResults.strap(room))
 

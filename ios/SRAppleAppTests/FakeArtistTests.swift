@@ -1,7 +1,7 @@
 import XCTest
 @testable import SRAppleApp
 
-/// Fake Artist: the spec's wire contract (SR-Main
+/// Odd Artist Out: the spec's wire contract (SR-Main
 /// `docs/superpowers/specs/2026-10-22-family-games-fake-artist.md`), what each
 /// role is shown, the posts a line, a vote and a guess make, and the options.
 final class FakeArtistTests: XCTestCase {
@@ -156,6 +156,37 @@ final class FakeArtistTests: XCTestCase {
         XCTAssertNil(only["points"])
     }
 
+    func testALineStopsAtTheServersCapAndSaysItIsFull() throws {
+        XCTAssertEqual(FakeArtistPosts.maxLinePoints, 1500, "MAX_LINE_POINTS in fake-artist.ts")
+        let post = { (n: Int) in
+            DrawGuessStrokePost(id: 2, color: "red", width: 14, points: (0..<n).map { DrawGuessPoint($0 % 1000, 5) })
+        }
+        let under = FakeArtistPosts.capped([post(300)], sent: 900)
+        XCTAssertEqual(under.posts.map(\.points.count), [300])
+        XCTAssertEqual(under.sent, 1200)
+        XCTAssertFalse(under.full)
+
+        // 1300 queued: a 300-point batch keeps 200, and the line is full.
+        let over = FakeArtistPosts.capped([post(300), post(50)], sent: 1300)
+        XCTAssertEqual(over.posts.map(\.points.count), [200])
+        XCTAssertEqual(over.sent, 1500)
+        XCTAssertTrue(over.full)
+
+        // Already full: nothing more, and the lift goes alone.
+        let after = FakeArtistPosts.capped([post(10)], sent: 1500)
+        XCTAssertTrue(after.posts.isEmpty)
+        XCTAssertTrue(after.full)
+        let lift = try json(FakeArtistPosts.lift(after.posts)[0])
+        XCTAssertEqual(lift["end"] as? Bool, true)
+        XCTAssertNil(lift["points"])
+
+        // What a failed lift is sent again as.
+        let bare = try json(FakeArtistPosts.bareLift())
+        XCTAssertEqual(bare["action"] as? String, "stroke")
+        XCTAssertEqual(bare["end"] as? Bool, true)
+        XCTAssertNil(bare["points"])
+    }
+
     func testAVoteAndAGuess() throws {
         let vote = try json(FakeArtistPosts.vote("p_c"))
         XCTAssertEqual(vote["action"] as? String, "vote")
@@ -181,7 +212,7 @@ final class FakeArtistTests: XCTestCase {
 
     func testTheGameKindAndItsInks() {
         XCTAssertEqual(GameKind(rawValue: "fake-artist"), .fakeArtist)
-        XCTAssertEqual(GameKind.fakeArtist.title, "Fake Artist")
+        XCTAssertEqual(GameKind.fakeArtist.title, "Odd Artist Out")
         XCTAssertTrue(GameKind.allCases.contains(.fakeArtist))
         XCTAssertFalse(GameDifficulty.easy.line(for: .fakeArtist).isEmpty)
         // The server's seat colours, in seat order (`COLORS` in fake-artist.ts).

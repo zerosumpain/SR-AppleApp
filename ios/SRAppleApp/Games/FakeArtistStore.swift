@@ -1,6 +1,6 @@
 import Foundation
 
-/// One Fake Artist room, live.
+/// One Odd Artist Out room, live.
 ///
 /// The connection is `GameRoomLink`, the same as every game's. This owns the
 /// picture as the phone holds it (`DrawGuessCanvas`, kept at a revision so the
@@ -32,7 +32,9 @@ final class FakeArtistStore: ObservableObject, GameRoomStoring {
     private let link: GameRoomLink
     private var lastPhase: FakeArtistPhase?
     private var lastTurnKey: String?
-    private var queue: [(body: GameActionBody, finishes: Bool)] = []
+    private var queue: [(body: GameActionBody, finishes: Bool, retries: Int)] = []
+    /// Points of my line queued this turn, against the server's per-line cap.
+    private var sentThisLine = 0
     private var pumping = false
     private var batchTask: Task<Void, Never>?
     private var noteTask: Task<Void, Never>?
@@ -90,6 +92,7 @@ final class FakeArtistStore: ObservableObject, GameRoomStoring {
             pen.width = FakeArtistInk.width
             lifted = false
             unsent = nil
+            sentThisLine = 0
         }
         if let wire = state?.drawing {
             if canvas.apply(wire) == .gap { fetchWhole() }
@@ -167,6 +170,7 @@ final class FakeArtistStore: ObservableObject, GameRoomStoring {
 
     func down(at point: DrawGuessPoint) {
         guard canDraw, !pen.isDown else { return }
+        sentThisLine = 0
         pen.down(at: point)
         startBatching()
     }
@@ -184,11 +188,12 @@ final class FakeArtistStore: ObservableObject, GameRoomStoring {
         let points = pen.live
         let color = pen.color
         let width = pen.width
-        let posts = pen.up()
+        let posts = FakeArtistPosts.capped(pen.up(), sent: sentThisLine)
+        sentThisLine = posts.sent
         lifted = true
         if let id, !points.isEmpty { unsent = DrawGuessStroke(id: id, color: color, width: width, points: points) }
-        let bodies = FakeArtistPosts.lift(posts)
-        for (i, body) in bodies.enumerated() { queue.append((body: body, finishes: i == bodies.count - 1)) }
+        let bodies = FakeArtistPosts.lift(posts.posts)
+        for (i, body) in bodies.enumerated() { queue.append((body: body, finishes: i == bodies.count - 1, retries: 0)) }
         SRHaptic.select()
         pump()
     }
@@ -201,7 +206,14 @@ final class FakeArtistStore: ObservableObject, GameRoomStoring {
                 guard !Task.isCancelled, let self else { return }
                 guard self.pen.isDown else { return }
                 if let post = self.pen.batch() {
-                    self.queue.append((body: post.body, finishes: false))
+                    let capped = FakeArtistPosts.capped([post], sent: self.sentThisLine)
+                    self.sentThisLine = capped.sent
+                    for p in capped.posts { self.queue.append((body: p.body, finishes: false, retries: 0)) }
+                    // A full line lifts itself, as the server does: the turn moves on.
+                    if capped.full {
+                        self.up()
+                        return
+                    }
                     self.pump()
                 }
             }
@@ -227,7 +239,17 @@ final class FakeArtistStore: ObservableObject, GameRoomStoring {
                     break
                 case .gone:
                     self.queue.removeAll()
-                case .refused(let text), .failed(let text):
+                case .failed(let text):
+                    // A lift lost on the network would leave the table waiting
+                    // out the turn clock, and my finger can't lift twice: send
+                    // it again, bare, a couple of times.
+                    if item.body.end == true, item.retries < FakeArtistPosts.liftRetries {
+                        try? await Task.sleep(nanoseconds: 700_000_000)
+                        self.queue.insert((body: FakeArtistPosts.bareLift(), finishes: item.finishes, retries: item.retries + 1), at: 0)
+                        continue
+                    }
+                    self.show(text)
+                case .refused(let text):
                     self.show(text)
                 }
                 if item.finishes { self.unsent = nil }

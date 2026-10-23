@@ -19,7 +19,7 @@ import Foundation
 // Alex's turn to bid over a timed-out raise of Sam's, a call with every cup
 // up, and a finished game. Draw & Guess: one of Sam's mid-drawing with Alex
 // guessing (a close guess of Alex's own in the feed), and one where Alex is
-// drawing. Fake Artist: Alex's line to draw as an artist, a vote with Alex
+// drawing. Odd Artist Out: Alex's line to draw as an artist, a vote with Alex
 // the fake, and a reveal. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
@@ -110,7 +110,7 @@ extension SRDemoFixtures {
                        {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
     """#
 
-    /// Fake Artist's three rooms: Alex's line to draw, a vote with Alex the
+    /// Odd Artist Out's three rooms: Alex's line to draw, a vote with Alex the
     /// fake, and a reveal. Left out of the store shots, as Chess's are.
     static let fakeArtistLobbyRows = #"""
     {"id": "g_demo_fakeartist", "game": "fake-artist", "phase": "drawing", "hostName": "Alex"},
@@ -665,9 +665,9 @@ extension SRDemoFixtures {
         """
     }
 
-    // MARK: Fake Artist
+    // MARK: Odd Artist Out
 
-    /// Fake Artist, medium, five players (Alex, Sam, Robin, Kit, Jo), round 2
+    /// Odd Artist Out, medium, five players (Alex, Sam, Robin, Kit, Jo), round 2
     /// of 3, category Places. Drawing: Alex is an artist, the word is
     /// lighthouse, and it is Alex's line, three lines in. Voting: Alex is the
     /// fake (no word on this phone), the picture done, Sam and Robin have
