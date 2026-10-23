@@ -13,6 +13,7 @@ struct PassThePlateScreen: View {
     @StateObject private var store: PassThePlateStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @State private var confirmingLeave = false
 
     init(roomId: String) {
         self.roomId = roomId
@@ -34,6 +35,38 @@ struct PassThePlateScreen: View {
             .overlay(alignment: .top) {
                 if let message = store.message, !immersive { SRBanner(text: message) }
             }
+            .toolbar {
+                if canLeaveMidGame {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Leave") { confirmingLeave = true }
+                            .disabled(store.busy)
+                            .accessibilityLabel("Leave game")
+                            .accessibilityIdentifier("plate-leave")
+                    }
+                }
+            }
+            .confirmationDialog("Leave this game?", isPresented: $confirmingLeave, titleVisibility: .visible) {
+                Button("Leave game", role: .destructive) {
+                    Task {
+                        _ = await store.act("leave")
+                        dismiss()
+                    }
+                }
+                Button("Keep playing", role: .cancel) {}
+            } message: {
+                Text("Your plate leaves with you and you finish below everyone still playing.")
+            }
+    }
+
+    /// Mid-game (a turn or the scores between rounds) a seated player can leave
+    /// the table; otherwise the clock would keep choosing for them every turn.
+    private var canLeaveMidGame: Bool {
+        guard !store.ended, let room = store.room, room.me?.joined == true,
+              room.passThePlate?.seat(room.meId)?.seated == true else { return false }
+        switch PassThePlateScreenPhase.of(room) {
+        case .picking, .scoring: return true
+        default: return false
+        }
     }
 
     private var immersive: Bool {
@@ -250,6 +283,7 @@ struct PassThePlatePlaying: View {
                 .accessibilityIdentifier("plate-direction")
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("plate-header")
     }
 
     private var headline: String {

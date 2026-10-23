@@ -1344,9 +1344,13 @@ final class ShowcaseTests: XCTestCase {
             soft(byId(app, "plate-hand").exists, "no plate")
             soft(byId(app, "plate-card-41").exists, "no pizza card on my plate")
             soft(byId(app, "plate-spoon").exists, "no spoon button")
-            soft(byId(app, "plate-waiting").label.contains("Robin"), "not waiting for Robin")
+            let waiting = byId(app, "plate-waiting")
+            soft(waiting.exists && waiting.label.contains("Robin"), "not waiting for Robin")
             soft(byId(app, "plate-seat-p_sam").exists, "no table for Sam")
-            soft(byId(app, "plate-direction").label.contains("right"), "plates not going right in round 2")
+            // The header is one combined element, so its own identifier carries the pass line.
+            let header = byId(app, "plate-header")
+            soft(header.exists && header.label.contains("right"), "plates not going right in round 2")
+            soft(byId(app, "plate-leave").exists, "no way to leave the game")
             attach(app, "Showcase — Pass the Plate, my plate")
             back(app)
         } else {
