@@ -36,13 +36,38 @@ final class GamesStore: ObservableObject {
     private var seen: Set<String>
     private static let seenKey = "games-seen-invites"
 
+    /// Server epoch ms minus this phone's, at the last lobby read — so "21 h
+    /// left" on a durable game keeps counting down between lobby changes.
+    private var serverOffsetMs: Double?
+    /// Held for the store's life, which is the app's (`ContentView`'s @StateObject).
+    private var pushObserver: NSObjectProtocol?
+
     init() {
         seen = Set(UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? [])
+        // A game push with the app open ("Your move in Homestead"): read the
+        // lobby now rather than at the next poll, so "Your games" agrees.
+        pushObserver = NotificationCenter.default.addObserver(
+            forName: GameTurnPush.arrived, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.load() }
+        }
     }
 
     var invites: [GameInvite] { lobby?.invites ?? [] }
     var rooms: [GameRoomSummary] { lobby?.rooms ?? [] }
     var players: [GamePerson] { lobby?.players ?? [] }
+    /// "Your games": my move first, then the most recently changed.
+    var yourGames: [GameRoomSummary] { YourGames.ordered(rooms) }
+
+    /// The paces the new-game sheet may offer for a game; empty = live only.
+    func paceChoices(for game: GameKind) -> [GamePace] {
+        lobby?.paceChoices(for: game.rawValue) ?? []
+    }
+
+    /// The server's clock now, from the last lobby read. Nil before one.
+    func serverNow() -> Double? {
+        serverOffsetMs.map { Date().timeIntervalSince1970 * 1000 + $0 }
+    }
 
     // MARK: - Loading and the poll
 
@@ -59,6 +84,7 @@ final class GamesStore: ObservableObject {
         }
         do {
             let next: GamesLobby = try await client.send("api/native/games")
+            if next.serverNow > 0 { serverOffsetMs = next.serverNow - Date().timeIntervalSince1970 * 1000 }
             // Only publish a real change: `serverNow` moves on every read,
             // and each publish redrew the whole tab view.
             if !Self.same(lobby, next) { lobby = next }
@@ -79,6 +105,7 @@ final class GamesStore: ObservableObject {
     private static func same(_ a: GamesLobby?, _ b: GamesLobby) -> Bool {
         guard let a else { return false }
         return a.me == b.me && a.players == b.players && a.invites == b.invites && a.rooms == b.rooms
+            && a.paces == b.paces
     }
 
     /// The Games screen came on show or went away: poll quickly only while

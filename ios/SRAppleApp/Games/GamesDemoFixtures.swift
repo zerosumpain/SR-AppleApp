@@ -20,7 +20,9 @@ import Foundation
 // up, and a finished game. Draw & Guess: one of Sam's mid-drawing with Alex
 // guessing (a close guess of Alex's own in the feed), and one where Alex is
 // drawing. Odd Artist Out: Alex's line to draw as an artist, a vote with Alex
-// the fake, and a reveal. The room stream has no
+// the fake, and a reveal. Durable rooms: two Homestead games over days in
+// "Your games", one Alex's move and one waiting for Sam, and `paces` offering
+// Homestead over days. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -58,6 +60,9 @@ extension SRDemoFixtures {
     static let demoFireworksDoneRoom = "g_demo_fireworks_done"
     static let demoManhuntRoom = "g_demo_manhunt"
     static let demoManhuntDoneRoom = "g_demo_manhunt_done"
+    /// Durable rooms played over days: one waiting on Alex, one on Sam.
+    static let demoDurableMineRoom = "g_demo_homestead_mine"
+    static let demoDurableWaitingRoom = "g_demo_homestead_waiting"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -157,6 +162,21 @@ extension SRDemoFixtures {
                        {"id": "g_demo_manhunt_done", "game": "manhunt", "phase": "finished", "hostName": "Alex"},
     """#
 
+    /// Two Homestead games over days (`pace: async`), for "Your games": Alex
+    /// to move with 21 hours left, and one waiting for Sam. Left out of the
+    /// store shots, as Categories' are. Their boards come from
+    /// `HomesteadDemoFixtures.homesteadRoom`.
+    static func durableLobbyRows(_ now: Date) -> String {
+        """
+        {"id": \(s(demoDurableMineRoom)), "game": "homestead", "phase": "playing", "hostName": "Sam",
+                        "durable": true, "pace": "async", "myTurn": true, "waitingFor": ["Alex"],
+                        "dueAt": \(ms(now.addingTimeInterval(21 * 3600 + 600))), "updatedAt": \(ms(now.addingTimeInterval(-3 * 3600)))},
+                       {"id": \(s(demoDurableWaitingRoom)), "game": "homestead", "phase": "playing", "hostName": "Alex",
+                        "durable": true, "pace": "async", "myTurn": false, "waitingFor": ["Sam"],
+                        "dueAt": \(ms(now.addingTimeInterval(30 * 3600))), "updatedAt": \(ms(now.addingTimeInterval(-1 * 3600)))},
+        """
+    }
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -167,7 +187,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : missionLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : durableLobbyRows(now))
+                   \(storeShotsSkipsWordle ? "" : missionLobbyRows)
                    \(storeShotsSkipsWordle ? "" : chessLobbyRows)
                    \(storeShotsSkipsWordle ? "" : oneClueLobbyRows)
                    \(storeShotsSkipsWordle ? "" : fakeArtistLobbyRows)
@@ -185,12 +206,15 @@ extension SRDemoFixtures {
                    {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"},
                    {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "phase": "playing", "hostName": "Alex"},
                    {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
+                   \(storeShotsSkipsWordle ? "" : homesteadLobbyRows)
                    {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
+         "paces": {"homestead": ["live", "async"]},
          "serverNow": \(ms(now))}
         """
     }
 
     static func demoRoom(id: String, meJoined: Bool, clock: DemoClock) -> String {
+        if let homestead = homesteadRoom(id: id, clock: clock) { return homestead }
         if id == demoWordleRoom { return wordleRoom(clock) }
         if id == demoQuizRoom { return quizRoom(reveal: false, clock: clock) }
         if id == demoQuizRevealRoom { return quizRoom(reveal: true, clock: clock) }

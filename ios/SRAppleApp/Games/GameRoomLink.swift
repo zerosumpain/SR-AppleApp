@@ -27,9 +27,19 @@ final class GameRoomLink {
     private(set) var clock = GameClock()
     private(set) var ended = false
     private var hasRoom = false
+    /// The newest durable `version` delivered, so a late action answer cannot
+    /// undo a change the stream has already shown.
+    private var lastVersion: Int?
     private var streamTask: Task<Void, Never>?
     private var joinTried = false
+    /// The sentence of the last 409, for a game whose conflicts say something
+    /// ("Sam no longer has those cards."); most games only re-read the room.
+    private(set) var lastConflict: String?
     private let client = SiteClient.shared
+    /// Counted in `GameRoomsOnScreen` while open, so a "your move" push for
+    /// this room is swallowed and re-reads it instead of ringing.
+    private var onScreen = false
+    private var pushObserver: NSObjectProtocol?
 
     init(roomId: String) {
         self.roomId = roomId
@@ -46,6 +56,7 @@ final class GameRoomLink {
     /// Open (or reopen) the room. Idempotent.
     func open() {
         guard streamTask == nil, !ended else { return }
+        showing(true)
         streamTask = Task { [weak self] in
             var backoff: UInt64 = 1
             while !Task.isCancelled {
@@ -67,6 +78,29 @@ final class GameRoomLink {
     func close() {
         streamTask?.cancel()
         streamTask = nil
+        showing(false)
+    }
+
+    /// On screen or not: the push gate, the banner that opening clears, and a
+    /// re-read when a push for this room lands in the foreground.
+    private func showing(_ on: Bool) {
+        guard onScreen != on else { return }
+        onScreen = on
+        if on {
+            GameRoomsOnScreen.opened(roomId)
+            GameRoomsOnScreen.clearDelivered(roomId)
+            let id = roomId
+            pushObserver = NotificationCenter.default.addObserver(
+                forName: GameTurnPush.arrived, object: nil, queue: .main
+            ) { [weak self] note in
+                guard (note.object as? String) == id else { return }
+                Task { @MainActor in await self?.refresh() }
+            }
+        } else {
+            GameRoomsOnScreen.closed(roomId)
+            if let pushObserver { NotificationCenter.default.removeObserver(pushObserver) }
+            pushObserver = nil
+        }
     }
 
     /// The snapshot: `GET api/native/games/<id>`, timed as a round trip.
@@ -119,8 +153,20 @@ final class GameRoomLink {
         onEnd()
     }
 
-    private func deliver(_ room: GameRoom) {
+    /// Whether an action's answer is older than what this screen already shows.
+    /// Only a durable room carries `version`; anything without one is applied.
+    /// The stream and the snapshot are always the truth (a lost write race can
+    /// move a room's version back); only a POST answer, built before its write
+    /// was flushed, can arrive late.
+    nonisolated static func isStale(answer version: Int?, after last: Int?) -> Bool {
+        guard let version, let last else { return false }
+        return version < last
+    }
+
+    private func deliver(_ room: GameRoom, answer: Bool = false) {
         guard !ended else { return }
+        if answer, Self.isStale(answer: room.version, after: lastVersion) { return }
+        if let v = room.version { lastVersion = answer ? max(v, lastVersion ?? v) : v }
         hasRoom = true
         onRoom(room)
         if room.phase == .closed {
@@ -137,21 +183,24 @@ final class GameRoomLink {
 
     // MARK: - Actions
 
-    /// POST an action. The answering room is delivered like any other.
-    func post(_ body: GameActionBody) async -> GamePostOutcome {
+    /// POST an action. The answering room is delivered like any other. Any
+    /// `Encodable` body: most games send `GameActionBody`; Homestead sends its
+    /// own `HomesteadMove`.
+    func post<Body: Encodable>(_ body: Body) async -> GamePostOutcome {
         let sent = Self.nowMs()
         do {
             let data = try await client.post("api/native/games/\(roomId)", body: try JSONEncoder().encode(body))
             let received = Self.nowMs()
             if let envelope = try? JSONDecoder().decode(GameRoomEnvelope.self, from: data) {
                 clock.record(serverNow: envelope.room.serverNow, sentAt: sent, receivedAt: received)
-                deliver(envelope.room)
+                deliver(envelope.room, answer: true)
             }
             return .ok
         } catch SiteError.status(let code, _) where code == 404 {
             end()
             return .gone
-        } catch SiteError.status(let code, _) where code == 409 {
+        } catch SiteError.status(let code, let sentence) where code == 409 {
+            lastConflict = sentence
             return .wrongPhase
         } catch SiteError.status(let code, let sentence) where code == 400 {
             return .refused(sentence)

@@ -1608,6 +1608,49 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Homestead: Alex's island mid-game (the board, everyone's strip and the
+    /// headline), one over days waiting on Alex, and a finished game.
+    @MainActor func testShowcaseHomestead() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_homestead")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "homestead-playing"), seconds: 2)
+            soft(byId(app, "homestead-board").exists, "no island")
+            soft(byId(app, "homestead-strip").exists, "no player strip")
+            soft(byId(app, "homestead-headline").exists, "no headline")
+            attach(app, "Showcase — Homestead, mid-game")
+            back(app)
+        } else {
+            soft(false, "no Homestead game to resume")
+        }
+
+        let overDays = byId(app, "games-room-g_demo_homestead_mine")
+        if scroll(app, to: overDays) {
+            overDays.tap()
+            settle(app, on: byId(app, "homestead-playing"), seconds: 2)
+            soft(byId(app, "homestead-deadline").exists, "no deadline for a game over days")
+            attach(app, "Showcase — Homestead, over days")
+            back(app)
+        } else {
+            soft(false, "no Homestead game over days")
+        }
+
+        let finished = byId(app, "games-room-g_demo_homestead_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "homestead-finished"), seconds: 2)
+            soft(byId(app, "homestead-outcome").exists, "no outcome")
+            attach(app, "Showcase — Homestead, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Homestead")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.
