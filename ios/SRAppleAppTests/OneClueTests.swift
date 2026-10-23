@@ -28,7 +28,7 @@ final class OneClueTests: XCTestCase {
         { "id":"g_o", "game":"one-clue", "difficulty":"medium", "hostId":"p_a", "meId":"\(me)",
           "cardCount":10, "minPlayers":3, "maxPlayers":7, "clueMs":75000, "reviewMs":30000, "guessMs":60000,
           "revealMs":12000, "maxClue":30, "maxGuess":40, "startedAt":1790000000000, "phaseEndsAt":1790000075000,
-          "score":2, "cardIndex":3, "guesserId":"p_a", "cancelledCount":null, "guess":null, "outcome":null,
+          "score":2, "cardIndex":3, "guesserId":"p_a", "guess":null,
           "tookBack":false, "standings":null, "verdict":null, "winnerIds":[], "serverNow":1790000010000,
           "cards":\(cards ?? threeCards),
           \(players),
