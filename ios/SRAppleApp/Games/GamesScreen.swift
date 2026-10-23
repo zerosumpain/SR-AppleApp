@@ -356,6 +356,7 @@ struct GameCard: View {
         case .oneClue: return SR.accentInk
         case .fakeArtist: return SR.accentDeep
         case .passThePlate: return SR.warn
+        case .fireworks: return SR.accentDeep
         }
     }
 }

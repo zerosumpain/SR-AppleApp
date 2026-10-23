@@ -39,6 +39,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case oneClue = "one-clue"
     case fakeArtist = "fake-artist"
     case passThePlate = "pass-the-plate"
+    case fireworks
 
     var id: String { rawValue }
 
@@ -60,6 +61,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .oneClue: return "One Clue"
         case .fakeArtist: return "Odd Artist Out"
         case .passThePlate: return "Pass the Plate"
+        case .fireworks: return "Fireworks"
         }
     }
 
@@ -82,6 +84,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .oneClue: return "One word each. Matching clues cancel out."
         case .fakeArtist: return "One line each. One of you doesn't know the word."
         case .passThePlate: return "Take a card, pass the plate. Three rounds of picnic."
+        case .fireworks: return "Build the show together. You cannot see your own cards."
         }
     }
 
@@ -120,6 +123,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone sees the category; everyone but the fake sees the word. Take turns adding one line each to the same picture, then vote for the fake. Caught, the fake can still win by naming the word."
         case .passThePlate:
             return "Everyone gets a plate of food cards. Take one in secret, show it together, pass the plate on. Collect pancake pairs, whole pizzas, piles of popcorn and the most strawberries, and save room for ice cream."
+        case .fireworks:
+            return "A team game for two to five. Everyone holds their cards facing away, so you see the others' cards but not your own. Give hints, play cards in order from 1 to 5 in each colour, and light the biggest show you can before the misfires run out."
         }
     }
 
@@ -141,6 +146,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .oneClue: return "text.bubble.fill"
         case .fakeArtist: return "theatermasks.fill"
         case .passThePlate: return "fork.knife"
+        case .fireworks: return "sparkles"
         }
     }
 }
@@ -212,6 +218,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.passThePlate, .easy): return "A simpler deck, and every card shows what it adds. 40 s a turn."
         case (.passThePlate, .medium): return "The full deck, gravy and spoons too, with your running total. 30 s a turn."
         case (.passThePlate, .hard): return "The full deck and no hints. 20 s a turn."
+        case (.fireworks, .easy): return "The fourth misfire ends the show. Each card shows what it could still be."
+        case (.fireworks, .medium): return "Five colours. The third misfire ends the show. 75 seconds a turn."
+        case (.fireworks, .hard): return "A sixth prism colour that every colour hint lights. The third misfire ends it. 60 seconds a turn."
         }
     }
 
@@ -679,6 +688,9 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// Pass the Plate: my plate, everybody's table and the round scores, read
     /// from the same JSON (`PassThePlateLogic.swift`). Nil in every other game's room.
     let passThePlate: PassThePlateState?
+    /// Fireworks: the fireworks, tokens, hands (mine as knowledge only) and log,
+    /// read from the same JSON (`FireworksLogic.swift`). Nil in every other game's room.
+    let fireworks: FireworksState?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -768,6 +780,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         oneClue = game == GameKind.oneClue.rawValue ? (try? OneClueState(from: decoder)) : nil
         fakeArtist = game == GameKind.fakeArtist.rawValue ? (try? FakeArtistState(from: decoder)) : nil
         passThePlate = game == GameKind.passThePlate.rawValue ? (try? PassThePlateState(from: decoder)) : nil
+        fireworks = game == GameKind.fireworks.rawValue ? (try? FireworksState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -873,7 +886,8 @@ struct GameActionBody: Encodable {
     /// `guess {playerId}` (as Categories' `playerId`) and `ready` take the rest.
     var team: [String]? = nil
     var approve: Bool? = nil
-    var card: String? = nil
+    /// Secret Mission's `"succeed"`/`"sabotage"` or a Fireworks card id: see `ActionCard`.
+    var card: ActionCard? = nil
     /// One Clue: `{action:"clue", text, lock:true}` locks my clue in; without it, a draft.
     var lock: Bool? = nil
     /// Odd Artist Out: `stroke {points, end?}` (`points` as Draw & Guess's; `end` lifts the
@@ -881,6 +895,29 @@ struct GameActionBody: Encodable {
     var end: Bool? = nil
     /// Pass the Plate: `pick {cards:[uid]}`, or two uids with a serving spoon.
     var cards: [Int]? = nil
+    /// Fireworks: `hint {to, colour}` or `hint {to, rank}` (`to` as Chess's field, a
+    /// player id here); `play {card}` and `discard {card}`, a card id from my hand.
+    var colour: String? = nil
+    var rank: Int? = nil
+}
+
+/// The `card` an action posts: a name in Secret Mission (`"succeed"` or
+/// `"sabotage"`), a card id from my hand in Fireworks. Both games post the
+/// same key, so one field carries either; a literal of either kind works.
+enum ActionCard: Encodable, Equatable, ExpressibleByStringLiteral, ExpressibleByIntegerLiteral {
+    case named(String)
+    case id(Int)
+
+    init(stringLiteral value: String) { self = .named(value) }
+    init(integerLiteral value: Int) { self = .id(value) }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .named(let name): try c.encode(name)
+        case .id(let id): try c.encode(id)
+        }
+    }
 }
 
 enum GameNames {

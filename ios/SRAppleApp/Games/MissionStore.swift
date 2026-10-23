@@ -162,7 +162,7 @@ final class MissionStore: ObservableObject, GameRoomStoring {
     func play(sabotage: Bool) {
         guard canPlay, !sabotage || maySabotage else { return }
         SRHaptic.tap()
-        send(GameActionBody(action: "play", card: sabotage ? "sabotage" : "succeed"))
+        send(GameActionBody(action: "play", card: .named(sabotage ? "sabotage" : "succeed")))
     }
 
     func guess() {
