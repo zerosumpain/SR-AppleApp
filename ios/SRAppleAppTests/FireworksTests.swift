@@ -154,6 +154,36 @@ final class FireworksTests: XCTestCase {
         XCTAssertEqual(FireworksRules.verdict(score: 0, max: 25), "Damp squib")
     }
 
+    func testTheLevelsCountMisfiresTheWayTheServerDoes() {
+        // Server: MISFIRES = easy 4, medium 3, hard 3, and the show ends ON that misfire.
+        XCTAssertTrue(GameDifficulty.easy.line(for: .fireworks).contains("fourth misfire ends"))
+        XCTAssertTrue(GameDifficulty.medium.line(for: .fireworks).contains("third misfire ends"))
+        XCTAssertTrue(GameDifficulty.hard.line(for: .fireworks).contains("third misfire ends"))
+        for level in GameDifficulty.allCases {
+            XCTAssertFalse(level.line(for: .fireworks).contains("allowed"), "a misfire count is a limit, not an allowance")
+        }
+        XCTAssertFalse(GameKind.fireworks.blurb.contains("three misfires"), "the description is the same for every level")
+    }
+
+    func testTheNewGameSheetNeverCallsItSolo() {
+        XCTAssertEqual(FireworksRules.minPlayers, 2)
+        XCTAssertEqual(FireworksRules.maxPlayers, 5)
+        for line in [FireworksRules.sheetTrailing, FireworksRules.sheetNobody, FireworksRules.sheetPick] {
+            XCTAssertFalse(line.lowercased().contains("solo"), line)
+        }
+        XCTAssertTrue(FireworksRules.sheetNobody.contains("two to five"))
+    }
+
+    func testLeavingSaysWhetherTheShowGoesOn() {
+        XCTAssertTrue(FireworksRules.leaveWarning(staying: 1).contains("show ends"))
+        XCTAssertTrue(FireworksRules.leaveWarning(staying: 2).contains("plays on"))
+    }
+
+    func testTheTeamTableHasNoPlaces() {
+        XCTAssertEqual(FireworksRules.teamDetail(left: true), "Left early")
+        XCTAssertEqual(FireworksRules.teamDetail(left: false), "Played to the end")
+    }
+
     func testTheTurnBarEmpties() {
         XCTAssertEqual(FireworksRules.turnLeft(endsAt: 1_000, turnMs: 1_000, now: 500), 0.5)
         XCTAssertEqual(FireworksRules.turnLeft(endsAt: 1_000, turnMs: 1_000, now: 5_000), 0)

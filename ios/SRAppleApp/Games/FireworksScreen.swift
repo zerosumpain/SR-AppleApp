@@ -58,7 +58,7 @@ struct FireworksScreen: View {
                                   note: "You can see everyone's cards but your own. Hints are how you learn yours.",
                                   id: "fireworks-countdown")
             case .playing:
-                FireworksPlaying(room: room, store: store)
+                FireworksPlaying(room: room, store: store, done: { dismiss() })
             case .finished:
                 FireworksFinished(room: room, store: store, done: { dismiss() })
             case .closed:
@@ -331,6 +331,9 @@ struct FireworksTurnBar: View {
 struct FireworksPlaying: View {
     let room: GameRoom
     @ObservedObject var store: FireworksStore
+    /// Back to the games list, after leaving the show.
+    let done: () -> Void
+    @State private var confirmingLeave = false
 
     private var state: FireworksState? { room.fireworks }
     private func name(_ id: String) -> String { id == room.meId ? "You" : room.name(of: id) }
@@ -358,6 +361,7 @@ struct FireworksPlaying: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("fireworks-rule")
                     }
+                    if store.seated { leaveButton }
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -369,6 +373,30 @@ struct FireworksPlaying: View {
         .onChange(of: store.refusal) { _, refusal in
             if let refusal { UIAccessibility.post(notification: .announcement, argument: refusal) }
         }
+        .confirmationDialog("Leave the show?", isPresented: $confirmingLeave, titleVisibility: .visible) {
+            Button("Leave", role: .destructive) {
+                Task {
+                    if await store.act("leave") { done() }
+                }
+            }
+            Button("Keep playing", role: .cancel) {}
+        } message: {
+            Text(FireworksRules.leaveWarning(staying: store.others.count))
+        }
+    }
+
+    private var leaveButton: some View {
+        Button {
+            SRHaptic.select()
+            confirmingLeave = true
+        } label: {
+            SRButtonLabel(title: "Leave the show", icon: "rectangle.portrait.and.arrow.right", fill: true)
+        }
+        .srButton(.regular)
+        .controlSize(.large)
+        .disabled(store.busy)
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("fireworks-leave")
     }
 
     private var header: some View {
@@ -703,16 +731,7 @@ struct FireworksFinished: View {
                     FireworksStacks(state: state)
                 }
 
-                GameStandingsCard(
-                    room: room,
-                    label: "The team",
-                    id: "fireworks-standings",
-                    detail: { row in standing(row.id)?.left == true ? "left early" : "played to the end" },
-                    figure: { row in
-                        guard let s = standing(row.id) else { return nil }
-                        return (text: "\(s.score)", spoken: "team score \(s.score)")
-                    }
-                )
+                teamCard
 
                 GameFinishedButtons(room: room, store: store, prefix: "fireworks", done: done)
             }
@@ -726,5 +745,43 @@ struct FireworksFinished: View {
 
     private func standing(_ id: String) -> FireworksStanding? {
         state?.standings?.first { $0.id == id }
+    }
+
+    /// The team, without places: a shared result is not a ranking (the shared
+    /// `GameStandingsCard` numbers its rows 1, 2, 3).
+    private var teamCard: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            GameRecordLine(room: room)
+            SRSectionLabel(text: "The team", trailing: state.map { "\($0.score) together" })
+            VStack(spacing: 0) {
+                ForEach(Array((room.standings ?? []).enumerated()), id: \.element.id) { index, row in
+                    if index > 0 { Divider().overlay(SR.divider) }
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(systemName: standing(row.id)?.left == true ? "figure.walk" : "sparkles")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(standing(row.id)?.left == true ? SR.inkGhost : SR.accent)
+                            .frame(width: 28, alignment: .leading)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(row.name + (row.id == room.meId ? " (you)" : ""))
+                                .font(SR.Text.title())
+                                .foregroundStyle(SR.ink)
+                            Text(FireworksRules.teamDetail(left: standing(row.id)?.left == true))
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+                    }
+                    .padding(.vertical, 10)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("fireworks-standings-\(row.id)")
+                }
+            }
+            .padding(.horizontal, SR.cardPadding)
+            .padding(.vertical, 6)
+            .srGlassCard(.paper)
+            .accessibilityIdentifier("fireworks-standings")
+        }
     }
 }

@@ -362,6 +362,27 @@ enum FireworksRules {
         }
     }
 
+    // The new-game sheet: Fireworks is a team game for two to five, so it is
+    // never offered as a solo game (the server refuses to start one).
+    static let minPlayers = 2
+    static let maxPlayers = 5
+    static let sheetTrailing = "2 to 5"
+    static let sheetNobody = "Nobody else in the family can play yet, and Fireworks needs two to five. The lobby can wait for somebody to pair a phone."
+    static let sheetPick = "Fireworks needs two to five: ask at least one person. Nothing starts yet: the lobby waits for people to join. Invites reach phones with the app open."
+
+    /// Leaving mid-show, for the confirm: what happens to the team, given how
+    /// many others are still at the table (the server ends a table of one).
+    static func leaveWarning(staying: Int) -> String {
+        staying < minPlayers
+            ? "Your cards go on the discards, and with only one player left the show ends here."
+            : "Your cards go on the discards and the rest of the team plays on without you."
+    }
+
+    /// A row of the team's result: no place, everyone shares it.
+    static func teamDetail(left: Bool) -> String {
+        left ? "Left early" : "Played to the end"
+    }
+
     /// A word for how good the score was, out of the maximum.
     static func verdict(score: Int, max: Int) -> String {
         guard max > 0 else { return "" }

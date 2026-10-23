@@ -1349,6 +1349,7 @@ final class ShowcaseTests: XCTestCase {
             soft(byId(app, "fireworks-my-hand").exists, "no hand of my own")
             soft(byId(app, "fireworks-card-17").label.contains("Red 3"), "Sam's red 3 is not face up")
             soft(!byId(app, "fireworks-mine-0").label.contains("Blue 1"), "my own card is face up")
+            soft(byId(app, "fireworks-leave").exists, "no way to leave the show")
             attach(app, "Showcase — Fireworks, my turn")
             let hint = byId(app, "fireworks-hint-p_sam")
             if hint.exists {

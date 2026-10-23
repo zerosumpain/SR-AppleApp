@@ -104,7 +104,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .chess:
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
         case .fireworks:
-            return "A team game for two to five. Everyone holds their cards facing away, so you see the others' cards but not your own. Give hints, play cards in order from 1 to 5 in each colour, and light the biggest show you can before three misfires."
+            return "A team game for two to five. Everyone holds their cards facing away, so you see the others' cards but not your own. Give hints, play cards in order from 1 to 5 in each colour, and light the biggest show you can before the misfires run out."
         }
     }
 
@@ -182,9 +182,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.chess, .easy): return "15 minutes each, and 10 seconds back every move."
         case (.chess, .medium): return "10 minutes each, 5 seconds back a move."
         case (.chess, .hard): return "5 minutes each, 3 seconds back a move. Blitz."
-        case (.fireworks, .easy): return "Four misfires allowed, and each card shows what it could still be."
-        case (.fireworks, .medium): return "Five colours, three misfires. 75 seconds a turn."
-        case (.fireworks, .hard): return "A sixth prism colour that every colour hint lights. 60 seconds a turn."
+        case (.fireworks, .easy): return "The fourth misfire ends the show. Each card shows what it could still be."
+        case (.fireworks, .medium): return "Five colours. The third misfire ends the show. 75 seconds a turn."
+        case (.fireworks, .hard): return "A sixth prism colour that every colour hint lights. The third misfire ends it. 60 seconds a turn."
         }
     }
 
