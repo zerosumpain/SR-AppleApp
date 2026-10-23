@@ -1283,6 +1283,55 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Secret Mission: a vote waiting on Alex (crew), Alex's card on a
+    /// mission as a spy — Sabotage offered — and a finish the Tracker stole.
+    @MainActor func testShowcaseMission() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let voting = byId(app, "games-room-g_demo_mission_vote")
+        if scroll(app, to: voting) {
+            voting.tap()
+            settle(app, on: byId(app, "mission-voting"), seconds: 2)
+            soft(byId(app, "mission-track").exists, "no mission track")
+            soft(byId(app, "mission-team").exists, "no team line")
+            soft(byId(app, "mission-approve").exists, "no Approve")
+            soft(byId(app, "mission-reject").exists, "no Reject")
+            soft(byId(app, "mission-rejections").exists, "no rejection count")
+            soft(byId(app, "mission-role").label.contains("face down"), "the role card is not face down")
+            attach(app, "Showcase — Secret Mission, the vote")
+            back(app)
+        } else {
+            soft(false, "no Secret Mission vote to resume")
+        }
+
+        let playing = byId(app, "games-room-g_demo_mission")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "mission-mission"), seconds: 2)
+            soft(byId(app, "mission-succeed").exists, "no Succeed")
+            soft(byId(app, "mission-sabotage").exists, "a spy is not offered Sabotage")
+            soft(byId(app, "mission-cards-in").exists, "no cards-in line")
+            attach(app, "Showcase — Secret Mission, a spy on the mission")
+            back(app)
+        } else {
+            soft(false, "no Secret Mission to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_mission_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "mission-finished"), seconds: 2)
+            soft(byId(app, "mission-standings").exists, "no roles table")
+            soft(byId(app, "mission-who-p_kit").label.contains("Tracker"), "the Tracker is not shown")
+            attach(app, "Showcase — Secret Mission, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Secret Mission")
+        }
+    }
+
     /// Chess: my move in a Ruy Lopez (both bars with clocks, the board, a
     /// piece picked up with its squares lit), and a finished Fool's mate.
     @MainActor func testShowcaseChess() {

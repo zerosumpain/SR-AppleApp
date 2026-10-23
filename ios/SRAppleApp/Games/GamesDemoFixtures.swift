@@ -45,6 +45,9 @@ extension SRDemoFixtures {
     static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
     static let demoChessRoom = "g_demo_chess"
     static let demoChessDoneRoom = "g_demo_chess_done"
+    static let demoMissionVotingRoom = "g_demo_mission_vote"
+    static let demoMissionRoom = "g_demo_mission"
+    static let demoMissionDoneRoom = "g_demo_mission_done"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -106,6 +109,14 @@ extension SRDemoFixtures {
                        {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Secret Mission's three rooms: a vote, Alex's card on a mission (as a
+    /// spy), and a finished game the Tracker stole. Left out of the store shots.
+    static let missionLobbyRows = #"""
+    {"id": "g_demo_mission_vote", "game": "mission", "phase": "voting", "hostName": "Sam"},
+                       {"id": "g_demo_mission", "game": "mission", "phase": "mission", "hostName": "Alex"},
+                       {"id": "g_demo_mission_done", "game": "mission", "phase": "finished", "hostName": "Alex"},
+    """#
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -116,7 +127,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : missionLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : chessLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -149,6 +161,9 @@ extension SRDemoFixtures {
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
         if id == demoChessRoom { return chessRoom(finished: false, clock: clock) }
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
+        if id == demoMissionVotingRoom { return missionRoom("voting", clock: clock) }
+        if id == demoMissionRoom { return missionRoom("mission", clock: clock) }
+        if id == demoMissionDoneRoom { return missionRoom("finished", clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
@@ -646,6 +661,80 @@ extension SRDemoFixtures {
          "players": [\(seat("p_alex", "Alex", host: true, colour: "w", clockMs: 581000)),
                      \(seat("p_sam", "Sam", host: false, colour: "b", clockMs: 592000))],
          "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Secret Mission
+
+    /// Secret Mission, five at the table (Alex, Sam, Robin, Kit, Jo). Voting
+    /// (easy): Sam leads mission 2 with Sam, Robin and Alex; Robin and Kit
+    /// have voted, one team already turned down. Mission (medium): Alex is a
+    /// spy who knows Kit, on mission 3 with Sam, card still to play. Finished
+    /// (medium): the crew won three missions but the Tracker (Kit) named the
+    /// Lookout — Alex — and the spies took it.
+    static func missionRoom(_ phase: String, clock: DemoClock) -> String {
+        let now = clock.now
+        let names = [("p_alex", "Alex"), ("p_sam", "Sam"), ("p_robin", "Robin"), ("p_kit", "Kit"), ("p_jo", "Jo")]
+        let finished = phase == "finished"
+        let roles = ["p_alex": "lookout", "p_sam": "crew", "p_robin": "crew", "p_kit": "tracker", "p_jo": "spy"]
+        let team: [String] = phase == "voting" ? ["p_alex", "p_sam", "p_robin"] : phase == "mission" ? ["p_alex", "p_sam"] : []
+        let voted: Set<String> = phase == "voting" ? ["p_robin", "p_kit"] : []
+        let played: Set<String> = phase == "mission" ? ["p_sam"] : []
+        let host = phase == "voting" ? "p_sam" : "p_alex"
+        let players = names.map { pair -> String in
+            let (id, name) = pair
+            let role = finished ? s(roles[id]) : "null"
+            let side = finished ? s(roles[id] == "tracker" || roles[id] == "spy" ? "spies" : "crew") : "null"
+            return "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(id == host), "
+                + "\"seated\": true, \"ready\": true, \"voted\": \(voted.contains(id)), \"onTeam\": \(team.contains(id)), "
+                + "\"played\": \(played.contains(id)), \"role\": \(role), \"side\": \(side)}"
+        }.joined(separator: ",\n                     ")
+        let difficulty = phase == "voting" ? "easy" : "medium"
+        let rule = phase == "voting"
+            ? "Crew and spies only: nobody but the spies knows anything."
+            : "The Lookout knows the spies. If the crew win, the Tracker gets one guess at the Lookout to steal it."
+        let secret: String
+        switch phase {
+        case "voting": secret = #"{"role": "crew", "side": "crew", "spies": [], "vote": null, "card": null}"#
+        case "mission": secret = #"{"role": "spy", "side": "spies", "spies": ["p_kit"], "vote": null, "card": null}"#
+        default: secret = #"{"role": "lookout", "side": "crew", "spies": ["p_kit", "p_jo"], "vote": null, "card": null}"#
+        }
+        let missions: String
+        let tallies: String
+        switch phase {
+        case "voting":
+            missions = #"[{"mission": 1, "leaderId": "p_robin", "team": ["p_robin", "p_kit"], "needed": 1, "sabotages": 0, "succeeded": true}]"#
+            tallies = #"[{"mission": 1, "attempt": 1, "leaderId": "p_robin", "team": ["p_robin", "p_kit"], "approve": ["p_alex", "p_sam", "p_robin", "p_kit", "p_jo"], "reject": [], "auto": [], "approved": true, "autoTeam": false}, {"mission": 2, "attempt": 1, "leaderId": "p_kit", "team": ["p_kit", "p_jo", "p_alex"], "approve": ["p_kit", "p_jo"], "reject": ["p_alex", "p_sam", "p_robin"], "auto": [], "approved": false, "autoTeam": false}]"#
+        case "mission":
+            missions = #"[{"mission": 1, "leaderId": "p_robin", "team": ["p_robin", "p_kit"], "needed": 1, "sabotages": 1, "succeeded": false}, {"mission": 2, "leaderId": "p_kit", "team": ["p_kit", "p_sam", "p_robin"], "needed": 1, "sabotages": 0, "succeeded": true}]"#
+            tallies = #"[{"mission": 3, "attempt": 1, "leaderId": "p_jo", "team": ["p_alex", "p_sam"], "approve": ["p_alex", "p_sam", "p_kit", "p_jo"], "reject": ["p_robin"], "auto": [], "approved": true, "autoTeam": false}]"#
+        default:
+            missions = #"[{"mission": 1, "leaderId": "p_robin", "team": ["p_robin", "p_alex"], "needed": 1, "sabotages": 0, "succeeded": true}, {"mission": 2, "leaderId": "p_kit", "team": ["p_kit", "p_sam", "p_jo"], "needed": 1, "sabotages": 1, "succeeded": false}, {"mission": 3, "leaderId": "p_jo", "team": ["p_alex", "p_sam"], "needed": 1, "sabotages": 0, "succeeded": true}, {"mission": 4, "leaderId": "p_alex", "team": ["p_alex", "p_sam", "p_robin"], "needed": 1, "sabotages": 0, "succeeded": true}]"#
+            tallies = "[]"
+        }
+        let mission = phase == "voting" ? 2 : phase == "mission" ? 3 : 4
+        let score = phase == "voting" ? (1, 0) : phase == "mission" ? (1, 1) : (3, 1)
+        let leader = phase == "voting" ? "p_sam" : phase == "mission" ? "p_jo" : "p_alex"
+        let endsIn: TimeInterval = phase == "voting" ? 41 : phase == "mission" ? 22 : 560
+        let standings = finished
+            ? #"[{"id": "p_kit", "name": "Kit", "place": 1, "role": "tracker", "side": "spies", "won": true, "left": false}, {"id": "p_jo", "name": "Jo", "place": 1, "role": "spy", "side": "spies", "won": true, "left": false}, {"id": "p_alex", "name": "Alex", "place": 2, "role": "lookout", "side": "crew", "won": false, "left": false}, {"id": "p_sam", "name": "Sam", "place": 2, "role": "crew", "side": "crew", "won": false, "left": false}, {"id": "p_robin", "name": "Robin", "place": 2, "role": "crew", "side": "crew", "won": false, "left": false}]"#
+            : "null"
+        let id = phase == "voting" ? demoMissionVotingRoom : phase == "mission" ? demoMissionRoom : demoMissionDoneRoom
+        return """
+        {"id": \(s(id)), "game": "mission", "difficulty": \(s(difficulty)), "phase": \(s(phase)),
+         "hostId": \(s(host)), "meId": "p_alex", "rule": \(s(rule)), "specials": \(difficulty != "easy"),
+         "minPlayers": 5, "maxPlayers": 10, "seats": 5, "spyCount": 2,
+         "teamSizes": [2, 3, 2, 3, 3], "sabotagesNeeded": [1, 1, 1, 1, 1],
+         "proposeMs": 90000, "voteMs": \(difficulty == "easy" ? 60000 : 45000), "missionMs": 30000, "huntMs": 90000,
+         "mission": \(mission), "attempt": \(phase == "voting" ? 2 : 1), "rejections": \(phase == "voting" ? 1 : 0), "maxRejections": 5,
+         "leaderId": \(s(leader)), "team": \(team.isEmpty ? "null" : list(team.map { s($0) })), "autoTeam": false,
+         "score": {"crew": \(score.0), "spies": \(score.1)}, "secret": \(secret),
+         "trackerId": \(finished ? s("p_kit") : "null"),
+         "startedAt": \(ms(now.addingTimeInterval(-600))), "phaseEndsAt": \(ms(now.addingTimeInterval(endsIn))),
+         "players": [\(players)],
+         "tallies": \(tallies), "missions": \(missions),
+         "result": \(finished ? #"{"winner": "spies", "reason": "hunt", "guessId": "p_alex"}"# : "null"),
+         "standings": \(standings), "winnerIds": \(finished ? #"["p_kit", "p_jo"]"# : "[]"), "serverNow": \(ms(now))}
         """
     }
 
