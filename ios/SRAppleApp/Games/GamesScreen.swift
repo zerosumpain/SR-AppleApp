@@ -155,6 +155,40 @@ struct GamesScreen: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("games-marbler")
 
+                        // Play nearby: offline games, phone to phone, no server.
+                        Button {
+                            SRHaptic.tap()
+                            router.push(OfflineGamesRef(), on: .games)
+                        } label: {
+                            SRCard(interactive: true) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "dot.radiowaves.left.and.right")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundStyle(SR.accent)
+                                        .frame(width: 28)
+                                        .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Play nearby")
+                                            .font(SR.Text.title())
+                                            .foregroundStyle(SR.ink)
+                                        Text("Offline games over Bluetooth or a hotspot — one phone hosts, up to \(OfflineRoom.capacity) play.")
+                                            .font(SR.Text.secondary())
+                                            .foregroundStyle(SR.inkMuted)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(SR.inkGhost)
+                                }
+                                .frame(minHeight: SR.tapTarget)
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isButton)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("games-offline")
+
                         section("Play", trailing: nil, id: "games-play") {
                             ForEach(GameKind.allCases) { kind in
                                 Button {

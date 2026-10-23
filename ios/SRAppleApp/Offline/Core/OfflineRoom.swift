@@ -1,0 +1,239 @@
+import Foundation
+
+/// One message for one player, from the host.
+struct OfflineOutgoing: Equatable {
+    /// A player id — the host's own included (the session delivers that one
+    /// locally, so the host plays through exactly the same path).
+    let to: String
+    let message: OfflineMessage
+}
+
+/// The host's room, as a pure value: who is in it, which game, the running
+/// match, and what each player has been sent.
+///
+/// No transport, no timers, no main actor. The session feeds it what happened
+/// — a hello, an action, a tick, a dropped connection — then asks `outbox()`
+/// what to send, and the room answers with exactly the messages whose content
+/// changed: a lobby to whoever has not seen this one, a view to each player
+/// whose view is different from the last one they got. So "who sees what" is
+/// decided here, once, and tested without a single phone.
+struct OfflineRoom {
+    /// Five phones, the host's included. MultipeerConnectivity is happiest at
+    /// eight or fewer, and five keeps a TCP hotspot room comfortable.
+    static let capacity = 5
+
+    let hostId: String
+    let roomName: String
+    private let games: [String: OfflineGameEntry]
+
+    /// Seat order: the host first, then guests as they joined.
+    private(set) var players: [OfflineLobbyPlayer]
+    private(set) var gameId: String?
+    private(set) var phase: OfflineRoomPhase = .lobby
+    /// Matches started in this room. Actions carry it.
+    private(set) var matchNumber = 0
+    private(set) var standings: [OfflineStanding]?
+    private var match: (any OfflineMatch)?
+
+    private var lobbySent: [String: OfflineLobby] = [:]
+    private var viewSent: [String: OfflineViewPacket] = [:]
+
+    init(host: OfflinePlayer, roomName: String, games: [OfflineGameEntry]) {
+        self.hostId = host.id
+        self.roomName = roomName
+        var byId: [String: OfflineGameEntry] = [:]
+        for entry in games { byId[entry.info.id] = entry }
+        self.games = byId
+        self.players = [OfflineLobbyPlayer(id: host.id, name: host.name, present: true, inMatch: false)]
+    }
+
+    // MARK: - What everyone sees
+
+    var lobby: OfflineLobby {
+        OfflineLobby(hostId: hostId, roomName: roomName, players: players, gameId: gameId,
+                     phase: phase, match: matchNumber, standings: standings)
+    }
+
+    /// The chosen game's entry.
+    var entry: OfflineGameEntry? { gameId.flatMap { games[$0] } }
+
+    /// Players here now.
+    var presentPlayers: [OfflineLobbyPlayer] { players.filter(\.present) }
+
+    /// Why Start is not possible yet, as a sentence; nil when it is.
+    var startProblem: String? {
+        if phase == .playing { return "A game is already on." }
+        guard let entry else { return "Pick a game." }
+        let count = presentPlayers.count
+        if count < entry.info.minPlayers {
+            let more = entry.info.minPlayers - count
+            return "\(entry.info.title) needs \(more) more player\(more == 1 ? "" : "s")."
+        }
+        if count > entry.info.maxPlayers {
+            return "\(entry.info.title) is for at most \(entry.info.maxPlayers) players."
+        }
+        return nil
+    }
+
+    // MARK: - Membership
+
+    /// A guest's hello. Throws a refusal the session sends back before closing
+    /// the connection. A player id already in the room is a rejoin: the same
+    /// seat, sent the lobby and their view afresh.
+    mutating func join(_ player: OfflinePlayer, version: Int) throws {
+        if version != OfflineEnvelope.version {
+            throw OfflineRefusal("That phone has a different version of the app. Update both, then try again.")
+        }
+        let name = OfflineRoom.cleanName(player.name)
+        if let index = players.firstIndex(where: { $0.id == player.id }) {
+            players[index].present = true
+            players[index].name = name
+            forget(player.id)
+            return
+        }
+        if players.count >= Self.capacity {
+            throw OfflineRefusal("The room is full — \(Self.capacity) is the most.")
+        }
+        // Mid-match, a newcomer watches and plays the next one.
+        players.append(OfflineLobbyPlayer(id: player.id, name: name, present: true, inMatch: false))
+    }
+
+    /// A player has gone. Out of a lobby they are simply removed; out of a
+    /// running match they keep their seat (marked away), the game is told,
+    /// and a match that falls below its minimum ends with the table as it stands.
+    mutating func drop(_ playerId: String, now: Double) {
+        guard playerId != hostId, let index = players.firstIndex(where: { $0.id == playerId }) else { return }
+        forget(playerId)
+        guard phase == .playing, players[index].inMatch else {
+            players.remove(at: index)
+            return
+        }
+        players[index].present = false
+        match?.playerLeft(playerId, now: now)
+        if let info = match?.info, players.filter({ $0.inMatch && $0.present }).count < info.minPlayers {
+            finish()
+        } else {
+            checkOver()
+        }
+    }
+
+    // MARK: - The host's choices
+
+    /// Choose the next game. Only between matches.
+    mutating func choose(_ gameId: String) throws {
+        guard phase != .playing else { throw OfflineRefusal("Finish this game first.") }
+        guard games[gameId] != nil else { throw OfflineRefusal("This phone does not know that game.") }
+        self.gameId = gameId
+    }
+
+    /// Start the chosen game with everyone present. `seed` comes from
+    /// `OfflineRNG.freshSeed()` on a phone and a fixed number in a test.
+    mutating func start(seed: UInt64, now: Double) throws {
+        if let problem = startProblem { throw OfflineRefusal(problem) }
+        guard let entry else { throw OfflineRefusal("Pick a game.") }
+        players.removeAll { !$0.present }
+        for index in players.indices { players[index].inMatch = true }
+        match = entry.begin(players.map(\.player), seed, now)
+        matchNumber += 1
+        phase = .playing
+        standings = nil
+        viewSent = [:]
+        checkOver()
+    }
+
+    /// One player's action, as the game's `Action` JSON.
+    mutating func act(_ data: Data, by playerId: String, match number: Int, now: Double) throws {
+        guard phase == .playing, match != nil else { throw OfflineRefusal("That game has finished.") }
+        guard number == matchNumber else { throw OfflineRefusal("That move was for an earlier game.") }
+        guard let player = players.first(where: { $0.id == playerId }), player.present, player.inMatch else {
+            throw OfflineRefusal("You are watching this one — you will be in the next game.")
+        }
+        try match?.apply(data, by: playerId, now: now)
+        checkOver()
+    }
+
+    /// The host's ~10 Hz heartbeat.
+    mutating func tick(now: Double) {
+        guard phase == .playing else { return }
+        match?.tick(now: now)
+        checkOver()
+    }
+
+    /// The host stops the match early: standings as they stand.
+    mutating func endMatch() {
+        guard phase == .playing else { return }
+        finish()
+    }
+
+    /// Back to the lobby after a match, to pick again or play again. Anybody
+    /// who left during the match goes now.
+    mutating func backToLobby() {
+        guard phase == .finished else { return }
+        phase = .lobby
+        match = nil
+        players.removeAll { !$0.present }
+        for index in players.indices { players[index].inMatch = false }
+        viewSent = [:]
+    }
+
+    /// The game's view `playerId` would be sent now (a spectator's if they
+    /// are not in the match), or nil between matches. For tests and for
+    /// diagnostics — screens get theirs through `outbox` like everyone.
+    func currentView(for playerId: String) -> Data? {
+        guard let match, phase != .lobby else { return nil }
+        let inMatch = players.first { $0.id == playerId }?.inMatch ?? false
+        return match.viewData(for: inMatch ? playerId : nil)
+    }
+
+    // MARK: - What to send
+
+    /// Every message whose content changed since it was last sent: the lobby
+    /// to each present player who has not had this one, then each present
+    /// player's view if it differs from their last. Call after every change.
+    mutating func outbox() -> [OfflineOutgoing] {
+        var out: [OfflineOutgoing] = []
+        let current = lobby
+        for player in players where player.present && lobbySent[player.id] != current {
+            out.append(OfflineOutgoing(to: player.id, message: .lobby(current)))
+            lobbySent[player.id] = current
+        }
+        if let match, phase != .lobby, let gameId {
+            for player in players where player.present {
+                let packet = OfflineViewPacket(
+                    gameId: gameId, match: matchNumber,
+                    data: match.viewData(for: player.inMatch ? player.id : nil),
+                    over: phase == .finished
+                )
+                if viewSent[player.id] != packet {
+                    out.append(OfflineOutgoing(to: player.id, message: .view(packet)))
+                    viewSent[player.id] = packet
+                }
+            }
+        }
+        return out
+    }
+
+    // MARK: - Private
+
+    private mutating func checkOver() {
+        if match?.isOver == true { finish() }
+    }
+
+    private mutating func finish() {
+        phase = .finished
+        standings = match?.standings ?? []
+    }
+
+    /// Forget what a player was sent, so the next outbox sends it all again.
+    private mutating func forget(_ playerId: String) {
+        lobbySent[playerId] = nil
+        viewSent[playerId] = nil
+    }
+
+    /// A name fit for a lobby row: trimmed, at most 20 characters, never empty.
+    static func cleanName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let short = String(trimmed.prefix(20))
+        return short.isEmpty ? "Player" : short
+    }
+}

@@ -137,8 +137,23 @@ struct ChessBoardView: View {
     var onTap: (ChessSquare) -> Void = { _ in }
 
     var body: some View {
+        // The square is decided by the width offered, never by what is drawn
+        // in it: a clear square takes the proposal and the board is laid
+        // over it. A GeometryReader sized by `.aspectRatio` straight inside
+        // the page's ScrollView could come out wider than the screen.
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .overlay { squares }
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(SR.ink.opacity(0.25), lineWidth: 1))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("chess-board")
+    }
+
+    private var squares: some View {
         GeometryReader { geo in
-            let side = min(geo.size.width, geo.size.height) / 8
+            let side = floor(min(geo.size.width, geo.size.height) / 8 * 2) / 2
             ZStack(alignment: .topLeading) {
                 ForEach(0..<64, id: \.self) { i in
                     let square = self.square(atVisual: i)
@@ -160,12 +175,8 @@ struct ChessBoardView: View {
                 }
             }
             .frame(width: side * 8, height: side * 8)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(SR.ink.opacity(0.25), lineWidth: 1))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("chess-board")
     }
 
     /// The square drawn at visual index `i` (0 = top left), for `bottom`'s view.
@@ -287,11 +298,17 @@ struct ChessPlayerBar: View {
                                 .foregroundStyle(SR.accent)
                         }
                     }
-                    HStack(spacing: 2) {
-                        ForEach(Array(taken.enumerated()), id: \.offset) { _, kind in
-                            Text(kind.glyph)
+                    // One line that shrinks, then truncates: a row of separate
+                    // glyphs could not, and with a dozen pieces taken it pushed
+                    // the bar — and the page under it — past the screen's edge.
+                    HStack(spacing: 4) {
+                        if !taken.isEmpty {
+                            Text(taken.map(\.glyph).joined())
                                 .font(.system(size: 13))
                                 .foregroundStyle(SR.inkMuted)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .truncationMode(.tail)
                         }
                         if let ahead = ChessRules.balanceText(state.captured.balance(for: colour)) {
                             Text(ahead)
@@ -312,6 +329,7 @@ struct ChessPlayerBar: View {
                     .font(SR.Text.figure(26))
                     .foregroundStyle(running ? (left < 20_000 ? SR.error : SR.accent) : SR.ink)
                     .monospacedDigit()
+                    .fixedSize()
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(running ? SR.accent.opacity(0.12) : Color.clear))

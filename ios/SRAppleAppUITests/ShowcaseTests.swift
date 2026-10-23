@@ -982,6 +982,34 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// More → Play nearby: the offline games page — the name, host and join
+    /// cards, then all twenty games in their three sections — and one game's
+    /// how-to sheet. Nothing here hosts or joins, so no peers are needed and
+    /// the Local Network prompt never appears.
+    @MainActor func testShowcaseOfflineGames() {
+        let app = launch()
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        openTab(app, "More")
+        settle(app, on: byId(app, "more-screen"))
+        let tile = byId(app, "more-offline")
+        guard scroll(app, to: tile) else { return soft(false, "no Play nearby card in More") }
+        tile.tap()
+        settle(app, on: byId(app, "offline-games-screen"), seconds: 2)
+        attach(app, "Showcase — Play nearby")
+
+        for index in 1...5 {
+            app.swipeUp()
+            settle(app)
+            attach(app, "Showcase — Play nearby, scrolled \(index)")
+        }
+
+        let game = byId(app, "offline-game-sea-battle")
+        guard scroll(app, to: game) else { return soft(false, "no Sea Battle card") }
+        game.tap()
+        settle(app, seconds: 2)
+        attach(app, "Showcase — Play nearby, how to play Sea Battle")
+    }
+
     /// Wordle Race: the new-game sheet opened from its card (set to Wordle,
     /// no game picker, difficulty lines from the Wordle table), then Sam's race half played —
     /// my three rows and the keyboard, Sam and Robin as colours only.
