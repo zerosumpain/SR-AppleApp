@@ -205,10 +205,10 @@ final class HomesteadStore: ObservableObject, GameRoomStoring {
                 }
                 self.clearNotes()
             case .refused(let sentence):
-                self.refuse(sentence)
+                self.showRefusal(sentence)
             case .wrongPhase:
                 // Somebody moved first or a timer ran out; the room says where it is.
-                if let sentence = self.link.lastConflict, !sentence.isEmpty { self.refuse(sentence) }
+                if let sentence = self.link.lastConflict, !sentence.isEmpty { self.showRefusal(sentence) }
                 await self.link.refresh()
             case .gone:
                 break
@@ -218,7 +218,7 @@ final class HomesteadStore: ObservableObject, GameRoomStoring {
         }
     }
 
-    private func refuse(_ sentence: String) {
+    private func showRefusal(_ sentence: String) {
         refusal = sentence
         SRHaptic.bad()
         noteTask?.cancel()
