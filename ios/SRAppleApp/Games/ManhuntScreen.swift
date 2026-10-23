@@ -87,6 +87,18 @@ struct ManhuntLobbyPanel: View {
         VStack(alignment: .leading, spacing: SR.sectionGap) {
             areaCard
             runnerCard
+            Label(ManhuntRules.keepOpenLine, systemImage: "iphone")
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("manhunt-keep-open")
+            if store.locationApproximate {
+                Label(ManhuntRules.approximateLine, systemImage: "location.circle")
+                    .font(SR.Text.bodyMedium(15))
+                    .foregroundStyle(SR.error)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("manhunt-location-approximate")
+            }
             if let refusal = store.refusal {
                 Label(refusal, systemImage: "exclamationmark.circle")
                     .font(SR.Text.bodyMedium(15))
@@ -391,6 +403,12 @@ struct ManhuntPlaying: View {
                     .foregroundStyle(SR.error)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("manhunt-location-off")
+            } else if store.locationApproximate {
+                Label(ManhuntRules.approximateLine, systemImage: "location.circle")
+                    .font(SR.Text.bodyMedium(15))
+                    .foregroundStyle(SR.error)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("manhunt-location-approximate")
             }
             if let refusal = store.refusal {
                 Label(refusal, systemImage: "exclamationmark.circle")

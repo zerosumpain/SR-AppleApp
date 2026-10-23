@@ -22,6 +22,11 @@ enum ManhuntPhase: String, Equatable {
 
     /// The phases the phone sends its position in. Nowhere else.
     var collectsPositions: Bool { self == .headstart || self == .hunt }
+
+    /// The phases the location session runs in: the sending ones, and the
+    /// 3-2-1 before them, so it is already running (and may go on in a
+    /// pocket) when the head start begins. Nothing is sent in the 3-2-1.
+    var runsLocation: Bool { self == .countdown || collectsPositions }
 }
 
 enum ManhuntRole: String, Decodable, Equatable {
@@ -370,11 +375,25 @@ enum ManhuntRules {
         return ring
     }
 
-    /// Whether a new fix is worth sending: real, sharp enough to mean
-    /// something, newer than the last one sent, and not sooner than the
-    /// server's gap (it would only be ignored).
+    /// The roughest fix worth sending (the server's own cap). A rough fix is
+    /// still sent: a runner whose phone sends nothing goes "quiet" and can be
+    /// caught on a hunter's word, so poor GPS (Approximate Location, indoors)
+    /// must not silence it. The server keeps rough fixes from buying more
+    /// than 25 m, and a hunter's rough fix cannot claim a catch.
+    static let roughestFixM: Double = 10_000
+
+    /// Shown while Precise Location is off for the app.
+    static let approximateLine =
+        "Approximate location is on, so your position is only rough and you cannot make a catch. Turn on Precise Location for the SR app in Settings."
+
+    /// The lobby's reminder: a locked phone misses the start.
+    static let keepOpenLine =
+        "Keep this screen open until the hunt starts. A phone locked before then misses the start, and a runner whose phone sends nothing can be caught from anywhere."
+
+    /// Whether a new fix is worth sending: real, fresh, and not sooner than
+    /// the server's gap (it would only be ignored).
     static func shouldSend(accuracy: Double, ageSeconds: Double, sinceLastSentMs: Double?, minGapMs: Double) -> Bool {
-        guard accuracy.isFinite, accuracy >= 0, accuracy <= 200 else { return false }
+        guard accuracy.isFinite, accuracy >= 0, accuracy <= roughestFixM else { return false }
         guard ageSeconds.isFinite, ageSeconds <= 30 else { return false }
         if let since = sinceLastSentMs, since.isFinite, since < minGapMs { return false }
         return true

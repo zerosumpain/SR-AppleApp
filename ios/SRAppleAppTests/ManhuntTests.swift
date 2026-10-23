@@ -139,13 +139,26 @@ final class ManhuntTests: XCTestCase {
         )
     }
 
+    func testTheLocationSessionStartsAtTheCountdownButSendsNothingThere() {
+        XCTAssertEqual(
+            [ManhuntPhase.lobby, .countdown, .headstart, .hunt, .finished, .closed, .unknown].filter(\.runsLocation),
+            [.countdown, .headstart, .hunt]
+        )
+        XCTAssertFalse(ManhuntPhase.countdown.collectsPositions)
+    }
+
     func testAFixIsSentOnlyWhenFreshSharpAndNotTooSoon() {
         XCTAssertTrue(ManhuntRules.shouldSend(accuracy: 5, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000))
         XCTAssertTrue(ManhuntRules.shouldSend(accuracy: 5, ageSeconds: 1, sinceLastSentMs: 3_000, minGapMs: 3_000))
         XCTAssertFalse(ManhuntRules.shouldSend(accuracy: 5, ageSeconds: 1, sinceLastSentMs: 2_999, minGapMs: 3_000))
         XCTAssertFalse(ManhuntRules.shouldSend(accuracy: -1, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000),
                        "iOS's negative accuracy is no fix")
-        XCTAssertFalse(ManhuntRules.shouldSend(accuracy: 500, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000))
+        // A rough fix (Approximate Location is ~1-3 km) is still sent: silence
+        // would make a runner "quiet" and catchable from anywhere.
+        XCTAssertTrue(ManhuntRules.shouldSend(accuracy: 500, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000))
+        XCTAssertTrue(ManhuntRules.shouldSend(accuracy: 3_000, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000))
+        XCTAssertFalse(ManhuntRules.shouldSend(accuracy: 20_000, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000))
+        XCTAssertFalse(ManhuntRules.shouldSend(accuracy: .infinity, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000))
         XCTAssertFalse(ManhuntRules.shouldSend(accuracy: 5, ageSeconds: 45, sinceLastSentMs: nil, minGapMs: 3_000))
         XCTAssertFalse(ManhuntRules.shouldSend(accuracy: .nan, ageSeconds: 1, sinceLastSentMs: nil, minGapMs: 3_000))
         XCTAssertFalse(ManhuntRules.shouldSend(accuracy: 5, ageSeconds: .nan, sinceLastSentMs: nil, minGapMs: 3_000))

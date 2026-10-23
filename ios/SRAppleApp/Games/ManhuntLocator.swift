@@ -20,6 +20,14 @@ final class ManhuntLocator: NSObject, @preconcurrency CLLocationManagerDelegate 
     var onFix: @MainActor (CLLocation) -> Void = { _ in }
     /// Location is off for the app: the screen says so.
     var onDenied: @MainActor () -> Void = {}
+    /// Location is on for the app (again, after Settings): the screen clears its warning.
+    var onAuthorized: @MainActor () -> Void = {}
+    /// Whether Precise Location is off (Approximate Location, ~1-3 km fixes).
+    var onReducedAccuracy: @MainActor (Bool) -> Void = { _ in }
+    /// Asked once per session: iOS shows its own prompt for this.
+    private var askedFullAccuracy = false
+    /// The Info.plist `NSLocationTemporaryUsageDescriptionDictionary` key.
+    static let fullAccuracyPurposeKey = "Manhunt"
     private(set) var running = false
     private var waiter: CheckedContinuation<CLLocation?, Never>?
     private var waitTimeout: Task<Void, Never>?
@@ -38,6 +46,7 @@ final class ManhuntLocator: NSObject, @preconcurrency CLLocationManagerDelegate 
         guard !running, !SRDemo.isOn else { return }
         running = true
         askIfNeeded()
+        checkAccuracy()
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
@@ -78,6 +87,19 @@ final class ManhuntLocator: NSObject, @preconcurrency CLLocationManagerDelegate 
         }
     }
 
+    /// Approximate Location makes every fix 1-3 km wide: ask for full
+    /// accuracy for this game (once a session) and say so on screen.
+    private func checkAccuracy() {
+        let status = manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else { return }
+        let reduced = manager.accuracyAuthorization == .reducedAccuracy
+        onReducedAccuracy(reduced)
+        if reduced, running, !askedFullAccuracy {
+            askedFullAccuracy = true
+            manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: Self.fullAccuracyPurposeKey)
+        }
+    }
+
     private func settleWaiter(_ location: CLLocation?) {
         guard let pending = waiter else { return }
         waiter = nil
@@ -106,6 +128,9 @@ final class ManhuntLocator: NSObject, @preconcurrency CLLocationManagerDelegate 
         case .denied, .restricted:
             settleWaiter(nil)
             onDenied()
+        case .authorizedWhenInUse, .authorizedAlways:
+            onAuthorized()
+            checkAccuracy()
         default:
             break
         }

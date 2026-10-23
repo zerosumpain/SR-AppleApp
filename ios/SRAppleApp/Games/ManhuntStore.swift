@@ -6,7 +6,10 @@ import CoreLocation
 /// The connection is `GameRoomLink`, the same as every game's. This owns the
 /// game's own location session (`ManhuntLocator`) and its one rule: positions
 /// are sent only while the room is in the head start or the hunt and I am in
-/// it. Anything else — the finish, Leave, the room closing or going away, the
+/// it. The session itself starts at the 3-2-1 (sending nothing), so it is
+/// already running when the head start begins, even if the phone was pocketed
+/// in the 3-2-1: there each fix asks for the room instead, since the stream
+/// sleeps in the background and only the location session keeps the app awake. Anything else — the finish, Leave, the room closing or going away, the
 /// screen being closed — stops it on the spot. A fix is sent no sooner than
 /// the server's gap after the last (it would only be ignored), and only when
 /// it is fresh and sharp enough to mean something.
@@ -27,6 +30,8 @@ final class ManhuntStore: ObservableObject, GameRoomStoring {
     @Published private(set) var centring = false
     /// Location is off for the app: the game cannot see this phone.
     @Published private(set) var locationOff = false
+    /// Precise Location is off: fixes are 1-3 km wide, too rough to catch with.
+    @Published private(set) var locationApproximate = false
     /// When this phone last sent a fix (server time), for "last sent" on screen.
     @Published private(set) var lastSentAt: Double?
 
@@ -41,6 +46,8 @@ final class ManhuntStore: ObservableObject, GameRoomStoring {
     /// Monotonic ms of the last fix sent.
     private var lastSentMono: Double?
     private var posting = false
+    /// Monotonic ms of the last room refresh a 3-2-1 fix asked for.
+    private var lastRefreshMono: Double?
 
     init(roomId: String) {
         self.roomId = roomId
@@ -51,6 +58,8 @@ final class ManhuntStore: ObservableObject, GameRoomStoring {
         link.onNote = { [weak self] update in self?.note(update) }
         locator.onFix = { [weak self] location in self?.send(location) }
         locator.onDenied = { [weak self] in self?.locationOff = true }
+        locator.onAuthorized = { [weak self] in self?.locationOff = false }
+        locator.onReducedAccuracy = { [weak self] reduced in self?.locationApproximate = reduced }
     }
 
     func serverNow() -> Double? { link.serverNow() }
@@ -91,9 +100,11 @@ final class ManhuntStore: ObservableObject, GameRoomStoring {
         lastPhase = phase
         room = next
 
-        // The one place the location session is switched: on while the hunt
-        // is live and I am in it, off for everything else.
-        if phase.collectsPositions, state?.myRole != nil, next.me?.joined == true {
+        // The one place the location session is switched: on from the 3-2-1
+        // while I am in the game (roles are drawn at the head start), off for
+        // everything else.
+        let inGame = next.me?.joined == true && (phase == .countdown || state?.myRole != nil)
+        if phase.runsLocation, inGame {
             locator.start()
         } else {
             locator.stop()
@@ -149,7 +160,19 @@ final class ManhuntStore: ObservableObject, GameRoomStoring {
     // MARK: - Positions
 
     private func send(_ location: CLLocation) {
-        guard let room, room.manhunt?.phase.collectsPositions == true else { return }
+        // A fix means location is on, whatever an earlier answer said.
+        locationOff = false
+        guard let room else { return }
+        if ManhuntScreenPhase.of(room) == .countdown {
+            // The stream may be asleep (a pocketed phone): learn the head start from here.
+            let mono = GameRoomLink.nowMs()
+            if lastRefreshMono.map({ mono - $0 >= 2_000 }) ?? true {
+                lastRefreshMono = mono
+                Task { await self.link.refresh() }
+            }
+            return
+        }
+        guard room.manhunt?.phase.collectsPositions == true else { return }
         let gap = room.manhunt?.fixMinGapMs ?? 3_000
         let mono = GameRoomLink.nowMs()
         let age = -location.timestamp.timeIntervalSinceNow
