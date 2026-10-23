@@ -67,8 +67,10 @@ struct GamesScreen: View {
                         }
 
                         if !store.rooms.isEmpty {
-                            section("Your games", trailing: nil, id: "games-rooms") {
-                                ForEach(store.rooms) { room in
+                            section("Your games", trailing: yourMovesLabel, id: "games-rooms") {
+                                // My move first, then the most recently changed — a
+                                // game played over days comes back here to resume.
+                                ForEach(store.yourGames) { room in
                                     // A Button onto the tab's path, not a NavigationLink:
                                     // the link under an interactive glass card never
                                     // received the tap in CI; a Button over the same
@@ -77,7 +79,7 @@ struct GamesScreen: View {
                                         SRHaptic.tap()
                                         router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
                                     } label: {
-                                        GameRoomRow(room: room)
+                                        GameRoomRow(room: room, serverNow: { store.serverNow() })
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityIdentifier("games-room-\(room.id)")
@@ -192,7 +194,8 @@ struct GamesScreen: View {
             if let message = store.message { SRBanner(text: message) }
         }
         .sheet(item: $starting) { kind in
-            NewGameSheet(game: kind, players: store.players, busy: store.busy == "new") { request in
+            NewGameSheet(game: kind, players: store.players, busy: store.busy == "new",
+                         paces: store.paceChoices(for: kind)) { request in
                 switch await store.create(request) {
                 case .created(let room):
                     starting = nil
@@ -203,6 +206,12 @@ struct GamesScreen: View {
                 }
             }
         }
+    }
+
+    /// "2 waiting on you" beside "Your games", when durable games wait on me.
+    private var yourMovesLabel: String? {
+        let n = YourGames.myMoves(store.rooms)
+        return n == 0 ? nil : "\(n) waiting on you"
     }
 
     private func section<Content: View>(_ title: String, trailing: String?, id: String, @ViewBuilder content: () -> Content) -> some View {
@@ -265,9 +274,11 @@ struct GameInviteCard: View {
 /// A room I am in, to go back to.
 struct GameRoomRow: View {
     let room: GameRoomSummary
+    /// The server's clock, for a durable game's "21 h left".
+    var serverNow: () -> Double? = { nil }
 
     var body: some View {
-        SRCard(interactive: true) {
+        SRCard(accented: room.myTurn, interactive: true) {
             HStack(spacing: 12) {
                 Image(systemName: GameKind(rawValue: room.game)?.icon ?? "gamecontroller")
                     .font(.system(size: 17, weight: .semibold))
@@ -277,9 +288,26 @@ struct GameRoomRow: View {
                     Text(GameNames.title(room.game))
                         .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
-                    Text("Hosted by \(room.hostName)")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
+                    if room.durable {
+                        // Ticks once a minute: the deadline is hours, not seconds.
+                        TimelineView(.periodic(from: .now, by: 60)) { _ in
+                            Text(YourGames.status(room, atServer: serverNow()) ?? "Hosted by \(room.hostName)")
+                                .font(room.myTurn ? SR.Text.bodyMedium(15) : SR.Text.secondary())
+                                .foregroundStyle(room.myTurn ? SR.accentInk : SR.inkMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("games-room-status-\(room.id)")
+                        }
+                        if room.pace == .async {
+                            Text("Over days · hosted by \(room.hostName)")
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        Text("Hosted by \(room.hostName)")
+                            .font(SR.Text.secondary())
+                            .foregroundStyle(SR.inkMuted)
+                    }
                 }
                 Spacer(minLength: 8)
                 SRGlassChip(text: phaseLabel, tone: SR.accentInk)
@@ -352,6 +380,13 @@ struct GameCard: View {
         case .drawGuess: return SR.accentInk
         case .marbleRace: return SR.accent
         case .chess: return SR.ink
+        case .mission: return SR.error
+        case .oneClue: return SR.accentInk
+        case .fakeArtist: return SR.accentDeep
+        case .passThePlate: return SR.warn
+        case .fireworks: return SR.accentDeep
+        case .manhunt: return SR.good
+        case .homestead: return SR.good
         }
     }
 }
@@ -361,6 +396,8 @@ struct NewGameSheet: View {
     let game: GameKind
     let players: [GamePerson]
     let busy: Bool
+    /// The paces this game offers (`lobby.paces`); empty = live only, no picker.
+    var paces: [GamePace] = []
     /// Creates the room. Nil when it did (the sheet is then closed by its
     /// owner); otherwise the server's sentence, shown above Start.
     let start: (CreateGameBody) async -> String?
@@ -384,6 +421,10 @@ struct NewGameSheet: View {
     @State private var categoriesSeconds = CategoriesSettings.defaultSeconds
     // Liar's Dice.
     @State private var liarsDice = 5
+    // Odd Artist Out.
+    @State private var fakeRounds = 3
+    // Homestead: the island size, as an index of `HomesteadSettings.islands`.
+    @State private var homesteadIsland = 0
     // Draw & Guess.
     @State private var drawTurns = 1
     @State private var drawSeconds = 80
@@ -391,6 +432,11 @@ struct NewGameSheet: View {
     @State private var marblePack: MarblerPack?
     @State private var marbleCourse: MarblerPack.Entry?
     @State private var marblePackError: String?
+    // Manhunt.
+    @State private var manhuntRadius = ManhuntSettings.defaultRadius
+    @State private var manhuntMinutes = ManhuntSettings.defaultMinutes
+    /// Play now or over days, for a durable game that offers both.
+    @State private var paceSettings = GamePaceSettings()
     /// Why the last Start was refused.
     @State private var refusal: String?
 
@@ -403,6 +449,10 @@ struct NewGameSheet: View {
                     SRPageHeader(kicker: "New game", title: game.title, strap: game.line)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("games-game-\(game.rawValue)")
+
+                    if !paces.isEmpty {
+                        paceSection
+                    }
 
                     if game == .quizNight {
                         quizSettings
@@ -428,6 +478,18 @@ struct NewGameSheet: View {
                         marbleRaceSettings
                     }
 
+                    if game == .fakeArtist {
+                        fakeArtistSettings
+                    }
+
+                    if game == .manhunt {
+                        manhuntSettings
+                    }
+
+                    if game == .homestead {
+                        homesteadSettings
+                    }
+
                     // Marble Race's course sets how hard it is: no level to pick.
                     if game != .marbleRace {
                         VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -445,11 +507,9 @@ struct NewGameSheet: View {
 
                     VStack(alignment: .leading, spacing: SR.cardGap) {
                         SRSectionLabel(text: game == .chess ? "Opponent" : "Players",
-                                       trailing: invited.isEmpty ? (game == .chess ? "Pick one" : "Solo") : "\(invited.count + 1)")
+                                       trailing: invited.isEmpty ? sheetTrailing : "\(invited.count + 1)")
                         if players.isEmpty {
-                            Text(game == .chess
-                                 ? "Nobody else in the family can play yet, and chess needs two. The lobby can wait for somebody to pair a phone."
-                                 : "Nobody else in the family can play yet, so this is a solo game.")
+                            Text(sheetNobody)
                                 .font(SR.Text.secondary())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -470,9 +530,7 @@ struct NewGameSheet: View {
                                     }
                                 }
                             }
-                            Text(game == .chess
-                                 ? "Chess is for two: pick the one person to play. The lobby waits for them to join; invites reach phones with the app open."
-                                 : "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open.")
+                            Text(sheetPick)
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -529,8 +587,41 @@ struct NewGameSheet: View {
         .presentationDetents([.large])
     }
 
-    /// What Start sends.
+    /// What Start sends: the game's own body, with the pace when it offers one.
     private var request: CreateGameBody {
+        paces.isEmpty ? gameRequest : paceSettings.apply(to: gameRequest)
+    }
+
+    /// Play now, or over days with hours a turn — a durable game's pace.
+    private var paceSection: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Pace")
+            ForEach(paces) { pace in
+                choice(
+                    title: pace.label,
+                    line: pace.line,
+                    selected: paceSettings.pace == pace,
+                    id: "games-pace-\(pace.rawValue)"
+                ) { paceSettings.pace = pace }
+            }
+            if paceSettings.pace == .async {
+                segments(
+                    title: "Time for a turn",
+                    options: GamePace.deadlineHours.map { (value: $0, label: GamePace.hoursLabel($0)) },
+                    selected: $paceSettings.deadlineHours,
+                    id: "games-pace-hours"
+                )
+            }
+            Text(paceSettings.line)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-pace-line")
+        }
+    }
+
+    /// The game's own create body.
+    private var gameRequest: CreateGameBody {
         let invite = players.filter { invited.contains($0.id) }.map(\.id)
         if game == .quizNight {
             return QuizNightSettings(difficulty: difficulty, topic: topic, audience: audience,
@@ -554,7 +645,114 @@ struct NewGameSheet: View {
         if game == .marbleRace {
             return MarbleRaceSettings(difficulty: difficulty, course: marbleCourse).createBody(invite: invite)
         }
+        if game == .mission {
+            return MissionSettings(difficulty: difficulty).createBody(invite: invite)
+        }
+        if game == .fakeArtist {
+            return FakeArtistSettings(difficulty: difficulty, rounds: fakeRounds).createBody(invite: invite)
+        }
+        if game == .manhunt {
+            return ManhuntSettings(difficulty: difficulty, radius: manhuntRadius, minutes: manhuntMinutes)
+                .createBody(invite: invite)
+        }
+        if game == .homestead {
+            return HomesteadSettings(difficulty: difficulty, island: HomesteadSettings.island(at: homesteadIsland))
+                .createBody(invite: invite)
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
+    }
+
+    /// The Players label with nobody invited yet: how many this game needs.
+    private var sheetTrailing: String {
+        switch game {
+        case .chess: return "Pick one"
+        case .mission: return "Invite 4+"
+        case .oneClue: return "Three or more"
+        case .fakeArtist: return "Invite 3+"
+        case .passThePlate: return "Invite 1+"
+        case .fireworks: return FireworksRules.sheetTrailing
+        case .manhunt: return "Invite 2+"
+        case .homestead: return "Invite 2+"
+        default: return "Solo"
+        }
+    }
+
+    /// The line when nobody else in the family has a phone paired yet.
+    private var sheetNobody: String {
+        switch game {
+        case .chess:
+            return "Nobody else in the family can play yet, and chess needs two. The lobby can wait for somebody to pair a phone."
+        case .mission:
+            return "Nobody else in the family can play yet, and Secret Mission needs at least four others. The lobby can wait for people to pair phones."
+        case .oneClue:
+            return "Nobody else in the family can play yet, and One Clue needs three. The lobby can wait for people to pair a phone."
+        case .fakeArtist:
+            return "Nobody else in the family can play yet, and Odd Artist Out needs at least three others. The lobby can wait for people to pair phones."
+        case .passThePlate:
+            return "Nobody else in the family can play yet, and Pass the Plate needs two to five. The lobby can wait for somebody to pair a phone."
+        case .fireworks:
+            return FireworksRules.sheetNobody
+        case .manhunt:
+            return "Nobody else in the family can play yet, and Manhunt needs a runner and two hunters. The lobby can wait for people to pair phones."
+        case .homestead:
+            return "Nobody else in the family can play yet, and Homestead needs three. The lobby can wait for people to pair phones."
+        default:
+            return "Nobody else in the family can play yet, so this is a solo game."
+        }
+    }
+
+    /// The line under the list of people to invite.
+    private var sheetPick: String {
+        switch game {
+        case .chess:
+            return "Chess is for two: pick the one person to play. The lobby waits for them to join; invites reach phones with the app open."
+        case .mission:
+            return "Secret Mission needs five to ten people in one room: invite at least four. The lobby waits for them to join."
+        case .oneClue:
+            return "One Clue is for three to seven: invite at least two. The lobby waits for them to join, and you can ask more in from there."
+        case .fakeArtist:
+            return "Odd Artist Out is for four to ten: invite at least three. The lobby waits for them to join, and you can ask more in from there."
+        case .passThePlate:
+            return "Pass the Plate is for two to five: invite at least one. The lobby waits for them to join, and you can ask more in from there."
+        case .fireworks:
+            return FireworksRules.sheetPick
+        case .manhunt:
+            return "Manhunt is for three to eight, outdoors: invite at least two. The lobby waits for them to join, and you can ask more in from there."
+        case .homestead:
+            return "Homestead is for three to five: invite at least two. Play in one sitting, or over days a turn at a time. The lobby waits for them to join."
+        default:
+            return "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open."
+        }
+    }
+
+    /// The play area and the clock — Manhunt's game. The circle is centred in
+    /// the lobby, on where the host's phone is then.
+    private var manhuntSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Play area")
+            segments(
+                title: "Radius",
+                options: ManhuntSettings.radii.map { (value: $0, label: ManhuntSettings.radiusLabel($0)) },
+                selected: $manhuntRadius,
+                id: "games-manhunt-radius"
+            )
+            segments(
+                title: "Length",
+                options: ManhuntSettings.lengths.map { (value: $0, label: "\($0) min") },
+                selected: $manhuntMinutes,
+                id: "games-manhunt-minutes"
+            )
+            Text(ManhuntSettings.line(radius: manhuntRadius, minutes: manhuntMinutes))
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-manhunt-line")
+            Text("Only a parent can host. Positions are shared only during the game, only with the players, and are never kept.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-manhunt-privacy")
+        }
     }
 
     /// The course — Marble Race's race. Today's course unless the host picks another.
@@ -599,6 +797,24 @@ struct NewGameSheet: View {
             } catch {
                 marblePackError = error.localizedDescription
             }
+        }
+    }
+
+    /// Rounds — Odd Artist Out's game. It needs four, so the line says so.
+    private var fakeArtistSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Game")
+            segments(
+                title: "Rounds",
+                options: FakeArtistSettings.roundChoices.map { (value: $0, label: FakeArtistSettings.roundsLabel($0)) },
+                selected: $fakeRounds,
+                id: "games-fakeartist-rounds"
+            )
+            Text("Four to ten players. A new fake every round; one line each, twice round, then everyone votes.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-fakeartist-line")
         }
     }
 
@@ -703,6 +919,24 @@ struct NewGameSheet: View {
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("games-liars-line")
+        }
+    }
+
+    /// Homestead: which island, and that it needs three.
+    private var homesteadSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Island")
+            segments(
+                title: "Size",
+                options: HomesteadSettings.islands.enumerated().map { (value: $0.offset, label: $0.element.label) },
+                selected: $homesteadIsland,
+                id: "games-homestead-island"
+            )
+            Text(HomesteadSettings.line(island: HomesteadSettings.island(at: homesteadIsland)))
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-homestead-line")
         }
     }
 

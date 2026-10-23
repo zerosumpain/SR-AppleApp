@@ -1283,6 +1283,55 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Secret Mission: a vote waiting on Alex (crew), Alex's card on a
+    /// mission as a spy — Sabotage offered — and a finish the Tracker stole.
+    @MainActor func testShowcaseMission() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let voting = byId(app, "games-room-g_demo_mission_vote")
+        if scroll(app, to: voting) {
+            voting.tap()
+            settle(app, on: byId(app, "mission-voting"), seconds: 2)
+            soft(byId(app, "mission-track").exists, "no mission track")
+            soft(byId(app, "mission-team").exists, "no team line")
+            soft(byId(app, "mission-approve").exists, "no Approve")
+            soft(byId(app, "mission-reject").exists, "no Reject")
+            soft(byId(app, "mission-rejections").exists, "no rejection count")
+            soft(byId(app, "mission-role").label.contains("face down"), "the role card is not face down")
+            attach(app, "Showcase — Secret Mission, the vote")
+            back(app)
+        } else {
+            soft(false, "no Secret Mission vote to resume")
+        }
+
+        let playing = byId(app, "games-room-g_demo_mission")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "mission-mission"), seconds: 2)
+            soft(byId(app, "mission-succeed").exists, "no Succeed")
+            soft(byId(app, "mission-sabotage").exists, "a spy is not offered Sabotage")
+            soft(byId(app, "mission-cards-in").exists, "no cards-in line")
+            attach(app, "Showcase — Secret Mission, a spy on the mission")
+            back(app)
+        } else {
+            soft(false, "no Secret Mission to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_mission_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "mission-finished"), seconds: 2)
+            soft(byId(app, "mission-standings").exists, "no roles table")
+            soft(byId(app, "mission-who-p_kit").label.contains("Tracker"), "the Tracker is not shown")
+            attach(app, "Showcase — Secret Mission, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Secret Mission")
+        }
+    }
+
     /// Chess: my move in a Ruy Lopez (both bars with clocks, the board, a
     /// piece picked up with its squares lit), and a finished Fool's mate.
     @MainActor func testShowcaseChess() {
@@ -1326,6 +1375,279 @@ final class ShowcaseTests: XCTestCase {
             back(app)
         } else {
             soft(false, "no finished chess")
+        }
+    }
+
+    /// One Clue: Alex writing a clue for the word everyone but Sam can see,
+    /// Alex guessing from the clues that survived, and a finished game of
+    /// seven out of ten with every card listed.
+    @MainActor func testShowcaseOneClue() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let writing = byId(app, "games-room-g_demo_oneclue")
+        if scroll(app, to: writing) {
+            writing.tap()
+            settle(app, on: byId(app, "oneclue-clues"), seconds: 2)
+            soft(byId(app, "oneclue-word").label.contains("lighthouse"), "no word for a clue-giver")
+            soft(byId(app, "oneclue-clue-field").exists, "no clue field")
+            soft(byId(app, "oneclue-pips").exists, "no row of cards")
+            soft(byId(app, "oneclue-waiting").label.contains("you"), "not waiting on Alex")
+            attach(app, "Showcase — One Clue, writing a clue")
+            back(app)
+        } else {
+            soft(false, "no One Clue game to resume")
+        }
+
+        let guessing = byId(app, "games-room-g_demo_oneclue_guess")
+        if scroll(app, to: guessing) {
+            guessing.tap()
+            settle(app, on: byId(app, "oneclue-guess"), seconds: 2)
+            soft(!byId(app, "oneclue-word").exists, "the guesser can see the word")
+            soft(byId(app, "oneclue-survivor-p_sam").exists, "no surviving clue")
+            soft(byId(app, "oneclue-cancelled-count").label.contains("2"), "no cancelled count")
+            soft(byId(app, "oneclue-pass").exists, "no Pass")
+            attach(app, "Showcase — One Clue, guessing")
+            back(app)
+        } else {
+            soft(false, "no One Clue guess to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_oneclue_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "oneclue-finished"), seconds: 2)
+            soft(byId(app, "oneclue-standings").exists, "no team table")
+            soft(byId(app, "oneclue-cards").exists, "no card list")
+            attach(app, "Showcase — One Clue, finished")
+            back(app)
+        } else {
+            soft(false, "no finished One Clue")
+        }
+    }
+
+    /// Odd Artist Out: Alex's line to draw (the card with the word, the seats in
+    /// their inks, the paper lit in Alex's colour), a vote with Alex the fake
+    /// (no word on the card), and a reveal where the caught fake named it.
+    @MainActor func testShowcaseFakeArtist() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let drawing = byId(app, "games-room-g_demo_fakeartist")
+        if scroll(app, to: drawing) {
+            drawing.tap()
+            settle(app, on: byId(app, "fakeartist-playing"), seconds: 2)
+            soft(byId(app, "fakeartist-card").label.contains("lighthouse"), "the artist's card has no word")
+            soft(byId(app, "fakeartist-canvas").label.contains("Your turn"), "not Alex's turn to draw")
+            soft(byId(app, "fakeartist-seat-p_jo").exists, "no seat for Jo")
+            attach(app, "Showcase — Odd Artist Out, my line")
+            back(app)
+        } else {
+            soft(false, "no Odd Artist Out drawing to resume")
+        }
+
+        let voting = byId(app, "games-room-g_demo_fakeartist_vote")
+        if scroll(app, to: voting) {
+            voting.tap()
+            settle(app, on: byId(app, "fakeartist-playing"), seconds: 2)
+            soft(byId(app, "fakeartist-card").label.contains("fake"), "the fake's card does not say so")
+            soft(!byId(app, "fakeartist-card").label.contains("lighthouse"), "the fake was shown the word")
+            soft(byId(app, "fakeartist-vote-p_sam").exists, "no vote for Sam")
+            attach(app, "Showcase — Odd Artist Out, the vote as the fake")
+            back(app)
+        } else {
+            soft(false, "no Odd Artist Out vote")
+        }
+
+        let reveal = byId(app, "games-room-g_demo_fakeartist_reveal")
+        if scroll(app, to: reveal) {
+            reveal.tap()
+            settle(app, on: byId(app, "fakeartist-reveal"), seconds: 2)
+            soft(byId(app, "fakeartist-reveal").label.contains("named the word"), "no outcome sentence")
+            attach(app, "Showcase — Odd Artist Out, the reveal")
+            back(app)
+        } else {
+            soft(false, "no Odd Artist Out reveal")
+        }
+    }
+
+    /// Pass the Plate: my plate in round 2 (six cards, the spoon offered,
+    /// Sam chosen and Robin still choosing, everybody's table), and a finished
+    /// game with the ice cream counted.
+    @MainActor func testShowcasePassThePlate() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_plate")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "plate-playing"), seconds: 2)
+            soft(byId(app, "plate-hand").exists, "no plate")
+            soft(byId(app, "plate-card-41").exists, "no pizza card on my plate")
+            soft(byId(app, "plate-spoon").exists, "no spoon button")
+            let waiting = byId(app, "plate-waiting")
+            soft(waiting.exists && waiting.label.contains("Robin"), "not waiting for Robin")
+            soft(byId(app, "plate-seat-p_sam").exists, "no table for Sam")
+            // The header is one combined element, so its own identifier carries the pass line.
+            let header = byId(app, "plate-header")
+            soft(header.exists && header.label.contains("right"), "plates not going right in round 2")
+            soft(byId(app, "plate-leave").exists, "no way to leave the game")
+            attach(app, "Showcase — Pass the Plate, my plate")
+            back(app)
+        } else {
+            soft(false, "no Pass the Plate game to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_plate_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "plate-finished"), seconds: 2)
+            soft(byId(app, "plate-standings").exists, "no final scores")
+            soft(byId(app, "plate-standings-p_alex").label.contains("77"), "Alex's 77 is not shown")
+            attach(app, "Showcase — Pass the Plate, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Pass the Plate")
+        }
+    }
+
+    /// Fireworks: Alex's turn mid-show — the counters, the fireworks, Sam's
+    /// and Robin's hands face up, Alex's own face down with what hints said —
+    /// then a hint put together for Sam with its cards lit, one of Alex's own
+    /// cards picked, and a finished show.
+    @MainActor func testShowcaseFireworks() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_fireworks")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "fireworks-playing"), seconds: 2)
+            soft(byId(app, "fireworks-headline").label.contains("Your turn"), "not my turn")
+            soft(byId(app, "fireworks-stacks").exists, "no fireworks")
+            soft(byId(app, "fireworks-hints").exists, "no hint tokens")
+            soft(byId(app, "fireworks-hand-p_sam").exists, "no hand for Sam")
+            soft(byId(app, "fireworks-my-hand").exists, "no hand of my own")
+            soft(byId(app, "fireworks-card-17").label.contains("Red 3"), "Sam's red 3 is not face up")
+            soft(!byId(app, "fireworks-mine-0").label.contains("Blue 1"), "my own card is face up")
+            soft(byId(app, "fireworks-leave").exists, "no way to leave the show")
+            attach(app, "Showcase — Fireworks, my turn")
+            let hint = byId(app, "fireworks-hint-p_sam")
+            if hint.exists {
+                hint.tap()
+                let three = byId(app, "fireworks-choice-3")
+                settle(app, on: three, seconds: 1)
+                three.tap()
+                soft(byId(app, "fireworks-card-17").label.contains("points at it"), "the hint does not light the red 3")
+                attach(app, "Showcase — Fireworks, a hint for Sam")
+                hint.tap()
+            } else {
+                soft(false, "no Hint button for Sam")
+            }
+            let card = byId(app, "fireworks-mine-1")
+            if scroll(app, to: card) {
+                card.tap()
+                soft(byId(app, "fireworks-play").isEnabled, "Play is not ready")
+                attach(app, "Showcase — Fireworks, a card picked")
+            }
+            back(app)
+        } else {
+            soft(false, "no fireworks game to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_fireworks_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "fireworks-finished"), seconds: 2)
+            soft(byId(app, "fireworks-standings").exists, "no team table")
+            soft(byId(app, "fireworks-final-score").label.contains("22"), "no team score")
+            attach(app, "Showcase — Fireworks, finished")
+            back(app)
+        } else {
+            soft(false, "no finished fireworks")
+        }
+    }
+
+    /// Manhunt: Alex hunting — the circle, the other hunters live and Sam at
+    /// the last ping, the clocks and Catch — and a finished hunt Robin caught.
+    @MainActor func testShowcaseManhunt() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let hunting = byId(app, "games-room-g_demo_manhunt")
+        if scroll(app, to: hunting) {
+            hunting.tap()
+            settle(app, on: byId(app, "manhunt-hunt"), seconds: 3)
+            soft(byId(app, "manhunt-map").exists, "no map")
+            soft(byId(app, "manhunt-map").label.contains("at the last ping"), "the runner's ping is not on the map")
+            soft(byId(app, "manhunt-clock").exists, "no time-left clock")
+            soft(byId(app, "manhunt-next-ping").exists, "no next-ping clock")
+            soft(byId(app, "manhunt-catch").exists, "no Catch button")
+            soft(byId(app, "manhunt-headline").label.contains("Hunt them down"), "not hunting")
+            attach(app, "Showcase — Manhunt, hunting")
+            back(app)
+        } else {
+            soft(false, "no manhunt to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_manhunt_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "manhunt-finished"), seconds: 2)
+            soft(byId(app, "manhunt-standings").exists, "no result table")
+            soft(byId(app, "manhunt-outcome").label.contains("Robin caught Sam"), "no catch sentence")
+            attach(app, "Showcase — Manhunt, finished")
+            back(app)
+        } else {
+            soft(false, "no finished manhunt")
+        }
+    }
+
+    /// Homestead: Alex's island mid-game (the board, everyone's strip and the
+    /// headline), one over days waiting on Alex, and a finished game.
+    @MainActor func testShowcaseHomestead() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_homestead")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "homestead-playing"), seconds: 2)
+            soft(byId(app, "homestead-board").exists, "no island")
+            soft(byId(app, "homestead-strip").exists, "no player strip")
+            soft(byId(app, "homestead-headline").exists, "no headline")
+            attach(app, "Showcase — Homestead, mid-game")
+            back(app)
+        } else {
+            soft(false, "no Homestead game to resume")
+        }
+
+        let overDays = byId(app, "games-room-g_demo_homestead_mine")
+        if scroll(app, to: overDays) {
+            overDays.tap()
+            settle(app, on: byId(app, "homestead-playing"), seconds: 2)
+            soft(byId(app, "homestead-deadline").exists, "no deadline for a game over days")
+            attach(app, "Showcase — Homestead, over days")
+            back(app)
+        } else {
+            soft(false, "no Homestead game over days")
+        }
+
+        let finished = byId(app, "games-room-g_demo_homestead_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "homestead-finished"), seconds: 2)
+            soft(byId(app, "homestead-outcome").exists, "no outcome")
+            attach(app, "Showcase — Homestead, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Homestead")
         }
     }
 

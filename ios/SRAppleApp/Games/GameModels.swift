@@ -35,6 +35,13 @@ enum GameKind: String, CaseIterable, Identifiable {
     case drawGuess = "draw-guess"
     case marbleRace = "marble-race"
     case chess
+    case mission
+    case oneClue = "one-clue"
+    case fakeArtist = "fake-artist"
+    case passThePlate = "pass-the-plate"
+    case fireworks
+    case manhunt
+    case homestead
 
     var id: String { rawValue }
 
@@ -52,6 +59,13 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Draw & Guess"
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
+        case .mission: return "Secret Mission"
+        case .oneClue: return "One Clue"
+        case .fakeArtist: return "Odd Artist Out"
+        case .passThePlate: return "Pass the Plate"
+        case .fireworks: return "Fireworks"
+        case .manhunt: return "Manhunt"
+        case .homestead: return "Homestead"
         }
     }
 
@@ -70,6 +84,13 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "Take turns drawing a word while everyone guesses."
         case .marbleRace: return "Back a marble. Everyone watches the same race."
         case .chess: return "The classic. Two players, a clock each."
+        case .mission: return "Crew against hidden spies. Five to ten, in one room."
+        case .oneClue: return "One word each. Matching clues cancel out."
+        case .fakeArtist: return "One line each. One of you doesn't know the word."
+        case .passThePlate: return "Take a card, pass the plate. Three rounds of picnic."
+        case .fireworks: return "Build the show together. You cannot see your own cards."
+        case .manhunt: return "Hide and seek outdoors, on the map."
+        case .homestead: return "Settle an island. Trade, build, race to the points."
         }
     }
 
@@ -100,6 +121,20 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone backs a different marble, then the same race plays on every phone at once. Burn in the fire and it's back to the top; the best-placed marble wins it for its backer."
         case .chess:
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
+        case .mission:
+            return "Five to ten of you, in one room. A few are secretly spies. Leaders pick teams, everyone votes, and the team secretly succeeds — or a spy sabotages. Three missions wins it for either side."
+        case .oneClue:
+            return "A team game for three to seven. Take turns to guess a secret word; everyone else writes one clue, and any two clues that match cancel out. Ten cards — how many can you get together?"
+        case .fakeArtist:
+            return "Everyone sees the category; everyone but the fake sees the word. Take turns adding one line each to the same picture, then vote for the fake. Caught, the fake can still win by naming the word."
+        case .passThePlate:
+            return "Everyone gets a plate of food cards. Take one in secret, show it together, pass the plate on. Collect pancake pairs, whole pizzas, piles of popcorn and the most strawberries, and save room for ice cream."
+        case .fireworks:
+            return "A team game for two to five. Everyone holds their cards facing away, so you see the others' cards but not your own. Give hints, play cards in order from 1 to 5 in each colour, and light the biggest show you can before the misfires run out."
+        case .manhunt:
+            return "One runner, everyone else hunts, outdoors inside a circle a parent sets. The hunters see each other on the map, but the runner only every few minutes. Get close and tap Catch; the runner wins if the clock runs out."
+        case .homestead:
+            return "Three to five of you settle an island. Roll for timber, clay, wool, grain and stone, trade with each other, build roads, cottages and towns, and watch out for the fox. First to the points wins. Play in one sitting or a turn a day."
         }
     }
 
@@ -117,6 +152,13 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .drawGuess: return "scribble.variable"
         case .marbleRace: return "flag.checkered"
         case .chess: return "checkerboard.rectangle"
+        case .mission: return "eye.slash.fill"
+        case .oneClue: return "text.bubble.fill"
+        case .fakeArtist: return "theatermasks.fill"
+        case .passThePlate: return "fork.knife"
+        case .fireworks: return "sparkles"
+        case .manhunt: return "figure.run"
+        case .homestead: return "house.lodge.fill"
         }
     }
 }
@@ -176,6 +218,27 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.chess, .easy): return "15 minutes each, and 10 seconds back every move."
         case (.chess, .medium): return "10 minutes each, 5 seconds back a move."
         case (.chess, .hard): return "5 minutes each, 3 seconds back a move. Blitz."
+        case (.mission, .easy): return "Crew and spies only. Unhurried clocks."
+        case (.mission, .medium): return "Adds a Lookout who knows the spies, and a Tracker who hunts them."
+        case (.mission, .hard): return "Lookout and Tracker, on short clocks: 60 s to pick, 30 s to vote."
+        case (.oneClue, .easy): return "Everyday things: animals, food, toys. 90 seconds for clues."
+        case (.oneClue, .medium): return "Places, jobs, weather and sport. 75 seconds for clues."
+        case (.oneClue, .hard): return "Ideas like echo and gravity: clues clash more. 60 seconds."
+        case (.fakeArtist, .easy): return "Everyday words. 30 seconds a line."
+        case (.fakeArtist, .medium): return "Well-known words. 20 seconds a line."
+        case (.fakeArtist, .hard): return "Less common words. 15 seconds a line."
+        case (.passThePlate, .easy): return "A simpler deck, and every card shows what it adds. 40 s a turn."
+        case (.passThePlate, .medium): return "The full deck, gravy and spoons too, with your running total. 30 s a turn."
+        case (.passThePlate, .hard): return "The full deck and no hints. 20 s a turn."
+        case (.fireworks, .easy): return "The fourth misfire ends the show. Each card shows what it could still be."
+        case (.fireworks, .medium): return "Five colours. The third misfire ends the show. 75 seconds a turn."
+        case (.fireworks, .hard): return "A sixth prism colour that every colour hint lights. The third misfire ends it. 60 seconds a turn."
+        case (.manhunt, .easy): return "The runner shows up on the map every 5 minutes."
+        case (.manhunt, .medium): return "The runner shows up every 3 minutes."
+        case (.manhunt, .hard): return "The runner shows up every 2 minutes. Hard for the runner."
+        case (.homestead, .easy): return "8 points wins. A friendly fox, prices on show and trade tips."
+        case (.homestead, .medium): return "10 points wins. Prices on show, and what you can afford."
+        case (.homestead, .hard): return "10 points wins. No hints and the shortest turns."
         }
     }
 
@@ -274,6 +337,45 @@ struct GameRoomSummary: Decodable, Equatable, Identifiable {
     let game: String
     let phase: GamePhase
     let hostName: String
+    // Durable rooms (`GameDurable.swift`). An older site sends none of these:
+    // the room is then live, not durable, and never my move.
+    var durable: Bool = false
+    var pace: GamePace = .live
+    /// The room is waiting on me (`waitingOn` on the site includes me).
+    var myTurn: Bool = false
+    /// The names it is waiting on, when it is not me.
+    var waitingFor: [String] = []
+    /// The running decision's deadline, server epoch ms.
+    var dueAt: Double? = nil
+    /// The room's last write, server epoch ms. Nil for an in-memory room.
+    var updatedAt: Double? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case id, game, phase, hostName
+        case durable, pace, myTurn, waitingFor, dueAt, updatedAt
+    }
+
+    init(id: String, game: String, phase: GamePhase, hostName: String, durable: Bool = false,
+         pace: GamePace = .live, myTurn: Bool = false, waitingFor: [String] = [],
+         dueAt: Double? = nil, updatedAt: Double? = nil) {
+        self.id = id; self.game = game; self.phase = phase; self.hostName = hostName
+        self.durable = durable; self.pace = pace; self.myTurn = myTurn; self.waitingFor = waitingFor
+        self.dueAt = dueAt; self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        game = try c.decode(String.self, forKey: .game)
+        phase = try c.decode(GamePhase.self, forKey: .phase)
+        hostName = try c.decode(String.self, forKey: .hostName)
+        durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
+        pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
+        myTurn = (try? c.decodeIfPresent(Bool.self, forKey: .myTurn)) ?? false
+        waitingFor = (try? c.decodeIfPresent([String].self, forKey: .waitingFor)) ?? []
+        dueAt = (try? c.decodeIfPresent(Double.self, forKey: .dueAt)) ?? nil
+        updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil
+    }
 }
 
 /// `GET /api/native/games` — the lobby poll.
@@ -283,11 +385,16 @@ struct GamesLobby: Decodable, Equatable {
     let invites: [GameInvite]
     let rooms: [GameRoomSummary]
     let serverNow: Double
+    /// The paces each game offers, for games that can be played over days
+    /// (`{"homestead": ["live", "async"]}`). Empty from an older site.
+    var paces: [String: [String]] = [:]
 
-    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow }
+    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces }
 
-    init(me: GamePerson, players: [GamePerson], invites: [GameInvite], rooms: [GameRoomSummary], serverNow: Double) {
+    init(me: GamePerson, players: [GamePerson], invites: [GameInvite], rooms: [GameRoomSummary], serverNow: Double,
+         paces: [String: [String]] = [:]) {
         self.me = me; self.players = players; self.invites = invites; self.rooms = rooms; self.serverNow = serverNow
+        self.paces = paces
     }
 
     init(from decoder: Decoder) throws {
@@ -297,6 +404,7 @@ struct GamesLobby: Decodable, Equatable {
         invites = (try? c.decodeIfPresent([GameInvite].self, forKey: .invites)) ?? []
         rooms = (try? c.decodeIfPresent([GameRoomSummary].self, forKey: .rooms)) ?? []
         serverNow = (try? c.decodeIfPresent(Double.self, forKey: .serverNow)) ?? 0
+        paces = (try? c.decodeIfPresent([String: [String]].self, forKey: .paces)) ?? [:]
     }
 }
 
@@ -630,6 +738,36 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// JSON (`ChessLogic.swift`). Nil in every other game's room.
     let chess: ChessState?
 
+    /// Secret Mission: my secret, the votes, the missions and the result, read
+    /// from the same JSON (`MissionLogic.swift`). Nil in every other game's room.
+    let mission: MissionState?
+    /// One Clue: the card, the clues this phone may see, and every card so
+    /// far, read from the same JSON (`OneClueLogic.swift`). Nil in every other game's room.
+    let oneClue: OneClueState?
+    /// Odd Artist Out: the round as this phone may see it, the picture and the
+    /// history, read from the same JSON (`FakeArtistLogic.swift`). Nil in every
+    /// other game's room.
+    let fakeArtist: FakeArtistState?
+    /// Pass the Plate: my plate, everybody's table and the round scores, read
+    /// from the same JSON (`PassThePlateLogic.swift`). Nil in every other game's room.
+    let passThePlate: PassThePlateState?
+    /// Fireworks: the fireworks, tokens, hands (mine as knowledge only) and log,
+    /// read from the same JSON (`FireworksLogic.swift`). Nil in every other game's room.
+    let fireworks: FireworksState?
+    /// Manhunt: the play area, roles, the positions this phone may see, pings
+    /// and the catch, read from the same JSON (`ManhuntLogic.swift`). Nil in
+    /// every other game's room.
+    let manhunt: ManhuntState?
+    /// Homestead: the island, hands, legal spots, offers and log, read from the
+    /// same JSON (`HomesteadLogic.swift`). Nil in every other game's room.
+    let homestead: HomesteadState?
+    /// A durable room (written to the site's database after every move; see
+    /// `GameDurable.swift`), its pace, and its write counter. False, live and
+    /// nil from a room that is not durable, or from an older site.
+    let durable: Bool
+    let pace: GamePace
+    let version: Int?
+
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
         case records
@@ -640,6 +778,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         case tiles, startLength, maxLength
         case size, scoring, grid, possible
         case categoryCount, reviewMs, maxAnswer, letter, categories
+        case durable, pace, version
     }
 
     init(from decoder: Decoder) throws {
@@ -714,6 +853,16 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         }
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
+        mission = game == GameKind.mission.rawValue ? (try? MissionState(from: decoder)) : nil
+        oneClue = game == GameKind.oneClue.rawValue ? (try? OneClueState(from: decoder)) : nil
+        fakeArtist = game == GameKind.fakeArtist.rawValue ? (try? FakeArtistState(from: decoder)) : nil
+        passThePlate = game == GameKind.passThePlate.rawValue ? (try? PassThePlateState(from: decoder)) : nil
+        fireworks = game == GameKind.fireworks.rawValue ? (try? FireworksState(from: decoder)) : nil
+        manhunt = game == GameKind.manhunt.rawValue ? (try? ManhuntState(from: decoder)) : nil
+        homestead = game == GameKind.homestead.rawValue ? (try? HomesteadState(from: decoder)) : nil
+        durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
+        pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
+        version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -768,6 +917,18 @@ struct CreateGameBody: Encodable, Equatable {
     var turnsEach: Int? = nil
     /// Marble Race: the course from Marbler's pack.
     var course: MarbleRaceState.Course? = nil
+    /// Odd Artist Out: rounds in the game (3 | 5).
+    var rounds: Int? = nil
+    /// Manhunt: the circle's radius in metres (250–2000) and the game's length
+    /// in minutes (15–60). The centre is sent from the lobby (`area`).
+    var radius: Int? = nil
+    var minutes: Int? = nil
+    /// Homestead: the island size (`auto` | `standard` | `large`).
+    var island: String? = nil
+    /// A durable game's pace (`live` | `async`) and, over days, hours a turn
+    /// (12 | 24 | 48). Sent only for a game the lobby lists in `paces`.
+    var pace: String? = nil
+    var deadlineHours: Int? = nil
 }
 
 /// `POST /api/native/games/<id>`. Nil fields are left out of the JSON.
@@ -813,6 +974,51 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
+    /// Secret Mission: `propose {team:[playerId]}`, `vote {approve}`, `play {card:"succeed"|"sabotage"}`;
+    /// `guess {playerId}` (as Categories' `playerId`) and `ready` take the rest.
+    var team: [String]? = nil
+    var approve: Bool? = nil
+    /// Secret Mission's `"succeed"`/`"sabotage"` or a Fireworks card id: see `ActionCard`.
+    var card: ActionCard? = nil
+    /// One Clue: `{action:"clue", text, lock:true}` locks my clue in; without it, a draft.
+    var lock: Bool? = nil
+    /// Odd Artist Out: `stroke {points, end?}` (`points` as Draw & Guess's; `end` lifts the
+    /// finger and ends the turn); `vote {playerId}`; `guess {text}`.
+    var end: Bool? = nil
+    /// Pass the Plate: `pick {cards:[uid]}`, or two uids with a serving spoon.
+    var cards: [Int]? = nil
+    /// Fireworks: `hint {to, colour}` or `hint {to, rank}` (`to` as Chess's field, a
+    /// player id here); `play {card}` and `discard {card}`, a card id from my hand.
+    var colour: String? = nil
+    var rank: Int? = nil
+    /// Manhunt: `position {lat, lng, accuracy, at}` (at: server epoch ms);
+    /// `area {lat, lng, radius?, minutes?}` from the host's lobby; `runner
+    /// {playerId?}` (`playerId` as Categories'); `catch` and `confirm` take nothing.
+    var lat: Double? = nil
+    var lng: Double? = nil
+    var accuracy: Double? = nil
+    var at: Double? = nil
+    var radius: Int? = nil
+    var minutes: Int? = nil
+}
+
+/// The `card` an action posts: a name in Secret Mission (`"succeed"` or
+/// `"sabotage"`), a card id from my hand in Fireworks. Both games post the
+/// same key, so one field carries either; a literal of either kind works.
+enum ActionCard: Encodable, Equatable, ExpressibleByStringLiteral, ExpressibleByIntegerLiteral {
+    case named(String)
+    case id(Int)
+
+    init(stringLiteral value: String) { self = .named(value) }
+    init(integerLiteral value: Int) { self = .id(value) }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .named(let name): try c.encode(name)
+        case .id(let id): try c.encode(id)
+        }
+    }
 }
 
 enum GameNames {

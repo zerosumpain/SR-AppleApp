@@ -19,7 +19,10 @@ import Foundation
 // Alex's turn to bid over a timed-out raise of Sam's, a call with every cup
 // up, and a finished game. Draw & Guess: one of Sam's mid-drawing with Alex
 // guessing (a close guess of Alex's own in the feed), and one where Alex is
-// drawing. The room stream has no
+// drawing. Odd Artist Out: Alex's line to draw as an artist, a vote with Alex
+// the fake, and a reveal. Durable rooms: two Homestead games over days in
+// "Your games", one Alex's move and one waiting for Sam, and `paces` offering
+// Homestead over days. The room stream has no
 // fixture and 404s, which is the fallback the room screen must survive: it
 // re-reads the snapshot.
 
@@ -45,6 +48,21 @@ extension SRDemoFixtures {
     static let demoDrawGuessMineRoom = "g_demo_drawguess_mine"
     static let demoChessRoom = "g_demo_chess"
     static let demoChessDoneRoom = "g_demo_chess_done"
+    static let demoMissionVotingRoom = "g_demo_mission_vote"
+    static let demoMissionRoom = "g_demo_mission"
+    static let demoMissionDoneRoom = "g_demo_mission_done"
+    static let demoFakeArtistRoom = "g_demo_fakeartist"
+    static let demoFakeArtistVoteRoom = "g_demo_fakeartist_vote"
+    static let demoFakeArtistRevealRoom = "g_demo_fakeartist_reveal"
+    static let demoPlateRoom = "g_demo_plate"
+    static let demoPlateDoneRoom = "g_demo_plate_done"
+    static let demoFireworksRoom = "g_demo_fireworks"
+    static let demoFireworksDoneRoom = "g_demo_fireworks_done"
+    static let demoManhuntRoom = "g_demo_manhunt"
+    static let demoManhuntDoneRoom = "g_demo_manhunt_done"
+    /// Durable rooms played over days: one waiting on Alex, one on Sam.
+    static let demoDurableMineRoom = "g_demo_homestead_mine"
+    static let demoDurableWaitingRoom = "g_demo_homestead_waiting"
 
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
@@ -106,6 +124,59 @@ extension SRDemoFixtures {
                        {"id": "g_demo_chess_done", "game": "chess", "phase": "finished", "hostName": "Sam"},
     """#
 
+    /// Secret Mission's three rooms: a vote, Alex's card on a mission (as a
+    /// spy), and a finished game the Tracker stole. Left out of the store shots.
+    static let missionLobbyRows = #"""
+    {"id": "g_demo_mission_vote", "game": "mission", "phase": "voting", "hostName": "Sam"},
+                       {"id": "g_demo_mission", "game": "mission", "phase": "mission", "hostName": "Alex"},
+                       {"id": "g_demo_mission_done", "game": "mission", "phase": "finished", "hostName": "Alex"},
+    """#
+
+    /// Odd Artist Out's three rooms: Alex's line to draw, a vote with Alex the
+    /// fake, and a reveal. Left out of the store shots, as Chess's are.
+    static let fakeArtistLobbyRows = #"""
+    {"id": "g_demo_fakeartist", "game": "fake-artist", "phase": "drawing", "hostName": "Alex"},
+                       {"id": "g_demo_fakeartist_vote", "game": "fake-artist", "phase": "voting", "hostName": "Sam"},
+                       {"id": "g_demo_fakeartist_reveal", "game": "fake-artist", "phase": "reveal", "hostName": "Robin"},
+    """#
+
+    /// Pass the Plate's two rooms: Alex choosing in round 2, and a finished
+    /// game. Left out of the store shots, as Categories' are.
+    static let plateLobbyRows = #"""
+    {"id": "g_demo_plate", "game": "pass-the-plate", "phase": "picking", "hostName": "Alex"},
+                       {"id": "g_demo_plate_done", "game": "pass-the-plate", "phase": "finished", "hostName": "Sam"},
+    """#
+
+    /// Fireworks' two rooms: Alex's turn mid-show (easy, so Alex's cards say
+    /// what they could be), and a finished hard show. Left out of the store
+    /// shots, as Categories' are.
+    static let fireworksLobbyRows = #"""
+    {"id": "g_demo_fireworks", "game": "fireworks", "phase": "playing", "hostName": "Alex"},
+                       {"id": "g_demo_fireworks_done", "game": "fireworks", "phase": "finished", "hostName": "Sam"},
+    """#
+
+    /// Manhunt's two rooms: Alex hunting with a ping on the map, and a
+    /// finished hunt Robin caught. Left out of the store shots, as Chess's are.
+    static let manhuntLobbyRows = #"""
+    {"id": "g_demo_manhunt", "game": "manhunt", "phase": "hunt", "hostName": "Alex"},
+                       {"id": "g_demo_manhunt_done", "game": "manhunt", "phase": "finished", "hostName": "Alex"},
+    """#
+
+    /// Two Homestead games over days (`pace: async`), for "Your games": Alex
+    /// to move with 21 hours left, and one waiting for Sam. Left out of the
+    /// store shots, as Categories' are. Their boards come from
+    /// `HomesteadDemoFixtures.homesteadRoom`.
+    static func durableLobbyRows(_ now: Date) -> String {
+        """
+        {"id": \(s(demoDurableMineRoom)), "game": "homestead", "phase": "playing", "hostName": "Sam",
+                        "durable": true, "pace": "async", "myTurn": true, "waitingFor": ["Alex"],
+                        "dueAt": \(ms(now.addingTimeInterval(21 * 3600 + 600))), "updatedAt": \(ms(now.addingTimeInterval(-3 * 3600)))},
+                       {"id": \(s(demoDurableWaitingRoom)), "game": "homestead", "phase": "playing", "hostName": "Alex",
+                        "durable": true, "pace": "async", "myTurn": false, "waitingFor": ["Sam"],
+                        "dueAt": \(ms(now.addingTimeInterval(30 * 3600))), "updatedAt": \(ms(now.addingTimeInterval(-1 * 3600)))},
+        """
+    }
+
     static func gamesLobby(_ clock: DemoClock) -> String {
         let now = clock.now
         return """
@@ -116,7 +187,14 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : chessLobbyRows)
+         "rooms": [\(storeShotsSkipsWordle ? "" : durableLobbyRows(now))
+                   \(storeShotsSkipsWordle ? "" : missionLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : chessLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : oneClueLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : fakeArtistLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : plateLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : fireworksLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : manhuntLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -128,12 +206,15 @@ extension SRDemoFixtures {
                    {"id": \(s(demoQuizRevealRoom)), "game": "quiz-night", "phase": "reveal", "hostName": "Sam"},
                    {"id": \(s(demoAnagramRoom)), "game": "anagram-blitz", "phase": "playing", "hostName": "Alex"},
                    {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
+                   \(storeShotsSkipsWordle ? "" : homesteadLobbyRows)
                    {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
+         "paces": {"homestead": ["live", "async"]},
          "serverNow": \(ms(now))}
         """
     }
 
     static func demoRoom(id: String, meJoined: Bool, clock: DemoClock) -> String {
+        if let homestead = homesteadRoom(id: id, clock: clock) { return homestead }
         if id == demoWordleRoom { return wordleRoom(clock) }
         if id == demoQuizRoom { return quizRoom(reveal: false, clock: clock) }
         if id == demoQuizRevealRoom { return quizRoom(reveal: true, clock: clock) }
@@ -149,6 +230,19 @@ extension SRDemoFixtures {
         if id == demoLiarsDoneRoom { return liarsRoom(.finished, clock: clock) }
         if id == demoChessRoom { return chessRoom(finished: false, clock: clock) }
         if id == demoChessDoneRoom { return chessRoom(finished: true, clock: clock) }
+        if id == demoMissionVotingRoom { return missionRoom("voting", clock: clock) }
+        if id == demoMissionRoom { return missionRoom("mission", clock: clock) }
+        if id == demoMissionDoneRoom { return missionRoom("finished", clock: clock) }
+        if let room = oneClueDemoRoom(id: id, clock: clock) { return room }
+        if id == demoFakeArtistRoom { return fakeArtistRoom(.drawing, clock: clock) }
+        if id == demoFakeArtistVoteRoom { return fakeArtistRoom(.voting, clock: clock) }
+        if id == demoFakeArtistRevealRoom { return fakeArtistRoom(.reveal, clock: clock) }
+        if id == demoPlateRoom { return plateRoom(finished: false, clock: clock) }
+        if id == demoPlateDoneRoom { return plateRoom(finished: true, clock: clock) }
+        if id == demoFireworksRoom { return fireworksRoom(finished: false, clock: clock) }
+        if id == demoFireworksDoneRoom { return fireworksRoom(finished: true, clock: clock) }
+        if id == demoManhuntRoom { return manhuntRoom(finished: false, clock: clock) }
+        if id == demoManhuntDoneRoom { return manhuntRoom(finished: true, clock: clock) }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
@@ -646,6 +740,404 @@ extension SRDemoFixtures {
          "players": [\(seat("p_alex", "Alex", host: true, colour: "w", clockMs: 581000)),
                      \(seat("p_sam", "Sam", host: false, colour: "b", clockMs: 592000))],
          "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Secret Mission
+
+    /// Secret Mission, five at the table (Alex, Sam, Robin, Kit, Jo). Voting
+    /// (easy): Sam leads mission 2 with Sam, Robin and Alex; Robin and Kit
+    /// have voted, one team already turned down. Mission (medium): Alex is a
+    /// spy who knows Kit, on mission 3 with Sam, card still to play. Finished
+    /// (medium): the crew won three missions but the Tracker (Kit) named the
+    /// Lookout — Alex — and the spies took it.
+    static func missionRoom(_ phase: String, clock: DemoClock) -> String {
+        let now = clock.now
+        let names = [("p_alex", "Alex"), ("p_sam", "Sam"), ("p_robin", "Robin"), ("p_kit", "Kit"), ("p_jo", "Jo")]
+        let finished = phase == "finished"
+        let roles = ["p_alex": "lookout", "p_sam": "crew", "p_robin": "crew", "p_kit": "tracker", "p_jo": "spy"]
+        let team: [String] = phase == "voting" ? ["p_alex", "p_sam", "p_robin"] : phase == "mission" ? ["p_alex", "p_sam"] : []
+        let voted: Set<String> = phase == "voting" ? ["p_robin", "p_kit"] : []
+        let played: Set<String> = phase == "mission" ? ["p_sam"] : []
+        let host = phase == "voting" ? "p_sam" : "p_alex"
+        let players = names.map { pair -> String in
+            let (id, name) = pair
+            let role = finished ? s(roles[id]) : "null"
+            let side = finished ? s(roles[id] == "tracker" || roles[id] == "spy" ? "spies" : "crew") : "null"
+            return "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(id == host), "
+                + "\"seated\": true, \"ready\": true, \"voted\": \(voted.contains(id)), \"onTeam\": \(team.contains(id)), "
+                + "\"played\": \(played.contains(id)), \"role\": \(role), \"side\": \(side)}"
+        }.joined(separator: ",\n                     ")
+        let difficulty = phase == "voting" ? "easy" : "medium"
+        let rule = phase == "voting"
+            ? "Crew and spies only: nobody but the spies knows anything."
+            : "The Lookout knows the spies. If the crew win, the Tracker gets one guess at the Lookout to steal it."
+        let secret: String
+        switch phase {
+        case "voting": secret = #"{"role": "crew", "side": "crew", "spies": [], "vote": null, "card": null}"#
+        case "mission": secret = #"{"role": "spy", "side": "spies", "spies": ["p_kit"], "vote": null, "card": null}"#
+        default: secret = #"{"role": "lookout", "side": "crew", "spies": ["p_kit", "p_jo"], "vote": null, "card": null}"#
+        }
+        let missions: String
+        let tallies: String
+        switch phase {
+        case "voting":
+            missions = #"[{"mission": 1, "leaderId": "p_robin", "team": ["p_robin", "p_kit"], "needed": 1, "sabotages": 0, "succeeded": true}]"#
+            tallies = #"[{"mission": 1, "attempt": 1, "leaderId": "p_robin", "team": ["p_robin", "p_kit"], "approve": ["p_alex", "p_sam", "p_robin", "p_kit", "p_jo"], "reject": [], "auto": [], "approved": true, "autoTeam": false}, {"mission": 2, "attempt": 1, "leaderId": "p_kit", "team": ["p_kit", "p_jo", "p_alex"], "approve": ["p_kit", "p_jo"], "reject": ["p_alex", "p_sam", "p_robin"], "auto": [], "approved": false, "autoTeam": false}]"#
+        case "mission":
+            missions = #"[{"mission": 1, "leaderId": "p_robin", "team": ["p_robin", "p_kit"], "needed": 1, "sabotages": 1, "succeeded": false}, {"mission": 2, "leaderId": "p_kit", "team": ["p_kit", "p_sam", "p_robin"], "needed": 1, "sabotages": 0, "succeeded": true}]"#
+            tallies = #"[{"mission": 3, "attempt": 1, "leaderId": "p_jo", "team": ["p_alex", "p_sam"], "approve": ["p_alex", "p_sam", "p_kit", "p_jo"], "reject": ["p_robin"], "auto": [], "approved": true, "autoTeam": false}]"#
+        default:
+            missions = #"[{"mission": 1, "leaderId": "p_robin", "team": ["p_robin", "p_alex"], "needed": 1, "sabotages": 0, "succeeded": true}, {"mission": 2, "leaderId": "p_kit", "team": ["p_kit", "p_sam", "p_jo"], "needed": 1, "sabotages": 1, "succeeded": false}, {"mission": 3, "leaderId": "p_jo", "team": ["p_alex", "p_sam"], "needed": 1, "sabotages": 0, "succeeded": true}, {"mission": 4, "leaderId": "p_alex", "team": ["p_alex", "p_sam", "p_robin"], "needed": 1, "sabotages": 0, "succeeded": true}]"#
+            tallies = "[]"
+        }
+        let mission = phase == "voting" ? 2 : phase == "mission" ? 3 : 4
+        let score = phase == "voting" ? (1, 0) : phase == "mission" ? (1, 1) : (3, 1)
+        let leader = phase == "voting" ? "p_sam" : phase == "mission" ? "p_jo" : "p_alex"
+        let endsIn: TimeInterval = phase == "voting" ? 41 : phase == "mission" ? 22 : 560
+        let standings = finished
+            ? #"[{"id": "p_kit", "name": "Kit", "place": 1, "role": "tracker", "side": "spies", "won": true, "left": false}, {"id": "p_jo", "name": "Jo", "place": 1, "role": "spy", "side": "spies", "won": true, "left": false}, {"id": "p_alex", "name": "Alex", "place": 2, "role": "lookout", "side": "crew", "won": false, "left": false}, {"id": "p_sam", "name": "Sam", "place": 2, "role": "crew", "side": "crew", "won": false, "left": false}, {"id": "p_robin", "name": "Robin", "place": 2, "role": "crew", "side": "crew", "won": false, "left": false}]"#
+            : "null"
+        let id = phase == "voting" ? demoMissionVotingRoom : phase == "mission" ? demoMissionRoom : demoMissionDoneRoom
+        return """
+        {"id": \(s(id)), "game": "mission", "difficulty": \(s(difficulty)), "phase": \(s(phase)),
+         "hostId": \(s(host)), "meId": "p_alex", "rule": \(s(rule)), "specials": \(difficulty != "easy"),
+         "minPlayers": 5, "maxPlayers": 10, "seats": 5, "spyCount": 2,
+         "teamSizes": [2, 3, 2, 3, 3], "sabotagesNeeded": [1, 1, 1, 1, 1],
+         "proposeMs": 90000, "voteMs": \(difficulty == "easy" ? 60000 : 45000), "missionMs": 30000, "huntMs": 90000,
+         "mission": \(mission), "attempt": \(phase == "voting" ? 2 : 1), "rejections": \(phase == "voting" ? 1 : 0), "maxRejections": 5,
+         "leaderId": \(s(leader)), "team": \(team.isEmpty ? "null" : list(team.map { s($0) })), "autoTeam": false,
+         "score": {"crew": \(score.0), "spies": \(score.1)}, "secret": \(secret),
+         "trackerId": \(finished ? s("p_kit") : "null"),
+         "startedAt": \(ms(now.addingTimeInterval(-600))), "phaseEndsAt": \(ms(now.addingTimeInterval(endsIn))),
+         "players": [\(players)],
+         "tallies": \(tallies), "missions": \(missions),
+         "result": \(finished ? #"{"winner": "spies", "reason": "hunt", "guessId": "p_alex"}"# : "null"),
+         "standings": \(standings), "winnerIds": \(finished ? #"["p_kit", "p_jo"]"# : "[]"), "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Odd Artist Out
+
+    /// Odd Artist Out, medium, five players (Alex, Sam, Robin, Kit, Jo), round 2
+    /// of 3, category Places. Drawing: Alex is an artist, the word is
+    /// lighthouse, and it is Alex's line, three lines in. Voting: Alex is the
+    /// fake (no word on this phone), the picture done, Sam and Robin have
+    /// voted. Reveal: Jo was the fake, caught, and named the word.
+    static func fakeArtistRoom(_ phase: FakeArtistPhase, clock: DemoClock) -> String {
+        let now = clock.now
+        func line(_ id: Int, _ color: String, _ points: [[Int]]) -> String {
+            "{\"id\": \(id), \"color\": \(s(color)), \"width\": 14, \"points\": \(points)}"
+        }
+        let seats = [("p_alex", "Alex", "red"), ("p_sam", "Sam", "blue"), ("p_robin", "Robin", "green"),
+                     ("p_kit", "Kit", "orange"), ("p_jo", "Jo", "purple")]
+        let host: String
+        let roomId: String
+        switch phase {
+        case .voting: host = "p_sam"; roomId = demoFakeArtistVoteRoom
+        case .reveal: host = "p_robin"; roomId = demoFakeArtistRevealRoom
+        default: host = "p_alex"; roomId = demoFakeArtistRoom
+        }
+        let turns = ["p_sam", "p_robin", "p_kit", "p_jo", "p_alex", "p_sam", "p_robin", "p_kit", "p_jo", "p_alex"]
+        let tower = [
+            line(1, "blue", [[420, 860], [450, 380], [550, 380], [580, 860]]),
+            line(2, "green", [[400, 380], [500, 300], [600, 380]]),
+            line(3, "orange", [[440, 520], [560, 520]]),
+            line(4, "purple", [[600, 330], [900, 220], [900, 440], [600, 330]]),
+            line(5, "red", [[80, 900], [250, 870], [420, 900], [580, 870], [750, 900], [920, 870]]),
+            line(6, "blue", [[470, 640], [530, 640]]),
+            line(7, "green", [[100, 220], [330, 330], [100, 440]]),
+            line(8, "orange", [[470, 420], [530, 420], [530, 470], [470, 470], [470, 420]]),
+            line(9, "purple", [[430, 760], [570, 760]]),
+            line(10, "red", [[700, 700], [760, 640], [820, 700], [880, 640]]),
+        ]
+        let drawn: [String]
+        let current: String
+        let phaseEndsAt: Date
+        var scores = ["p_alex": 1, "p_sam": 2, "p_robin": 1, "p_kit": 1, "p_jo": 0]
+        switch phase {
+        case .voting:
+            drawn = tower
+            phaseEndsAt = now.addingTimeInterval(41)
+            current = """
+            {"number": 2, "category": "Places", "role": "fake", "word": null, "fakeId": "p_alex",
+             "turns": \(list(turns.map { s($0) })), "turn": null, "artistId": null, "turnStartedAt": null, "skipped": [],
+             "voted": ["p_sam", "p_robin"], "myVote": null, "votes": null, "counts": null,
+             "accusedId": null, "guess": null, "outcome": null, "awarded": null}
+            """
+        case .reveal:
+            drawn = tower
+            phaseEndsAt = now.addingTimeInterval(7)
+            scores["p_jo"] = 2
+            current = """
+            {"number": 2, "category": "Places", "role": "artist", "word": "lighthouse", "fakeId": "p_jo",
+             "turns": \(list(turns.map { s($0) })), "turn": null, "artistId": null, "turnStartedAt": null, "skipped": [],
+             "voted": ["p_alex", "p_sam", "p_robin", "p_kit", "p_jo"], "myVote": "p_jo",
+             "votes": {"p_alex": "p_jo", "p_sam": "p_jo", "p_robin": "p_jo", "p_kit": "p_sam", "p_jo": "p_kit"},
+             "counts": {"p_jo": 3, "p_sam": 1, "p_kit": 1},
+             "accusedId": "p_jo", "guess": "lighthouse", "outcome": "guessed", "awarded": {"p_jo": 2}}
+            """
+        default:
+            drawn = Array(tower.prefix(4))
+            phaseEndsAt = now.addingTimeInterval(14)
+            current = """
+            {"number": 2, "category": "Places", "role": "artist", "word": "lighthouse", "fakeId": null,
+             "turns": \(list(turns.map { s($0) })), "turn": 4, "artistId": "p_alex",
+             "turnStartedAt": \(ms(now.addingTimeInterval(-6))), "skipped": [],
+             "voted": [], "myVote": null, "votes": null, "counts": null,
+             "accusedId": null, "guess": null, "outcome": null, "awarded": null}
+            """
+        }
+        let players = seats.map { id, name, color in
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(id == host), "
+                + "\"score\": \(scores[id] ?? 0), \"color\": \(s(color)), "
+                + "\"isDrawing\": \(phase == .drawing && id == "p_alex")}"
+        }
+        return """
+        {"id": \(s(roomId)), "game": "fake-artist", "difficulty": "medium", "phase": \(s(phase.rawValue)),
+         "hostId": \(s(host)), "meId": "p_alex", "rounds": 3, "laps": 2,
+         "turnMs": 20000, "readMs": 8000, "voteMs": 60000, "guessMs": 30000, "revealMs": 10000,
+         "phaseEndsAt": \(ms(phaseEndsAt)),
+         "current": \(current),
+         "history": [{"number": 1, "category": "Animals", "word": "penguin", "fakeId": "p_sam", "outcome": "escaped"}],
+         "drawing": {"revision": \(20 + drawn.count), "since": null, "strokes": \(list(drawn)), "ops": null},
+         "palette": ["red","blue","green","orange","purple","brown","pink","teal","black","gold"],
+         "players": \(list(players)),
+         "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Pass the Plate
+
+    /// Pass the Plate, medium, Alex, Sam and Robin. Picking: round 2, turn 4,
+    /// plates going right; Alex (me) holds six cards and has a serving spoon on
+    /// the table, Sam has chosen and Robin has not. Finished (Sam's game): Alex
+    /// wins 77 to 68 to 45 after the ice cream.
+    static func plateRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let kinds = PlateDeck.kinds.map { kind -> String in
+            let k = PlateDeck.fallback(kind)
+            return "{\"kind\": \(s(kind)), \"name\": \(s(k.name)), \"emoji\": \(s(k.emoji)), \"family\": \(s(k.family)), "
+                + "\"count\": 0, \"value\": \(k.value), \"rule\": \(s(k.rule))}"
+        }.joined(separator: ", ")
+        func card(_ uid: Int, _ kind: String, boosted: Bool = false, spent: Bool = false) -> String {
+            "{\"uid\": \(uid), \"kind\": \(s(kind)), \"boosted\": \(boosted), \"spent\": \(spent)}"
+        }
+        func seat(_ id: String, _ name: String, host: Bool, hand: Int, picked: Bool, played: [String],
+                  iceCream: Int, berries: Int, score: Int, soFar: Int?) -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"handCount\": \(hand), \"picked\": \(picked), \"played\": [\(played.joined(separator: ", "))], "
+                + "\"iceCream\": \(iceCream), \"berries\": \(berries), \"score\": \(score), "
+                + "\"roundSoFar\": \(soFar.map(String.init) ?? "null"), \"left\": false}"
+        }
+        let round1 = """
+        {"round": 1, "rows": [
+          {"playerId": "p_alex", "pancakes": 6, "pizza": 12, "popcorn": 3, "pies": 3, "berryCount": 5, "berries": 7, "scoops": 1, "total": 31},
+          {"playerId": "p_sam", "pancakes": 0, "pizza": 12, "popcorn": 6, "pies": 8, "berryCount": 2, "berries": 3, "scoops": 2, "total": 29},
+          {"playerId": "p_robin", "pancakes": 12, "pizza": 0, "popcorn": 1, "pies": 4, "berryCount": 0, "berries": 0, "scoops": 0, "total": 17}]}
+        """
+        if finished {
+            let rounds = round1 + """
+            , {"round": 2, "rows": [
+              {"playerId": "p_alex", "pancakes": 0, "pizza": 12, "popcorn": 6, "pies": 6, "berryCount": 4, "berries": 3, "scoops": 1, "total": 27},
+              {"playerId": "p_sam", "pancakes": 6, "pizza": 0, "popcorn": 10, "pies": 2, "berryCount": 6, "berries": 7, "scoops": 0, "total": 25},
+              {"playerId": "p_robin", "pancakes": 6, "pizza": 12, "popcorn": 0, "pies": 3, "berryCount": 0, "berries": 0, "scoops": 1, "total": 21}]},
+              {"round": 3, "rows": [
+              {"playerId": "p_alex", "pancakes": 6, "pizza": 0, "popcorn": 3, "pies": 2, "berryCount": 3, "berries": 3, "scoops": 2, "total": 14},
+              {"playerId": "p_sam", "pancakes": 0, "pizza": 0, "popcorn": 1, "pies": 6, "berryCount": 7, "berries": 7, "scoops": 1, "total": 14},
+              {"playerId": "p_robin", "pancakes": 6, "pizza": 0, "popcorn": 6, "pies": 0, "berryCount": 1, "berries": 0, "scoops": 0, "total": 12}]}
+            """
+            return """
+            {"id": \(s(demoPlateDoneRoom)), "game": "pass-the-plate", "difficulty": "medium", "phase": "finished",
+             "hostId": "p_sam", "meId": "p_alex", "rounds": 3, "round": 3, "turn": 9, "handSize": 9,
+             "direction": "left", "passTo": "p_sam", "passFrom": "p_robin", "turnMs": 30000, "scoringMs": 8000,
+             "hints": "total", "kinds": [\(kinds)], "startedAt": \(ms(now.addingTimeInterval(-900))),
+             "phaseEndsAt": \(ms(now.addingTimeInterval(540))), "hand": [], "myPick": [], "canTakeTwo": false,
+             "players": [\(seat("p_sam", "Sam", host: true, hand: 0, picked: false, played: [], iceCream: 3, berries: 0, score: 68, soFar: 0)),
+                         \(seat("p_alex", "Alex", host: false, hand: 0, picked: false, played: [], iceCream: 4, berries: 0, score: 77, soFar: 0)),
+                         \(seat("p_robin", "Robin", host: false, hand: 0, picked: false, played: [], iceCream: 1, berries: 0, score: 45, soFar: 0))],
+             "lastTurn": null, "results": [\(rounds)],
+             "dessert": [{"playerId": "p_sam", "scoops": 3, "points": 0}, {"playerId": "p_alex", "scoops": 4, "points": 5},
+                         {"playerId": "p_robin", "scoops": 1, "points": -5}],
+             "standings": [{"id": "p_alex", "name": "Alex", "place": 1, "score": 77, "scoops": 4, "left": false},
+                           {"id": "p_sam", "name": "Sam", "place": 2, "score": 68, "scoops": 3, "left": false},
+                           {"id": "p_robin", "name": "Robin", "place": 3, "score": 45, "scoops": 1, "left": false}],
+             "winnerIds": ["p_alex"], "serverNow": \(ms(now))}
+            """
+        }
+        let hand = [(41, "pizza"), (42, "pie4"), (43, "berry2"), (44, "pancake"), (45, "icecream"), (46, "popcorn")]
+            .map { "{\"uid\": \($0.0), \"kind\": \(s($0.1)), \"gain\": null}" }.joined(separator: ", ")
+        let alex = [card(11, "pizza"), card(12, "pizza"), card(13, "spoon")]
+        let sam = [card(21, "gravy", spent: true), card(22, "pie3", boosted: true), card(23, "berry3")]
+        let robin = [card(31, "popcorn"), card(32, "popcorn"), card(33, "icecream")]
+        return """
+        {"id": \(s(demoPlateRoom)), "game": "pass-the-plate", "difficulty": "medium", "phase": "picking",
+         "hostId": "p_alex", "meId": "p_alex", "rounds": 3, "round": 2, "turn": 4, "handSize": 9,
+         "direction": "right", "passTo": "p_robin", "passFrom": "p_sam", "turnMs": 30000, "scoringMs": 8000,
+         "hints": "total", "kinds": [\(kinds)], "startedAt": \(ms(now.addingTimeInterval(-300))),
+         "phaseEndsAt": \(ms(now.addingTimeInterval(22))),
+         "hand": [\(hand)], "myPick": [], "canTakeTwo": true,
+         "players": [\(seat("p_alex", "Alex", host: true, hand: 6, picked: false, played: alex, iceCream: 1, berries: 0, score: 31, soFar: 0)),
+                     \(seat("p_sam", "Sam", host: false, hand: 6, picked: true, played: sam, iceCream: 2, berries: 3, score: 29, soFar: 6)),
+                     \(seat("p_robin", "Robin", host: false, hand: 6, picked: false, played: robin, iceCream: 1, berries: 0, score: 17, soFar: 3))],
+         "lastTurn": [{"playerId": "p_alex", "cards": [{"uid": 13, "kind": "spoon"}], "auto": false},
+                      {"playerId": "p_sam", "cards": [{"uid": 23, "kind": "berry3"}], "auto": false},
+                      {"playerId": "p_robin", "cards": [{"uid": 33, "kind": "icecream"}], "auto": true}],
+         "results": [\(round1)], "dessert": null, "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Fireworks
+
+    /// Fireworks. Playing (easy, three players): Alex's turn, 20 s in, with
+    /// red to 2, yellow 1, blue 3, white 1 and a green 4 misfired; Sam holds
+    /// the red 3 the table needs and has been told it is a 3. Alex's own cards
+    /// arrive as the server sends them — ids and what hints said, never the
+    /// cards. Finished (hard, Sam's game): 22 of 30 when the deck ran out.
+    static func fireworksRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let all = #"["red","yellow","green","blue","white"]"#
+        let anyRank = "[1,2,3,4,5]"
+        func knows(_ colours: String = #"["red","yellow","green","blue","white"]"#, _ ranks: String = "[1,2,3,4,5]",
+                   hinted: Bool = false) -> String {
+            "{\"colours\": \(colours), \"ranks\": \(ranks), \"hinted\": \(hinted)}"
+        }
+        func card(_ id: Int, _ colour: String, _ rank: Int, _ k: String? = nil) -> String {
+            let known = k ?? knows()
+            return "{\"id\": \(id), \"colour\": \(s(colour)), \"rank\": \(rank), \"knows\": \(known), \"could\": null}"
+        }
+        func mine(_ id: Int, _ k: String, could: String) -> String {
+            "{\"id\": \(id), \"colour\": null, \"rank\": null, \"knows\": \(k), \"could\": \(could)}"
+        }
+        func seat(_ id: String, _ name: String, host: Bool, hand: [String]) -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"hand\": [\(hand.joined(separator: ", "))]}"
+        }
+        func entry(_ kind: String, by: String, to: String? = nil, colour: String? = nil, rank: Int? = nil,
+                   cards: [Int] = [], ok: Bool? = nil, auto: Bool = false, card: String? = nil) -> String {
+            let rankText = rank.map(String.init) ?? "null"
+            let okText = ok.map { $0 ? "true" : "false" } ?? "null"
+            let cardText = card ?? "null"
+            return "{\"kind\": \(s(kind)), \"by\": \(s(by)), \"to\": \(s(to)), \"colour\": \(s(colour)), "
+                + "\"rank\": \(rankText), \"cards\": \(cards), "
+                + "\"ok\": \(okText), \"auto\": \(auto), \"card\": \(cardText)}"
+        }
+        func face(_ id: Int, _ colour: String, _ rank: Int) -> String {
+            "{\"id\": \(id), \"colour\": \(s(colour)), \"rank\": \(rank)}"
+        }
+        if finished {
+            let six = #"["red","yellow","green","blue","white","prism"]"#
+            return """
+            {"id": \(s(demoFireworksDoneRoom)), "game": "fireworks", "difficulty": "hard", "phase": "finished",
+             "hostId": "p_sam", "meId": "p_alex",
+             "rule": "Six colours: the prism cards light up for every colour hint. 3 misfires and the show is over.",
+             "colours": \(six), "hintColours": \(all), "turnMs": 60000,
+             "startedAt": \(ms(now.addingTimeInterval(-1500))), "phaseEndsAt": \(ms(now.addingTimeInterval(560))),
+             "turnId": null, "turn": 61, "hints": 3, "maxHints": 8, "misfires": 2, "maxMisfires": 3,
+             "deck": 0, "finalTurns": 0,
+             "stacks": {"red": 5, "yellow": 4, "green": 5, "blue": 3, "white": 3, "prism": 2},
+             "score": 22, "maxScore": 30, "discards": [\(face(9, "green", 1)), \(face(14, "blue", 4)), \(face(31, "prism", 4))],
+             "log": [\(entry("play", by: "p_alex", ok: true, card: face(55, "green", 5)))],
+             "players": [\(seat("p_sam", "Sam", host: true, hand: [card(40, "blue", 4), card(48, "prism", 3)])),
+                         \(seat("p_alex", "Alex", host: false, hand: [card(51, "white", 4), card(57, "red", 1)])),
+                         \(seat("p_robin", "Robin", host: false, hand: [card(44, "yellow", 1), card(59, "prism", 5)]))],
+             "ending": "deck",
+             "standings": [{"id": "p_sam", "name": "Sam", "place": 1, "score": 22, "maxScore": 30, "left": false},
+                           {"id": "p_alex", "name": "Alex", "place": 1, "score": 22, "maxScore": 30, "left": false},
+                           {"id": "p_robin", "name": "Robin", "place": 1, "score": 22, "maxScore": 30, "left": false}],
+             "winnerIds": [], "serverNow": \(ms(now))}
+            """
+        }
+        let sam = [card(17, "red", 3, knows(all, "[3]", hinted: true)), card(18, "green", 1), card(21, "blue", 4),
+                   card(22, "yellow", 1, knows(all, "[1,2,3,4]")), card(26, "white", 5, knows(all, "[1,2,4,5]"))]
+        let robin = [card(19, "green", 2), card(20, "yellow", 2), card(23, "red", 1), card(24, "blue", 1),
+                     card(27, "white", 3)]
+        let alex = [
+            mine(25, knows(#"["blue"]"#, anyRank, hinted: true),
+                 could: #"{"colours": ["blue"], "ranks": [2,3,4,5], "hinted": true}"#),
+            mine(28, knows(all, "[4]", hinted: true),
+                 could: #"{"colours": ["red","yellow","green","blue","white"], "ranks": [4], "hinted": true}"#),
+            mine(29, knows(#"["red","yellow","green","white"]"#, "[1,2,3,5]"),
+                 could: #"{"colours": ["red","yellow","green","white"], "ranks": [1,2,3,5], "hinted": false}"#),
+            mine(30, knows(#"["red","yellow","green","white"]"#, "[1,2,3,5]"),
+                 could: #"{"colours": ["red","yellow","green","white"], "ranks": [1,2,3,5], "hinted": false}"#),
+            mine(32, knows(), could: #"{"colours": ["red","yellow","green","blue","white"], "ranks": [1,2,3,4,5], "hinted": false}"#),
+        ]
+        let log = [
+            entry("play", by: "p_robin", ok: false, card: face(12, "green", 4)),
+            entry("discard", by: "p_alex", card: face(15, "white", 1)),
+            entry("hint", by: "p_robin", to: "p_sam", rank: 3, cards: [17]),
+            entry("hint", by: "p_sam", to: "p_alex", colour: "blue", cards: [25]),
+            entry("hint", by: "p_robin", to: "p_alex", rank: 4, cards: [28]),
+        ].joined(separator: ", ")
+        return """
+        {"id": \(s(demoFireworksRoom)), "game": "fireworks", "difficulty": "easy", "phase": "playing",
+         "hostId": "p_alex", "meId": "p_alex",
+         "rule": "4 misfires and the show is over. Your cards show what they could still be.",
+         "colours": \(all), "hintColours": \(all), "turnMs": 90000,
+         "startedAt": \(ms(now.addingTimeInterval(-600))), "phaseEndsAt": \(ms(now.addingTimeInterval(70))),
+         "turnId": "p_alex", "turn": 14, "hints": 5, "maxHints": 8, "misfires": 1, "maxMisfires": 4,
+         "deck": 26, "finalTurns": null,
+         "stacks": {"red": 2, "yellow": 1, "green": 0, "blue": 3, "white": 1},
+         "score": 7, "maxScore": 25, "discards": [\(face(12, "green", 4)), \(face(15, "white", 1))],
+         "log": [\(log)],
+         "players": [\(seat("p_alex", "Alex", host: true, hand: alex)),
+                     \(seat("p_sam", "Sam", host: false, hand: sam)),
+                     \(seat("p_robin", "Robin", host: false, hand: robin))],
+         "ending": null, "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
+        """
+    }
+
+    // MARK: Manhunt
+
+    /// Manhunt, medium, in a public park (synthetic positions round a made-up
+    /// centre). Hunting: Alex (me) and Kit hunt, Sam runs; Robin hunts too.
+    /// Alex sees Kit and Robin live and where Sam was at the last ping, four
+    /// minutes into a 30-minute hunt. Finished: Robin caught Sam.
+    static func manhuntRoom(finished: Bool, clock: DemoClock) -> String {
+        let now = clock.now
+        let area = #"{"lat": 51.5073, "lng": -0.1657, "radiusM": 500}"#
+        func fix(_ lat: Double, _ lng: Double, ago: Double) -> String {
+            "{\"lat\": \(lat), \"lng\": \(lng), \"accuracy\": 6, \"at\": \(ms(now.addingTimeInterval(-ago))), \"outside\": false}"
+        }
+        func seat(_ id: String, _ name: String, role: String, host: Bool, fix: String?) -> String {
+            "{\"id\": \(s(id)), \"name\": \(s(name)), \"status\": \"joined\", \"isHost\": \(host), \"seated\": true, "
+                + "\"role\": \(s(role)), \"fix\": \(fix ?? "null")}"
+        }
+        let common = """
+        "game": "manhunt", "difficulty": "medium", "hostId": "p_alex", "meId": "p_alex", "area": \(area),
+         "radius": 500, "minutes": 30, "rule": "The runner shows up every 3 min, and live whenever they step outside the circle. Get within 25 m to catch.",
+         "pingMs": 180000, "headStartMs": 120000, "catchM": 25, "catchSlackM": 25, "claimMs": 20000,
+         "outsideLiveMs": 30000, "fixMinGapMs": 3000, "runnerPick": null, "runnerId": "p_sam"
+        """
+        if finished {
+            return """
+            {"id": \(s(demoManhuntDoneRoom)), "phase": "finished", \(common),
+             "myRole": "hunter", "startedAt": \(ms(now.addingTimeInterval(-1_000))), "huntStartedAt": \(ms(now.addingTimeInterval(-880))),
+             "endsAt": \(ms(now.addingTimeInterval(920))), "nextPingAt": null, "phaseEndsAt": \(ms(now.addingTimeInterval(590))),
+             "runnerLiveUntil": null, "runnerQuiet": false, "claim": null, "catchCooldownUntil": null, "pings": [],
+             "players": [\(seat("p_alex", "Alex", role: "hunter", host: true, fix: nil)),
+                         \(seat("p_sam", "Sam", role: "runner", host: false, fix: nil)),
+                         \(seat("p_robin", "Robin", role: "hunter", host: false, fix: nil))],
+             "result": {"outcome": "caught", "catcherId": "p_robin", "confirmed": true},
+             "standings": [{"id": "p_robin", "name": "Robin", "place": 1, "role": "hunter", "result": "won", "left": false},
+                           {"id": "p_alex", "name": "Alex", "place": 2, "role": "hunter", "result": "team", "left": false},
+                           {"id": "p_sam", "name": "Sam", "place": 3, "role": "runner", "result": "lost", "left": false}],
+             "winnerIds": ["p_robin"], "serverNow": \(ms(now))}
+            """
+        }
+        return """
+        {"id": \(s(demoManhuntRoom)), "phase": "hunt", \(common),
+         "myRole": "hunter", "startedAt": \(ms(now.addingTimeInterval(-360))), "huntStartedAt": \(ms(now.addingTimeInterval(-240))),
+         "endsAt": \(ms(now.addingTimeInterval(1_560))), "nextPingAt": \(ms(now.addingTimeInterval(120))),
+         "phaseEndsAt": \(ms(now.addingTimeInterval(1_560))),
+         "runnerLiveUntil": null, "runnerQuiet": false, "claim": null, "catchCooldownUntil": null,
+         "pings": [{"at": \(ms(now.addingTimeInterval(-60))), "runner": \(fix(51.5101, -0.1612, ago: 61)), "hunters": []}],
+         "players": [\(seat("p_alex", "Alex", role: "hunter", host: true, fix: fix(51.5052, -0.1688, ago: 2))),
+                     \(seat("p_sam", "Sam", role: "runner", host: false, fix: nil)),
+                     \(seat("p_kit", "Kit", role: "hunter", host: false, fix: fix(51.5088, -0.1700, ago: 3))),
+                     \(seat("p_robin", "Robin", role: "hunter", host: false, fix: fix(51.5079, -0.1625, ago: 1)))],
+         "result": null, "standings": null, "winnerIds": [], "serverNow": \(ms(now))}
         """
     }
 
