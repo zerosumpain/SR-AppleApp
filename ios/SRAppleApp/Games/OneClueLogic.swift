@@ -171,7 +171,7 @@ struct OneClueCard: Decodable, Equatable, Identifiable {
 struct OneClueSeat: Decodable, Equatable, Identifiable {
     let id: String
     let role: OneClueRole?
-    /// Has written a clue for this card (while writing only).
+    /// Has locked a clue in for this card (while writing only). A draft is not shown.
     let submitted: Bool
     /// Seen enough (review) / ready for the next card (reveal).
     let done: Bool
@@ -229,6 +229,8 @@ struct OneClueState: Decodable, Equatable {
     let word: String?
     /// My own clue while writing.
     let myClue: String?
+    /// Whether my clue is locked in (while writing only).
+    let myLocked: Bool
     /// What this phone may see of the clues (the guesser: survivors only).
     let clues: [OneClueClue]?
     /// To the guesser while guessing: how many were cancelled (never which).
@@ -244,7 +246,7 @@ struct OneClueState: Decodable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case phase, cardCount, minPlayers, maxPlayers, clueMs, reviewMs, guessMs, revealMs, maxClue, maxGuess
-        case score, cardIndex, guesserId, role, word, myClue, clues, cancelledCount, guess, outcome, tookBack
+        case score, cardIndex, guesserId, role, word, myClue, myLocked, clues, cancelledCount, guess, outcome, tookBack
         case cards, players, standings, verdict
     }
 
@@ -266,6 +268,7 @@ struct OneClueState: Decodable, Equatable {
         role = (try? c.decodeIfPresent(OneClueRole.self, forKey: .role)) ?? nil
         word = (try? c.decodeIfPresent(String.self, forKey: .word)) ?? nil
         myClue = (try? c.decodeIfPresent(String.self, forKey: .myClue)) ?? nil
+        myLocked = (try? c.decodeIfPresent(Bool.self, forKey: .myLocked)) ?? false
         clues = (try? c.decodeIfPresent([OneClueClue].self, forKey: .clues)) ?? nil
         cancelledCount = (try? c.decodeIfPresent(Int.self, forKey: .cancelledCount)) ?? nil
         guess = (try? c.decodeIfPresent(String.self, forKey: .guess)) ?? nil
@@ -281,6 +284,10 @@ struct OneClueState: Decodable, Equatable {
 
     /// The clue-givers on this card.
     var giverIds: [String] { seats.filter { $0.role == .clue }.map(\.id) }
+
+    /// Whether the reveal on screen is the game's last: every card is settled
+    /// (a wrong guess on the ninth discards the tenth), so the next tap ends it.
+    var allSettled: Bool { cards.count >= cardCount }
 
     /// The card just settled (in the reveal), from the public list.
     var lastCard: OneClueCard? {

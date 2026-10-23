@@ -3,11 +3,12 @@ import Foundation
 /// One One Clue room, live.
 ///
 /// The connection is `GameRoomLink`, the same as every game's. This owns my
-/// clue as I type it — sent a moment after the typing stops (or at once on
-/// Return), so the server holds nearly what the screen shows and the clock
-/// running out loses at most the last letter — my vetoes on their way, my
-/// "done", and the guesser's guess or pass. The server checks every clue; the
-/// field only warns.
+/// clue as I type it — saved as a draft a moment after the typing stops, so
+/// the clock running out loses at most the last letter, but a draft never
+/// closes the clue phase: only "Lock in" (or Return) does, once everyone has.
+/// Typing after a lock unlocks it. Also my vetoes on their way, my "done",
+/// and the guesser's guess or pass. The server checks every clue; the field
+/// only warns.
 @MainActor
 final class OneClueStore: ObservableObject, GameRoomStoring {
     let roomId: String
@@ -19,6 +20,10 @@ final class OneClueStore: ObservableObject, GameRoomStoring {
     @Published var message: String?
     /// My clue as typed.
     @Published private(set) var draft = ""
+    /// My clue is locked in (as far as this phone knows; the server's word wins on each update).
+    @Published private(set) var locked = false
+    /// A lock is on its way.
+    @Published private(set) var locking = false
     /// The guesser's guess as typed.
     @Published var guessDraft = ""
     /// A guess or pass is on its way.
@@ -28,8 +33,9 @@ final class OneClueStore: ObservableObject, GameRoomStoring {
     private var lastPhase: OneCluePhase?
     /// The card the draft belongs to; a new card clears it.
     private var card: Int?
-    /// What the server last took.
+    /// What the server last took, and whether it took it as locked in.
     private var sent = ""
+    private var sentLocked = false
     private var pending: Task<Void, Never>?
     /// Vetoes on their way, so a double tap sends one.
     private var vetoing: Set<String> = []
@@ -84,8 +90,12 @@ final class OneClueStore: ObservableObject, GameRoomStoring {
             pending = nil
             draft = state?.myClue ?? ""
             sent = draft
+            locked = state?.myLocked ?? false
+            sentLocked = locked
             guessDraft = ""
             vetoing = []
+        } else if pending == nil, !locking, phase == .clues {
+            locked = state?.myLocked ?? false
         }
         if phase == .clues, previous != .clues, previous != nil { SRHaptic.tap() }
         if phase == .guess, previous != .guess, state?.role == .guesser { SRHaptic.ok() }
@@ -114,17 +124,24 @@ final class OneClueStore: ObservableObject, GameRoomStoring {
     /// True while I can guess.
     var canGuess: Bool { phase == .guess && amGuesser && !guessing }
 
+    /// True while I can lock my clue in: something written, not already locked.
+    var canLock: Bool {
+        canClue && !locked && !locking && !draft.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     /// The warning under my field.
     var warning: String? { OneClueRules.warning(draft, word: state?.word) }
 
     // MARK: - Writing a clue
 
-    /// A keystroke in the clue field. Sent once the typing settles.
+    /// A keystroke in the clue field. Saved as a draft once the typing
+    /// settles; a change to a locked clue unlocks it (the draft tells the server).
     func edit(_ text: String) {
         guard canClue, let state else { return }
         let capped = OneClueRules.cap(text, max: state.maxClue)
         guard draft != capped else { return }
         draft = capped
+        locked = false
         pending?.cancel()
         pending = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.settleNanoseconds)
@@ -133,7 +150,7 @@ final class OneClueStore: ObservableObject, GameRoomStoring {
         }
     }
 
-    /// Return, or leaving the field: send now.
+    /// Leaving the field: save the draft now.
     func commit() {
         pending?.cancel()
         pending = nil
@@ -147,20 +164,52 @@ final class OneClueStore: ObservableObject, GameRoomStoring {
 
     private func send() async {
         pending = nil
-        guard canClue else { return }
+        // Locked (or locking): the lock carries the text; a draft now would undo it.
+        guard canClue, !locked, !locking else { return }
         let text = draft.trimmingCharacters(in: .whitespaces)
-        guard sent != text else { return }
+        // Unchanged and not locked: nothing to say. A locked copy is unlocked by sending the draft.
+        guard sent != text || sentLocked else { return }
         sent = text
+        sentLocked = false
         switch await link.post(GameActionBody(action: "clue", text: text)) {
         case .ok, .gone:
             break
         case .wrongPhase:
-            // Time's up, or the last clue in opened the review: the stream says.
+            // Time's up, or the review opened: the stream says.
             sent = ""
             await link.refresh()
         case .refused(let sentence), .failed(let sentence):
             sent = ""
             message = sentence
+        }
+    }
+
+    /// "Lock in", or Return: my clue is final. The review opens once every
+    /// clue-giver has locked one in. Any draft still waiting goes with it.
+    func lockIn() {
+        guard canLock else { return }
+        pending?.cancel()
+        pending = nil
+        let text = draft.trimmingCharacters(in: .whitespaces)
+        locking = true
+        locked = true
+        SRHaptic.ok()
+        Task {
+            let outcome = await self.link.post(GameActionBody(action: "clue", text: text, lock: true))
+            self.locking = false
+            switch outcome {
+            case .ok, .gone:
+                self.sent = text
+                self.sentLocked = true
+            case .wrongPhase:
+                self.locked = false
+                self.sent = ""
+                await self.link.refresh()
+            case .refused(let sentence), .failed(let sentence):
+                self.locked = false
+                self.sent = ""
+                self.message = sentence
+            }
         }
     }
 

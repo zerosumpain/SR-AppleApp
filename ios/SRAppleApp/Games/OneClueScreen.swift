@@ -404,7 +404,7 @@ struct OneClueWriting: View {
                             .autocorrectionDisabled(false)
                             .submitLabel(.done)
                             .focused($focused)
-                            .onSubmit { store.commit() }
+                            .onSubmit { store.lockIn() }
                             .disabled(!store.canClue)
                             .padding(.horizontal, 14)
                             .frame(minHeight: SR.tapTarget + 8)
@@ -418,7 +418,22 @@ struct OneClueWriting: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("oneclue-warning")
                         }
-                        Text("Your clue saves as you type. If anyone writes the same clue as you, both cancel out — so think different.")
+                        if store.locked {
+                            Label("Locked in. Change it any time before the clues open.", systemImage: "lock.fill")
+                                .font(SR.Text.secondary(13))
+                                .foregroundStyle(SR.good)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("oneclue-locked")
+                        } else {
+                            Button { store.lockIn() } label: {
+                                SRButtonLabel(title: "Lock in my clue", icon: "lock", fill: true)
+                            }
+                            .srButton(.prominent)
+                            .controlSize(.large)
+                            .disabled(!store.canLock)
+                            .accessibilityIdentifier("oneclue-lock")
+                        }
+                        Text("Take your time: the clues open once everyone has locked one in. If the clock runs out, what you've written still counts. If anyone writes the same clue as you, both cancel out — so think different.")
                             .font(SR.Text.mono())
                             .foregroundStyle(SR.inkMuted)
                             .fixedSize(horizontal: false, vertical: true)
@@ -636,7 +651,7 @@ struct OneClueReveal: View {
                         OneClueWaiting(room: room, label: "Next card")
                     } else {
                         Button { store.ready() } label: {
-                            SRButtonLabel(title: (state?.cardIndex ?? 0) + 1 >= (state?.cardCount ?? 10) ? "See the score" : "Next card",
+                            SRButtonLabel(title: state?.allSettled == true ? "See the score" : "Next card",
                                           icon: "arrow.right", fill: true)
                         }
                         .srButton(.prominent)
@@ -674,13 +689,33 @@ struct OneClueFinished: View {
                     .accessibilityIdentifier("oneclue-score")
                 if let state { OneCluePips(state: state) }
 
-                GameStandingsCard(
-                    room: room,
-                    label: "The team",
-                    id: "oneclue-standings",
-                    detail: { row in detail(row, state) },
-                    figure: { _ in (text: "\(score)", spoken: "team score \(score)") }
-                )
+                // A team game: no places. Everyone shares the score, as on the leaderboard.
+                VStack(alignment: .leading, spacing: SR.cardGap) {
+                    GameRecordLine(room: room)
+                    SRSectionLabel(text: "The team", trailing: "Everyone \(score)")
+                    VStack(spacing: 0) {
+                        ForEach(Array((room.standings ?? []).enumerated()), id: \.element.id) { index, row in
+                            if index > 0 { Divider().overlay(SR.divider) }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(row.name + (row.id == room.meId ? " (you)" : ""))
+                                    .font(SR.Text.title())
+                                    .foregroundStyle(SR.ink)
+                                Text(detail(row, state))
+                                    .font(SR.Text.mono())
+                                    .foregroundStyle(SR.inkMuted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: SR.tapTarget, alignment: .leading)
+                            .padding(.vertical, 6)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("oneclue-standings-\(row.id)")
+                        }
+                    }
+                    .padding(.horizontal, SR.cardPadding)
+                    .padding(.vertical, 6)
+                    .srGlassCard(.paper)
+                    .accessibilityIdentifier("oneclue-standings")
+                }
 
                 SRSectionLabel(text: "Every card")
                 VStack(spacing: 0) {

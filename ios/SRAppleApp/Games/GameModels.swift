@@ -827,6 +827,8 @@ struct GameActionBody: Encodable {
     var from: String? = nil
     var to: String? = nil
     var promotion: String? = nil
+    /// One Clue: `{action:"clue", text, lock:true}` locks my clue in; without it, a draft.
+    var lock: Bool? = nil
 }
 
 enum GameNames {

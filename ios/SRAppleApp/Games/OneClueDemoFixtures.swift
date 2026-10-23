@@ -108,7 +108,7 @@ extension SRDemoFixtures {
             return """
             {"id": \(s(demoOneClueRoom)), \(common), "phase": "clues", "hostId": "p_alex", "meId": "p_alex",
              "phaseEndsAt": \(ms(now.addingTimeInterval(52))), "score": 2, "cardIndex": 3, "guesserId": "p_sam",
-             "role": "clue", "word": "lighthouse", "myClue": "", "clues": null, "cancelledCount": null,
+             "role": "clue", "word": "lighthouse", "myClue": "", "myLocked": false, "clues": null, "cancelledCount": null,
              "guess": null, "outcome": null, "tookBack": false,
              "cards": [\(oneClueCards(3))],
              "players": [\(player("p_alex", "Alex", host: true, role: "clue")),

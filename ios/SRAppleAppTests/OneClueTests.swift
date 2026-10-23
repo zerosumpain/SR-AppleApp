@@ -16,17 +16,21 @@ final class OneClueTests: XCTestCase {
                  {"id":"p_c","name":"Kim","status":"joined","isHost":false,"role":"clue","submitted":false,"done":true}]
     """#
 
-    private func room(_ fields: String, me: String = "p_b") -> String {
+    private let threeCards = #"""
+    [{"index":0,"word":"castle","guesserId":"p_b","outcome":"correct","guess":"castle","tookBack":false,
+      "clues":[{"playerId":"p_a","text":"Knight","status":"ok"},{"playerId":"p_c","text":"knights","status":"duplicate"}]},
+     {"index":1,"word":"fox","guesserId":"p_c","outcome":"wrong","guess":"wolf","tookBack":false,"clues":[]},
+     {"index":2,"word":"violin","guesserId":null,"outcome":"discarded","guess":null,"tookBack":false,"clues":[]}]
+    """#
+
+    private func room(_ fields: String, me: String = "p_b", cards: String? = nil) -> String {
         """
         { "id":"g_o", "game":"one-clue", "difficulty":"medium", "hostId":"p_a", "meId":"\(me)",
           "cardCount":10, "minPlayers":3, "maxPlayers":7, "clueMs":75000, "reviewMs":30000, "guessMs":60000,
           "revealMs":12000, "maxClue":30, "maxGuess":40, "startedAt":1790000000000, "phaseEndsAt":1790000075000,
           "score":2, "cardIndex":3, "guesserId":"p_a", "cancelledCount":null, "guess":null, "outcome":null,
           "tookBack":false, "standings":null, "verdict":null, "winnerIds":[], "serverNow":1790000010000,
-          "cards":[{"index":0,"word":"castle","guesserId":"p_b","outcome":"correct","guess":"castle","tookBack":false,
-                    "clues":[{"playerId":"p_a","text":"Knight","status":"ok"},{"playerId":"p_c","text":"knights","status":"duplicate"}]},
-                   {"index":1,"word":"fox","guesserId":"p_c","outcome":"wrong","guess":"wolf","tookBack":false,"clues":[]},
-                   {"index":2,"word":"violin","guesserId":null,"outcome":"discarded","guess":null,"tookBack":false,"clues":[]}],
+          "cards":\(cards ?? threeCards),
           \(players),
           \(fields) }
         """
@@ -50,6 +54,30 @@ final class OneClueTests: XCTestCase {
         XCTAssertEqual(state.cards.map(\.outcome), [.correct, .wrong, .discarded])
         XCTAssertNil(state.cards[2].guesserId)
         XCTAssertEqual(OneClueRules.waitingOn(r).map(\.id), ["p_c"], "Kim has not written yet")
+    }
+
+    func testMyLockDecodesAndADraftIsNotSubmitted() throws {
+        let drafting = try decode(room(#""phase":"clues", "role":"clue", "word":"lighthouse", "myClue":"Be", "clues":null"#))
+        XCTAssertEqual(drafting.oneClue?.myLocked, false, "absent is a draft")
+        let locked = try decode(room(#""phase":"clues", "role":"clue", "word":"lighthouse", "myClue":"Beam", "myLocked":true, "clues":null"#))
+        XCTAssertEqual(locked.oneClue?.myLocked, true)
+        // The table waits on whoever has not LOCKED one in (Kim), whatever she has typed.
+        XCTAssertEqual(OneClueRules.waitingOn(locked).map(\.id), ["p_c"])
+    }
+
+    func testTheLastRevealIsWhenEveryCardIsSettledNotTheCardNumber() throws {
+        // Ninth card (index 8) guessed wrong: the tenth is discarded, so the next tap ends the game.
+        let settled = "[" + (0..<10).map { i -> String in
+            let outcome = i == 9 ? "discarded" : i == 8 ? "wrong" : "correct"
+            return "{\"index\":\(i),\"word\":\"w\(i)\",\"guesserId\":\"p_a\",\"outcome\":\"\(outcome)\",\"guess\":null,\"tookBack\":false,\"clues\":[]}"
+        }.joined(separator: ",") + "]"
+        let wrongOnNine = try decode(room(#""phase":"reveal", "role":"guesser", "word":"w8", "myClue":null, "clues":[]"#,
+                                          me: "p_a", cards: settled))
+        XCTAssertEqual(wrongOnNine.oneClue?.cards.count, 10)
+        XCTAssertEqual(wrongOnNine.oneClue?.allSettled, true, "See the score, not Next card")
+        // Card 4 of a game: three settled, more to come.
+        let early = try decode(room(#""phase":"reveal", "role":"clue", "word":"lighthouse", "myClue":null, "clues":[]"#))
+        XCTAssertEqual(early.oneClue?.allSettled, false)
     }
 
     func testTheGuesserWhileGuessingHasSurvivorsAndACountOnly() throws {
