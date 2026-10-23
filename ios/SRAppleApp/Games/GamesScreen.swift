@@ -353,6 +353,7 @@ struct GameCard: View {
         case .marbleRace: return SR.accent
         case .chess: return SR.ink
         case .mission: return SR.error
+        case .oneClue: return SR.accentInk
         }
     }
 }

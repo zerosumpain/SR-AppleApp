@@ -36,6 +36,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case marbleRace = "marble-race"
     case chess
     case mission
+    case oneClue = "one-clue"
 
     var id: String { rawValue }
 
@@ -54,6 +55,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .marbleRace: return "Marble Race"
         case .chess: return "Chess"
         case .mission: return "Secret Mission"
+        case .oneClue: return "One Clue"
         }
     }
 
@@ -73,6 +75,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .marbleRace: return "Back a marble. Everyone watches the same race."
         case .chess: return "The classic. Two players, a clock each."
         case .mission: return "Crew against hidden spies. Five to ten, in one room."
+        case .oneClue: return "One word each. Matching clues cancel out."
         }
     }
 
@@ -105,6 +108,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Two of you, one board, a clock each. Tap a piece, tap where it goes; the board shows you every legal move. Checkmate wins, and so does the other side's clock running out. Offer a draw or resign whenever you like."
         case .mission:
             return "Five to ten of you, in one room. A few are secretly spies. Leaders pick teams, everyone votes, and the team secretly succeeds — or a spy sabotages. Three missions wins it for either side."
+        case .oneClue:
+            return "A team game for three to seven. Take turns to guess a secret word; everyone else writes one clue, and any two clues that match cancel out. Ten cards — how many can you get together?"
         }
     }
 
@@ -123,6 +128,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .marbleRace: return "flag.checkered"
         case .chess: return "checkerboard.rectangle"
         case .mission: return "eye.slash.fill"
+        case .oneClue: return "text.bubble.fill"
         }
     }
 }
@@ -185,6 +191,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.mission, .easy): return "Crew and spies only. Unhurried clocks."
         case (.mission, .medium): return "Adds a Lookout who knows the spies, and a Tracker who hunts them."
         case (.mission, .hard): return "Lookout and Tracker, on short clocks: 60 s to pick, 30 s to vote."
+        case (.oneClue, .easy): return "Everyday things: animals, food, toys. 90 seconds for clues."
+        case (.oneClue, .medium): return "Places, jobs, weather and sport. 75 seconds for clues."
+        case (.oneClue, .hard): return "Ideas like echo and gravity: clues clash more. 60 seconds."
         }
     }
 
@@ -642,6 +651,9 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// Secret Mission: my secret, the votes, the missions and the result, read
     /// from the same JSON (`MissionLogic.swift`). Nil in every other game's room.
     let mission: MissionState?
+    /// One Clue: the card, the clues this phone may see, and every card so
+    /// far, read from the same JSON (`OneClueLogic.swift`). Nil in every other game's room.
+    let oneClue: OneClueState?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -728,6 +740,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         marbleRace = game == GameKind.marbleRace.rawValue ? (try? MarbleRaceState(from: decoder)) : nil
         chess = game == GameKind.chess.rawValue ? (try? ChessState(from: decoder)) : nil
         mission = game == GameKind.mission.rawValue ? (try? MissionState(from: decoder)) : nil
+        oneClue = game == GameKind.oneClue.rawValue ? (try? OneClueState(from: decoder)) : nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
@@ -832,6 +845,8 @@ struct GameActionBody: Encodable {
     var team: [String]? = nil
     var approve: Bool? = nil
     var card: String? = nil
+    /// One Clue: `{action:"clue", text, lock:true}` locks my clue in; without it, a draft.
+    var lock: Bool? = nil
 }
 
 enum GameNames {

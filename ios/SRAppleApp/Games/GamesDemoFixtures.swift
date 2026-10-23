@@ -129,6 +129,7 @@ extension SRDemoFixtures {
                       "about": "The Solar System · for kids"}],
          "rooms": [\(storeShotsSkipsWordle ? "" : missionLobbyRows)
                    \(storeShotsSkipsWordle ? "" : chessLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : oneClueLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : boggleLobbyRows)
                    \(storeShotsSkipsWordle ? "" : liarsLobbyRows)
@@ -164,6 +165,7 @@ extension SRDemoFixtures {
         if id == demoMissionVotingRoom { return missionRoom("voting", clock: clock) }
         if id == demoMissionRoom { return missionRoom("mission", clock: clock) }
         if id == demoMissionDoneRoom { return missionRoom("finished", clock: clock) }
+        if let room = oneClueDemoRoom(id: id, clock: clock) { return room }
         if id == demoDrawGuessRoom { return drawGuessRoom(mine: false, clock: clock) }
         if id == demoDrawGuessMineRoom { return drawGuessRoom(mine: true, clock: clock) }
         if id == demoQuizInviteRoom {
