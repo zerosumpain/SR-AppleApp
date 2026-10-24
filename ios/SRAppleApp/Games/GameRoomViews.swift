@@ -66,6 +66,8 @@ struct GameRoomScreen: View {
                 ManhuntScreen(roomId: ref.id)
             case .homestead?:
                 HomesteadScreen(roomId: ref.id)
+            case .hometowns?:
+                HometownsScreen(roomId: ref.id)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",

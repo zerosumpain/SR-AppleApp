@@ -332,7 +332,7 @@ struct GameRoomRow: View {
                                 .accessibilityIdentifier("games-room-status-\(room.id)")
                         }
                         if room.pace == .async {
-                            Text("Over days · hosted by \(room.hostName)")
+                            Text(YourGames.paceLine(room))
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -421,6 +421,7 @@ struct GameCard: View {
         case .fireworks: return SR.accentDeep
         case .manhunt: return SR.good
         case .homestead: return SR.good
+        case .hometowns: return SR.accentInk
         }
     }
 }
@@ -459,6 +460,8 @@ struct NewGameSheet: View {
     @State private var fakeRounds = 3
     // Homestead: the island size, as an index of `HomesteadSettings.islands`.
     @State private var homesteadIsland = 0
+    // Hometowns: the county's name, rivalry, Regional Day hour and mishaps.
+    @State private var county = HometownsCountySetup()
     // Draw & Guess.
     @State private var drawTurns = 1
     @State private var drawSeconds = 80
@@ -484,7 +487,8 @@ struct NewGameSheet: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("games-game-\(game.rawValue)")
 
-                    if !paces.isEmpty {
+                    // A county is always played over days: there is no pace to pick.
+                    if !paces.isEmpty && game != .hometowns {
                         paceSection
                     }
 
@@ -524,8 +528,13 @@ struct NewGameSheet: View {
                         homesteadSettings
                     }
 
-                    // Marble Race's course sets how hard it is: no level to pick.
-                    if game != .marbleRace {
+                    if game == .hometowns {
+                        countySettings
+                    }
+
+                    // Marble Race's course sets how hard it is, and a county has
+                    // its rivalry instead: no level to pick.
+                    if game != .marbleRace && game != .hometowns {
                         VStack(alignment: .leading, spacing: SR.cardGap) {
                             SRSectionLabel(text: "Difficulty")
                             ForEach(GameDifficulty.allCases) { level in
@@ -623,7 +632,7 @@ struct NewGameSheet: View {
 
     /// What Start sends: the game's own body, with the pace when it offers one.
     private var request: CreateGameBody {
-        paces.isEmpty ? gameRequest : paceSettings.apply(to: gameRequest)
+        paces.isEmpty || game == .hometowns ? gameRequest : paceSettings.apply(to: gameRequest)
     }
 
     /// Play now, or over days with hours a turn — a durable game's pace.
@@ -693,6 +702,14 @@ struct NewGameSheet: View {
             return HomesteadSettings(difficulty: difficulty, island: HomesteadSettings.island(at: homesteadIsland))
                 .createBody(invite: invite)
         }
+        if game == .hometowns {
+            var create = CreateGameBody(game: game.rawValue, difficulty: GameDifficulty.easy.rawValue, invite: invite)
+            var setup = county
+            setup.name = setup.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if setup.name.count < 2 { setup.name = HometownsCountySetup().name }
+            create.county = setup
+            return create
+        }
         return CreateGameBody(game: game.rawValue, difficulty: difficulty.rawValue, invite: invite)
     }
 
@@ -707,6 +724,7 @@ struct NewGameSheet: View {
         case .fireworks: return FireworksRules.sheetTrailing
         case .manhunt: return "Invite 2+"
         case .homestead: return "Invite 2+"
+        case .hometowns: return "Solo or up to 6"
         default: return "Solo"
         }
     }
@@ -730,6 +748,8 @@ struct NewGameSheet: View {
             return "Nobody else in the family can play yet, and Manhunt needs a runner and two hunters. The lobby can wait for people to pair phones."
         case .homestead:
             return "Nobody else in the family can play yet, and Homestead needs three. The lobby can wait for people to pair phones."
+        case .hometowns:
+            return "Nobody else in the family can play yet, so this is a county of one — a real game. Invite people later from the lobby."
         default:
             return "Nobody else in the family can play yet, so this is a solo game."
         }
@@ -754,6 +774,8 @@ struct NewGameSheet: View {
             return "Manhunt is for three to eight, outdoors: invite at least two. The lobby waits for them to join, and you can ask more in from there."
         case .homestead:
             return "Homestead is for three to five: invite at least two. Play in one sitting, or over days a turn at a time. The lobby waits for them to join."
+        case .hometowns:
+            return "A county is for one to six mayors, one town each. Only a parent can start it. The lobby waits for whoever you invite; you can start on your own."
         default:
             return "Nothing starts yet: the lobby waits for people to join, and you can ask more in from there. Invites reach phones with the app open."
         }
@@ -971,6 +993,53 @@ struct NewGameSheet: View {
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("games-homestead-line")
+        }
+    }
+
+    /// The county — Hometowns' game: its name, how hard the towns compete for
+    /// newcomers, when the Regional Day settles up, and whether mishaps happen.
+    private var countySettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "County")
+            TextField("County name", text: $county.name)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .font(SR.Text.body())
+                .padding(12)
+                .srGlassCard(.paper, radius: SR.Glass.innerRadius)
+                .onChange(of: county.name) { _, name in if name.count > 30 { county.name = String(name.prefix(30)) } }
+                .accessibilityIdentifier("games-hometowns-name")
+            Picker("Rivalry", selection: $county.rivalry) {
+                Text("Friendly").tag("friendly")
+                Text("Spirited").tag("spirited")
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("games-hometowns-rivalry")
+            HStack {
+                Text("REGIONAL DAY")
+                    .font(SR.Text.label())
+                    .tracking(SR.kickerTracking)
+                    .foregroundStyle(SR.inkSecondary)
+                Spacer(minLength: 8)
+                Picker("Regional Day", selection: $county.regionalHour) {
+                    ForEach(HometownsCountySetup.hours, id: \.self) { Text(HometownsCountySetup.hourLabel($0)).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .tint(SR.accentInk)
+                .accessibilityIdentifier("games-hometowns-hour")
+            }
+            Toggle(isOn: Binding(get: { county.mishaps == "mild" }, set: { county.mishaps = $0 ? "mild" : "off" })) {
+                Text("Mild mishaps (a burst pipe, a power cut)")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+            }
+            .tint(SR.accent)
+            .accessibilityIdentifier("games-hometowns-mishaps")
+            Text(county.line)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-hometowns-line")
         }
     }
 

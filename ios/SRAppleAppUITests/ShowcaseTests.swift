@@ -1679,6 +1679,64 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Hometowns: Alex's hamlet — the top bar, the Wants bar, Bramble's and
+    /// Mo's cards and the toolbar over the (demo) map — then Town Hall,
+    /// People, Build, the County and parent settings, and a county where Alex
+    /// has a town still to found. The forecast card needs the map page's
+    /// worker, which a demo does not load.
+    @MainActor func testShowcaseHometowns() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let county = byId(app, "games-room-g_demo_hometowns")
+        if scroll(app, to: county) {
+            county.tap()
+            settle(app, on: byId(app, "hometowns-town"), seconds: 2)
+            soft(byId(app, "hometowns-money").exists, "no money in the top bar")
+            soft(byId(app, "hometowns-people").exists, "no population in the top bar")
+            soft(byId(app, "hometowns-want-homes").exists, "no Wants bar")
+            soft(byId(app, "hometowns-toolbar").exists, "no toolbar")
+            soft(byId(app, "hometowns-advisors").exists, "no advisor cards")
+            attach(app, "Showcase — Hometowns, the Town screen")
+            for (button, sheet, name) in [("hometowns-toolbar-townhall", "hometowns-townhall", "Town Hall"),
+                                          ("hometowns-toolbar-people", "hometowns-people-sheet", "People"),
+                                          ("hometowns-toolbar-build", "hometowns-build", "Build"),
+                                          ("hometowns-toolbar-county", "hometowns-county", "the County")] {
+                byId(app, button).tap()
+                settle(app, on: byId(app, sheet), seconds: 2)
+                attach(app, "Showcase — Hometowns, \(name)")
+                app.buttons["Done"].firstMatch.tap()
+            }
+            byId(app, "hometowns-menu").tap()
+            let parent = app.buttons["Parent settings"].firstMatch
+            if parent.waitForExistence(timeout: 2) {
+                parent.tap()
+                settle(app, on: byId(app, "hometowns-parent"), seconds: 2)
+                attach(app, "Showcase — Hometowns, parent settings")
+                app.buttons["Done"].firstMatch.tap()
+            } else {
+                soft(false, "no parent settings for a parent")
+            }
+            back(app)
+        } else {
+            soft(false, "no county to resume")
+        }
+
+        let founding = byId(app, "games-room-g_demo_hometowns_found")
+        if scroll(app, to: founding) {
+            founding.tap()
+            settle(app, on: byId(app, "hometowns-founding"), seconds: 2)
+            soft(byId(app, "hometowns-site-1").exists, "no free site to pick")
+            soft(byId(app, "hometowns-name-preview").exists, "no name builder")
+            soft(!byId(app, "hometowns-name-type").exists, "a child's seat may not type a name")
+            attach(app, "Showcase — Hometowns, founding")
+            back(app)
+        } else {
+            soft(false, "no county to found a town in")
+        }
+    }
+
     /// Draw & Guess: Sam's drawing of a boat with Alex guessing — the blanks,
     /// the feed with Alex's own "close!" — then Alex's own turn: the kite, the
     /// palette, widths, Undo and Clear.
