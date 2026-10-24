@@ -254,6 +254,33 @@ final class HomeTests: XCTestCase {
         XCTAssertNotNil(FamilyOrbitModel.makeFacing(view: view, watch: nil, device: device), "the phone's own last fix will do")
     }
 
+    func testAFixYouStoppedSharingIsNotACentre() throws {
+        // Sharing off: the household still carries where you were when it
+        // stopped, and a picture centred there would be centred on the past.
+        let view = try household(selfStatus: "off")
+        XCTAssertNil(FamilyOrbitModel.makeFacing(view: view, watch: nil))
+        let device = GeoPoint(lat: 54.70, lon: -1.575)
+        let model = try XCTUnwrap(FamilyOrbitModel.makeFacing(view: view, watch: nil, device: device))
+        let sam = try XCTUnwrap(model.people.first { $0.subject == "sam" })
+        XCTAssertEqual(sam.km, FamilyOrbitMath.distanceKm(device, GeoPoint(lat: 54.79, lon: -1.55)), accuracy: 1e-9)
+    }
+
+    func testTheNewerOfYourTwoFixesIsTheCentre() throws {
+        let view = try household() // your household fix is from 09:59:00Z
+        let device = GeoPoint(lat: 54.70, lon: -1.575)
+        let sam = GeoPoint(lat: 54.79, lon: -1.55)
+        let iso = ISO8601DateFormatter()
+        func samKm(_ at: String?) throws -> Double {
+            let model = try XCTUnwrap(FamilyOrbitModel.makeFacing(view: view, watch: nil, device: device,
+                                                                  deviceAt: at.flatMap { iso.date(from: $0) }))
+            return try XCTUnwrap(model.people.first { $0.subject == "sam" }).km
+        }
+        let yours = GeoPoint(lat: 54.776, lon: -1.575)
+        XCTAssertEqual(try samKm("2026-10-18T10:05:00Z"), FamilyOrbitMath.distanceKm(device, sam), accuracy: 1e-9, "the phone's newer fix wins")
+        XCTAssertEqual(try samKm("2026-10-18T09:00:00Z"), FamilyOrbitMath.distanceKm(yours, sam), accuracy: 1e-9, "an older one does not")
+        XCTAssertEqual(try samKm(nil), FamilyOrbitMath.distanceKm(yours, sam), accuracy: 1e-9, "an undated one is a fallback only")
+    }
+
     func testAwayFromHomeHomeIsAMarker() throws {
         // Home is ~8 km due south of where you are.
         let watched = WatchedPlace(id: "h", label: "Home", lat: 54.70, lon: -1.575, radiusM: 150)
@@ -318,11 +345,11 @@ final class HomeTests: XCTestCase {
 
     // MARK: - A small household
 
-    private func household(selfPosition: Bool = true) throws -> HouseholdView {
+    private func household(selfPosition: Bool = true, selfStatus: String = "home") throws -> HouseholdView {
         let you = selfPosition ? #"{"lat":54.776,"lon":-1.575,"at":"2026-10-18T09:59:00Z"}"# : "null"
         let json = """
         {"generatedAt":"2026-10-18T10:00:00Z","viewer":"owner","people":[
-          {"subject":"you","name":"Alex Kelly","self":true,"status":"home","line":"Home · seen 1m ago","batteryPct":80,
+          {"subject":"you","name":"Alex Kelly","self":true,"status":"\(selfStatus)","line":"Home · seen 1m ago","batteryPct":80,
            "lastSeenAt":"2026-10-18T09:59:00Z","position":\(you),"today":null},
           {"subject":"robin","name":"Robin","self":false,"status":"home","line":"Home · seen 2m ago","batteryPct":55,
            "lastSeenAt":"2026-10-18T09:58:00Z","position":{"lat":54.7762,"lon":-1.5751,"at":"2026-10-18T09:58:00Z"},"today":null},

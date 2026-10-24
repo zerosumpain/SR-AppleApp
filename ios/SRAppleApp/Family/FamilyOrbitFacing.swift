@@ -45,6 +45,9 @@ final class DeviceHeadingStore: NSObject, ObservableObject, @preconcurrency CLLo
     /// The last fix iOS holds for this phone — the centre when the household
     /// view has none for you. Read, never requested.
     @Published private(set) var fix: GeoPoint?
+    /// When iOS took `fix`, so the screen can prefer whichever of it and
+    /// the household view's own fix for you is newer.
+    private(set) var fixAt: Date?
     private let manager = CLLocationManager()
 
     override init() {
@@ -62,12 +65,32 @@ final class DeviceHeadingStore: NSObject, ObservableObject, @preconcurrency CLLo
         manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted
     }
 
-    /// The fix iOS already has, if the app may see it. Cheap: a property
-    /// read, no GPS.
+    /// The fix iOS already has, if the app may see it and it is recent.
+    /// Cheap: a property read, no GPS.
+    ///
+    /// `manager.location` is whatever iOS last had, which can be hours old
+    /// and from another town; a centre that far out turns every direction
+    /// on the disc wrong. Ten minutes is about a walk across a village.
     func refreshFix() {
-        guard !denied, let location = manager.location else { return }
+        guard !denied, let location = manager.location, location.horizontalAccuracy >= 0,
+              location.timestamp.timeIntervalSinceNow > -Self.freshFix else {
+            fixAt = nil
+            if fix != nil { fix = nil }
+            return
+        }
         let next = GeoPoint(lat: location.coordinate.latitude, lon: location.coordinate.longitude)
+        fixAt = location.timestamp
         if next != fix { fix = next }
+    }
+    static let freshFix: TimeInterval = 10 * 60
+
+    /// Drop the remembered angle. For the toggle going off: the angle keeps
+    /// counting past full turns, and animating from several turns round back
+    /// to north (or out again) would spin the disc that many times. Not
+    /// done in `start`: a return from Control Centre restarts the compass
+    /// with the old angle still on screen, and must carry on from it.
+    func forget() {
+        if turn != nil { turn = nil }
     }
 
     /// Start turning. Idempotent.
@@ -160,12 +183,17 @@ struct FamilyFacingOrbit: View {
         // The first frame already centred on you, rather than home for a
         // frame and then a jump. The phone's own fix comes at `onAppear`.
         let facing = UserDefaults.standard.object(forKey: Self.key) as? Bool ?? true
+        // (Built on every re-render of the tab and kept only the first time:
+        // a few haversines for a family-sized list, which is the price of no
+        // jump on the first frame.)
         _turning = State(initialValue: facing ? FamilyOrbitModel.makeFacing(view: view, watch: view.watch) : nil)
     }
 
     var body: some View {
         FamilyOrbitView(
-            model: turning ?? classic, colours: colours, live: live,
+            // Location off: the household's fix for you has stopped moving,
+            // so a picture centred on it would be centred on where you were.
+            model: (compass.state == .denied ? nil : turning) ?? classic, colours: colours, live: live,
             heading: turning != nil && compass.state != .unavailable && compass.state != .denied ? compass.turn : nil,
             openPerson: openPerson
         )
@@ -183,7 +211,10 @@ struct FamilyFacingOrbit: View {
         .onAppear { onScreen = true; sync() }
         .onDisappear { onScreen = false; sync() }
         .onChange(of: scenePhase) { _, _ in sync() }
-        .onChange(of: facing) { _, _ in sync() }
+        .onChange(of: facing) { _, on in
+            if !on { compass.forget() }
+            sync()
+        }
         // A refresh can bring (or take away) your own fix.
         .onChange(of: view) { _, _ in sync() }
         .onChange(of: compass.fix) { _, _ in sync() }
@@ -191,7 +222,8 @@ struct FamilyFacingOrbit: View {
 
     /// The turning model for what is known now; nil when not turning.
     private func rebuild() -> FamilyOrbitModel? {
-        let next = facing ? FamilyOrbitModel.makeFacing(view: view, watch: view.watch, device: compass.fix) : nil
+        let next = facing ? FamilyOrbitModel.makeFacing(view: view, watch: view.watch, device: compass.fix,
+                                                             deviceAt: compass.fixAt) : nil
         if next != turning { turning = next }
         return next
     }
@@ -210,10 +242,12 @@ struct FamilyFacingOrbit: View {
     /// Why the picture is not turning, quietly, when it was asked to.
     private var note: String? {
         guard facing else { return nil }
-        guard turning != nil else { return "No fix for you yet: home in the middle, north up" }
+        // What the fallback picture is: home-centred only when there is a home.
+        let fallback = classic.centredOnHome ? "home in the middle, north up" : "north is up"
+        guard turning != nil else { return "No fix for you yet: \(fallback)" }
         switch compass.state {
         case .unavailable: return "No compass here: north is up"
-        case .denied: return "Location is off: north is up"
+        case .denied: return "Location is off: \(fallback)"
         case .off, .running: return nil
         }
     }

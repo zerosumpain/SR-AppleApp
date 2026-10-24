@@ -293,9 +293,21 @@ struct FamilyOrbitModel: Equatable {
     /// Bearings stay compass bearings: the view turns the whole disc by the
     /// heading, so the model is rebuilt when somebody moves, not every time
     /// the phone does.
-    static func makeFacing(view: HouseholdView, watch: [WatchedPlace]?, device: GeoPoint? = nil, now: Date = Date()) -> FamilyOrbitModel? {
+    ///
+    /// Your household fix counts only while you are sharing: with sharing
+    /// off it is where you were when it stopped. Given both it and `device`,
+    /// the newer wins; a `device` fix with no `deviceAt` is a fallback only.
+    static func makeFacing(view: HouseholdView, watch: [WatchedPlace]?, device: GeoPoint? = nil,
+                           deviceAt: Date? = nil, now: Date = Date()) -> FamilyOrbitModel? {
         let me = view.people.first(where: \.isSelf)
-        guard let centre = me?.position.map({ GeoPoint(lat: $0.lat, lon: $0.lon) }) ?? device else { return nil }
+        let shared = me?.status == "off" ? nil : me?.position
+        let household = shared.map { GeoPoint(lat: $0.lat, lon: $0.lon) }
+        let deviceIsNewer: Bool = {
+            guard let deviceAt else { return false }
+            guard let at = shared.flatMap({ FamilyPerson.isoDate($0.at) }) else { return true }
+            return deviceAt > at
+        }()
+        guard let centre = (deviceIsNewer ? device : nil) ?? household ?? device else { return nil }
         let homeFix = FamilyOrbitMath.home(people: view.people, watch: watch)
         let homeKm = homeFix.map { FamilyOrbitMath.distanceKm(centre, $0) }
         // The site's "home" is trusted only near home: a status a minute
@@ -464,7 +476,10 @@ struct FamilyOrbitView: View {
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .rotationEffect(.radians(-turn))
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: turn)
+                // No animation into or out of north up: the angle is unwrapped
+                // and may be several turns round, and easing from there to 0
+                // would spin the disc that many times.
+                .animation(reduceMotion || heading == nil ? nil : .easeOut(duration: 0.35), value: turn)
             }
         }
         .accessibilityElement(children: .contain)

@@ -298,7 +298,7 @@ extension FamilyPerson {
         return .stale
     }
 
-    private static func isoDate(_ raw: String) -> Date? {
+    static func isoDate(_ raw: String) -> Date? {
         let withFraction = ISO8601DateFormatter()
         withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return withFraction.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
