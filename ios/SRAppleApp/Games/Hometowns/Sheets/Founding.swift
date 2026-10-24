@@ -231,7 +231,9 @@ struct HometownsFoundingView: View {
     private var flags: some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
             SRSectionLabel(text: store.say("founding.pickFlag"))
-            HStack(spacing: 10) {
+            // A grid, not a row: eight 44 pt targets and their gaps are wider
+            // than a phone's column, and wrap at large text sizes too.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: SR.tapTarget), spacing: 6)], alignment: .leading, spacing: 6) {
                 ForEach(0..<HometownsCatalogue.flagColours.count, id: \.self) { n in
                     Button {
                         SRHaptic.select()

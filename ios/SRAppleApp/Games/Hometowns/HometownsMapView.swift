@@ -19,6 +19,8 @@ import WebKit
 
 struct HometownsMapView: View {
     @ObservedObject var store: HometownsStore
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -64,6 +66,13 @@ struct HometownsMapView: View {
         #if DEBUG
         .overlay(alignment: .topLeading) { HometownsDebugHUD(store: store) }
         #endif
+        // The page boots with the wording, theme and motion of the moment;
+        // a parent switching a seat, dark mode or Reduce Motion later reaches
+        // it here (the page's `settings` takes each of them).
+        .onAppear { store.pageSettings(dark: colorScheme == .dark, reduceMotion: reduceMotion) }
+        .onChange(of: colorScheme) { _, scheme in store.pageSettings(dark: scheme == .dark, reduceMotion: reduceMotion) }
+        .onChange(of: reduceMotion) { _, on in store.pageSettings(dark: colorScheme == .dark, reduceMotion: on) }
+        .onChange(of: store.level) { _, _ in store.pageSettings(dark: colorScheme == .dark, reduceMotion: reduceMotion) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Map of \(store.town?.name ?? "your town")")
         .accessibilityIdentifier("hometowns-map")
@@ -132,6 +141,10 @@ struct HometownsWebView: UIViewRepresentable {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            // Only the map page itself may speak for the county (a `commit`
+            // posts real moves): its main frame, over HTTPS, on the page's host.
+            let origin = message.frameInfo.securityOrigin
+            guard message.frameInfo.isMainFrame, origin.protocol == "https", origin.host == url.host else { return }
             store.receive(message.body)
         }
 
@@ -144,18 +157,29 @@ struct HometownsWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            if (error as? URLError)?.code == .cancelled { return }
-            store.pageError = error.localizedDescription
+            fail(error)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            fail(error)
+        }
+
+        /// A navigation that failed, unless it is one this coordinator stopped
+        /// itself: a cancelled load, and the "Frame load interrupted" (WebKit
+        /// error 102) that cancelling a response causes, which would otherwise
+        /// replace the sentence that response already set.
+        private func fail(_ error: Error) {
+            let e = error as NSError
             if (error as? URLError)?.code == .cancelled { return }
+            if e.domain == "WebKitErrorDomain" && e.code == 102 { return }
+            if store.pageError != nil { return }
             store.pageError = error.localizedDescription
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
             // A page version not deployed yet answers 404: say so rather than draw the site's error page.
-            if let http = response.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            // Only the page itself: a sub-frame's status is not the map's.
+            if response.isForMainFrame, let http = response.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 store.pageError = "This county's map (\(store.wire?.client.engineHash ?? "?")) is not on the site yet."
                 return .cancel
             }

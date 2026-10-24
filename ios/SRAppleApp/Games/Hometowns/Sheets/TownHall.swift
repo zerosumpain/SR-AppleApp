@@ -171,8 +171,18 @@ struct TownHallSheet: View {
         }
         .frame(minHeight: SR.tapTarget)
         .padding(.vertical, 4)
-        .accessibilityElement(children: .combine)
+        // One adjustable element (swipe up or down), said as "Homes tax, 9%":
+        // a Stepper folded into a combined element is not reliably adjustable.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
         .accessibilityValue(HometownsText.rate(value))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: set(min(range.upperBound, value + step))
+            case .decrement: set(max(range.lowerBound, value - step))
+            @unknown default: break
+            }
+        }
         .accessibilityIdentifier("hometowns-tax-\(id)")
     }
 

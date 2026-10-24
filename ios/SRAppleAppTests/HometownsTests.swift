@@ -242,6 +242,24 @@ final class HometownsTests: XCTestCase {
 
     // MARK: - Copy
 
+    /// SR-Main's `wire-fixtures.ts` writes the FNV-1a 64 of its copy file
+    /// beside the frames: the bundled copy must be byte for byte the site's.
+    func testTheBundledCopyIsTheSitesCopy() throws {
+        let want = try XCTUnwrap(try dict("copy-hash")["fnv64"] as? String)
+        let bundled: Data
+        if let url = Bundle.main.url(forResource: "hometowns-copy-en-GB", withExtension: "json") {
+            bundled = try Data(contentsOf: url)
+        } else {
+            let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            bundled = try Data(contentsOf: here.appendingPathComponent("../SRAppleApp/Games/Hometowns/hometowns-copy-en-GB.json"))
+        }
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in bundled { h = (h ^ UInt64(b)) &* 0x0000_0100_0000_01b3 }
+        let got = String(h, radix: 16)
+        XCTAssertEqual(String(repeating: "0", count: 16 - got.count) + got, want,
+                       "copy SR-Main's engine/copy/en-GB.json over hometowns-copy-en-GB.json, then the fixtures")
+    }
+
     func testNumbersAreFormattedByArithmetic() {
         let N = HometownsNumber.self
         XCTAssertEqual(N.pounds(12345), "£12,345")
@@ -288,6 +306,8 @@ final class HometownsTests: XCTestCase {
         XCTAssertEqual(copy.say("less", .kid, sign: -1), "busy")
         XCTAssertEqual(copy.say("less", .adult, sign: -1), "good")
         XCTAssertEqual(copy.say("unknown.key", .kid), "unknown.key")
+        XCTAssertEqual(copy.line("advisor.mo.newRule", .kid), "New rule", "a screen never shows a raw key")
+        XCTAssertEqual(copy.line("less", .adult, sign: -1), "good")
         XCTAssertEqual(copy.say("less.kid", .adult), "good", "a `.kid` key names its own level")
         // Not a slot: left as written.
         XCTAssertEqual(copy.fill("{not a slot} {}", .adult), "{not a slot} {}")

@@ -12,7 +12,10 @@ import SwiftUI
 struct WelcomeBackSheet: View {
     @ObservedObject var store: HometownsStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var page = 0
+    /// The paged cards need a height; it grows with the reader's text size.
+    @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 230
 
     var body: some View {
         NavigationStack {
@@ -21,6 +24,12 @@ struct WelcomeBackSheet: View {
                     if cards.isEmpty {
                         SREmpty(title: store.say("bulletin.quiet"), icon: "newspaper",
                                 message: store.level == .kid ? "Nothing new since you last looked." : "No news since your last visit.")
+                    } else if typeSize.isAccessibilitySize {
+                        // At the largest sizes no fixed height fits a card: every card, one under another.
+                        VStack(spacing: SR.cardGap) {
+                            ForEach(Array(cards.enumerated()), id: \.offset) { _, card in cardView(card) }
+                        }
+                        .accessibilityIdentifier("hometowns-welcome-cards")
                     } else {
                         TabView(selection: $page) {
                             ForEach(Array(cards.enumerated()), id: \.offset) { index, card in
@@ -29,7 +38,7 @@ struct WelcomeBackSheet: View {
                         }
                         .tabViewStyle(.page(indexDisplayMode: cards.count > 1 ? .always : .never))
                         .indexViewStyle(.page(backgroundDisplayMode: .always))
-                        .frame(height: 230)
+                        .frame(height: cardHeight)
                         .accessibilityIdentifier("hometowns-welcome-cards")
                     }
                     mail

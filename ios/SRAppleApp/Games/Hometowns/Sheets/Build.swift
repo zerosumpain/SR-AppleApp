@@ -12,7 +12,6 @@ import SwiftUI
 struct HometownsBuildSheet: View {
     @ObservedObject var store: HometownsStore
     @Environment(\.dismiss) private var dismiss
-    @State private var topDown = false
 
     var body: some View {
         NavigationStack {
@@ -36,7 +35,8 @@ struct HometownsBuildSheet: View {
                             }
                         }
                     }
-                    Toggle(isOn: $topDown) {
+                    // The store holds it: the page stays top-down after the sheet closes, and so does the switch.
+                    Toggle(isOn: Binding(get: { store.topDown }, set: { store.setTopDown($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(store.level == .kid ? "Flat map for planning" : "Top-down planning view")
                                 .font(SR.Text.title())
@@ -47,9 +47,6 @@ struct HometownsBuildSheet: View {
                         }
                     }
                     .tint(SR.accent)
-                    .onChange(of: topDown) { _, on in
-                        store.callPage("if (window.hometowns) window.hometowns.settings({topDown: v === 'true'})", ["v": on ? "true" : "false"])
-                    }
                     .accessibilityIdentifier("hometowns-topdown")
                 }
                 .padding(.horizontal, SR.gutter)

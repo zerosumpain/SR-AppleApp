@@ -205,7 +205,8 @@ final class GameDurableTests: XCTestCase {
         let lobby = try JSONDecoder().decode(GamesLobby.self, from: Data(text.utf8))
         XCTAssertEqual(lobby.paceChoices(for: "homestead"), [.live, .async])
         guard !SRDemo.isStoreShots else { return }
-        let durable = lobby.rooms.filter(\.durable)
+        // Homestead's rooms: the demo's Hometowns counties are durable too, and have their own tests.
+        let durable = lobby.rooms.filter { $0.durable && $0.game == "homestead" }
         XCTAssertEqual(durable.map(\.id), [SRDemoFixtures.demoDurableMineRoom, SRDemoFixtures.demoDurableWaitingRoom])
         XCTAssertEqual(YourGames.ordered(lobby.rooms).first?.id, SRDemoFixtures.demoDurableMineRoom)
         let status = YourGames.status(durable[0], atServer: lobby.serverNow)

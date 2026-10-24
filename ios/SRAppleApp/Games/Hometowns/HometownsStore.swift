@@ -24,10 +24,16 @@ import WebKit
 ///     what this store held, which need not be what the page holds.
 ///   - posts every move on the native lane with the rev it holds as `since`,
 ///     and keeps each mutating move PENDING until a frame lists its id among
-///     this seat's moves (A28). A frame from the stream or the snapshot whose
-///     rev went BACKWARDS means the server lost a write race and reloaded the
-///     row; every pending move that frame does not show is posted again, and
-///     the server answers a repeat from its log, so nothing lands twice.
+///     this seat's moves (A28), even after the server answered it: an answer
+///     comes from the server's memory, which a restart or a lost write race
+///     can still lose. The server reads a county back from its row with a
+///     rev beyond anything it sent before, so the first frame after that is
+///     always WHOLE; a whole frame from the stream or the snapshot that does
+///     not list a pending move posted a few seconds before it gets that move
+///     posted again, in the order they were made, and the server answers a
+///     repeat from its log, so nothing lands twice. A pending move that a
+///     later move overtook (the later one is listed, it is not) is dropped
+///     rather than replayed over the newer choice.
 ///   - retries a move after a second when the Regional Day is still being
 ///     finished (A19: "Kingsport is just finishing the day. Trying again…").
 ///
@@ -55,6 +61,8 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     /// The card the page worked out for a long-pressed tile (§9.5).
     @Published var inspect: HometownsInspect?
     @Published private(set) var lens = "none"
+    /// The flat top-down planning view is on (§9.3).
+    @Published private(set) var topDown = false
     @Published private(set) var tool = HometownsTool.none
     /// Bramble's three founding steps, counted from this phone's plans.
     @Published private(set) var tutorial = HometownsTutorial()
@@ -82,8 +90,21 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     private static let ringSize = 6
     /// The highest rev a stream frame or a snapshot has shown.
     private var maxRev: Int?
+    /// A mutating move this phone posted and no frame has listed yet.
+    private struct Sent {
+        let move: HometownsMove
+        /// When it was posted, on this phone's clock (ms).
+        var at: Double
+    }
     /// Mutating moves not yet seen in a frame's `me.moves`, oldest first.
-    private var pending: [HometownsMove] = []
+    private var pending: [Sent] = []
+    /// When the newest move a frame has listed was posted: anything posted
+    /// before it and still unlisted was overtaken, and is never replayed.
+    private var landedAt: Double = 0
+    /// A pending move is posted again only once it is this old (an answer may still be on its way).
+    private static let repostAfterMs: Double = 5_000
+    /// A pending move older than this is let go: the server would answer it from a log that has moved on.
+    private static let pendingKeepMs: Double = 10 * 60_000
     private var retries: [String: Int] = [:]
     private var streamTask: Task<Void, Never>?
     private var noteTask: Task<Void, Never>?
@@ -104,6 +125,9 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     private var pageBooted = false
     private static let chainLimit = 40
     private var lastStatsAt: Double = 0
+    /// Dark mode and Reduce Motion as the map view's environment last said (nil before it has).
+    private var viewDark: Bool?
+    private var viewReduceMotion: Bool?
     private let speech = AVSpeechSynthesizer()
     private let client = SiteClient.shared
 
@@ -119,8 +143,9 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     var town: HometownsTown? { wire?.town }
     var isParent: Bool { wire?.me?.isParent ?? false }
 
+    /// The words for `key` at this seat's level; never the raw key (`HometownsCopy.line`).
     func say(_ key: String, _ data: HometownsData = [:], sign: Double = 1) -> String {
-        copy.say(key, level, data, sign: sign)
+        copy.line(key, level, data, sign: sign)
     }
 
     /// The server's clock, now, as well as this phone can tell.
@@ -223,6 +248,10 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     /// The snapshot, whole: `GET api/native/games/<id>`.
     func refresh() async {
         let sent = Self.nowMs()
+        // What the stream had shown when this was asked for: a snapshot below
+        // that is the server's own regression, one between it and what the
+        // stream shows since is merely late.
+        let askedAt = maxRev
         do {
             let data = try await client.bytes("api/native/games/\(roomId)")
             guard let frame = HometownsFrames.room(in: data) else {
@@ -232,7 +261,7 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
             if let now = frame["serverNow"] as? NSNumber {
                 clock.record(serverNow: now.doubleValue, sentAt: sent, receivedAt: Self.nowMs())
             }
-            absorb(frame, raw: data, source: .snapshot)
+            absorb(frame, raw: data, source: .snapshot, askedAt: askedAt)
         } catch SiteError.status(let code, _) where code == 404 {
             end()
         } catch SiteError.status(let code, _) where code == 403 {
@@ -293,11 +322,15 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     enum Source { case streamStart, stream, snapshot, answer }
 
     /// One frame from anywhere: merged onto what it was cut against, decoded,
-    /// and (from the stream) handed to the page.
-    private func absorb(_ frame: [String: Any], raw: Data?, source: Source) {
+    /// and (from the stream) handed to the page. `askedAt` is a snapshot's
+    /// `maxRev` when it was requested.
+    private func absorb(_ frame: [String: Any], raw: Data?, source: Source, askedAt: Int? = nil) {
         guard !ended, let rev = HometownsFrames.rev(frame) else { return }
         // An action's answer older than what is held is late, not news.
         if source == .answer, let held = heldRev, rev < held { return }
+        // So is a snapshot the stream has overtaken since it was asked for
+        // (a push, a gap or a 404 refresh crossing a stream frame).
+        if source == .snapshot, let newest = maxRev, rev < newest, askedAt.map({ rev >= $0 }) ?? true { return }
         let base = HometownsFrames.base(frame)
         let held = base.flatMap { b in ring.last(where: { $0.rev == b })?.frame }
         let merged: [String: Any]
@@ -328,7 +361,7 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         hasRoom = true
 
         if let next {
-            settlePending(next, regressed: regressed)
+            settlePending(next, whole: base == nil && source != .answer)
             react(previous, next)
             if next.phase == "closed" {
                 end()
@@ -346,15 +379,30 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         feedPage(raw: raw, whole: base == nil, source: source)
     }
 
-    /// Pending moves: the ones a frame lists have landed; after a lost write
-    /// race the rest go again (A28).
-    private func settlePending(_ w: HometownsWire, regressed: Bool) {
-        let landed = Set((w.me?.moves ?? []).map(\.id))
-        pending.removeAll { move in move.clientId.map { landed.contains($0) } ?? true }
-        if regressed {
-            let again = pending
-            Task { for move in again { await self.post(move, fresh: false) } }
+    /// Pending moves: the ones a frame lists have landed. A whole frame that
+    /// does not list one posted a while before it means the server lost it
+    /// (a restart, a lost write race): it goes again (A28), unless a move
+    /// made after it has landed, which it must not be replayed over.
+    private func settlePending(_ w: HometownsWire, whole: Bool) {
+        let listed = Set((w.me?.moves ?? []).map(\.id))
+        let now = Self.nowMs()
+        for sent in pending where sent.move.clientId.map({ listed.contains($0) }) == true { landedAt = max(landedAt, sent.at) }
+        pending.removeAll { sent in
+            guard let id = sent.move.clientId else { return true }
+            return listed.contains(id) || now - sent.at > Self.pendingKeepMs
         }
+        guard whole else { return }
+        pending.removeAll { $0.at < landedAt }
+        let again = pending.filter { now - $0.at >= Self.repostAfterMs }
+        guard !again.isEmpty else { return }
+        for sent in again { touch(sent.move, at: now) }
+        Task { for sent in again { await self.post(sent.move, fresh: false) } }
+    }
+
+    /// A pending move being posted again counts from now (so it is not posted again by the next frame).
+    private func touch(_ move: HometownsMove, at now: Double) {
+        guard let id = move.clientId, let k = pending.firstIndex(where: { $0.move.clientId == id }) else { return }
+        pending[k].at = now
     }
 
     /// Haptics and sheets for what a new frame says happened.
@@ -418,8 +466,8 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
             "bridge": 1,
             "engineHash": w.client.engineHash,
             "copyLevel": w.level.rawValue,
-            "theme": UITraitCollection.current.userInterfaceStyle == .dark ? "dark" : "light",
-            "reduceMotion": UIAccessibility.isReduceMotionEnabled,
+            "theme": (viewDark ?? (UITraitCollection.current.userInterfaceStyle == .dark)) ? "dark" : "light",
+            "reduceMotion": viewReduceMotion ?? UIAccessibility.isReduceMotionEnabled,
             "locale": "en-GB",
             "thermal": Self.thermalName(thermal),
             "lowPower": ProcessInfo.processInfo.isLowPowerModeEnabled,
@@ -433,6 +481,7 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         }
         if tool != .none { setTool(tool) }
         if lens != "none" { setLens(lens) }
+        if topDown { setTopDown(true) }
     }
 
     func pageLoading() {
@@ -458,6 +507,17 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         callPage("if (window.hometowns) window.hometowns.settings({thermal: t, lowPower: p === 'true'})",
                  ["t": Self.thermalName(thermal), "p": lowPower ? "true" : "false"])
+    }
+
+    /// The wording, theme and motion the page draws with, whenever any of them
+    /// changes after boot (a parent switching this seat, dark mode, Reduce Motion).
+    func pageSettings(dark: Bool, reduceMotion: Bool) {
+        // Kept for the next boot too: the view's environment is resolved, `UITraitCollection.current` may not be.
+        viewDark = dark
+        viewReduceMotion = reduceMotion
+        let settings: [String: Any] = ["copyLevel": level.rawValue, "theme": dark ? "dark" : "light", "reduceMotion": reduceMotion]
+        guard pageBooted, let data = try? JSONSerialization.data(withJSONObject: settings) else { return }
+        callPage("if (window.hometowns) window.hometowns.settings(JSON.parse(s))", ["s": String(decoding: data, as: UTF8.self)])
     }
 
     func setPaused(_ on: Bool) {
@@ -552,6 +612,11 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         callPage("if (window.hometowns) window.hometowns.tool(JSON.parse(t))", ["t": String(decoding: data, as: UTF8.self)])
     }
 
+    func setTopDown(_ on: Bool) {
+        topDown = on
+        callPage("if (window.hometowns) window.hometowns.settings({topDown: v === 'true'})", ["v": on ? "true" : "false"])
+    }
+
     func setLens(_ id: String) {
         lens = id
         guard id == "none" || HometownsCatalogue.lenses.contains(id) else { return }
@@ -618,7 +683,10 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
             case .refused(let sentence):
                 self.commitResult(planId: planId, ok: false, error: sentence)
             case .failed(let text):
-                // Kept pending: it goes again after a reconnect if the server never logged it.
+                // Not kept: the page puts the plan back as ghosts under the
+                // same planId, so building it again is the retry, and the
+                // server answers it from its log if the first one did land.
+                self.drop(id: planId)
                 self.commitResult(planId: planId, ok: false, error: text)
             case .gone:
                 break
@@ -642,9 +710,11 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         case gone
     }
 
-    /// Post a move. `quiet` moves (hello, seen, stats) say nothing when they fail.
+    /// Post a move. `quiet` moves (hello, seen, stats) say nothing when they
+    /// fail. A mutating move whose post fails on the way (no connection) stays
+    /// pending, and the whole frame a reconnect starts with posts it again.
     func send(_ move: HometownsMove, quiet: Bool = false, then: ((Outcome) -> Void)? = nil) {
-        if move.isPending { pending.append(move) }
+        if move.isPending { pending.append(Sent(move: move, at: Self.nowMs())) }
         Task {
             let outcome = await self.post(move, fresh: true)
             if !quiet, case .refused(let sentence) = outcome { self.showRefusal(sentence) }
@@ -699,8 +769,11 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     }
 
     private func drop(_ move: HometownsMove) {
-        guard let id = move.clientId else { return }
-        pending.removeAll { $0.clientId == id }
+        if let id = move.clientId { drop(id: id) }
+    }
+
+    private func drop(id: String) {
+        pending.removeAll { $0.move.clientId == id }
         retries[id] = nil
     }
 
@@ -744,12 +817,30 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
 
     // MARK: - The town's moves
 
-    /// "Next week ▶" (§2.3): one founding week, at least ten seconds after the last.
+    /// "Next week ▶" (§2.3): one founding week, at least ten seconds after the
+    /// last. Ten seconds is the shipped `sprintMinGapMs`; the wire does not
+    /// carry it, so a retuned gap the server still refuses ("Watch your town
+    /// grow…") only makes the button rest a little longer, with no refusal shown.
     func nextWeek() {
         guard let now = serverNow(), now >= sprintWaitUntil else { return }
         sprintWaitUntil = now + 10_000
-        send(.sprint())
+        send(.sprint(), quiet: true) { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .refused(let sentence) where sentence.hasPrefix(Self.sprintTooSoon):
+                self.sprintWaitUntil = max(self.sprintWaitUntil, (self.serverNow() ?? now) + 5_000)
+            case .refused(let sentence):
+                self.showRefusal(sentence)
+            case .failed(let text):
+                self.message = text
+            case .ok, .gone:
+                break
+            }
+        }
     }
+
+    /// The engine's refusal of a founding week asked for too soon.
+    private static let sprintTooSoon = "Watch your town grow"
 
     /// "Play it all": the rest of the fortnight, a week every fifteen seconds (adults).
     func playItAll() { send(.sprint(auto: true)) }

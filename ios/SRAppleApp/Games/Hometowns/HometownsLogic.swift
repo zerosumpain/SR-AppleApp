@@ -382,9 +382,12 @@ struct HometownsInboxItem: Decodable, Equatable, Identifiable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: HometownsKey.self)
-        id = c.ht("id", UUID().uuidString)
-        kind = c.ht("kind", "")
-        day = c.ht("day", 0)
+        let kind: String = c.ht("kind", "")
+        let day: Int = c.ht("day", 0)
+        // Stable across decodes, so a row keeps its identity from frame to frame.
+        id = c.ht("id", "\(kind).\(day)")
+        self.kind = kind
+        self.day = day
         from = c.htMaybe("from")
         data = c.ht("data", [:])
     }
@@ -892,6 +895,16 @@ final class HometownsCopy {
         return fill(e.pick(lv, sign: sign), lv, data)
     }
 
+    /// `say` for a screen: never the raw key. The site's copy can move ahead
+    /// of the file this build bundles (a new advisor rule), and a child must
+    /// not read "advisor.mo.newRule": a missing key is the last part of its
+    /// name in plain words ("New rule").
+    func line(_ key: String, _ level: HometownsCopyLevel, _ data: HometownsData = [:], sign: Double = 1) -> String {
+        let s = say(key, level, data, sign: sign)
+        guard s == key else { return s }
+        return HometownsCatalogue.humanised(String(key.split(separator: ".").last ?? Substring(key)))
+    }
+
     /// `say` when the key exists, else `fallback`.
     func say(_ key: String, _ level: HometownsCopyLevel, _ data: HometownsData = [:], or fallback: String) -> String {
         has(key) ? say(key, level, data) : fallback
@@ -1214,8 +1227,6 @@ enum HometownsCatalogue {
     /// number here, never as a wrong unlock: the server decides what is unlocked).
     static let tierPopulation = [0, 300, 2000, 15000, 80000]
 
-    /// The Founding Fortnight's length in ticks (params clock.sprintTicks).
-    static let fortnightTicks = 12
 
     /// Every Build item for this town, tray by tray, from what the wire says is unlocked and what it costs.
     static func items(_ affordances: HometownsAffordances, town: HometownsTown?, copy: HometownsCopy, level: HometownsCopyLevel) -> [HometownsBuildItem] {

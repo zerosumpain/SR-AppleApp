@@ -15,6 +15,10 @@ struct HometownsScreen: View {
     @StateObject private var store: HometownsStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// This screen is the one showing (not covered by another pushed screen):
+    /// coming back to the app reopens the county's stream only then, which is
+    /// also what lets its pushes through while it is not being looked at.
+    @State private var visible = false
 
     init(roomId: String) {
         self.roomId = roomId
@@ -31,11 +35,17 @@ struct HometownsScreen: View {
                     ToolbarItem(placement: .topBarTrailing) { menu }
                 }
             }
-            .onAppear { store.open() }
-            .onDisappear { store.close() }
+            .onAppear {
+                visible = true
+                store.open()
+            }
+            .onDisappear {
+                visible = false
+                store.close()
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
-                    store.open()
+                    if visible { store.open() }
                     store.setPaused(false)
                 } else if phase == .background {
                     store.setPaused(true)
@@ -445,6 +455,8 @@ struct HometownsToolbar: View {
                 Image(systemName: icon)
                     .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(active(sheet) ? SR.accent : SR.ink)
+                    // VoiceOver reads the title, not the symbol's name first.
+                    .accessibilityHidden(true)
                 Text(title)
                     .font(SR.Text.label(12))
                     .foregroundStyle(SR.inkSecondary)
@@ -582,18 +594,30 @@ struct HometownsBrambleCard: View {
 struct HometownsAdvisorStrip: View {
     @ObservedObject var store: HometownsStore
     @State private var dismissed: Set<String> = []
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// A paged strip needs a height; it grows with the reader's text size.
+    @ScaledMetric(relativeTo: .body) private var stripHeight: CGFloat = 150
 
     var body: some View {
-        let cards = (store.wire?.me?.derived.advisors ?? []).filter { !dismissed.contains($0.key) }.prefix(3)
+        // A child sees only advisors this build has words for: a rule newer than its copy file waits for the next build.
+        let cards = (store.wire?.me?.derived.advisors ?? [])
+            .filter { !dismissed.contains($0.key) && (store.level == .adult || store.copy.has("advisor.\($0.key)")) }
+            .prefix(3)
         if !cards.isEmpty {
-            TabView {
-                ForEach(Array(cards)) { card in
-                    advisor(card).padding(.horizontal, 2).padding(.bottom, cards.count > 1 ? 22 : 0)
+            if typeSize.isAccessibilitySize {
+                // At the largest sizes no fixed height fits a card: the first one, at its own height.
+                advisor(cards[cards.startIndex])
+                    .accessibilityIdentifier("hometowns-advisors")
+            } else {
+                TabView {
+                    ForEach(Array(cards)) { card in
+                        advisor(card).padding(.horizontal, 2).padding(.bottom, cards.count > 1 ? 22 : 0)
+                    }
                 }
+                .tabViewStyle(.page(indexDisplayMode: cards.count > 1 ? .always : .never))
+                .frame(height: stripHeight)
+                .accessibilityIdentifier("hometowns-advisors")
             }
-            .tabViewStyle(.page(indexDisplayMode: cards.count > 1 ? .always : .never))
-            .frame(height: 150)
-            .accessibilityIdentifier("hometowns-advisors")
         }
     }
 

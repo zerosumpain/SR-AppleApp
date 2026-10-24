@@ -190,7 +190,7 @@ struct GamesScreen: View {
                         .accessibilityIdentifier("games-offline")
 
                         section("Play", trailing: nil, id: "games-play") {
-                            ForEach(GameKind.allCases) { kind in
+                            ForEach(GameKind.allCases.filter(offered)) { kind in
                                 Button {
                                     SRHaptic.tap()
                                     starting = kind
@@ -243,6 +243,13 @@ struct GamesScreen: View {
     }
 
     /// "2 waiting on you" beside "Your games", when durable games wait on me.
+    /// Hometowns is offered only once the site plays it (its lobby lists the
+    /// game's paces): family phones pick up an app build before the server
+    /// release, and a county the server refuses to start is a dead tile.
+    private func offered(_ kind: GameKind) -> Bool {
+        kind != .hometowns || store.lobby?.paces[GameKind.hometowns.rawValue] != nil
+    }
+
     private var yourMovesLabel: String? {
         let n = YourGames.myMoves(store.rooms)
         return n == 0 ? nil : "\(n) waiting on you"

@@ -12,6 +12,7 @@ import SwiftUI
 struct ParentSettingsSheet: View {
     @ObservedObject var store: HometownsStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var rivalry = "friendly"
     @State private var mishaps = "mild"
     @State private var hour = 18
@@ -188,9 +189,12 @@ struct ParentSettingsSheet: View {
         .accessibilityIdentifier("hometowns-parent-seat-\(seat)")
     }
 
-    /// A row of buttons that each set one value on a seat.
+    /// A row of buttons that each set one value on a seat (stacked at the
+    /// largest text sizes, where a row would cut the words short). Each
+    /// button says what it sets: "Pushes: On", not "On".
     private func choice(_ title: String, _ options: [(String, [String: Any])], seat: String) -> some View {
-        HStack(spacing: 8) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
             Text(title)
                 .font(SR.Text.secondary())
                 .foregroundStyle(SR.inkSecondary)
@@ -207,6 +211,7 @@ struct ParentSettingsSheet: View {
                         .minimumScaleFactor(0.8)
                 }
                 .srButton(.regular)
+                .accessibilityLabel("\(title): \(option.0)")
                 .accessibilityIdentifier("hometowns-parent-\(seat)-\(title.lowercased())-\(option.0.lowercased())")
             }
             Spacer(minLength: 0)
