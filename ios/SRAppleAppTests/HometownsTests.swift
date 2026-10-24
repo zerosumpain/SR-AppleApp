@@ -57,8 +57,22 @@ final class HometownsTests: XCTestCase {
             XCTAssertFalse(w.client.engineHash.isEmpty, name)
             XCTAssertTrue(w.client.page.hasPrefix("/projects/hometowns/"), name)
             XCTAssertTrue(w.client.page.hasSuffix("/mobile.html"), name)
-            XCTAssertTrue(w.client.page.contains(w.client.engineHash), "the page is the server's exact engine: \(name)")
+            // The folder is the page's own hash (engine and page code), never the engine hash itself.
+            let pageHash = try XCTUnwrap(w.client.pageHash, name)
+            XCTAssertEqual(w.client.page, "/projects/hometowns/\(pageHash)/mobile.html", name)
+            XCTAssertNotEqual(pageHash, w.client.engineHash, "the page is named by its page hash: \(name)")
             XCTAssertNotNil(w.me, "the fixture host has a seat: \(name)")
+        }
+    }
+
+    func testThePageIsTheWiresPathAndItsFolderIsThePageHash() throws {
+        let hashes = try Set(Self.fixtures.map { try XCTUnwrap(wire($0).client.pageHash, $0) })
+        XCTAssertEqual(hashes.count, 1, "one server, one page")
+        let page = HometownsClient(engineHash: "aaaabbbbccccdddd", page: "/projects/hometowns/0123456789abcdef/mobile.html")
+        XCTAssertEqual(page.pageHash, "0123456789abcdef")
+        for bad in ["", "/projects/hometowns/aaaabbbbccccdddd", "/projects/hometowns//mobile.html", "/projects/other/0123/mobile.html",
+                    "/projects/hometowns/01/23/mobile.html", "https://elsewhere.test/projects/hometowns/0123/mobile.html", "/projects/hometowns/ab%2F/mobile.html"] {
+            XCTAssertNil(HometownsClient(page: bad).pageHash, bad)
         }
     }
 

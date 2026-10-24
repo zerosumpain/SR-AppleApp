@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 import WebKit
 
-// The town map: the site's versioned map page (`/projects/hometowns/<engineHash>/
-// mobile.html?app=1`) in a web view, the `MarblerScreen.swift` pattern. The
+// The town map: the site's versioned map page (the wire's `client.page`,
+// `/projects/hometowns/<pageHash>/mobile.html?app=1`) in a web view, the `MarblerScreen.swift` pattern. The
 // page draws the town with Pixi, owns every gesture on the map (plan, ghosts,
 // lenses, the time-lapse) and runs the engine in a worker for its forecasts
 // and its exact local ticks. It posts typed messages to the `hometowns`
@@ -115,7 +115,7 @@ struct HometownsWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ web: WKWebView, context: Context) {
-        // A new engine hash on the wire names a new page (§10.10). The page
+        // A new page on the wire (a new engine, or a page-only change, §10.10). The page
         // asks for it itself (`needReload`, debounced A39); this catches a
         // page that never loaded far enough to ask.
         if context.coordinator.url != url, !store.pageReady {
@@ -180,16 +180,17 @@ struct HometownsWebView: UIViewRepresentable {
             // A page version not deployed yet answers 404: say so rather than draw the site's error page.
             // Only the page itself: a sub-frame's status is not the map's.
             if response.isForMainFrame, let http = response.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                store.pageError = "This county's map (\(store.wire?.client.engineHash ?? "?")) is not on the site yet."
+                store.pageError = "This county's map (\(store.wire?.client.pageHash ?? "?")) is not on the site yet."
                 return .cancel
             }
             return .allow
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            // iOS killed the page (usually memory): start it again rather than leave a blank map.
+            // iOS killed the page (usually memory): start it again rather than leave a blank map,
+            // on the wire's page (a needReload may have moved it since this view was made).
             store.pageLoading()
-            webView.load(URLRequest(url: url))
+            webView.load(URLRequest(url: store.pageURL ?? url))
         }
     }
 

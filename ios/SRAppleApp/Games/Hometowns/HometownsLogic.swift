@@ -2,7 +2,7 @@ import Foundation
 
 // Hometowns, the family county game (SR-Main spec 2026-10-24 Hometowns, §9,
 // §10.7, §10.9, §10.13). The engine, the economy and the map all live on the
-// site: the map page (`/projects/hometowns/<engineHash>/mobile.html`) runs the
+// site: the map page (the wire's `client.page`, `/projects/hometowns/<pageHash>/mobile.html`) runs the
 // same engine in a web view and predicts this phone's town tick by tick. The
 // app is the shell around it — the top bar, the Wants bar, the toolbar and
 // every sheet — and it holds the stream and posts the moves, because the page
@@ -120,11 +120,23 @@ struct HometownsPlayer: Decodable, Equatable, Identifiable {
     }
 }
 
-/// Which page runs this county's engine: `page` is a path on the site.
+/// Which page runs this county's engine: `page` is a path on the site, and
+/// the app loads exactly that path. Its folder is the page's own hash (the
+/// engine and the page code together, SR-Main §10.10), so a page-only change
+/// is a new path; `engineHash` is the simulation's, for the canary.
 struct HometownsClient: Decodable, Equatable {
     let engineHash: String
     let page: String
     let bridge: Int
+
+    /// The page's folder: `<pageHash>` in `/projects/hometowns/<pageHash>/mobile.html`, or nil.
+    var pageHash: String? {
+        let parts = page.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 5, parts[0].isEmpty, parts[1] == "projects", parts[2] == "hometowns", parts[4] == "mobile.html" else { return nil }
+        let hash = String(parts[3])
+        guard !hash.isEmpty, hash.count <= 64, hash.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return nil }
+        return hash
+    }
 
     init(engineHash: String = "", page: String = "", bridge: Int = 1) {
         self.engineHash = engineHash; self.page = page; self.bridge = bridge

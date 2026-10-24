@@ -156,13 +156,15 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     /// The rev of the newest whole frame held.
     var heldRev: Int? { ring.last?.rev }
 
-    /// The map page for this county: the site's versioned page for the
-    /// server's exact engine (§10.10), with `?app=1`. A debug build may point
-    /// it elsewhere (HTTPS only) with `-hometownsURL https://…`.
+    /// The map page for this county: the page the wire names (§10.10), a
+    /// versioned folder on the site for the server's exact engine and page
+    /// code, with `?app=1`. It is never built from the engine hash: a
+    /// page-only change keeps the engine and moves the page. A debug build may
+    /// point it elsewhere (HTTPS only) with `-hometownsURL https://…`.
     var pageURL: URL? {
         var page: URL?
-        if let path = wire?.client.page, path.hasPrefix("/projects/hometowns/") {
-            page = client.webURL(String(path.dropFirst()))
+        if let named = wire?.client, named.pageHash != nil {
+            page = client.webURL(String(named.page.dropFirst()))
         }
         #if DEBUG
         if let text = UserDefaults.standard.string(forKey: "hometownsURL"), let url = URL(string: text), url.scheme == "https" {
@@ -175,16 +177,14 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         return parts?.url ?? page
     }
 
-    /// The page another engine needs (`needReload`): the same site, that hash's directory.
-    func pageURL(engineHash hash: String) -> URL? {
-        guard !hash.isEmpty, hash.count <= 64, hash.allSatisfy({ $0.isLetter || $0.isNumber }) else { return nil }
-        #if DEBUG
-        if UserDefaults.standard.string(forKey: "hometownsURL") != nil { return pageURL }
-        #endif
-        let url = client.webURL("projects/hometowns/\(hash)/mobile.html")
-        var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        parts?.queryItems = [URLQueryItem(name: "app", value: "1")]
-        return parts?.url
+    /// What `needReload` loads: the wire's page, unless the web view already
+    /// shows it (a request that crossed a newer frame, or a debug
+    /// `-hometownsURL` pinning the page, which would otherwise reload it once
+    /// a minute). The page asks at most once a minute and never for a page it
+    /// has left (A39); which page is the wire's call, not the message's.
+    var reloadURL: URL? {
+        guard let url = pageURL, webView?.url != url else { return nil }
+        return url
     }
 
     // MARK: - Connection
@@ -562,7 +562,7 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         case "needResync":
             restartStream()
         case "needReload":
-            if let hash = m["engineHash"] as? String, let url = pageURL(engineHash: hash) {
+            if let url = reloadURL {
                 pageLoading()
                 webView?.load(URLRequest(url: url))
             }
