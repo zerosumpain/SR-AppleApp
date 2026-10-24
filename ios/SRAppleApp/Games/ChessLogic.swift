@@ -62,12 +62,14 @@ enum ChessPieceKind: Character, Equatable, Hashable, CaseIterable {
     /// thin on a coloured square, so the board colours the glyph itself.
     var glyph: String {
         switch self {
-        case .pawn: return "♟"
-        case .knight: return "♞"
-        case .bishop: return "♝"
-        case .rook: return "♜"
-        case .queen: return "♛"
-        case .king: return "♚"
+        // U+FE0E asks for the text glyph: iOS draws a bare ♟ as an emoji,
+        // which ignores the colour and spills out of its square.
+        case .pawn: return "♟\u{FE0E}"
+        case .knight: return "♞\u{FE0E}"
+        case .bishop: return "♝\u{FE0E}"
+        case .rook: return "♜\u{FE0E}"
+        case .queen: return "♛\u{FE0E}"
+        case .king: return "♚\u{FE0E}"
         }
     }
 

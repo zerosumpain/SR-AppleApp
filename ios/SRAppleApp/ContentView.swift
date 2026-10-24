@@ -800,6 +800,8 @@ private extension View {
             .navigationDestination(for: GameRoomRef.self) { GameRoomScreen(ref: $0).id($0.id) }
             .navigationDestination(for: GameLeaderboardRef.self) { _ in GameLeaderboardScreen() }
             .navigationDestination(for: MarblerRef.self) { _ in MarblerScreen() }
+            // Play nearby: offline games, from the Games page and from More.
+            .navigationDestination(for: OfflineGamesRef.self) { _ in OfflineGamesScreen() }
             .navigationDestination(for: NewsStory.self) { NewsStoryScreen(story: $0) }
             .navigationDestination(for: FlowRef.self) { FlowDetailScreen(ref: $0).id($0.slug) }
             .navigationDestination(for: FlowRunRef.self) { FlowRunScreen(ref: $0).id($0.runId) }

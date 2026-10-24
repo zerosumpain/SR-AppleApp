@@ -29,6 +29,7 @@ struct MoreScreen: View {
     @ObservedObject private var landgrab = LandgrabStore.shared
     @ObservedObject private var access = AccessStore.shared
     @ObservedObject private var wildmind = WildmindStore.shared
+    @ObservedObject private var offline = OfflineSession.shared
     @EnvironmentObject private var router: Router
     @Environment(\.dynamicTypeSize) private var typeSize
     /// A 2×2 tile: half the width (~169pt on a 390pt phone) and a little
@@ -153,7 +154,7 @@ struct MoreScreen: View {
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, wildmind, steps, tasks, backlog, messages, landgrab, sync, settings
+        case daydream, wildmind, steps, tasks, backlog, messages, landgrab, offline, sync, settings
         case place(Router.Tab)
     }
 
@@ -172,6 +173,9 @@ struct MoreScreen: View {
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
         // News is the short door above the grid, not a square.
         all += places.filter { $0 != .news }.map(Item.place)
+        // Play nearby: offline games over Bluetooth or a hotspot. Everyone's —
+        // it never touches the site, so no pairing and no games access needed.
+        all.append(.offline)
         // Sync now and Settings last, tiles like the rest.
         all += [.sync, .settings]
         return all
@@ -269,6 +273,21 @@ struct MoreScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("more-\(place.rawValue)")
+        case .offline:
+            Button {
+                SRHaptic.tap()
+                router.pushFromHub(OfflineGamesRef())
+            } label: {
+                MoreCard(
+                    icon: "dot.radiowaves.left.and.right",
+                    fill: SR.accent,
+                    title: "Play nearby",
+                    blurb: "Games for phones in the same room. No internet needed.",
+                    status: offline.inRoom ? "In a room" : nil
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("more-offline")
         case .sync:
             Button {
                 SRHaptic.tap()
