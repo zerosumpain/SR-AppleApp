@@ -224,7 +224,11 @@ jobs:
           if ! xcodebuild -showsdks | grep -q watchsimulator; then
             xcodebuild -downloadPlatform watchOS
           fi
-          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO | tee release-build.log
+          # arm64 only, as the device archive is: the generic simulator
+          # destination also compiles x86_64, and on 2026-10-24 that second
+          # whole-module optimise pushed this job past its 30 minutes while
+          # arm64 alone took 13.
+          xcodebuild build -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData ARCHS=arm64 CODE_SIGNING_ALLOWED=NO | tee release-build.log
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
