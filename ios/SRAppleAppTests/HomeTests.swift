@@ -190,6 +190,101 @@ final class HomeTests: XCTestCase {
         XCTAssertEqual(model.missing, ["Pat"])
     }
 
+    // MARK: - The Orbit, turning with the phone
+
+    func testARelativeBearingWrapsBothWays() {
+        let degree = Double.pi / 180
+        // Facing 350°, something at 10° is 20° to the right, not -340°.
+        XCTAssertEqual(FamilyOrbitMath.relative(10 * degree, facing: 350 * degree), 20 * degree, accuracy: 1e-9)
+        // Facing 10°, something at 350° is 340° round: just to the left.
+        XCTAssertEqual(FamilyOrbitMath.relative(350 * degree, facing: 10 * degree), 340 * degree, accuracy: 1e-9)
+        XCTAssertEqual(FamilyOrbitMath.relative(.pi, facing: .pi), 0, accuracy: 1e-9)
+        // An unwrapped heading past a full turn still reads the same way.
+        XCTAssertEqual(FamilyOrbitMath.relative(.pi / 2, facing: 2 * .pi + .pi / 2), 0, accuracy: 1e-9)
+    }
+
+    func testUnwrapTakesTheShortWayRound() {
+        let degree = Double.pi / 180
+        // 359° then 1°: two degrees on, not 358 back.
+        XCTAssertEqual(FamilyOrbitMath.unwrap(1 * degree, after: 359 * degree), 361 * degree, accuracy: 1e-9)
+        // And back again.
+        XCTAssertEqual(FamilyOrbitMath.unwrap(359 * degree, after: 361 * degree), 359 * degree, accuracy: 1e-9)
+        // Several turns in, a reading lands next to where the disc already is.
+        XCTAssertEqual(FamilyOrbitMath.unwrap(5 * degree, after: 720 * degree + 3 * degree), 725 * degree, accuracy: 1e-9)
+        XCTAssertEqual(FamilyOrbitMath.unwrap(90 * degree, after: 0), 90 * degree, accuracy: 1e-9)
+    }
+
+    func testRelativeDirectionInWords() {
+        XCTAssertEqual(FamilyOrbitMath.relativeWords(0), "ahead")
+        XCTAssertEqual(FamilyOrbitMath.relativeWords(.pi / 4), "ahead and to your right")
+        XCTAssertEqual(FamilyOrbitMath.relativeWords(.pi / 2), "to your right")
+        XCTAssertEqual(FamilyOrbitMath.relativeWords(.pi), "behind you")
+        XCTAssertEqual(FamilyOrbitMath.relativeWords(3 * .pi / 2), "to your left")
+        XCTAssertEqual(FamilyOrbitMath.relativeWords(2 * .pi - 0.01), "ahead", "just left of ahead is still ahead")
+    }
+
+    func testTheTurningOrbitIsCentredOnYou() throws {
+        let view = try household()
+        let model = try XCTUnwrap(FamilyOrbitModel.makeFacing(view: view, watch: nil))
+        XCTAssertTrue(model.facing)
+        XCTAssertFalse(model.centredOnHome)
+        XCTAssertNil(model.people.first { $0.isSelf }, "you are the centre, not a planet")
+        XCTAssertNil(model.home, "no home marker while you are at home")
+        let you = GeoPoint(lat: 54.776, lon: -1.575)
+        let sam = try XCTUnwrap(model.people.first { $0.subject == "sam" })
+        XCTAssertEqual(sam.km, FamilyOrbitMath.distanceKm(you, GeoPoint(lat: 54.79, lon: -1.55)), accuracy: 1e-9)
+        let robin = try XCTUnwrap(model.people.first { $0.subject == "robin" })
+        XCTAssertTrue(robin.atHome, "at home with you")
+        XCTAssertTrue(model.spoken(robin, heading: 0).hasPrefix("Robin, at home, battery 55%"), model.spoken(robin, heading: 0))
+        // Sam is north-east of you: facing north-east, Sam is ahead; facing
+        // south-west, behind you.
+        let northEast = Double.pi / 4
+        XCTAssertTrue(model.spoken(sam, heading: northEast).hasPrefix("Sam, \(FamilyOrbitMath.formatKm(sam.km)) ahead,"),
+                      model.spoken(sam, heading: northEast))
+        XCTAssertTrue(model.spoken(sam, heading: northEast + .pi).contains("behind you"))
+        // No compass: the turning model still says where, by the compass.
+        XCTAssertTrue(model.spoken(sam, heading: nil).contains("north-east of you"), model.spoken(sam, heading: nil))
+        XCTAssertEqual(model.missing, ["Pat"])
+    }
+
+    func testTheTurningOrbitNeedsAFixForYou() throws {
+        let view = try household(selfPosition: false)
+        XCTAssertNil(FamilyOrbitModel.makeFacing(view: view, watch: nil), "no fix, no centre: the tab shows home instead")
+        let device = GeoPoint(lat: 54.776, lon: -1.575)
+        XCTAssertNotNil(FamilyOrbitModel.makeFacing(view: view, watch: nil, device: device), "the phone's own last fix will do")
+    }
+
+    func testAwayFromHomeHomeIsAMarker() throws {
+        // Home is ~8 km due south of where you are.
+        let watched = WatchedPlace(id: "h", label: "Home", lat: 54.70, lon: -1.575, radiusM: 150)
+        let model = try XCTUnwrap(FamilyOrbitModel.makeFacing(view: household(), watch: [watched]))
+        XCTAssertFalse(model.youAreHome, "the site's 'home' does not outweigh a fix 8 km away")
+        let home = try XCTUnwrap(model.home)
+        XCTAssertEqual(home.km, 8.45, accuracy: 0.1)
+        XCTAssertEqual(home.bearing, .pi, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(model.outer, home.km, "the rings hold home too")
+        // Drawn below the centre, north up, and spaced apart with everyone else.
+        let placed = FamilyOrbitMath.place(model.bodies, outer: model.outer)
+        let spot = try XCTUnwrap(placed.first { $0.subject == FamilyOrbitModel.homeSubject })
+        XCTAssertGreaterThan(spot.y, 0)
+        XCTAssertEqual(spot.x, 0, accuracy: 0.05)
+        // Facing south, home is ahead.
+        XCTAssertEqual(model.spokenHome(heading: .pi), "Home, 8.5 km ahead")
+        // Robin, beside you but away from home, is with you.
+        let robin = try XCTUnwrap(model.people.first { $0.subject == "robin" })
+        XCTAssertTrue(robin.atHome)
+        XCTAssertTrue(model.spoken(robin, heading: 0).hasPrefix("Robin, with you"), model.spoken(robin, heading: 0))
+    }
+
+    func testHomeTileOrbitIsUnchangedByTurning() throws {
+        let model = try XCTUnwrap(FamilyOrbitModel.make(view: household(), watch: nil))
+        XCTAssertFalse(model.facing)
+        XCTAssertNil(model.home)
+        XCTAssertEqual(model.bodies.count, model.people.count)
+        let sam = try XCTUnwrap(model.people.first { $0.subject == "sam" })
+        XCTAssertEqual(model.spoken(sam, heading: 1), model.spoken(sam), "a heading never changes Home's words")
+    }
+
     // MARK: - The Ribbons
 
     func testRibbonsBreakAtAGapAndKeepTheirDistances() {
@@ -223,11 +318,12 @@ final class HomeTests: XCTestCase {
 
     // MARK: - A small household
 
-    private func household() throws -> HouseholdView {
+    private func household(selfPosition: Bool = true) throws -> HouseholdView {
+        let you = selfPosition ? #"{"lat":54.776,"lon":-1.575,"at":"2026-10-18T09:59:00Z"}"# : "null"
         let json = """
         {"generatedAt":"2026-10-18T10:00:00Z","viewer":"owner","people":[
           {"subject":"you","name":"Alex Kelly","self":true,"status":"home","line":"Home · seen 1m ago","batteryPct":80,
-           "lastSeenAt":"2026-10-18T09:59:00Z","position":{"lat":54.776,"lon":-1.575,"at":"2026-10-18T09:59:00Z"},"today":null},
+           "lastSeenAt":"2026-10-18T09:59:00Z","position":\(you),"today":null},
           {"subject":"robin","name":"Robin","self":false,"status":"home","line":"Home · seen 2m ago","batteryPct":55,
            "lastSeenAt":"2026-10-18T09:58:00Z","position":{"lat":54.7762,"lon":-1.5751,"at":"2026-10-18T09:58:00Z"},"today":null},
           {"subject":"sam","name":"Sam","self":false,"status":"out","line":"At School · seen 3m ago","batteryPct":18,

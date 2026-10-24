@@ -128,8 +128,10 @@ struct FamilyScreen: View {
             .padding(.horizontal, SR.gutter)
             .padding(.vertical, 8)
             .accessibilityIdentifier("family-top")
+            // Here the Orbit turns with the phone (Home's tile never does):
+            // see `FamilyFacingOrbit`.
             if top == .orbit, let model = FamilyOrbitModel.make(view: view, watch: view.watch) {
-                FamilyOrbitView(model: model, colours: colours, live: scenePhase == .active) { subject in
+                FamilyFacingOrbit(view: view, classic: model, colours: colours, live: scenePhase == .active) { subject in
                     router.push(FamilyPersonRoute(subject: subject), on: .family)
                 }
                 .frame(height: 300)
