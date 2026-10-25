@@ -46,6 +46,13 @@ final class WhatsNewTests: XCTestCase {
         XCTAssertEqual(WhatsNew.seen, Set(WhatsNew.releases.map(\.id)))
     }
 
+    func testALockedLaunchDecidesNothing() {
+        // Before the first unlock the pairing cannot be read, so "not paired"
+        // is unknown, not a fresh install.
+        WhatsNew.prepareLaunch(paired: false, protectedDataAvailable: false)
+        XCTAssertNil(UserDefaults.standard.object(forKey: WhatsNew.seenKey))
+    }
+
     func testAnUpdateFromBeforeThisScreenIsShownWhatItMissed() {
         WhatsNew.prepareLaunch(paired: true)
         XCTAssertTrue(WhatsNew.seen.isEmpty)

@@ -19,7 +19,8 @@ import Combine
         ReviewDemo.prepareLaunch()
         // Before Welcome can pair a fresh install, which would then look
         // like an update and be shown every set of notes.
-        WhatsNew.prepareLaunch(paired: SiteClient.shared.isPaired)
+        WhatsNew.prepareLaunch(paired: SiteClient.shared.isPaired,
+                                protectedDataAvailable: application.isProtectedDataAvailable)
         // Teach UIKit the palette before the first view is laid out. Doing it
         // later leaves one system-grey navigation bar on screen for a frame.
         SRChrome.install()

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// "What's new", on the first open after an update.
 ///
@@ -101,9 +102,11 @@ enum WhatsNew {
     /// phone with no record and no site pairing starts with every note seen.
     ///
     /// One with no record but a pairing is an update from a build older than
-    /// this screen, and is shown what it has missed.
-    static func prepareLaunch(paired: Bool) {
-        guard UserDefaults.standard.object(forKey: seenKey) == nil, !paired else { return }
+    /// this screen, and is shown what it has missed. Undecided while the phone
+    /// has not been unlocked since it started: the pairing cannot be read then,
+    /// and "not paired" would be a guess that loses every note.
+    static func prepareLaunch(paired: Bool, protectedDataAvailable: Bool = true) {
+        guard UserDefaults.standard.object(forKey: seenKey) == nil, protectedDataAvailable, !paired else { return }
         markSeen(releases.map(\.id))
     }
 
@@ -127,6 +130,7 @@ struct WhatsNewSheet: View {
     /// From About: the whole history, opened on purpose, nothing to mark.
     var history = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -159,13 +163,19 @@ struct WhatsNewSheet: View {
                 }
             }
         }
-        .onAppear {
-            // Shown, so seen: marked as it appears, not when it closes, so a
-            // phone killed with the sheet up is not shown it twice. A sheet
-            // that never presented (another modal got there first) never
-            // gets here, and is still waiting next time.
-            if !history { WhatsNew.markSeen(releases.map(\.id)) }
-        }
+        // Seen once it is on screen in front of somebody: an active scene, not
+        // merely presented. iOS relaunches the app in the background after an
+        // update (a location wake, a push, a refresh) and SwiftUI builds the
+        // window then too; marking on appear there lost the notes unseen
+        // (build 154, 10-25). Not on close, so a phone killed with the sheet
+        // up is not shown it twice.
+        .onAppear { markIfSeen(scenePhase) }
+        .onChange(of: scenePhase) { _, phase in markIfSeen(phase) }
+    }
+
+    private func markIfSeen(_ phase: ScenePhase) {
+        guard !history, phase == .active, UIApplication.shared.applicationState == .active else { return }
+        WhatsNew.markSeen(releases.map(\.id))
     }
 
     @ViewBuilder
