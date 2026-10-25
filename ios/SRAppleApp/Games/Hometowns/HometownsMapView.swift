@@ -22,7 +22,33 @@ struct HometownsMapView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    // Split into pieces: as one expression, the body's modifier chain was
+    // more than the type checker would finish in a Release archive.
     var body: some View {
+        map
+            .overlay { errorCard }
+            #if DEBUG
+            .overlay(alignment: .topLeading) { HometownsDebugHUD(store: store) }
+            #endif
+            // The page boots with the wording, theme and motion of the moment;
+            // a parent switching a seat, dark mode or Reduce Motion later reaches
+            // it here (the page's `settings` takes each of them).
+            .onAppear { sendSettings() }
+            .onChange(of: colorScheme) { _, _ in sendSettings() }
+            .onChange(of: reduceMotion) { _, _ in sendSettings() }
+            .onChange(of: store.level) { _, _ in sendSettings() }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text(mapLabel))
+            .accessibilityIdentifier("hometowns-map")
+    }
+
+    private var mapLabel: String { "Map of \(store.town?.name ?? "your town")" }
+
+    private func sendSettings() {
+        store.pageSettings(dark: colorScheme == .dark, reduceMotion: reduceMotion)
+    }
+
+    @ViewBuilder private var map: some View {
         Group {
             if SRDemo.isOn {
                 HometownsMapStandIn(town: store.town)
@@ -37,45 +63,33 @@ struct HometownsMapView: View {
                 ProgressView().tint(SR.accent).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .overlay {
-            if let error = store.pageError {
-                VStack(spacing: 12) {
-                    Text("The map couldn't load")
-                        .font(SR.Text.title())
-                        .foregroundStyle(SR.ink)
-                    Text(error)
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button {
-                        store.pageError = nil
-                        store.pageLoading()
-                        if let url = store.pageURL { store.webView?.load(URLRequest(url: url)) }
-                    } label: {
-                        SRButtonLabel(title: "Try again", icon: "arrow.clockwise")
-                    }
-                    .srButton(.prominent)
-                    .accessibilityIdentifier("hometowns-map-retry")
+    }
+
+    @ViewBuilder private var errorCard: some View {
+        if let error = store.pageError {
+            VStack(spacing: 12) {
+                Text("The map couldn't load")
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                Text(error)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    store.pageError = nil
+                    store.pageLoading()
+                    if let url = store.pageURL { store.webView?.load(URLRequest(url: url)) }
+                } label: {
+                    SRButtonLabel(title: "Try again", icon: "arrow.clockwise")
                 }
-                .padding(SR.gutter)
-                .srGlassCard(.paper)
-                .padding(SR.gutter)
+                .srButton(.prominent)
+                .accessibilityIdentifier("hometowns-map-retry")
             }
+            .padding(SR.gutter)
+            .srGlassCard(.paper)
+            .padding(SR.gutter)
         }
-        #if DEBUG
-        .overlay(alignment: .topLeading) { HometownsDebugHUD(store: store) }
-        #endif
-        // The page boots with the wording, theme and motion of the moment;
-        // a parent switching a seat, dark mode or Reduce Motion later reaches
-        // it here (the page's `settings` takes each of them).
-        .onAppear { store.pageSettings(dark: colorScheme == .dark, reduceMotion: reduceMotion) }
-        .onChange(of: colorScheme) { _, scheme in store.pageSettings(dark: scheme == .dark, reduceMotion: reduceMotion) }
-        .onChange(of: reduceMotion) { _, on in store.pageSettings(dark: colorScheme == .dark, reduceMotion: on) }
-        .onChange(of: store.level) { _, _ in store.pageSettings(dark: colorScheme == .dark, reduceMotion: reduceMotion) }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Map of \(store.town?.name ?? "your town")")
-        .accessibilityIdentifier("hometowns-map")
     }
 }
 
