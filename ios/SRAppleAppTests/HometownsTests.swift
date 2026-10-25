@@ -40,7 +40,7 @@ final class HometownsTests: XCTestCase {
     }
 
     /// The bundled copy file: the app's, or the one beside the sources.
-    private func copy() throws -> HometownsCopy {
+    private func bundledCopy() throws -> HometownsCopy {
         if HometownsCopy.shared.has("tier.0") { return HometownsCopy.shared }
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let url = here.appendingPathComponent("../SRAppleApp/Games/Hometowns/hometowns-copy-en-GB.json")
@@ -348,7 +348,7 @@ final class HometownsTests: XCTestCase {
     }
 
     func testEverythingAFixtureAsksToSayHasWords() throws {
-        let copy = try copy()
+        let copy = try bundledCopy()
         XCTAssertTrue(copy.has("tier.0"), "the copy file is bundled")
         for name in Self.founded {
             let w = try wire(name)
@@ -400,7 +400,7 @@ final class HometownsTests: XCTestCase {
     }
 
     func testTheBuildTraysComeFromTheAffordances() throws {
-        let copy = try copy()
+        let copy = try bundledCopy()
         for name in Self.founded {
             let w = try wire(name)
             let me = try XCTUnwrap(w.me)
@@ -455,7 +455,7 @@ final class HometownsTests: XCTestCase {
     /// `deputy.json`: the hamlet whose mayor was away while Bramble's away
     /// zoning and growth help ran, so today's Deputy list has a build and zoning.
     func testBramblesBuildsAndZoningOfTodayComeFromTheFrame() throws {
-        let copy = try copy()
+        let copy = try bundledCopy()
         let w = try wire("deputy")
         let town = try XCTUnwrap(w.town)
         let today = w.deputyToday
@@ -519,7 +519,7 @@ final class HometownsTests: XCTestCase {
     }
 
     func testDeputyPlanIdsSayWhatBrambleDid() throws {
-        let copy = try copy()
+        let copy = try bundledCopy()
         XCTAssertEqual(try entry("deputy.3.zone").deputyKind, .zoned)
         XCTAssertEqual(try entry("deputy.3.market").deputyKind, .zoned)
         XCTAssertEqual(try entry("deputy.3.help.zone.industry").deputyKind, .zoned)
