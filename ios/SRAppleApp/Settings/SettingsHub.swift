@@ -687,6 +687,9 @@ struct AppleHealthScreen: View {
 struct AboutScreen: View {
     @ObservedObject private var update = AppUpdate.shared
     @State private var checking = false
+    /// Every release's notes, on request. Its own sheet: About is already
+    /// inside the router's one.
+    @State private var showingNotes = false
 
     private var version: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -718,6 +721,13 @@ struct AboutScreen: View {
                     .disabled(checking)
                     .srGlassRow()
                 }
+                Button { showingNotes = true } label: {
+                    SRRow(title: "What's new", icon: "sparkles") {
+                        Image(systemName: "chevron.right").foregroundStyle(SR.inkMuted)
+                    }
+                }
+                .srGlassRow()
+                .accessibilityIdentifier("about-whats-new")
                 Link(destination: SiteClient.shared.webURL("welcome")) {
                     SRRow(title: "Pairing on the web", icon: "safari") {
                         Image(systemName: "arrow.up.forward").foregroundStyle(SR.inkMuted)
@@ -763,5 +773,8 @@ struct AboutScreen: View {
         .srPaper()
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingNotes) {
+            WhatsNewSheet(releases: WhatsNew.all(owner: AccessStore.shared.current.owner), history: true)
+        }
     }
 }

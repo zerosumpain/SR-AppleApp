@@ -44,7 +44,12 @@ final class Router: ObservableObject {
     /// Files handed in from another app — "Open in SR" on a Share sheet.
     @Published var pendingFiles: [URL] = []
 
-    enum Sheet: String, Identifiable { case settings, alerts, connections, colours; var id: String { rawValue } }
+    /// What the What's new sheet shows, fixed when it is opened: the sheet
+    /// marks them seen as it appears, and must not empty itself as it does.
+    @Published var whatsNew: [WhatsNewRelease] = []
+    @Published var whatsNewHistory = false
+
+    enum Sheet: String, Identifiable { case settings, alerts, connections, colours, whatsNew; var id: String { rawValue } }
     /// Pages that live only inside More — not places with a tab of their own.
     /// Wildmind, like Daydream, is the owner's.
     enum MorePage: String, Hashable { case daydream, wildmind }
@@ -54,6 +59,17 @@ final class Router: ObservableObject {
     /// can redraw in the new colours while the reader is still choosing.
     func openColours() {
         sheet = .colours
+    }
+
+    /// After an update: what changed, once. Only into an empty slot — a
+    /// notification tap's sheet came first and keeps it; the notes wait.
+    func offerWhatsNew(owner: Bool) {
+        guard sheet == nil else { return }
+        let releases = WhatsNew.pending(owner: owner)
+        guard !releases.isEmpty else { return }
+        whatsNew = releases
+        whatsNewHistory = false
+        sheet = .whatsNew
     }
 
     func openSettings(_ target: SettingsTarget? = nil) {
@@ -435,6 +451,8 @@ struct ContentView: View {
             // Anything a quick action, a notification tap or a Shortcut left
             // waiting before there was a router to receive it.
             drainPending()
+            // First open after an update: what is in it.
+            router.offerWhatsNew(owner: access.current.owner)
             // The Watch mirrors this inbox and these connections, not a
             // transient store's empty ones.
             WatchBridge.shared.attach(alerts: alerts, connections: connections)
@@ -599,6 +617,8 @@ struct ContentView: View {
             ConnectionsSheet(store: connections)
         case .colours:
             SRPaletteSheet()
+        case .whatsNew:
+            WhatsNewSheet(releases: router.whatsNew, history: router.whatsNewHistory)
         }
     }
 
