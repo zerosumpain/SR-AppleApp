@@ -1010,6 +1010,40 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Play nearby, how to play Sea Battle")
     }
 
+    /// More → Travel kit: the five tools and Italy's essentials, then each
+    /// tool's page opened and photographed. Nothing listens, photographs or
+    /// asks for location here — each page is only opened — so no permission
+    /// prompt appears.
+    @MainActor func testShowcaseTravelKit() {
+        let app = launch()
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        openTab(app, "More")
+        settle(app, on: byId(app, "more-screen"))
+        let tile = byId(app, "more-travel")
+        guard scroll(app, to: tile) else { return soft(false, "no Travel kit card in More") }
+        tile.tap()
+        settle(app, on: byId(app, "travel-kit"), seconds: 2)
+        attach(app, "Showcase — Travel kit")
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — Travel kit, essentials")
+
+        let pages = [
+            ("translate", "travel-translate"), ("reader", "travel-reader"), ("phrases", "travel-phrasebook"),
+            ("money", "travel-money"),
+        ]
+        for (tool, page) in pages {
+            let card = byId(app, "travel-tool-\(tool)")
+            guard scroll(app, to: card) else { soft(false, "no \(tool) card"); continue }
+            card.tap()
+            soft(byId(app, page).waitForExistence(timeout: 5), "the \(tool) page did not open")
+            settle(app, seconds: 1)
+            attach(app, "Showcase — Travel kit, \(tool)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            settle(app, on: byId(app, "travel-kit"))
+        }
+    }
+
     /// Wordle Race: the new-game sheet opened from its card (set to Wordle,
     /// no game picker, difficulty lines from the Wordle table), then Sam's race half played —
     /// my three rows and the keyboard, Sam and Robin as colours only.
@@ -1377,6 +1411,18 @@ final class ShowcaseTests: XCTestCase {
             soft(byId(app, "chess-headline").label.contains("Your move"), "not my move")
             soft(byId(app, "chess-draw").exists, "no Draw button")
             soft(byId(app, "chess-resign").exists, "no Resign button")
+            // The board fills its box corner to corner. A hard check: the
+            // squares were once offset from the box's centre, drawn from the
+            // middle and clipped — only the top-left quarter showed, bottom
+            // right — and every soft check above still passed.
+            let board = byId(app, "chess-board").frame
+            let corners = [byId(app, "chess-square-a8"), byId(app, "chess-square-h1")].map(\.frame)
+            let topLeft = corners.min { $0.minX + $0.minY < $1.minX + $1.minY } ?? .zero
+            let bottomRight = corners.max { $0.minX + $0.minY < $1.minX + $1.minY } ?? .zero
+            XCTAssertLessThan(abs(topLeft.minX - board.minX), 3, "the board's first square is not at its left edge")
+            XCTAssertLessThan(abs(topLeft.minY - board.minY), 3, "the board's first square is not at its top edge")
+            XCTAssertLessThan(abs(bottomRight.maxX - board.maxX), 3, "the board's last square is not at its right edge")
+            XCTAssertLessThan(abs(bottomRight.maxY - board.maxY), 3, "the board's last square is not at its bottom edge")
             attach(app, "Showcase — Chess, my move")
             let knight = byId(app, "chess-square-f3")
             if knight.exists {

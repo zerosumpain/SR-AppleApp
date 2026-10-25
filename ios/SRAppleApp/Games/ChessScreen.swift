@@ -154,24 +154,33 @@ struct ChessBoardView: View {
     private var squares: some View {
         GeometryReader { geo in
             let side = floor(min(geo.size.width, geo.size.height) / 8 * 2) / 2
-            ZStack(alignment: .topLeading) {
-                ForEach(0..<64, id: \.self) { i in
-                    let square = self.square(atVisual: i)
-                    ChessSquareView(
-                        square: square,
-                        piece: board[square],
-                        side: side,
-                        selected: selected == square,
-                        target: targets.contains(square.name),
-                        recent: lastMove?.from == square.name || lastMove?.to == square.name,
-                        checked: checked == square,
-                        showsFile: i / 8 == 7,
-                        showsRank: i % 8 == 0,
-                        interactive: interactive,
-                        onTap: { onTap(square) }
-                    )
-                    .frame(width: side, height: side)
-                    .offset(x: CGFloat(i % 8) * side, y: CGFloat(i / 8) * side)
+            // Rows of squares, laid out — not 64 squares offset from one spot.
+            // An offset moves the drawing but not the layout, so the stack
+            // stayed one square big and its frame centred that square: the
+            // whole board was drawn from the middle of the box and clipped,
+            // leaving only its top-left quarter showing, bottom right.
+            VStack(spacing: 0) {
+                ForEach(0..<8, id: \.self) { row in
+                    HStack(spacing: 0) {
+                        ForEach(0..<8, id: \.self) { col in
+                            let i = row * 8 + col
+                            let square = self.square(atVisual: i)
+                            ChessSquareView(
+                                square: square,
+                                piece: board[square],
+                                side: side,
+                                selected: selected == square,
+                                target: targets.contains(square.name),
+                                recent: lastMove?.from == square.name || lastMove?.to == square.name,
+                                checked: checked == square,
+                                showsFile: row == 7,
+                                showsRank: col == 0,
+                                interactive: interactive,
+                                onTap: { onTap(square) }
+                            )
+                            .frame(width: side, height: side)
+                        }
+                    }
                 }
             }
             .frame(width: side * 8, height: side * 8)

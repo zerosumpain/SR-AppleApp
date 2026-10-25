@@ -70,6 +70,10 @@ targets:
         # Rendered by scripts/app-icons.py; actool writes their Info.plist
         # entries itself.
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
+        # The Travel kit translates on the phone with Apple's Translation
+        # framework, which exists from iOS 18. Weak, so an iOS 17 phone still
+        # launches — the kit says the translator needs iOS 18 instead.
+        OTHER_LDFLAGS: ["$(inherited)", "-weak_framework", "Translation"]
     scheme:
       testTargets: [SRAppleAppTests, SRAppleAppUITests]
   SRAppleAppTests:
