@@ -62,9 +62,12 @@ final class Router: ObservableObject {
     }
 
     /// After an update: what changed, once. Only into an empty slot — a
-    /// notification tap's sheet came first and keeps it; the notes wait.
+    /// notification tap's sheet came first and keeps it; the notes wait — and
+    /// only in front of somebody: a background relaunch builds the window too.
+    /// Asked on every return to the foreground, so notes that lost the race
+    /// to another modal are shown next time rather than next cold start.
     func offerWhatsNew(owner: Bool) {
-        guard sheet == nil else { return }
+        guard sheet == nil, UIApplication.shared.applicationState == .active else { return }
         let releases = WhatsNew.pending(owner: owner)
         guard !releases.isEmpty else { return }
         whatsNew = releases
@@ -451,8 +454,13 @@ struct ContentView: View {
             // Anything a quick action, a notification tap or a Shortcut left
             // waiting before there was a router to receive it.
             drainPending()
-            // First open after an update: what is in it.
-            router.offerWhatsNew(owner: access.current.owner)
+            // First open after an update: what is in it. A beat after the
+            // first frame, so it does not race the window's own first
+            // presentation; the foreground handler below asks again.
+            Task {
+                try? await Task.sleep(for: .milliseconds(700))
+                router.offerWhatsNew(owner: access.current.owner)
+            }
             // The Watch mirrors this inbox and these connections, not a
             // transient store's empty ones.
             WatchBridge.shared.attach(alerts: alerts, connections: connections)
@@ -489,6 +497,9 @@ struct ContentView: View {
             // A quick action taken while the app was merely backgrounded never
             // goes through `task`, which runs once per view lifetime.
             drainPending()
+            // Notes a background relaunch built the window for, or that lost
+            // to another sheet, are offered now.
+            router.offerWhatsNew(owner: access.current.owner)
             checkPersonal()
             Task {
                 await alerts.refresh()
