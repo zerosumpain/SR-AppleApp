@@ -42,6 +42,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case fireworks
     case manhunt
     case homestead
+    case hometowns
 
     var id: String { rawValue }
 
@@ -66,6 +67,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fireworks: return "Fireworks"
         case .manhunt: return "Manhunt"
         case .homestead: return "Homestead"
+        case .hometowns: return "Hometowns"
         }
     }
 
@@ -91,6 +93,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fireworks: return "Build the show together. You cannot see your own cards."
         case .manhunt: return "Hide and seek outdoors, on the map."
         case .homestead: return "Settle an island. Trade, build, race to the points."
+        case .hometowns: return "Build a town each around Kingsport. A year a day."
         }
     }
 
@@ -135,6 +138,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "One runner, everyone else hunts, outdoors inside a circle a parent sets. The hunters see each other on the map, but the runner only every few minutes. Get close and tap Catch; the runner wins if the clock runs out."
         case .homestead:
             return "Three to five of you settle an island. Roll for timber, clay, wool, grain and stone, trade with each other, build roads, cottages and towns, and watch out for the fox. First to the points wins. Play in one sitting or a turn a day."
+        case .hometowns:
+            return "Everyone builds a town of their own around Kingsport, and the county keeps going for months. Lay roads, paint homes and shops, and watch people move in. A game year passes every real day, towns grow while you're away, and the family settles up each evening. On your own is a real game too."
         }
     }
 
@@ -159,6 +164,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fireworks: return "sparkles"
         case .manhunt: return "figure.run"
         case .homestead: return "house.lodge.fill"
+        case .hometowns: return "building.2.fill"
         }
     }
 }
@@ -239,6 +245,8 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.homestead, .easy): return "8 points wins. A friendly fox, prices on show and trade tips."
         case (.homestead, .medium): return "10 points wins. Prices on show, and what you can afford."
         case (.homestead, .hard): return "10 points wins. No hints and the shortest turns."
+        // A county has no level: the host picks its rivalry instead (the sheet hides this).
+        case (.hometowns, _): return "Every county plays the same rules; rivalry is set for the county."
         }
     }
 
@@ -349,10 +357,15 @@ struct GameRoomSummary: Decodable, Equatable, Identifiable {
     var dueAt: Double? = nil
     /// The room's last write, server epoch ms. Nil for an in-memory room.
     var updatedAt: Double? = nil
+    /// The game's own line for the row (§10.12 F3), when it has one: a
+    /// county's "Sunnyvale · Town · 2,340 people · gift waiting". Absent from
+    /// an older site and from games without one.
+    var summary: String? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, game, phase, hostName
         case durable, pace, myTurn, waitingFor, dueAt, updatedAt
+        case summary
     }
 
     init(id: String, game: String, phase: GamePhase, hostName: String, durable: Bool = false,
@@ -375,6 +388,9 @@ struct GameRoomSummary: Decodable, Equatable, Identifiable {
         waitingFor = (try? c.decodeIfPresent([String].self, forKey: .waitingFor)) ?? []
         dueAt = (try? c.decodeIfPresent(Double.self, forKey: .dueAt)) ?? nil
         updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil
+        let line = ((try? c.decodeIfPresent(String.self, forKey: .summary)) ?? nil)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        summary = (line?.isEmpty ?? true) ? nil : line
     }
 }
 
@@ -925,6 +941,8 @@ struct CreateGameBody: Encodable, Equatable {
     var minutes: Int? = nil
     /// Homestead: the island size (`auto` | `standard` | `large`).
     var island: String? = nil
+    /// Hometowns: the county — its name, rivalry, Regional Day hour and mishaps (§10.12 F7).
+    var county: HometownsCountySetup? = nil
     /// A durable game's pace (`live` | `async`) and, over days, hours a turn
     /// (12 | 24 | 48). Sent only for a game the lobby lists in `paces`.
     var pace: String? = nil

@@ -128,12 +128,27 @@ enum YourGames {
     /// on nobody (a lobby, a finished game): the row says who hosts it.
     static func status(_ room: GameRoomSummary, atServer now: Double?) -> String? {
         guard room.durable else { return nil }
+        // A county has no turns: it waits on nobody, and its row says how the
+        // town is doing (the site's summary) and whether something is waiting
+        // for me — an offer, a vote, a gift, the Gazette. No deadline: a
+        // county never runs out of time.
+        if room.game == GameKind.hometowns.rawValue {
+            let base = room.summary ?? "Your county"
+            return room.myTurn ? "\(base) · something waiting" : base
+        }
         if room.myTurn {
             guard let due = room.dueAt, let now else { return "Your move" }
             return "Your move · \(GameDeadline.left(until: due, atServer: now))"
         }
         guard !room.waitingFor.isEmpty else { return nil }
         return "Waiting for \(GameNames.list(room.waitingFor))"
+    }
+
+    /// The row's pace line for a game played over days.
+    static func paceLine(_ room: GameRoomSummary) -> String {
+        room.game == GameKind.hometowns.rawValue
+            ? "A year a day · hosted by \(room.hostName)"
+            : "\(GamePace.async.label) · hosted by \(room.hostName)"
     }
 
     /// How many rooms are waiting on me — the chip's count.
