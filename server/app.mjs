@@ -109,6 +109,8 @@ function exactKeys(obj, allowed) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || Object.keys(obj).some(k => !allowed.includes(k))) fail(400, 'Unexpected fields');
 }
 const healthRecord = validateHealthRecord;
+/** The app's MotionKind raw values (ios/SRAppleApp/Motion.swift). */
+const MOTION_KINDS = ['stationary', 'walking', 'running', 'cycling', 'automotive', 'unknown'];
 function locationRecord(r) {
   // `battery` (whole percent) is optional: a phone older than the Family tab
   // does not send it, and a simulator cannot read it at all.
@@ -116,10 +118,15 @@ function locationRecord(r) {
   // owner's e-bike was connected to it over Bluetooth at the moment of the fix,
   // and leaves it out otherwise — so a phone with no bike set up sends exactly
   // what it sent before.
-  exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving', 'battery', 'bike']);
+  // `motion` is optional: what Core Motion said the phone was doing at the
+  // fix (the app's MotionKind), so SR-Main can tell a drive from a ride from
+  // a walk instead of guessing from speed. Absent from a phone that predates
+  // it, or one without motion permission.
+  exactKeys(r, ['id', 'recorded', 'latitude', 'longitude', 'accuracy', 'speed', 'moving', 'battery', 'bike', 'motion']);
   if (!string(r.id) || !iso(r.recorded) || Date.parse(r.recorded) > Date.now() + 300000 || !bounded(r.latitude, -90, 90) || !bounded(r.longitude, -180, 180) || !bounded(r.accuracy, 0, 10000) || !bounded(r.speed, 0, 400) || typeof r.moving !== 'boolean') fail(400, 'Invalid location');
   if (r.battery !== undefined && r.battery !== null && !(Number.isInteger(r.battery) && bounded(r.battery, 0, 100))) fail(400, 'Invalid location');
   if (r.bike !== undefined && r.bike !== null && r.bike !== true) fail(400, 'Invalid location');
+  if (r.motion !== undefined && r.motion !== null && !MOTION_KINDS.includes(r.motion)) fail(400, 'Invalid location');
   return { ...r, recorded: new Date(r.recorded).toISOString() };
 }
 /** How long an alert is kept, whether or not it was ever acknowledged. */
@@ -411,7 +418,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         const page = rows.slice(0, pageLimit);
         const fixes = page.map(r => {
           const p = JSON.parse(r.payload);
-          return { email: r.email, id: r.id, recorded: r.recorded, received: r.received, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving, battery: Number.isInteger(p.battery) ? p.battery : null };
+          return { email: r.email, id: r.id, recorded: r.recorded, received: r.received, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving, battery: Number.isInteger(p.battery) ? p.battery : null, motion: MOTION_KINDS.includes(p.motion) ? p.motion : null, bike: p.bike === true };
         });
         const last = page.at(-1);
         const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;

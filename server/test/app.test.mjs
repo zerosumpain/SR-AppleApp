@@ -965,6 +965,25 @@ test('a fix may carry a battery percentage, which the household lane passes on',
   }
 });
 
+test('a fix may carry how the phone was moving, and the household lane passes it and the bike mark on', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  const fixes = [
+    { ...location(), id: 'driving', motion: 'automotive' },
+    { ...location(), id: 'riding', motion: 'cycling', bike: true },
+    { ...location(), id: 'old-phone' },
+  ];
+  assert.equal((await request('sync', { method: 'POST', body: batch([], fixes) })).status, 200);
+  const { body } = await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  const by = id => body.fixes.find(f => f.id === id);
+  assert.deepEqual([by('driving').motion, by('driving').bike], ['automotive', false]);
+  assert.deepEqual([by('riding').motion, by('riding').bike], ['cycling', true]);
+  assert.deepEqual([by('old-phone').motion, by('old-phone').bike], [null, false]);
+  for (const bad of ['flying', '', 3, true]) {
+    assert.equal((await request('sync', { method: 'POST', body: batch([], [{ ...location(), id: `bad-${bad}`, motion: bad }]) })).status, 400);
+  }
+});
+
 // --- Household: onboarding (SR-Main /welcome, /admin/access/devices) -------
 
 const household = async (request, path, { method = 'GET', body, token = HOUSEHOLD_TOKEN } = {}) => {

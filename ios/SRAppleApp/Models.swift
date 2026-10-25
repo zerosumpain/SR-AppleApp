@@ -48,6 +48,11 @@ struct LocationRecord: Codable, Identifiable {
     /// `true` when the owner's e-bike was connected to this phone at the fix;
     /// otherwise absent, never `false` — see `BikePresence.connectedNow`.
     var bike: Bool? = nil
+    /// How Core Motion says the phone was moving at the fix (`MotionKind`'s
+    /// raw value), set when the fix is uploaded; absent when nothing confident
+    /// covers it, or motion permission is off. Old queued records decode
+    /// without it.
+    var motion: String? = nil
 }
 struct UploadBatch: Codable, Identifiable {
     var id = UUID()

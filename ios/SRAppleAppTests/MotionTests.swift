@@ -27,6 +27,26 @@ final class MotionTests: XCTestCase {
                        burstSeconds: burstSeconds, available: available)
     }
 
+    // MARK: - Tagging fixes at upload
+
+    func testAFixTakesTheConfidentClassificationThatCoversIt() {
+        let log = [interval(.walking, from: 0, seconds: 300), interval(.automotive, from: 300, seconds: 600),
+                   interval(.cycling, from: 900, seconds: 300, confidence: .low)]
+        XCTAssertEqual(MotionGate.kind(at: origin.addingTimeInterval(60), in: log), .walking)
+        XCTAssertEqual(MotionGate.kind(at: origin.addingTimeInterval(300), in: log), .automotive)
+        // Low confidence, or outside every interval: no answer rather than a guess.
+        XCTAssertNil(MotionGate.kind(at: origin.addingTimeInterval(1000), in: log))
+        XCTAssertNil(MotionGate.kind(at: origin.addingTimeInterval(5000), in: log))
+    }
+
+    func testAnUntaggedFixEncodesWithoutTheField() throws {
+        let fix = LocationRecord(recorded: "2026-10-25T08:00:00Z", latitude: 54.5, longitude: -1.5, accuracy: 5, speed: 1, moving: true)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(fix), as: UTF8.self).contains("motion"))
+        var tagged = fix
+        tagged.motion = MotionKind.cycling.rawValue
+        XCTAssertTrue(String(decoding: try JSONEncoder().encode(tagged), as: UTF8.self).contains("\"motion\":\"cycling\""))
+    }
+
     // MARK: - The two tests John asked for
 
     func testFiveMinutesOfConsistentStepsWakesGPS() {

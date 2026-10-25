@@ -34,6 +34,14 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-26-forecast", when: "October 2026", title: "Better guesses", items: [
+            WhatsNewItem(icon: "figure.walk.motion", title: "Walking, cycling or driving",
+                         detail: "The phone now says how you were moving, so journey times and arrival guesses stop mixing up a bike ride with a car."),
+            WhatsNewItem(icon: "heart.text.square", title: "Who sees your health",
+                         detail: "If you upload from Apple Health, John can now see your week as a summary - steps, sleep and workouts. You see your own on the website, nobody else does, and you can turn uploads off in Settings → Apple Health."),
+            WhatsNewItem(icon: "calendar.day.timeline.left", title: "The rest of today",
+                         detail: "The website lays out where everyone's routines usually take them for the rest of the day, and skips the school run in the holidays."),
+        ]),
         WhatsNewRelease(id: "2026-10-25-hometowns", when: "October 2026", title: "Build a town", items: [
             WhatsNewItem(icon: "building.2", title: "Hometowns",
                          detail: "In Games. Each of you builds a town around Kingsport, and a year passes every day. Playing alone, you can pause it."),

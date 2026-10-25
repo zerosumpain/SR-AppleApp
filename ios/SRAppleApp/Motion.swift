@@ -344,6 +344,30 @@ enum MotionAssessment {
         }
     }
 
+    /// How the phone was moving at each instant, read back from Core Motion's
+    /// own log in ONE query over the span — for tagging fixes as they are
+    /// uploaded, so SR-Main can tell a drive from a ride from a walk instead of
+    /// guessing from speed. Nil where nothing confident covers the instant, or
+    /// when motion is off: an absent answer, never a guessed one.
+    func kinds(at dates: [Date]) async -> [MotionKind?] {
+        guard let first = dates.min(), let last = dates.max(), refusalReason == nil, available else {
+            return dates.map { _ in nil }
+        }
+        // A classification starts before the fix it covers; look back for it.
+        let found = await intervals(from: first.addingTimeInterval(-Self.tagLookback), to: last.addingTimeInterval(1))
+        return dates.map { Self.kind(at: $0, in: found) }
+    }
+
+    /// How far before the first fix the tagging query starts.
+    nonisolated static let tagLookback: TimeInterval = 15 * 60
+
+    /// The classification covering `date`, if a medium-or-better one does. PURE.
+    nonisolated static func kind(at date: Date, in intervals: [MotionInterval]) -> MotionKind? {
+        guard let hit = intervals.last(where: { $0.start <= date && date < $0.end }),
+              hit.confidence >= .medium, hit.kind != .unknown else { return nil }
+        return hit.kind
+    }
+
     /// Several flags can be true at once. Ordered by how much a false negative
     /// would cost: missing that somebody is in a car matters far more than
     /// mislabelling a walk.
