@@ -83,7 +83,12 @@ struct DaydreamScreen: View {
         .onAppear { takeRequestedFilter() }
         .onChange(of: store.requestedFilter) { _, _ in takeRequestedFilter() }
         .task { await store.load(); await commissions.load() }
-        .srRefreshable { await store.load(); await commissions.load() }
+        .srRefreshable {
+            withAnimation(.easeOut(duration: 0.3)) { feedback.settleHeld() }
+            await store.load(); await commissions.load()
+        }
+        // Rated cards stay put while the page is read; they go once it is left.
+        .onDisappear { feedback.settleHeld() }
         .sheet(item: $commissions.destination) { destination in
             NavigationStack { CommissionDetailScreen(id: destination.id) }
         }
@@ -195,12 +200,12 @@ struct DaydreamScreen: View {
     /// everything shows. The site marks it; an older server marks none.
     private var livingPlan: DaydreamNote? {
         guard filter == .decide || filter == .all else { return nil }
-        return store.notes.first { $0.living && !shelf.isFiled($0) && feedback.reason(for: $0) != .notNow }
+        return store.notes.first { $0.living && !shelf.isFiled($0) && !feedback.isFiledNotNow($0) }
     }
 
     private var visibleNotes: [DaydreamNote] {
-        // "Not now" files a note on the site; it leaves here at once.
-        let held = store.notes.filter { !shelf.isFiled($0) && feedback.reason(for: $0) != .notNow }
+        // "Not now" files a note on the site; it leaves here once the page is left.
+        let held = store.notes.filter { !shelf.isFiled($0) && !feedback.isFiledNotNow($0) }
         guard let bucket = filter.bucket else { return held }
         return held.filter { store.bucket(for: $0, feedback: feedback, commissions: commissions) == bucket }
     }

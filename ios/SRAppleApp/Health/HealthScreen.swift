@@ -76,6 +76,7 @@ struct HealthScreen: View {
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
+            withAnimation(.easeOut(duration: 0.3)) { feedback.settleHeld() }
             async let summary: Void = store.load(fresh: true)
             async let deep: Void = hub.load(fresh: true)
             async let heartRate: Void = heart.load(companion: companion)
@@ -117,6 +118,8 @@ struct HealthScreen: View {
             case .verdict: if let v = hub.hub?.verdict { VerdictScreen(verdict: v) }
             }
         }
+        // A note rated here stays put while the tab is read; it goes once left.
+        .onDisappear { feedback.settleHeld() }
         .task {
             // The rings are local and answer at once; then the hero — one small
             // request — then the deep read and the heart-rate day together,
