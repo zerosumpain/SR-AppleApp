@@ -27,6 +27,22 @@ func isTransientUploadFailure(_ error: Error) -> Bool {
 func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgress && transient ? 5 : 60 }
 
 @MainActor final class Companion: ObservableObject {
+    /// Read-only use of the motion log, to tag fixes at upload (`withMotion`).
+    private let motionLog = MotionGate()
+
+    /// The batch as sent: each fix not yet tagged gets how the phone was moving
+    /// then, from one Core Motion history query. The queued copy is left as it
+    /// is — a retry simply asks again.
+    private func withMotion(_ batch: UploadBatch) async -> UploadBatch {
+        let untagged = batch.locations.indices.filter { batch.locations[$0].motion == nil }
+        let dates = untagged.compactMap { parseTimestamp(batch.locations[$0].recorded) }
+        guard !untagged.isEmpty, dates.count == untagged.count else { return batch }
+        let kinds = await motionLog.kinds(at: dates)
+        var sent = batch
+        for (index, kind) in zip(untagged, kinds) { sent.locations[index].motion = kind?.rawValue }
+        return sent
+    }
+
     let api = API()
     let outbox: Outbox
     let health: HealthCollector
@@ -350,7 +366,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                     try outbox.change { $0.batches.removeAll { $0.id == batch.id } }; continue
                 }
                 do {
-                    let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(batch), timeout: 60)
+                    let _: API.Acknowledgement = try await api.request("sync", method: "POST", data: JSONEncoder().encode(await withMotion(batch)), timeout: 60)
                 } catch CompanionError.response(let status, let reason) where HealthBatching.isRefusal(status: status) {
                     // Refused (400/413). Judge the batch as it stands now (the
                     // collector may have replaced records in it meanwhile).
