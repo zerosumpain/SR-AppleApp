@@ -1014,6 +1014,25 @@ final class ShowcaseTests: XCTestCase {
     /// tool's page opened and photographed. Nothing listens, photographs or
     /// asks for location here — each page is only opened — so no permission
     /// prompt appears.
+    /// The first open after an update. Hard asserts: it must appear when asked
+    /// for, and close on "Got it" — a splash that cannot be dismissed blocks the
+    /// whole app. Every other showcase launch proves it stays away in a demo.
+    @MainActor func testShowcaseWhatsNew() {
+        let app = launch(["-SRWhatsNew"])
+        let sheet = byId(app, "whats-new")
+        XCTAssertTrue(sheet.waitForExistence(timeout: 20), "What's new did not open")
+        settle(app, seconds: 1.5)
+        attach(app, "Showcase — What's new")
+        app.swipeUp()
+        settle(app)
+        attach(app, "Showcase — What's new, earlier")
+        let done = byId(app, "whats-new-done")
+        XCTAssertTrue(done.waitForExistence(timeout: 5), "no Got it button")
+        done.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5), "Got it did not close What's new")
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 10), "no Home tab behind it")
+    }
+
     @MainActor func testShowcaseTravelKit() {
         let app = launch()
         soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")

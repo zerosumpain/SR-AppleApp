@@ -17,6 +17,9 @@ import Combine
         // Before anything reads `SRDemo.isOn` (the site client, access):
         // a UI test's fresh install must not inherit an earlier review demo.
         ReviewDemo.prepareLaunch()
+        // Before Welcome can pair a fresh install, which would then look
+        // like an update and be shown every set of notes.
+        WhatsNew.prepareLaunch(paired: SiteClient.shared.isPaired)
         // Teach UIKit the palette before the first view is laid out. Doing it
         // later leaves one system-grey navigation bar on screen for a frame.
         SRChrome.install()
