@@ -154,7 +154,7 @@ struct MoreScreen: View {
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, wildmind, steps, tasks, backlog, messages, landgrab, offline, sync, settings
+        case daydream, wildmind, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
         case place(Router.Tab)
     }
 
@@ -173,6 +173,9 @@ struct MoreScreen: View {
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
         // News is the short door above the grid, not a square.
         all += places.filter { $0 != .news }.map(Item.place)
+        // The Travel kit: translation, signs, phrases, money, the way back.
+        // Everyone's, like Play nearby — it all runs on the phone.
+        all.append(.travel)
         // Play nearby: offline games over Bluetooth or a hotspot. Everyone's —
         // it never touches the site, so no pairing and no games access needed.
         all.append(.offline)
@@ -273,6 +276,20 @@ struct MoreScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("more-\(place.rawValue)")
+        case .travel:
+            Button {
+                SRHaptic.tap()
+                router.pushFromHub(TravelKitRef())
+            } label: {
+                MoreCard(
+                    icon: "airplane",
+                    fill: SR.accentDeep,
+                    title: "Travel kit",
+                    blurb: "Live translation, signs, phrases, money and the way back."
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("more-travel")
         case .offline:
             Button {
                 SRHaptic.tap()
