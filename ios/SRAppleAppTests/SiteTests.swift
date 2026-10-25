@@ -78,6 +78,23 @@ final class SiteTests: XCTestCase {
         XCTAssertFalse(AppUpdate.isNewer(build: "not a number", commit: "b", thanBuild: 120, commit: "a"))
     }
 
+    @MainActor func testOffersABuildTheOwnerSentWhateverThePhoneRuns() {
+        // Sent from /admin/access/app: older is a rollback, a rebuild of the
+        // same commit is still what was asked for, and a TestFlight copy takes it.
+        XCTAssertTrue(AppUpdate.shouldOffer(build: "118", commit: "a", pushed: true, adHoc: true, thanBuild: 120, commit: "b"))
+        XCTAssertTrue(AppUpdate.shouldOffer(build: "121", commit: "a", pushed: true, adHoc: false, thanBuild: 120, commit: "a"))
+        // Not the build it already runs, and nothing unreadable.
+        XCTAssertFalse(AppUpdate.shouldOffer(build: "120", commit: "b", pushed: true, adHoc: true, thanBuild: 120, commit: "b"))
+        XCTAssertFalse(AppUpdate.shouldOffer(build: "x", commit: "b", pushed: true, adHoc: true, thanBuild: 120, commit: "a"))
+    }
+
+    @MainActor func testTheFamilysBuildIsOfferedOnlyToAnAdHocCopy() {
+        XCTAssertTrue(AppUpdate.shouldOffer(build: "121", commit: "b", pushed: false, adHoc: true, thanBuild: 120, commit: "a"))
+        // TestFlight updates itself.
+        XCTAssertFalse(AppUpdate.shouldOffer(build: "121", commit: "b", pushed: false, adHoc: false, thanBuild: 120, commit: "a"))
+        XCTAssertFalse(AppUpdate.shouldOffer(build: "119", commit: "b", pushed: false, adHoc: true, thanBuild: 120, commit: "a"))
+    }
+
     @MainActor func testATestFlightCopyNeverAsks() {
         // The test host is a simulator build: no embedded profile, no commit.
         XCTAssertFalse(AppUpdate.isAdHoc)

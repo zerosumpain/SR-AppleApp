@@ -1,6 +1,12 @@
 import SwiftUI
 
-/// "Edit plan": the planning conversation, on the phone.
+/// "Tell the planner": the planning conversation, on the phone.
+///
+/// v8: what the planner answers with comes back as the same cards as the
+/// rest of the trip — a group of proposals to preview and use, a question
+/// to tap an answer to — never prose only. It opens at half height over the
+/// plan (`presentationDetents([.medium, .large])`), so the plan stays in
+/// view. Options from an older server show only when there are no proposals.
 ///
 /// The plan is developed by talking to the planner (`POST …/converse`,
 /// trips spec v2): "make the rest of today lighter", "swap the Vatican to
@@ -14,6 +20,11 @@ import SwiftUI
 struct TripConverseSheet: View {
     let tripId: String
     let date: String
+    /// Words to start from: "About “Dinner around 19:30”: ".
+    var initialDraft: String? = nil
+    /// Preview a proposal on its day's map: the presenter closes this sheet
+    /// and shows it there (the map is not under a half-height sheet).
+    var onPreview: ((TripProposal) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var network = TripNetwork.shared
@@ -29,25 +40,18 @@ struct TripConverseSheet: View {
         return nil
     }
     @State private var options: TripOptionsRequest?
+    @State private var compare: TripShapePager.ComparePair?
+    @State private var toast: TripChangeRecord?
     @FocusState private var typing: Bool
 
     /// What this person may do with the trip.
     private var can: TripAccess { store.bundles[tripId]?.can ?? .owner }
 
-    /// For someone who can ask but not change.
-    static let adviceStarters = [
-        "What's good near here for kids?",
-        "Is there time for an ice cream this afternoon?",
-        "What should I pack for tomorrow?",
-    ]
-
-    /// What to say when there is nothing yet to follow up.
-    static let starters = [
-        "We're running about 20 minutes late",
-        "Skip the next stop",
-        "Swap the next two",
-        "Make the rest of today lighter",
-    ]
+    /// Where the trip is: the starters follow it.
+    private var phase: TripPhase {
+        guard let trip = store.bundles[tripId]?.trip else { return .during }
+        return TripPhase.of(start: trip.startDate, end: trip.endDate, today: TripClock(trip.timeZone).localDate(Date()))
+    }
 
     var body: some View {
         NavigationStack {
@@ -69,24 +73,15 @@ struct TripConverseSheet: View {
                         if let last, !last.changes.isEmpty || !last.rejected.isEmpty {
                             changes(last)
                         }
-                        // v7: an open question answered with choices, each checked against its day.
-                        if let options = last?.options, !options.isEmpty, let bundle = store.bundles[tripId] {
-                            TripOptionCards(tripId: tripId, options: options, bundle: bundle)
+                        if let last { decisions(last) }
+                        if jobs.isRunning(key) {
+                            thinking.id("thinking")
                         }
-                        if case .running(let since, _) = jobs.states[key] {
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
-                                HStack(spacing: 8) {
-                                    ProgressView()
-                                    Text("The planner is thinking… \(max(0, Int(context.date.timeIntervalSince(since)))) s")
-                                        .font(SR.Text.secondary(13))
-                                        .foregroundStyle(SR.inkMuted)
-                                        .monospacedDigit()
-                                    Spacer(minLength: 4)
-                                    Button("Cancel") { jobs.cancel(key) }
-                                        .font(SR.Text.label(12))
-                                }
-                            }
-                            .id("thinking")
+                        // Offline "Running late" and friends: the phone's own
+                        // options, inline — never a sheet over this sheet.
+                        if let request = options {
+                            TripOptionsPanel(request: request, close: { options = nil })
+                                .id(request.id)
                         }
                         if let failure {
                             Label(failure, systemImage: "exclamationmark.triangle")
@@ -96,13 +91,16 @@ struct TripConverseSheet: View {
                     }
                     .padding(SR.gutter)
                 }
+                .onChange(of: options?.id) { _, id in
+                    if let id { withAnimation { scroller.scrollTo(id, anchor: .bottom) } }
+                }
                 .onChange(of: messages.count) { _, _ in
                     withAnimation { scroller.scrollTo(messages.last?.id ?? "thinking", anchor: .bottom) }
                 }
             }
             .safeAreaInset(edge: .bottom) { composer }
             .srPaper()
-            .navigationTitle(can.canEdit ? "Edit plan" : "Ask the planner")
+            .navigationTitle(can.canEdit ? "Tell the planner" : "Ask the planner")
             .safeAreaInset(edge: .top) {
                 // v5: someone who can't change this trip gets advice, said plainly.
                 if !can.canEdit {
@@ -122,12 +120,102 @@ struct TripConverseSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
-            .sheet(item: $options) { request in
-                TripOptionsSheet(request: request)
-                    .presentationDetents([.medium, .large])
+            .navigationDestination(item: $compare) { pair in
+                TripCompareView(left: pair.left, right: pair.right, tripId: tripId) { change in show(change) }
+            }
+            .overlay(alignment: .top) {
+                if let toast {
+                    TripChangesToast(change: toast)
+                        .padding(.top, 4)
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: toast?.id)
+            .onAppear {
+                if let initialDraft, draft.isEmpty {
+                    draft = initialDraft
+                    typing = true
+                }
             }
         }
         .accessibilityIdentifier("trip-converse")
+    }
+
+    // MARK: What the planner answered with
+
+    /// The turn's proposals as the same pager as everywhere, its questions as
+    /// the same cards — and an older server's options only when it sent no
+    /// proposals.
+    @ViewBuilder
+    private func decisions(_ result: ConverseResult) -> some View {
+        let zone = TripClock(store.bundles[tripId]?.trip.timeZone ?? "UTC").zone
+        let groups = TripDecisions.groups(result.proposals?.map(latestProposal), bundle: store.bundles[tripId], zone: zone)
+        ForEach(groups) { group in
+            TripProposalPager(
+                group: group, tripId: tripId,
+                onPreview: onPreview,
+                onCompare: { a, b in compare = TripShapePager.ComparePair(left: a, right: b) },
+                onChange: { show($0) }
+            )
+            .padding(.vertical, 4)
+        }
+        ForEach(decidedHere(result), id: \.self) { line in
+            Label(line, systemImage: "checkmark.circle")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(TripPalette.confirmed)
+        }
+        let open = (result.questions ?? []).filter { q in store.decided[q.id] == nil && q.status == .open }
+        ForEach(open) { question in
+            TripQuestionCard(question: latestQuestion(question), tripId: tripId, onChange: { show($0) })
+        }
+        // v7: an open question answered with choices, each checked against its day.
+        if (result.proposals ?? []).isEmpty, let options = result.options, !options.isEmpty, let bundle = store.bundles[tripId] {
+            TripOptionCards(tripId: tripId, options: options, bundle: bundle)
+        }
+    }
+
+    /// The trip's own copy of a proposal (re-checked, or decided) when it has one.
+    private func latestProposal(_ p: TripProposal) -> TripProposal {
+        if let kept = store.bundles[tripId]?.proposals?.first(where: { $0.id == p.id }) { return kept }
+        var gone = p
+        if store.decided[p.id] != nil { gone.status = .accepted }
+        return gone
+    }
+
+    private func latestQuestion(_ q: TripQuestion) -> TripQuestion {
+        store.bundles[tripId]?.questions?.first { $0.id == q.id } ?? q
+    }
+
+    /// "Used Palazzo Altemps", "You answered: carry on" — what this turn's
+    /// cards became, so the conversation reads as it went.
+    private func decidedHere(_ result: ConverseResult) -> [String] {
+        let used = (result.proposals ?? []).filter { store.decided[$0.id] == "Used" }.map { "Used \($0.title)" }
+        let answered = (result.questions ?? []).compactMap { store.decided[$0.id] }
+        return used + answered
+    }
+
+    private func show(_ change: TripChangeRecord) {
+        toast = change
+        let id = change.id
+        Task {
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if toast?.id == id { toast = nil }
+        }
+    }
+
+    /// Staged progress when the server reports it ("Looking for places near
+    /// the stay"), else a calm line — never a seconds counter.
+    private var thinking: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+            Text(jobs.stages[key]?.first { $0.state == .running }.map { $0.label + "…" } ?? "The planner is working on it…")
+                .font(SR.Text.secondary(13))
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button("Cancel") { jobs.cancel(key) }
+                .font(SR.Text.title(14))
+        }
+        .accessibilityElement(children: .combine)
     }
 
     /// What the server has stored, then — until the re-read trip carries
@@ -161,10 +249,10 @@ struct TripConverseSheet: View {
                         .onSubmit { send(draft) }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .srGlass(.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .srGlass(.paper, in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
                         .accessibilityIdentifier("trip-converse-field")
                     Button { send(draft) } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
+                        Image(systemName: "arrow.up.circle.fill").font(SR.Text.display(30))
                     }
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
                     .accessibilityLabel("Send")
@@ -180,15 +268,14 @@ struct TripConverseSheet: View {
 
     private var quickReplies: some View {
         let replies = (last?.quickReplies.isEmpty == false ? last?.quickReplies : nil)
-            ?? (can.canEdit ? Self.starters : Self.adviceStarters)
+            ?? TripDecisions.starters(phase: phase, canEdit: can.canEdit)
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(replies, id: \.self) { reply in
                     Button { send(reply) } label: {
-                        Text(reply).font(SR.Text.secondary(13)).lineLimit(1)
+                        TripChip(reply, style: .nudge)
                     }
-                    .srButton(.regular)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
                     .disabled(sending)
                 }
             }
@@ -210,14 +297,14 @@ struct TripConverseSheet: View {
                     ForEach([10, 20, 30, 45], id: \.self) { minutes in
                         Button("\(minutes) min") { late(minutes) }
                     }
-                } label: { SRButtonLabel(title: "Running late", icon: "clock") }
+                } label: { TripButtonLabel("Running late", icon: "clock") }
                 Menu {
                     ForEach(skippable, id: \.id) { stop in
                         Button(stop.title) { skip(stop) }
                     }
-                } label: { SRButtonLabel(title: "Skip", icon: "forward") }
+                } label: { TripButtonLabel("Skip", icon: "forward") }
                 .disabled(skippable.isEmpty)
-                Button { swap() } label: { SRButtonLabel(title: "Swap", icon: "arrow.up.arrow.down") }
+                Button { swap() } label: { TripButtonLabel("Swap", icon: "arrow.up.arrow.down") }
                     .disabled(swappable == nil)
             }
             .srButton(.regular)
@@ -315,7 +402,7 @@ struct TripMessageBubble: View {
                     .foregroundStyle(SR.cream)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .srGlass(.ink, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .srGlass(.ink, in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
             }
             .accessibilityLabel("You: \(message.text)")
         case .assistant:
@@ -336,7 +423,7 @@ struct TripMessageBubble: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .srGlass(.paper, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .srGlass(.paper, in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
                 Spacer(minLength: 48)
             }
             .accessibilityElement(children: .combine)
@@ -392,9 +479,8 @@ struct TripOptionCards: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("CHOOSE ONE · CHECKED AGAINST YOUR DAY")
-                .font(SR.Text.label(10))
-                .tracking(1)
+            Text("Choose one — each is checked against your day")
+                .font(SR.Text.label(12))
                 .foregroundStyle(SR.inkMuted)
             ForEach(options) { option in card(option) }
             if let message {
@@ -436,9 +522,9 @@ struct TripOptionCards: View {
             }
             Button { choose(option, stage: stage) } label: {
                 if busy == option.id { ProgressView() } else if done.contains(option.id) {
-                    SRButtonLabel(title: editor ? "Added" : "Suggested", icon: "checkmark")
+                    TripButtonLabel(editor ? "Added" : "Suggested", icon: "checkmark")
                 } else {
-                    SRButtonLabel(title: editor ? "Add this" : "Suggest this", icon: "plus", fill: true)
+                    TripButtonLabel(editor ? "Add this" : "Suggest this", icon: "plus", fill: true)
                 }
             }
             .srButton(.prominent)

@@ -2033,7 +2033,190 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Trip, a way on shown on the map")
     }
 
+    /// v8 — propose, research, ask: every new trip screen, photographed so
+    /// each is judged on a screen before it ships (plan §5.5). The start flow,
+    /// its research and the shapes; the planning home with a question, a
+    /// proposal, a swap, a comparison and what changed; and the day.
+    ///
+    /// The screens are found by the identifiers the planning batch gives them
+    /// (`trips.start`, `trips.start.research`, `trips.shapes`,
+    /// `trip.planningHome`, `trip.question.card`, `trip.proposal.card`,
+    /// `trip.swap`, `trip.compare`, `trip.changes`). Each part starts from a
+    /// fresh launch and every lookup is soft: what is found is photographed,
+    /// what is not is noted, and the run never fails on a missing screen.
+    @MainActor func testShowcaseTrips() {
+        // 1. Starting a trip: the guided start, its research, the shapes.
+        var app = launch()
+        if openTripsList(app) {
+            let new = byId(app, "trip-new-button")
+            if new.waitForExistence(timeout: 5) {
+                new.tap()
+                if reach(app, "trips.start") {
+                    attach(app, "Showcase — Trips v8, start a trip")
+                    advanceStart(app)
+                    if reach(app, "trips.start.research", seconds: 10) {
+                        attach(app, "Showcase — Trips v8, researching")
+                    }
+                    if reach(app, "trips.shapes", seconds: 20) {
+                        attach(app, "Showcase — Trips v8, choose a shape")
+                        app.swipeLeft()
+                        settle(app)
+                        attach(app, "Showcase — Trips v8, choose a shape, the second")
+                    }
+                }
+            } else {
+                soft(false, "no New trip button on the Trips list")
+            }
+        }
+
+        // 2. Planning before you go.
+        app = launch()
+        if openTripsList(app), openPlanningHome(app) {
+            attach(app, "Showcase — Trips v8, planning home")
+
+            let question = byId(app, "trip.question.card")
+            if scroll(app, to: question) {
+                settle(app)
+                attach(app, "Showcase — Trips v8, a quick question")
+            } else {
+                soft(false, "no question card on the planning home")
+            }
+
+            let proposal = byId(app, "trip.proposal.card")
+            if scroll(app, to: proposal) {
+                settle(app)
+                attach(app, "Showcase — Trips v8, a proposal")
+            } else {
+                soft(false, "no proposal card on the planning home")
+            }
+
+            // What changed: on the page already, or after answering the
+            // question with its first answer.
+            let changes = byId(app, "trip.changes")
+            if !scroll(app, to: changes, swipes: 4), scroll(app, to: question, swipes: 4) {
+                let answer = question.buttons.firstMatch
+                if answer.exists { answer.tap() }
+            }
+            if changes.waitForExistence(timeout: 8) || scroll(app, to: changes, swipes: 4) {
+                settle(app)
+                attach(app, "Showcase — Trips v8, what changed")
+            } else {
+                soft(false, "no What changed card")
+            }
+        }
+
+        // 3. Swap a stop, then compare two of its alternatives.
+        app = launch()
+        if openTripsList(app), openPlanningHome(app) {
+            if tapFirst(app, ids: ["trip.swap.open", "trip.stop.swap", "trip.proposal.swap"], labels: ["Swap", "Swap a stop", "Swap it"]),
+               reach(app, "trip.swap") {
+                attach(app, "Showcase — Trips v8, swap a stop")
+                if tapFirst(app, ids: ["trip.compare.open", "trip.swap.compare"], labels: ["Compare"]), reach(app, "trip.compare") {
+                    attach(app, "Showcase — Trips v8, compare two")
+                }
+            } else {
+                soft(false, "no way into a swap from the planning home")
+            }
+        }
+
+        // 4. The day itself, as the trip runs.
+        app = launch()
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        let card = byId(app, "today-trip")
+        settle(app, on: card)
+        if scroll(app, to: card) {
+            card.tap()
+            settle(app, on: byId(app, "trip-day-map"), seconds: 4)
+            attach(app, "Showcase — Trips v8, the day")
+        } else {
+            soft(false, "no trip card on Today")
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Whether an element with this identifier turns up within `seconds`,
+    /// noted softly when it does not.
+    @MainActor private func reach(_ app: XCUIApplication, _ id: String, seconds: TimeInterval = 15) -> Bool {
+        let element = byId(app, id)
+        guard element.waitForExistence(timeout: seconds) else {
+            soft(false, "no \(id)")
+            return false
+        }
+        settle(app, seconds: 1.5)
+        return true
+    }
+
+    /// The Trips list: from the hub's Trips door, else through today's trip
+    /// (its ••• → All days → back).
+    @MainActor private func openTripsList(_ app: XCUIApplication) -> Bool {
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        let list = byId(app, "trips-screen")
+        if app.openTab("Trips", timeout: 10), list.waitForExistence(timeout: 10) {
+            settle(app)
+            return true
+        }
+        let card = byId(app, "today-trip")
+        guard scroll(app, to: card) else {
+            soft(false, "no way to the Trips list")
+            return false
+        }
+        card.tap()
+        settle(app, on: byId(app, "trip-day-screen"))
+        guard openAllDays(app) else { return false }
+        settle(app)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        guard list.waitForExistence(timeout: 10) else {
+            soft(false, "no Trips list")
+            return false
+        }
+        settle(app)
+        return true
+    }
+
+    /// The first trip on the list whose page is the planning home — the demo's
+    /// trip still to come.
+    @MainActor private func openPlanningHome(_ app: XCUIApplication) -> Bool {
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'trip-row-'"))
+        let count = min(rows.count, 4)
+        for index in 0..<count {
+            let row = rows.element(boundBy: index)
+            guard scroll(app, to: row, swipes: 3) else { continue }
+            row.tap()
+            if byId(app, "trip.planningHome").waitForExistence(timeout: 8) {
+                settle(app, seconds: 2)
+                return true
+            }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            settle(app, on: byId(app, "trips-screen"))
+        }
+        soft(false, "no trip opened on its planning home")
+        return false
+    }
+
+    /// Through the guided start's steps until its research shows: whichever
+    /// of the usual ways on is there.
+    @MainActor private func advanceStart(_ app: XCUIApplication) {
+        for _ in 0..<6 {
+            if byId(app, "trips.start.research").exists || byId(app, "trips.shapes").exists { return }
+            guard tapFirst(app, ids: ["trips.start.next", "trips.start.go", "trips.start.continue", "trips.start.plan"],
+                           labels: ["Next", "Continue", "Start planning", "Plan it"]) else { return }
+            settle(app, seconds: 1)
+        }
+    }
+
+    /// Taps the first of these that is on screen, by identifier then by label.
+    @MainActor private func tapFirst(_ app: XCUIApplication, ids: [String], labels: [String]) -> Bool {
+        for id in ids {
+            let element = byId(app, id)
+            if element.exists && element.isHittable { element.tap(); return true }
+        }
+        for label in labels {
+            let button = app.buttons[label].firstMatch
+            if button.exists && button.isHittable { button.tap(); return true }
+        }
+        return false
+    }
 
     /// From the Day screen to the whole trip, by its ••• menu.
     @MainActor private func openAllDays(_ app: XCUIApplication) -> Bool {

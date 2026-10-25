@@ -478,6 +478,8 @@ enum TripReplan {
             let d = departureFrame(ctx, leaves, stay)
             frame.departure = d
             frame.dayEndMin = min(frame.dayEndMin, d.leaveMin - stayHandlingMin)
+            // An early flight or train: the morning starts in time to check out and collect the bags before leaving.
+            frame.dayStartMin = min(frame.dayStartMin, d.leaveMin - stayHandlingMin * (d.checkOut ? 2 : 1))
             frame.activeEndMin = min(frame.activeEndMin ?? frame.dayEndMin, frame.dayEndMin)
         }
         return frame
@@ -706,6 +708,9 @@ enum TripReplan {
 
     static let networkFactor = 1.3
     static let transitOverheadSec = 15.0 * 60
+    /// Transit beyond this many route metres is a train, at `transitLongKmh`.
+    static let transitCityM = 10_000.0
+    static let transitLongKmh = 50.0
     static func kmh(_ mode: TravelMode) -> Double {
         switch mode {
         case .walk: return 4.8
@@ -726,7 +731,9 @@ enum TripReplan {
     static func estimateLeg(_ a: TripLatLng, _ b: TripLatLng, _ mode: TravelMode) -> (seconds: Double, metres: Double) {
         let metres = js.round(haversineM(a, b) * networkFactor)
         if metres == 0 { return (0, 0) }
-        let travel = metres / ((kmh(mode) * 1000) / 3600)
+        let speed = { (k: Double) in (k * 1000) / 3600 }
+        let long = mode == .transit ? max(0, metres - transitCityM) : 0
+        let travel = (metres - long) / speed(kmh(mode)) + long / speed(transitLongKmh)
         let overhead = mode == .transit ? transitOverheadSec : mode == .taxi ? TravelMode.taxiPickupSec : 0
         return (js.round(travel + overhead), metres)
     }
@@ -1308,15 +1315,18 @@ enum TripReplan {
         // v4: breakfast at the stay just before setting off at `atMin`;
         // on a departure day "Check out" follows it.
         let bf = js.round(breakfastWindow.durationSec / 60)
-        let start = stayStartStop(frame, atMin: frame.stay != nil ? atMin - bf : atMin)
+        // An early departure: no breakfast at the stay before its window opens — it is had on the way.
+        let skipBreakfast = frame.departure != nil && atMin - bf < breakfastWindow.fromMin
+        var start = stayStartStop(frame, atMin: frame.stay != nil && !skipBreakfast ? atMin - bf : atMin)
+        if skipBreakfast, frame.stay != nil { start?.warnings.append("Early start — breakfast on the way") }
         if let start, let stay = frame.stay {
             let breakfast = PlannedStop(
                 id: "meal:\(frame.date):breakfast", kind: .meal, wishId: nil, title: "Breakfast", location: stay.location,
                 arriveMin: atMin - bf, departMin: atMin, waitSec: 0, locked: false, bookingId: nil,
                 warnings: breakfastWarnings(atMin - bf)
             )
-            var prefixStops = [start, breakfast]
-            var prefixLegs = [legOf(start.id, breakfast.id, zeroLeg)]
+            var prefixStops = skipBreakfast ? [start] : [start, breakfast]
+            var prefixLegs = skipBreakfast ? [] : [legOf(start.id, breakfast.id, zeroLeg)]
             if frame.departure?.checkOut == true {
                 let by = stay.checkOutMin ?? 0
                 let checkOut = PlannedStop(
@@ -1325,7 +1335,7 @@ enum TripReplan {
                     locked: false, bookingId: nil,
                     warnings: atMin + stayHandlingMin > by ? ["Check-out is by \(fmtMin(by))"] : []
                 )
-                prefixLegs.append(legOf(breakfast.id, checkOut.id, zeroLeg))
+                prefixLegs.append(legOf(prefixStops[prefixStops.count - 1].id, checkOut.id, zeroLeg))
                 prefixStops.append(checkOut)
             }
             let last = prefixStops[prefixStops.count - 1]
@@ -1432,6 +1442,12 @@ enum TripReplan {
             } else {
                 let legMin = travel(target, item.id)
                 travelMin += legMin
+                // A slot hours away while still at the stay (an idea on an otherwise
+                // free day): stay put until it is time to go, rather than wait there.
+                if let fixed = item.fixedStartMin, let stay = frame.stay, point == stayPoint(stay.id),
+                   fixed - legMin - t > dinnerNearStayAfterMin {
+                    t = fixed - legMin
+                }
                 arrive = t + legMin
             }
             var begin = arrive

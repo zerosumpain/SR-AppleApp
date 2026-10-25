@@ -35,6 +35,13 @@ enum TripDayGeometry {
 /// pins by stage, a ghost under a proposed change — painted on MapLibre so
 /// it works offline. Tapping a pin hands it back (`onTap`); tapping nothing
 /// hands back nil.
+///
+/// The pins are drawn into the map's style, so MapLibre knows nothing of them
+/// as things to read out. Each pin on screen is also a VoiceOver element of
+/// its own ("3. Trevi Fountain, 14:20"), where it is drawn, and activating
+/// one does what tapping it does (plan §5.5). They sit beside the map in a
+/// host view: `MLNMapView` answers VoiceOver's questions about its own
+/// elements itself, so elements put on it would never be asked for.
 struct TripSceneMap: UIViewRepresentable {
     let scene: TripMapScene.Scene
     var showsUser = false
@@ -53,7 +60,7 @@ struct TripSceneMap: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> MLNMapView {
+    func makeUIView(context: Context) -> TripMapHost {
         let map = MLNMapView(frame: .zero, styleURL: SRMapStyle.url)
         map.delegate = context.coordinator
         map.logoView.isHidden = true
@@ -69,11 +76,14 @@ struct TripSceneMap: UIViewRepresentable {
             if let double = other as? UITapGestureRecognizer, double.numberOfTapsRequired == 2 { tap.require(toFail: double) }
         }
         map.addGestureRecognizer(tap)
+        let host = TripMapHost(map: map)
+        context.coordinator.host = host
         context.coordinator.apply(self, to: map)
-        return map
+        return host
     }
 
-    func updateUIView(_ map: MLNMapView, context: Context) {
+    func updateUIView(_ host: TripMapHost, context: Context) {
+        let map = host.map
         let wantsUser = showsUser && !SRDemo.isOn
         if map.showsUserLocation != wantsUser { map.showsUserLocation = wantsUser }
         context.coordinator.apply(self, to: map)
@@ -85,6 +95,8 @@ struct TripSceneMap: UIViewRepresentable {
         static let markerLayer = "sr-trip-marker"
 
         private var latest: TripSceneMap?
+        /// Where the pins' VoiceOver elements live.
+        weak var host: TripMapHost?
         private var drawn: TripMapScene.Scene?
         private var drawnMarker: CLLocationCoordinate2D?
         private var framedToken: Int?
@@ -105,6 +117,13 @@ struct TripSceneMap: UIViewRepresentable {
                 drawnMarker = spec.marker
             }
             place(spec, map)
+            host?.speak(spec, on: map)
+        }
+
+        /// The camera settled: the pins are somewhere else on the screen.
+        func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+            guard let spec = latest else { return }
+            host?.speak(spec, on: mapView)
         }
 
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
@@ -282,6 +301,68 @@ struct TripSceneMap: UIViewRepresentable {
             layer.circleStrokeWidth = NSExpression(forConstantValue: 2.5)
             style.addLayer(layer)
         }
+    }
+}
+
+/// The map and, beside it, its pins as VoiceOver elements. Touches go to the
+/// map as before: the host draws nothing and the elements are not views.
+final class TripMapHost: UIView {
+    let map: MLNMapView
+    private var pins: [TripPinElement] = []
+
+    init(map: MLNMapView) {
+        self.map = map
+        super.init(frame: .zero)
+        map.frame = bounds
+        map.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(map)
+        accessibilityElements = [map]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private var latest: TripSceneMap?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        map.frame = bounds
+        if let latest { speak(latest, on: map) }
+    }
+
+    /// One element per labelled pin on screen, in the plan's order, framed
+    /// where the pin is drawn: a 44-point square, the tap's own reach. A pin
+    /// off the edge, or under the drawer, is left out — VoiceOver would
+    /// otherwise point at something nobody can see.
+    func speak(_ spec: TripSceneMap, on map: MLNMapView) {
+        latest = spec
+        guard map.bounds.width > 0 else { return }
+        let visible = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - spec.bottomInset))
+        pins = spec.scene.pins.compactMap { pin in
+            guard let label = pin.label else { return nil }
+            let point = map.convert(CLLocationCoordinate2D(latitude: pin.at.lat, longitude: pin.at.lng), toPointTo: self)
+            guard visible.contains(point) else { return nil }
+            let element = TripPinElement(accessibilityContainer: self)
+            element.accessibilityLabel = label
+            element.accessibilityFrameInContainerSpace = CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44)
+            if let onTap = spec.onTap {
+                element.accessibilityTraits = .button
+                element.activate = { onTap(pin) }
+            }
+            return element
+        }
+        accessibilityElements = (pins as [Any]) + [map]
+    }
+}
+
+/// A pin, to VoiceOver: activating it is tapping it.
+final class TripPinElement: UIAccessibilityElement {
+    var activate: (() -> Void)?
+
+    override func accessibilityActivate() -> Bool {
+        guard let activate else { return false }
+        activate()
+        return true
     }
 }
 
@@ -482,7 +563,7 @@ struct TripOfflineRow: View {
             Button {
                 SRHaptic.tap()
                 if network.unmetered { start() } else { askCellular = true }
-            } label: { SRButtonLabel(title: readyCount > 0 ? "The rest" : "Download", icon: "arrow.down.circle") }
+            } label: { TripButtonLabel(readyCount > 0 ? "The rest" : "Download", icon: "arrow.down.circle") }
                 .srButton(.regular)
                 .disabled(!network.online || SRDemo.isOn)
         }

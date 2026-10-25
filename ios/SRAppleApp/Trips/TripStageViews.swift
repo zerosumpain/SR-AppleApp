@@ -21,7 +21,8 @@ extension EnvironmentValues {
 
 extension DayStage {
     /// Its colour: the light at that time of day, as on the map.
-    var color: Color { Color(hex: TripMapScene.stageColor(self)) }
+    /// v8: the trip palette's, so the evening lifts in dark mode (#5A55A8).
+    var color: Color { TripPalette.stage(self) }
 
     /// "the morning", for sentences.
     var phrase: String {

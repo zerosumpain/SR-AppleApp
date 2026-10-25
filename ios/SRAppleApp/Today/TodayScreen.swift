@@ -463,6 +463,7 @@ struct TodayScreen: View {
                 case .day(let day): router.openTrips(day: day)
                 case .list: router.openTrips()
                 case .plan: router.openTrips(start: true)
+                case .questions(let trip, let question): router.openTrip(TripLink(tripId: trip, date: nil, questionId: question))
                 }
             }
         case .moves:

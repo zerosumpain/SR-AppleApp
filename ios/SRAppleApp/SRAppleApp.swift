@@ -40,6 +40,10 @@ import Combine
         // not registered when a notification arrives shows it with no buttons,
         // on the phone and on the Watch alike.
         UNUserNotificationCenter.current().setNotificationCategories(AlertActions.categories)
+        // v8: and each open trip question's own buttons, merged into those —
+        // now from the trips saved on the phone, and again whenever they
+        // are re-read (`TripQuestionPushes`).
+        TripQuestionAlerts.shared.start()
         // A push token on every launch; the site is handed it once paired.
         PushRegistration.shared.start(application)
         // The family journey: a site-started Live Activity wakes the app in
@@ -95,6 +99,10 @@ import Combine
                     // And whether this phone's OWN uploads have stalled — told
                     // once, to whoever holds it, owner or not.
                     await PersonalHealthCheck.backgroundPass(outbox: companion.outbox, paired: companion.paired)
+                    // Last, and only for a phone that already follows trips:
+                    // re-read them (each on its ETag), so an open question's
+                    // buttons are registered before its push arrives.
+                    await AppDelegate.refreshTripsInBackground()
                     task.setTaskCompleted(success: companion.queueCount == 0)
                 }
                 task.expirationHandler = { work.cancel() }
@@ -161,6 +169,15 @@ import Combine
         )
     }
 
+    /// The trips, from the background refresh: at most hourly, and only on a
+    /// phone that already holds some — a phone with no trips has no question
+    /// to be asked. `TripQuestionAlerts` registers whatever the re-read brings.
+    static func refreshTripsInBackground() async {
+        let access = AccessStore.shared.current
+        guard access.owner || access.family, !TripStore.shared.summaries.isEmpty else { return }
+        await TripStore.shared.refreshIfStale(after: 3600)
+    }
+
     /// A "msg family" reply from a notification's button. Said on a local
     /// notification only when it did not land.
     static func replyToFamily(_ messageId: String, _ body: String) async {
@@ -202,6 +219,13 @@ import Combine
         if category == FamilyAlarmStore.cancelCategory, let id = info["alarmId"] as? String {
             FamilyAlarmStore.shared.cancelled(id)
             return [.banner, .list]
+        }
+        // A build the owner sent this phone, with the app open: ask the site
+        // now, and the app's own prompt offers it. The banner would say the
+        // same thing twice.
+        if category == AppUpdate.pushCategory {
+            Task { await AppUpdate.shared.check(force: true) }
+            return [.list]
         }
         // A family message or a reply while msg family may be on screen.
         if FamilyPage.from(category: category, userInfo: info) == .messages {
@@ -249,6 +273,17 @@ import Combine
         case .familyReply(let messageId, let body):
             await Self.replyToFamily(messageId, body)
             return
+        case .tripAnswer(let answer):
+            await TripQuestionAlerts.answer(answer)
+            return
+        case .openTrip(let link):
+            // "Off the plan?" / "A booking is at risk", raised on this phone
+            // by `TripOffPlan`: its day, where the ways to carry on are. A
+            // trip question: the trip's planning home, at the question. Both
+            // used to fall through to the alerts inbox, which never holds one.
+            Self.pending.trip = link
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
         case .read(let id):
             await AlertStore.markReadFromNotification(id)
             return
@@ -278,6 +313,12 @@ import Combine
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
+        // A build the owner sent this phone: ask the site now — the hourly
+        // check may have just run — and its prompt offers the install.
+        if category == AppUpdate.pushCategory {
+            await AppUpdate.shared.check(force: true)
+            return
+        }
         if category == "connections" {
             Self.pending.openConnections = true
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
@@ -293,14 +334,6 @@ import Combine
         }
         if category == "household" {
             Self.pending.tab = .today
-            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
-            return
-        }
-        // "Off the plan?" / "A booking is at risk", raised on this phone by
-        // `TripOffPlan`: its day, where the ways to carry on are. It used to
-        // fall through to the alerts inbox, which never holds one.
-        if category == TripLink.category {
-            Self.pending.trip = TripLink.from(userInfo: response.notification.request.content.userInfo)
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }

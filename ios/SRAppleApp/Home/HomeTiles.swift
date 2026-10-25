@@ -265,8 +265,17 @@ struct HomeTripsTile: View {
                     runningTile(running.bundle, date: running.date, now: now)
                 }
             } else if let next = store.upcoming(now: now) {
-                HomeTileButton(kind: .trips, id: "today-trips", action: { open(.list) }, hide: hide, customise: customise) {
-                    upcomingTile(next, now: now)
+                // v8: open questions make the trip itself the target — its
+                // planning home, at the first of them.
+                let questions = HomeTripWords.openQuestions(store.bundles[next.id])
+                HomeTileButton(kind: .trips, id: "today-trips", action: {
+                    if let first = questions.first {
+                        open(.questions(tripId: next.id, questionId: first.id))
+                    } else {
+                        open(.list)
+                    }
+                }, hide: hide, customise: customise) {
+                    upcomingTile(next, questions: questions.count, now: now)
                 }
             } else if !store.summaries.isEmpty {
                 HomeTileButton(kind: .trips, id: "today-trips", action: { open(.list) }, hide: hide, customise: customise) {
@@ -316,13 +325,57 @@ struct HomeTripsTile: View {
         }
     }
 
-    private func upcomingTile(_ trip: TripSummary, now: Date) -> some View {
+    /// The next trip: "in 5 days", where and when — and, while the planner
+    /// has questions open, "2 quick questions" with Answer (mockup 10).
+    private func upcomingTile(_ trip: TripSummary, questions: Int, now: Date) -> some View {
         let clock = TripClock(trip.timeZone)
-        let days = clock.days(from: clock.localDate(now), to: trip.startDate) ?? 0
-        return HomeTileFrame(kind: .trips, badge: trip.destination.uppercased()) {
+        let days = clock.days(from: clock.localDate(now), to: trip.startDate)
+        return HomeTileFrame(kind: .trips, badge: HomeTripWords.place(trip.destination)) {
             Spacer(minLength: 0)
-            HomeFigure(value: days == 1 ? "Tomorrow" : "\(days) days", caption: trip.title, size: 30)
+            VStack(alignment: .leading, spacing: 8) {
+                HomeFigure(
+                    value: HomeTripWords.countdown(days: days),
+                    caption: HomeTripWords.caption(destination: trip.destination, start: trip.startDate, end: trip.endDate),
+                    size: questions > 0 ? 26 : 30
+                )
+                if let asked = HomeTripWords.questions(questions) {
+                    HomeTripQuestionsBar(text: asked)
+                }
+            }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Trips. " + HomeTripWords.spoken(destination: trip.destination, days: days, questions: questions))
+        .accessibilityHint(questions > 0 ? "Opens the trip at its questions" : "Opens your trips")
+    }
+}
+
+/// "2 quick questions · Answer", across the foot of the Trips tile. Part of
+/// the tile's one button: Answer is its label, not a second target.
+struct HomeTripQuestionsBar: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "questionmark.circle")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityHidden(true)
+            Text(text)
+                .font(SR.Text.title(14))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 4)
+            Text("Answer")
+                .font(SR.Text.label(13))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(HomeTileKind.trips.hue.onFill.opacity(0.92)))
+                .foregroundStyle(HomeTileKind.trips.hue.base)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 5)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(HomeTileKind.trips.hue.onFill.opacity(0.18)))
+        .accessibilityIdentifier("today-trip-questions")
     }
 }
 
@@ -330,6 +383,8 @@ enum HomeTripTarget {
     case day(TripDayRef)
     case list
     case plan
+    /// v8: the trip's planning home, scrolled to this question.
+    case questions(tripId: String, questionId: String)
 }
 
 // MARK: - Coming up (the travel desk's next moves)

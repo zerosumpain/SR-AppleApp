@@ -407,6 +407,18 @@ struct TripBundle: Codable, Hashable {
     var fullness: [String: DayFullness]? = nil
     /// v7: photographs, by wish id (and by a meal option's OSM id).
     var images: [String: PlaceImage]? = nil
+    /// v8: what the planner knows, each fact with where it came from.
+    var brief: TripBrief? = nil
+    /// v8: open questions for this caller (≤ 3, most important first).
+    var questions: [TripQuestion]? = nil
+    /// v8: questions answered in the last day.
+    var answered: [TripQuestion]? = nil
+    /// v8: open proposals this caller may act on (editors only).
+    var proposals: [TripProposal]? = nil
+    /// v8: the research pack's summary.
+    var pack: PackSummary? = nil
+    /// v8.1: whether this person gets this trip's question notifications (off = they turned them off).
+    var questionPushes: Bool? = nil
 
     var segments: [TransportSegment] { transport ?? [] }
     var can: TripAccess { access ?? .owner }
@@ -782,6 +794,15 @@ struct ConverseResult: Codable, Hashable {
     var research: [ResearchStep]? = nil
     /// v7: choices offered for an open question, each checked against its day.
     var options: [PlanOption]? = nil
+    /// v8: stored, checked proposals (alternatives share a `groupId`).
+    var proposals: [TripProposal]? = nil
+    /// v8: questions the turn raised.
+    var questions: [TripQuestion]? = nil
+    /// v8: the brief after the turn.
+    var brief: TripBrief? = nil
+    /// v8: the turn's change, structured, and where undo goes back to.
+    var diff: PlanDiff? = nil
+    var undo: UndoPoint? = nil
 }
 
 /// v7: one option the planner offered (SR-Main `options.ts`): a named place

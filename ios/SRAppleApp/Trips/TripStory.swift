@@ -54,7 +54,7 @@ struct TripStoryScreen: View {
                         PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
                             Task { @MainActor in access = status; load() }
                         }
-                    } label: { SRButtonLabel(title: "Show my photos", icon: "photo.on.rectangle", fill: true) }
+                    } label: { TripButtonLabel("Show my photos", icon: "photo.on.rectangle", fill: true) }
                         .srButton(.prominent)
                 }
                 .padding(.vertical, 8)
@@ -75,7 +75,7 @@ struct TripStoryScreen: View {
                     send(bundle)
                 } label: {
                     if sending { ProgressView() } else {
-                        SRButtonLabel(title: sent ? "Sent to the planner" : "Tell the planner what we loved", icon: "bubble.left", fill: !sent)
+                        TripButtonLabel(sent ? "Sent to the planner" : "Tell the planner what we loved", icon: "bubble.left", fill: !sent)
                     }
                 }
                 .srButton(.prominent)
@@ -111,7 +111,7 @@ struct TripStoryScreen: View {
                         if verdict != nil { Button(role: .destructive) { judge(stop.id, nil) } label: { Label("Clear", systemImage: "xmark") } }
                     } label: {
                         Image(systemName: verdict == "loved" ? "heart.fill" : verdict == "skip" ? "hand.thumbsdown.fill" : "ellipsis.circle")
-                            .font(.system(size: 18))
+                            .font(.title3)
                             .foregroundStyle(verdict == "loved" ? SR.accent : SR.inkMuted)
                     }
                     .accessibilityLabel(verdict == "loved" ? "Loved it" : verdict == "skip" ? "Skip next time" : "How was it?")
@@ -210,7 +210,7 @@ struct TripAssetThumb: View {
             if let image { Image(uiImage: image).resizable().scaledToFill() }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
         .task(id: asset.localIdentifier) {
             let options = PHImageRequestOptions()
             options.deliveryMode = .opportunistic

@@ -18,9 +18,25 @@ extension SRDemoFixtures {
         // parts: ["api", "native", "trips", ...]
         switch (method, parts.count) {
         case ("GET", 3):
-            return TripDemo.json(TripList(trips: [TripDemo.bundle(now: clock.now).summary]))
+            return TripDemo.json(TripList(trips: [TripDemo.bundle(now: clock.now).summary, TripDemo.planningBundle(now: clock.now).summary]))
         case ("GET", 4) where parts[3] == TripDemo.tripId:
-            return TripDemo.json(TripDemo.bundle(now: clock.now))
+            return TripDemo.json(TripDemo.withDecisions(TripDemo.bundle(now: clock.now)))
+        // v8 — `TripDemoPlanning.swift`: the trip being planned, and every
+        // decision endpoint, answered from the wire's own shapes.
+        case ("GET", 4) where parts[3] == TripDemo.planTripId:
+            return TripDemo.json(TripDemo.planningBundle(now: clock.now))
+        case ("GET", 4) where parts[3] == "notes":
+            return TripDemo.json(NotesReply(notes: SRDemo.isMember ? [] : TripDemo.notes))
+        case ("POST", 3) where TripDemo.isGuidedStart(body):
+            return TripDemo.json(StagedJobReply(job: TripDemo.startJob(now: clock.now)))
+        case ("GET", 5) where parts[3] == "jobs":
+            return TripDemo.json(StagedJobReply(job: TripDemo.job(id: parts[4], now: clock.now)))
+        case ("DELETE", 5) where parts[3] == "jobs":
+            DemoDecisions.shared.cancel(parts[4])
+            return TripDemo.json(StagedJobReply(job: TripDemo.job(id: parts[4], now: clock.now)))
+        case (_, 5) where ["decisions", "versions", "pack", "proposals", "undo", "brief"].contains(parts[4]),
+             (_, 6) where ["proposals", "questions"].contains(parts[4]):
+            return TripDemo.decisionRoute(method: method, parts: parts, body: body, now: clock.now)
         case ("POST", 5) where parts[4] == "events":
             let sent = (try? JSONDecoder().decode(TripEventsBody.self, from: body ?? Data()))?.events.map(\.clientId) ?? []
             return TripDemo.json(TripEventsReply(accepted: sent, planVersion: 3))
@@ -56,7 +72,100 @@ enum TripDemo {
     @MainActor
     static func seed(into store: TripStore) {
         let now = Date()
-        store.adoptDemo(bundle(now: now), marks: marks(now: now))
+        store.adoptDemo(withDecisions(bundle(now: now)), marks: marks(now: now), planning: planningBundle(now: now))
+    }
+
+    /// `{ start: … }` rather than `{ text: … }`.
+    static func isGuidedStart(_ body: Data?) -> Bool {
+        guard let body, let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return false }
+        return object["start"] != nil
+    }
+
+    private struct ProposalAsk: Decodable {
+        struct Target: Decodable {
+            var stopId: String?
+            var wishId: String?
+            var date: String?
+            var stage: String?
+            var proposalId: String?
+        }
+        var kind: String
+        var target: Target
+        var nudge: Nudge?
+        var variant: DayVariant?
+        var withDate: String?
+    }
+
+    private struct Act: Decodable {
+        var action: String?
+        var answerId: String?
+        var field: String?
+        var key: String?
+    }
+
+    /// The v8 decision endpoints, for either demo trip.
+    static func decisionRoute(method: String, parts: [String], body: Data?, now: Date) -> String? {
+        let id = parts[3]
+        let planning = id == planTripId
+        let bundle = planning ? planningBundle(now: now) : withDecisions(TripDemo.bundle(now: now))
+        let act = body.flatMap { try? JSONDecoder().decode(Act.self, from: $0) }
+        switch (method, parts[4]) {
+        case ("GET", "decisions"):
+            let wire = planning ? DecisionsWire(
+                brief: bundle.brief ?? decisions(now: now).brief, questions: bundle.questions ?? [], answered: bundle.answered ?? [],
+                proposals: bundle.proposals ?? [], pack: bundle.pack ?? decisions(now: now).pack
+            ) : DecisionsWire(
+                brief: TripBrief(items: [], assumed: 0, missing: []), questions: [], answered: [],
+                proposals: bundle.proposals ?? [], pack: decisions(now: now).pack
+            )
+            return json(wire)
+        case ("GET", "versions"):
+            return json(VersionsReply(versions: versions(now: now)))
+        case ("GET", "pack"):
+            return json(PackReply(pack: decisions(now: now).pack, places: []))
+        case ("POST", "proposals") where parts.count == 5:
+            guard let ask = body.flatMap({ try? JSONDecoder().decode(ProposalAsk.self, from: $0) }) else { return nil }
+            var target = ProposalRequest.Target(stopId: ask.target.stopId, wishId: ask.target.wishId, date: ask.target.date, stage: ask.target.stage)
+            // A nudge asks about the slot its proposal was for.
+            if let pid = ask.target.proposalId, let p = (bundle.proposals ?? []).first(where: { $0.id == pid }) ?? DemoDecisions.shared.extraProposal(pid) {
+                target = ProposalRequest.Target(stopId: p.scope.stopId, wishId: p.scope.wishId, date: p.scope.date, stage: p.scope.stage)
+            }
+            let request = ProposalRequest(kind: ask.kind == "nudge" ? "swap" : ask.kind, target: target, nudge: ask.nudge,
+                                          variant: ask.variant, withDate: ask.withDate)
+            let group = proposals(request, bundle: bundle, now: now)
+            if ask.kind != "shapes" { DemoDecisions.shared.keep(group) }
+            return json(ProposalGroupReply(proposals: group))
+        case ("POST", "proposals"):
+            let pid = parts[5]
+            guard var p = (bundle.proposals ?? []).first(where: { $0.id == pid }) ?? DemoDecisions.shared.extraProposal(pid) else { return nil }
+            let version = bundle.plan?.version ?? 12
+            if act?.action == "reject" {
+                DemoDecisions.shared.reject(pid)
+                p.status = .rejected
+                return json(DecisionResult(proposal: p, question: nil, planVersion: nil, changes: nil, diff: nil, undo: nil, remember: nil, stale: nil))
+            }
+            DemoDecisions.shared.accept(p)
+            p.status = .accepted
+            p.decidedAt = TripStore.iso(now)
+            return json(DecisionResult(proposal: p, question: nil, planVersion: version + 1, changes: p.diff.lines, diff: p.diff,
+                                       undo: UndoPoint(toVersion: version), remember: nil, stale: nil))
+        case ("POST", "questions"):
+            let qid = parts[5]
+            let action = act?.action ?? "decide"
+            let result = answered(qid, action: action, answerId: act?.answerId, now: now)
+            DemoDecisions.shared.answer(qid, action == "vote" ? "vote:\(act?.answerId ?? "a0")" : action)
+            return json(result)
+        case ("POST", "undo"):
+            DemoDecisions.shared.undo()
+            let lines = ["Undone: the last change — the plan is as it was before it."]
+            return json(UndoResult(planVersion: (bundle.plan?.version ?? 12) + 1, changes: lines,
+                                   diff: PlanDiff(lines: lines, changes: [], dates: [], walkDeltaM: nil, dropped: [])))
+        case ("PATCH", "brief"):
+            if act?.field == "confirm", let key = act?.key { DemoDecisions.shared.confirm(key) }
+            return json(BriefReply(brief: decisions(now: now).brief, planVersion: nil, changes: []))
+        default:
+            return nil
+        }
     }
 
     static func json<T: Encodable>(_ value: T) -> String {
