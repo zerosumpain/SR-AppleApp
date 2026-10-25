@@ -142,6 +142,11 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
     var copy: HometownsCopy { HometownsCopy.shared }
     var town: HometownsTown? { wire?.town }
     var isParent: Bool { wire?.me?.isParent ?? false }
+    /// This mayor plays the county alone and may pause it (`me.canPause`).
+    var canPause: Bool { wire?.me?.canPause ?? false }
+    /// The county's clock is stopped (`clock.paused`). Not `setPaused`, which
+    /// tells the page the app went to the background.
+    var countyPaused: Bool { wire?.clock?.paused ?? false }
 
     /// The words for `key` at this seat's level; never the raw key (`HometownsCopy.line`).
     func say(_ key: String, _ data: HometownsData = [:], sign: Double = 1) -> String {

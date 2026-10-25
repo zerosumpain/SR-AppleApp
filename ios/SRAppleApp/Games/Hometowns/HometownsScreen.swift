@@ -112,6 +112,9 @@ struct HometownsScreen: View {
             } label: {
                 Label(store.wire?.county?.name ?? "The county", systemImage: "map")
             }
+            if store.canPause {
+                pauseButton
+            }
             if store.isParent {
                 Button {
                     store.sheet = .parent
@@ -124,6 +127,26 @@ struct HometownsScreen: View {
         }
         .accessibilityLabel("More")
         .accessibilityIdentifier("hometowns-menu")
+    }
+
+    /// Solo only: the sole mayor pauses or resumes their own county.
+    @ViewBuilder
+    private var pauseButton: some View {
+        if store.countyPaused {
+            Button {
+                store.pause(false)
+            } label: {
+                Label("Resume the county", systemImage: "play.circle")
+            }
+            .accessibilityIdentifier("hometowns-menu-resume")
+        } else {
+            Button {
+                store.pause(true)
+            } label: {
+                Label("Pause the county", systemImage: "pause.circle")
+            }
+            .accessibilityIdentifier("hometowns-menu-pause")
+        }
     }
 }
 
@@ -170,6 +193,9 @@ struct HometownsTownView: View {
     var body: some View {
         VStack(spacing: 0) {
             HometownsTopBar(store: store)
+            if store.countyPaused {
+                HometownsPausedBanner(store: store)
+            }
             HometownsWantsBar(store: store)
             map
             if store.plan != nil {
@@ -482,6 +508,51 @@ struct HometownsToolbar: View {
 // MARK: - The Founding Fortnight (§2.3)
 
 /// "Next week ▶" up to twelve times, ten seconds apart; adults may "Play it all".
+/// The county is paused: nothing grows or is lost until it resumes. The sole
+/// mayor of a solo county (`canPause`) resumes it from here.
+struct HometownsPausedBanner: View {
+    @ObservedObject var store: HometownsStore
+
+    private var line: String {
+        if store.level == .kid { return "Paused — your town is having a rest" }
+        return "Paused — nothing changes until you resume"
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            label
+            Spacer(minLength: 6)
+            if store.canPause {
+                resume
+            }
+        }
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.vertical, 8)
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius)
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("hometowns-paused")
+    }
+
+    private var label: some View {
+        Label(line, systemImage: "pause.circle.fill")
+            .font(SR.Text.bodyMedium(15))
+            .foregroundStyle(SR.ink)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var resume: some View {
+        Button {
+            store.pause(false)
+        } label: {
+            SRButtonLabel(title: "Resume", icon: "play.fill")
+        }
+        .srButton(.prominent)
+        .accessibilityIdentifier("hometowns-paused-resume")
+    }
+}
+
 struct HometownsSprintBar: View {
     @ObservedObject var store: HometownsStore
 

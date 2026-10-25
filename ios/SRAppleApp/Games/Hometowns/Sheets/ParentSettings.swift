@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Parent settings (§9.13), the M1 basics: the county's rivalry, mishaps and
-/// Regional Day hour, the pause, and each mayor's seat — a child's or an
+/// Regional Day hour, the pause (solo counties only), and each mayor's seat — a child's or an
 /// adult's, pushes, pranks, answering only, gentler advisors.
 ///
 /// Only seats the server knows as parents may change these, and it checks
@@ -25,7 +25,9 @@ struct ParentSettingsSheet: View {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
                     if store.isParent {
                         county
-                        pause
+                        if store.canPause || store.countyPaused {
+                            pause
+                        }
                         seats
                     } else {
                         SREmpty(title: "For parents", icon: "lock.fill", message: "Ask a parent to change the county's settings.")
@@ -117,13 +119,13 @@ struct ParentSettingsSheet: View {
     // MARK: Pause
 
     private var pause: some View {
-        let paused = store.wire?.clock?.paused ?? false
+        let paused: Bool = store.countyPaused
         return VStack(alignment: .leading, spacing: SR.cardGap) {
             SRSectionLabel(text: "Pause")
             VStack(alignment: .leading, spacing: 10) {
                 Text(paused
                      ? "The county is paused. Nothing grows and nothing is lost until it starts again."
-                     : "Pausing freezes every town's clock — up to 21 days a season — for a holiday or a busy week.")
+                     : "You play this county on your own, so you can pause it for as long as you like. A second mayor joining starts it again.")
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -138,11 +140,11 @@ struct ParentSettingsSheet: View {
             .padding(SR.cardPadding)
             .srGlassCard(.paper)
         }
-        .confirmationDialog("Pause the whole county?", isPresented: $confirmPause, titleVisibility: .visible) {
+        .confirmationDialog("Pause the county?", isPresented: $confirmPause, titleVisibility: .visible) {
             Button("Pause") { store.pause(true) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every mayor's town stops until a parent starts it again.")
+            Text("Your town stops until you start it again.")
         }
     }
 

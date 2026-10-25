@@ -91,7 +91,7 @@ extension SRDemoFixtures {
                     "bulletin": [{"key": "bulletin.grew", "data": {"n": 38, "pop": 186}},
                                  {"key": "bulletin.homesComing", "data": {"n": 12}}]},
          "visiting": null,
-         "me": {"seat": "s1", "profile": "adult", "isParent": true, "townHash": "demo",
+         "me": {"seat": "s1", "profile": "adult", "isParent": true, "canPause": true, "townHash": "demo",
                 "town": {"seat": "s1", "name": "Sunnyvale", "avatar": "badger", "flag": 3, "site": 0, "siteKind": "coast",
                          "tick": 52, "sprintLeft": 0, "sprintAt": 0, "sprintAuto": false, "gridBase": 12, "archived": false,
                          "tier": 0, "parcelRights": 0,
@@ -138,7 +138,7 @@ extension SRDemoFixtures {
          "county": {"name": "Brookford County", "sites": \(hometownsSites), "kingsport": \(kingsportCard),
                     "links": [], "offers": [], "contracts": [], "pacts": [], "fund": 0, "bulletin": []},
          "visiting": null,
-         "me": {"seat": "s2", "profile": "kid", "isParent": false, "townHash": "",
+         "me": {"seat": "s2", "profile": "kid", "isParent": false, "canPause": false, "townHash": "",
                 "derived": {"stars": [], "meters": [], "wants": [], "advisors": [], "needs": [], "pipeline": {"homes": 0, "movers": 0}, "townTalk": []},
                 "affordances": {"unlocked": [], "costs": {}, "initiatives": 0, "slots": 0, "canUndo": []},
                 "inbox": [], "welcomeBack": [], "moves": []}}

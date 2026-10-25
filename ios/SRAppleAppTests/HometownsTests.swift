@@ -65,6 +65,22 @@ final class HometownsTests: XCTestCase {
         }
     }
 
+    /// `me.canPause` is read when sent and false when an older server leaves it out.
+    func testCanPauseDecodesAndDefaultsToFalse() throws {
+        for name in Self.fixtures {
+            var json = try dict(name)
+            guard var me = json["me"] as? [String: Any] else { continue }
+            if me["canPause"] == nil {
+                XCTAssertEqual(try wire(name).me?.canPause, false, "absent reads as false: \(name)")
+            }
+            me["canPause"] = true
+            json["me"] = me
+            let data = try JSONSerialization.data(withJSONObject: json)
+            let w = try JSONDecoder().decode(HometownsWire.self, from: data)
+            XCTAssertEqual(w.me?.canPause, true, name)
+        }
+    }
+
     func testThePageIsTheWiresPathAndItsFolderIsThePageHash() throws {
         let hashes = try Set(Self.fixtures.map { try XCTUnwrap(wire($0).client.pageHash, $0) })
         XCTAssertEqual(hashes.count, 1, "one server, one page")
@@ -159,6 +175,9 @@ final class HometownsTests: XCTestCase {
         let found = try XCTUnwrap(SRDemoFixtures.hometownsRoom(id: SRDemoFixtures.demoHometownsFoundRoom, clock: clock))
         let f = try JSONDecoder().decode(HometownsWire.self, from: Data(found.utf8))
         XCTAssertNil(f.town, "the founding room has no town for Alex yet")
+        // Decision 13: the solo parent may pause; the child in a family county may not.
+        XCTAssertEqual(w.me?.canPause, true, "Alex plays Sunnyvale's county alone")
+        XCTAssertEqual(f.me?.canPause, false, "a family county never pauses")
         XCTAssertFalse(f.freeSites.isEmpty)
         // Routed like every other demo room, and listed in "Your games".
         XCTAssertEqual(SRDemoFixtures.demoRoom(id: SRDemoFixtures.demoHometownsRoom, meJoined: true, clock: clock), town)

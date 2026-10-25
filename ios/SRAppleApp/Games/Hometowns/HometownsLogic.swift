@@ -723,6 +723,9 @@ struct HometownsMe: Decodable, Equatable {
     let seat: String
     let profile: String
     let isParent: Bool
+    /// The county is solo (one joined mayor, this parent seat): only then may it
+    /// be paused, for as long as the mayor likes (decision 13).
+    let canPause: Bool
     let townHash: String
     let town: HometownsTown?
     let derived: HometownsDerived
@@ -737,6 +740,7 @@ struct HometownsMe: Decodable, Equatable {
         seat = c.ht("seat", "")
         profile = c.ht("profile", "adult")
         isParent = c.ht("isParent", false)
+        canPause = c.ht("canPause", false)
         townHash = c.ht("townHash", "")
         town = c.htMaybe("town")
         derived = c.ht("derived", HometownsDerived.empty)
