@@ -24,9 +24,16 @@ struct TripOptionsRequest: Identifiable, Hashable {
 
 /// Up to three ways to carry on, worked out on the phone (no signal
 /// needed), and the server's own when there is signal. One tap applies one.
-struct TripOptionsSheet: View {
+///
+/// INLINE where it was asked for — under "Tell the planner" in the planner's
+/// own sheet — never a sheet presented over that sheet (plan §5.5): a second
+/// sheet hid the conversation it answered, and dismissing one could take the
+/// other with it. `close` puts it away; applying an option closes it too.
+struct TripOptionsPanel: View {
     let request: TripOptionsRequest
-    @Environment(\.dismiss) private var dismiss
+    var close: () -> Void
+    /// Off when a sheet's bar already says what this is.
+    var showsTitle = true
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var network = TripNetwork.shared
     @State private var local: [ReplanOption] = []
@@ -36,39 +43,41 @@ struct TripOptionsSheet: View {
     private enum ServerState: Equatable { case idle, asking, answered, failed(String) }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    if local.isEmpty {
-                        Text("Nothing to re-plan — the rest of the day is already done or fixed.")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                            .srPlainRow()
-                    }
-                    ForEach(local) { option in row(option) }
-                } header: {
-                    SRSectionLabel(text: "On this phone")
+        VStack(alignment: .leading, spacing: 12) {
+            if showsTitle {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(Self.title(request.reason))
+                        .font(SR.Text.display(20))
+                        .foregroundStyle(SR.ink)
+                    Spacer(minLength: 8)
+                    Button("Close") { close() }
+                        .font(SR.Text.label(13))
+                        .accessibilityIdentifier("trip-options-close")
                 }
-                serverSection
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .srPaper()
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() } }
+            SRSectionLabel(text: "On this phone")
+            if local.isEmpty {
+                Text("Nothing to re-plan — the rest of the day is already done or fixed.")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            ForEach(local) { option in row(option) }
+            serverSection
         }
-        .task {
+        .padding(SR.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .srGlassCard(.paper)
+        .task(id: request.id) {
             local = TripReplanning.localOptions(request, store: store)
             await askServer()
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("trip-options")
     }
 
-    private var title: String {
-        switch request.reason {
+    static func title(_ reason: TripOptionsReason) -> String {
+        switch reason {
         case .behind: return "Catch up"
         case .late(let m): return "\(m) min late"
         case .skipped(let name): return "Skipped \(name)"
@@ -82,23 +91,19 @@ struct TripOptionsSheet: View {
         case .idle:
             EmptyView()
         case .asking:
-            Section {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Asking the site for more…").font(SR.Text.secondary()).foregroundStyle(SR.inkMuted)
-                }
-                .srPlainRow()
-            } header: { SRSectionLabel(text: "From the site") }
+            SRSectionLabel(text: "From the site")
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Asking the site for more…").font(SR.Text.secondary()).foregroundStyle(SR.inkMuted)
+            }
         case .answered:
             if !server.isEmpty {
-                Section {
-                    ForEach(server) { option in row(option) }
-                } header: { SRSectionLabel(text: "From the site") }
+                SRSectionLabel(text: "From the site")
+                ForEach(server) { option in row(option) }
             }
         case .failed(let why):
-            Section {
-                Text(why).font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted).srPlainRow()
-            } header: { SRSectionLabel(text: "From the site") }
+            SRSectionLabel(text: "From the site")
+            Text(why).font(SR.Text.secondary(13)).foregroundStyle(SR.inkMuted).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -106,7 +111,7 @@ struct TripOptionsSheet: View {
         Button {
             SRHaptic.ok()
             store.apply(option, tripId: request.tripId)
-            dismiss()
+            close()
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(option.label)
@@ -125,14 +130,15 @@ struct TripOptionsSheet: View {
                     Text("Leaves out " + option.dropped.map { store.bundles[request.tripId]?.wish($0)?.title ?? $0 }.joined(separator: ", "))
                         .font(SR.Text.secondary(13))
                         .foregroundStyle(SR.warn)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .background(SR.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .srPlainRow()
         .accessibilityHint("Applies this to the rest of the day")
         .accessibilityIdentifier("trip-option-\(option.id)")
     }
@@ -147,6 +153,28 @@ struct TripOptionsSheet: View {
             serverState = .answered
         } catch {
             serverState = .failed("The site could not be asked: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// The same, as a sheet of its own — for a screen that is NOT itself in a
+/// sheet. From inside one, put `TripOptionsPanel` in place instead.
+struct TripOptionsSheet: View {
+    let request: TripOptionsRequest
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                TripOptionsPanel(request: request, close: { dismiss() }, showsTitle: false)
+                    .padding(SR.gutter)
+            }
+            .srPaper()
+            .navigationTitle(TripOptionsPanel.title(request.reason))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() } }
+            }
         }
     }
 }

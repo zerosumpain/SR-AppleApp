@@ -185,17 +185,17 @@ struct TripMealOptionCard: View {
             }
             HStack(spacing: 8) {
                 Button(action: choose) {
-                    if busy { ProgressView() } else { SRButtonLabel(title: actionLabel, icon: "checkmark", fill: true) }
+                    if busy { ProgressView() } else { TripButtonLabel(actionLabel, icon: "checkmark", fill: true) }
                 }
                 .srButton(.prominent)
                 .disabled(busy || !enabled)
                 .accessibilityIdentifier("trip-meal-choose")
                 if let show {
-                    Button(action: show) { SRButtonLabel(title: "Map", icon: "map") }
+                    Button(action: show) { TripButtonLabel("Map", icon: "map") }
                         .srButton(.regular)
                 }
                 if let site = option.website.flatMap(TripLinkButtons.safeURL) {
-                    Link(destination: site) { SRButtonLabel(title: "Website", icon: "arrow.up.right.square") }
+                    Link(destination: site) { TripButtonLabel("Website", icon: "arrow.up.right.square") }
                         .srButton(.regular)
                 }
             }
@@ -203,7 +203,7 @@ struct TripMealOptionCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background((onDark ? Color.white : SR.ink).opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background((onDark ? Color.white : SR.ink).opacity(0.06), in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("trip-meal-option")
     }

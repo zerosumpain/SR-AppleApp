@@ -153,6 +153,12 @@ enum AlertActions {
         case answer(GateAnswer)
         /// Reply to a family message with an emoji or a line of text.
         case familyReply(messageId: String, body: String)
+        /// v8: answer a trip question from one of its buttons
+        /// (`TripQuestionPushes`).
+        case tripAnswer(TripQuestionPushes.Answer)
+        /// A trip notification tapped: its day, or its planning home at a
+        /// question. Never the alerts inbox, which holds no trip alert.
+        case openTrip(TripLink)
         /// A button pressed on a notification that carries no id. Every alert
         /// this app raises has one, so this is a guard, and it must not open
         /// the app: the button promised to stay in the background.
@@ -168,6 +174,15 @@ enum AlertActions {
     /// before these categories existed carries it as its identifier instead,
     /// so that is the fallback.
     static func outcome(action: String, categoryIdentifier: String, userInfo: [AnyHashable: Any], text: String? = nil) -> Outcome {
+        // A trip question first: its buttons' identifiers are the answers'
+        // own ids, which mean nothing to the switch below.
+        if let trip = TripQuestionPushes.response(action: action, categoryIdentifier: categoryIdentifier, userInfo: userInfo) {
+            switch trip {
+            case .answer(let answer): return .tripAnswer(answer)
+            case .open(let link): return .openTrip(link)
+            case .ignore: return .ignore
+            }
+        }
         let category = userInfo["category"] as? String ?? categoryIdentifier
         let id = userInfo["id"] as? String
         if let reaction = familyReactions.first(where: { $0.id == action }) {
@@ -191,6 +206,11 @@ enum AlertActions {
         default:
             if let commissionId = userInfo["commissionId"] as? String, UUID(uuidString: commissionId) != nil {
                 return .openCommission(id: commissionId)
+            }
+            // "Off the plan?", "A booking is at risk", a booking nudge, a
+            // family suggestion: the day it names, or the trip.
+            if category == TripLink.category {
+                return .openTrip(TripLink.from(userInfo: userInfo))
             }
             return .open(category: category)
         }

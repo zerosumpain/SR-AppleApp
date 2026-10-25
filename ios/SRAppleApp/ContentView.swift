@@ -173,6 +173,17 @@ final class Router: ObservableObject {
         let access = AccessStore.shared.current
         guard access.owner || access.family else { show(.today); return }
         guard let id = link.tripId else { openTrips(); return }
+        // v8: a question — the trip's planning home, scrolled to it, even
+        // while the trip runs (the day screen holds no questions).
+        if let question = link.questionId {
+            TripQuestionFocus.shared.request(tripId: id, questionId: question)
+            var path = NavigationPath()
+            path.append(TripsListRef())
+            path.append(TripRef(tripId: id))
+            today = path
+            tab = .today
+            return
+        }
         let running = TripStore.shared.running().flatMap { $0.bundle.trip.id == id ? $0.date : nil }
         if let date = link.date ?? running {
             openTrips(day: TripDayRef(tripId: id, date: date))

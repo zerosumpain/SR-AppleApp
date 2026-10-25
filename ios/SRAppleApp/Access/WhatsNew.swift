@@ -34,6 +34,18 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-25-hometowns", when: "October 2026", title: "Build a town", items: [
+            WhatsNewItem(icon: "building.2", title: "Hometowns",
+                         detail: "In Games. Each of you builds a town around Kingsport, and a year passes every day. Playing alone, you can pause it."),
+            WhatsNewItem(icon: "location.north.circle", title: "Family Orbit turns with you",
+                         detail: "On the Family tab the Orbit centres on you and turns as the phone does, so everyone is shown the way they really are. The compass button puts north back at the top."),
+            WhatsNewItem(icon: "map", title: "Trip planning on the phone",
+                         detail: "The planner suggests changes with what each one costs, asks its questions as cards you can answer from a notification, and Share → SR adds a place to a trip.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "sparkles.rectangle.stack", title: "Daydream cards stay put",
+                         detail: "A card you rate stays where it is until you leave the screen.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-10-25-travel", when: "October 2026", title: "Ready for Rome", items: [
             WhatsNewItem(icon: "airplane", title: "Travel kit",
                          detail: "In More. Five tools for abroad that work on the phone, with roaming off."),

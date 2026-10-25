@@ -26,6 +26,15 @@ struct TripStopScreen: View {
         .srPaper()
         .navigationTitle("Stop")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Corrections in sight, not only behind a long press on the
+            // day's list (plan §5.5): "I'm here", "Skip it" and the rest.
+            if let day = store.day(ref.tripId, ref.date), let index = day.index(of: ref.stopId) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    TripStopMenu(tripId: ref.tripId, stop: day.stops[index])
+                }
+            }
+        }
         .fullScreenCover(item: $following) { FollowRouteScreen(detail: $0) }
     }
 
@@ -72,7 +81,7 @@ struct TripStopScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("trip-place-why")
                 }
-                TripPlaceChips(chips: TripPlaceWhy.chips(facts: facts, date: day.date, clock: clock, stop: stop) + refChip(booking))
+                TripPlaceChips(chips: TripPlaceWhy.chips(facts: facts, date: day.date, clock: clock, stop: stop, timeZone: bundle.trip.timeZone) + refChip(booking))
                     .padding(.top, 4)
                 directions(bundle, day, index)
                     .padding(.top, 8)
@@ -160,8 +169,8 @@ struct TripStopScreen: View {
                 }
             }
 
-            // Read-only, like the Day screen: corrections are a long press
-            // on the day's list, and changes go through Edit plan.
+            // Read-only, like the Day screen: corrections are the ••• in the
+            // bar, and changes go through the planner.
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -197,16 +206,16 @@ struct TripStopScreen: View {
         if let leg = day.leg(before: index) {
             let from = day.stops[index - 1]
             if leg.mode == .walk, let route = TripDirections.route(for: leg, from: from, to: stop, tripId: bundle.trip.id, date: ref.date) {
-                Button { SRHaptic.tap(); following = route } label: { SRButtonLabel(title: "Walk there", icon: "figure.walk", fill: true) }
+                Button { SRHaptic.tap(); following = route } label: { TripButtonLabel("Walk there", icon: "figure.walk", fill: true) }
                     .srButton(.prominent)
                     .accessibilityIdentifier("trip-place-directions")
             } else if stop.location != nil {
-                Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: leg.mode) } label: { SRButtonLabel(title: "Directions", icon: "map", fill: true) }
+                Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: leg.mode) } label: { TripButtonLabel("Directions", icon: "map", fill: true) }
                     .srButton(.prominent)
                     .accessibilityIdentifier("trip-place-directions")
             }
         } else if stop.location != nil {
-            Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: .walk) } label: { SRButtonLabel(title: "Directions", icon: "map", fill: true) }
+            Button { SRHaptic.tap(); TripDirections.openInMaps(stop, mode: .walk) } label: { TripButtonLabel("Directions", icon: "map", fill: true) }
                 .srButton(.prominent)
                 .accessibilityIdentifier("trip-place-directions")
         }
@@ -226,7 +235,7 @@ struct TripStopScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(SR.inkMuted)
                     .rotationEffect(.degrees(open ? 180 : 0))
                     .accessibilityHidden(true)
@@ -308,6 +317,35 @@ struct TripStopScreen: View {
     }
 }
 
+// MARK: - Corrections in sight
+
+/// The ••• on a stop: "I'm here", "I've left", "Skip it", "Not been yet" —
+/// what the person knows better than a geofence — as a visible menu, not
+/// only a long press (plan §5.5). On the stop screen's bar; for a stop's
+/// row on the day and the map's peek too (`showOnMap` adds that item).
+struct TripStopMenu: View {
+    let tripId: String
+    let stop: PlannedStop
+    var showOnMap: (() -> Void)? = nil
+
+    var body: some View {
+        Menu {
+            if let showOnMap, stop.location != nil {
+                Button { showOnMap() } label: { Label("Show on the map", systemImage: "map") }
+            }
+            TripCorrections(tripId: tripId, stop: stop)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.body)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Mark \(stop.title)")
+        .accessibilityHint("I'm here, I've left, skip it")
+        .accessibilityIdentifier("trip-stop-menu")
+    }
+}
+
 // MARK: - The place card's pieces
 
 /// Why a stop is in the plan, and its facts at a glance, in plain words.
@@ -337,8 +375,10 @@ enum TripPlaceWhy {
         var warn = false
     }
 
-    /// Its hours that day first, then how long, the price, booking.
-    static func chips(facts: TripFacts?, date: String, clock: TripClock, stop: PlannedStop) -> [Chip] {
+    /// Its hours that day first, then how long, the price, booking. The
+    /// price wears the money of where the trip is — no euro in Edinburgh
+    /// (`TripDecisions.currencySymbol`, the planning batch's).
+    static func chips(facts: TripFacts?, date: String, clock: TripClock, stop: PlannedStop, timeZone: String? = nil) -> [Chip] {
         guard let facts else { return [] }
         var out: [Chip] = []
         if facts.closedDates.contains(date) {
@@ -351,7 +391,9 @@ enum TripPlaceWhy {
             out.append(Chip(icon: "questionmark.circle", text: "Hours unknown", warn: true))
         }
         if let visit = facts.typicalVisitSec { out.append(Chip(icon: "hourglass", text: TripFormat.duration(seconds: visit))) }
-        if let price = facts.priceText { out.append(Chip(icon: "eurosign.circle", text: price)) }
+        if let price = facts.priceText {
+            out.append(Chip(icon: TripDecisions.currencySymbol(timeZone: timeZone ?? clock.zone.identifier, costText: price), text: price))
+        }
         if facts.bookingRequired == true { out.append(Chip(icon: "ticket", text: "Book ahead")) }
         return out
     }
@@ -396,7 +438,7 @@ struct TripLookAround: View {
                     TripHeading(text: "The street")
                     LookAroundPreview(initialScene: scene)
                         .frame(height: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 2, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
                 }
                 .padding(.vertical, 6)
                 .accessibilityIdentifier("trip-look-around")

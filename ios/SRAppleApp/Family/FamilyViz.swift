@@ -17,6 +17,12 @@ import CoreLocation
 //   home — north is up. Everyone at home circles the sun on the innermost
 //   ring. A polar distance chart of the kind data-journalism desks use for
 //   "how far from home", with the people as the data.
+//
+//   The Family tab's Orbit can also turn with the phone (`facing`): the
+//   centre is you, the top of the screen is the way you are pointing, and
+//   home becomes a marker of its own while you are away from it. Home's tile
+//   never turns — a glance at Today wants the same picture every time, and
+//   a disc that swings as the phone is lifted reads as broken.
 // - **The Ribbons.** Each person's day as a ridgeline — the Joy Division plot,
 //   "Unknown Pleasures" — with time across and distance from home as height.
 //   A school run is a hill, a day out is a mountain, a day in is a flat line.
@@ -58,6 +64,39 @@ enum FamilyOrbitMath {
     static func compass(_ bearing: Double) -> String {
         let names = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
         let index = Int(((bearing / (2 * .pi)) * 8).rounded()) % 8
+        return names[index]
+    }
+
+    /// A bearing as seen by somebody facing `heading` (both radians, 0 is
+    /// north, clockwise), 0..<2π: 0 is straight ahead, π/2 is to the right.
+    /// PURE.
+    static func relative(_ bearing: Double, facing heading: Double) -> Double {
+        let turned = (bearing - heading).truncatingRemainder(dividingBy: 2 * .pi)
+        return turned < 0 ? turned + 2 * .pi : turned
+    }
+
+    /// The angle closest to `previous` that points the same way as `next`.
+    /// PURE.
+    ///
+    /// A compass reports 359° and then 1°. Animating the disc between those
+    /// raw numbers spins it the long way round, a full turn for a two-degree
+    /// nudge; animating to 361° moves it the two degrees it actually moved.
+    /// So the disc's angle never wraps — it keeps counting.
+    static func unwrap(_ next: Double, after previous: Double) -> Double {
+        var step = (next - previous).truncatingRemainder(dividingBy: 2 * .pi)
+        if step > .pi { step -= 2 * .pi } else if step < -.pi { step += 2 * .pi }
+        return previous + step
+    }
+
+    /// "ahead and to your right", for VoiceOver in the turning Orbit. PURE.
+    ///
+    /// Eight ways, like `compass`, and in the words somebody would use
+    /// pointing: nobody says "at your two o'clock" to their mum.
+    static func relativeWords(_ relative: Double) -> String {
+        let names = ["ahead", "ahead and to your right", "to your right", "behind you and to your right",
+                     "behind you", "behind you and to your left", "to your left", "ahead and to your left"]
+        let turned = self.relative(relative, facing: 0)
+        let index = Int(((turned / (2 * .pi)) * 8).rounded()) % 8
         return names[index]
     }
 
@@ -206,54 +245,152 @@ struct FamilyOrbitModel: Equatable {
     let outer: Double
     /// Whether the centre is home, or — no home known — you.
     let centredOnHome: Bool
+    /// Built to turn with the phone (`facing`): the centre is you, you are
+    /// not one of the planets, and `atHome` means "with you".
+    var facing = false
+    /// Facing only: whether you are at home yourself, which decides whether
+    /// the people round you are "at home" or "with you".
+    var youAreHome = false
+    /// Facing only, and only while you are away from it: where home is from
+    /// you, drawn as a marker of its own.
+    var home: Marker? = nil
+
+    struct Marker: Equatable {
+        let km: Double
+        let bearing: Double
+    }
+
+    /// The home marker's key among the bodies `place` spaces apart. Not a
+    /// subject the site can send: theirs are ids, never bracketed.
+    static let homeSubject = "[home]"
+
+    /// Everything `FamilyOrbitMath.place` spaces apart: the people and, in
+    /// the turning Orbit, home — so a planet never sits on the house.
+    var bodies: [FamilyOrbitMath.Body] {
+        let planets = people.map { FamilyOrbitMath.Body(subject: $0.subject, km: $0.km, bearing: $0.bearing, atHome: $0.atHome) }
+        guard let home else { return planets }
+        return planets + [FamilyOrbitMath.Body(subject: Self.homeSubject, km: home.km, bearing: home.bearing, atHome: false)]
+    }
 
     static func make(view: HouseholdView, watch: [WatchedPlace]?, now: Date = Date()) -> FamilyOrbitModel? {
-        let initials = view.initials
         let selfFix = view.people.first(where: \.isSelf)?.position.map { GeoPoint(lat: $0.lat, lon: $0.lon) }
         let homeFix = FamilyOrbitMath.home(people: view.people, watch: watch)
         guard let centre = homeFix ?? selfFix ?? view.placed.first?.position.map({ GeoPoint(lat: $0.lat, lon: $0.lon) }) else {
             return nil
         }
-        let placed = view.people.filter { $0.position != nil && $0.status != "off" }
+        let (people, outer) = measure(view, from: centre, now: now, including: { _ in true }) { person, km in
+            homeFix != nil && (person.status == "home" || km < FamilyOrbitMath.homeKm)
+        }
+        let missing = view.people.filter { $0.position == nil || $0.status == "off" }.map(\.name)
+        return FamilyOrbitModel(people: people, missing: missing, outer: outer, centredOnHome: homeFix != nil)
+    }
+
+    /// The turning Orbit's model: centred on you. Nil when this phone has no
+    /// fix of its own — the household view's (what the family see) or, failing
+    /// that, `device`, the last one iOS has for this phone — and the Family
+    /// tab falls back to `make`.
+    ///
+    /// Bearings stay compass bearings: the view turns the whole disc by the
+    /// heading, so the model is rebuilt when somebody moves, not every time
+    /// the phone does.
+    ///
+    /// Your household fix counts only while you are sharing: with sharing
+    /// off it is where you were when it stopped. Given both it and `device`,
+    /// the newer wins; a `device` fix with no `deviceAt` is a fallback only.
+    static func makeFacing(view: HouseholdView, watch: [WatchedPlace]?, device: GeoPoint? = nil,
+                           deviceAt: Date? = nil, now: Date = Date()) -> FamilyOrbitModel? {
+        let me = view.people.first(where: \.isSelf)
+        let shared = me?.status == "off" ? nil : me?.position
+        let household = shared.map { GeoPoint(lat: $0.lat, lon: $0.lon) }
+        let deviceIsNewer: Bool = {
+            guard let deviceAt else { return false }
+            guard let at = shared.flatMap({ FamilyPerson.isoDate($0.at) }) else { return true }
+            return deviceAt > at
+        }()
+        guard let centre = (deviceIsNewer ? device : nil) ?? household ?? device else { return nil }
+        let homeFix = FamilyOrbitMath.home(people: view.people, watch: watch)
+        let homeKm = homeFix.map { FamilyOrbitMath.distanceKm(centre, $0) }
+        // The site's "home" is trusted only near home: a status a minute
+        // behind a fix that has already left the street is the fix's word
+        // against a stale one, and the fix is newer.
+        let youAreHome = homeKm.map { $0 < FamilyOrbitMath.homeKm || (me?.status == "home" && $0 < 1) } ?? false
+        let marker = homeFix.flatMap { home -> Marker? in
+            guard !youAreHome, let km = homeKm else { return nil }
+            return Marker(km: km, bearing: FamilyOrbitMath.bearing(from: centre, to: home))
+        }
+        let (people, outer) = measure(view, from: centre, farthest: marker?.km ?? 0, now: now,
+                                      including: { !$0.isSelf }) { person, km in
+            km < FamilyOrbitMath.homeKm || (youAreHome && person.status == "home")
+        }
+        // You are the centre, sharing or not: never "missing" from your own Orbit.
+        let missing = view.people.filter { !$0.isSelf && ($0.position == nil || $0.status == "off") }.map(\.name)
+        return FamilyOrbitModel(people: people, missing: missing, outer: outer, centredOnHome: false,
+                                facing: true, youAreHome: youAreHome, home: marker)
+    }
+
+    /// Distance, bearing and tail from `centre` for everyone placed, and the
+    /// outer ring that holds them (and `farthest`, for the home marker).
+    private static func measure(
+        _ view: HouseholdView, from centre: GeoPoint, farthest: Double = 0, now: Date,
+        including keep: (FamilyPerson) -> Bool, atHome: (FamilyPerson, Double) -> Bool
+    ) -> (people: [Person], outer: Double) {
+        let initials = view.initials
+        let placed = view.people.filter { $0.position != nil && $0.status != "off" && keep($0) }
         let measured = placed.map { person -> (FamilyPerson, Double, Double) in
             let p = GeoPoint(lat: person.position!.lat, lon: person.position!.lon)
             return (person, FamilyOrbitMath.distanceKm(centre, p), FamilyOrbitMath.bearing(from: centre, to: p))
         }
-        let outer = FamilyOrbitMath.outerKm(farthest: measured.map { $0.1 }.max() ?? 0)
+        let outer = FamilyOrbitMath.outerKm(farthest: max(measured.map { $0.1 }.max() ?? 0, farthest))
         let cutoff = now.timeIntervalSince1970 - 20 * 60
         let people = measured.map { entry -> Person in
             let (person, km, bearing) = entry
-            let atHome = homeFix != nil && (person.status == "home" || km < FamilyOrbitMath.homeKm)
             let tail: [CGPoint] = person.moving == nil ? [] : (person.today?.trail ?? [])
                 .filter { $0.count >= 3 && $0[2] >= cutoff }
                 .map { FamilyOrbitMath.project(GeoPoint(lat: $0[0], lon: $0[1]), home: centre, outer: outer) }
             return Person(
                 subject: person.subject, name: person.name,
                 initials: initials[person.subject] ?? person.initial,
-                isSelf: person.isSelf, km: km, bearing: bearing, atHome: atHome,
+                isSelf: person.isSelf, km: km, bearing: bearing, atHome: atHome(person, km),
                 battery: person.batteryPct, moving: person.moving,
                 stale: person.freshness(now: now) == .stale,
                 place: person.placeName, tail: tail
             )
         }
-        let missing = view.people.filter { $0.position == nil || $0.status == "off" }.map(\.name)
-        return FamilyOrbitModel(people: people, missing: missing, outer: outer, centredOnHome: homeFix != nil)
+        return (people, outer)
     }
 
-    /// "Sam, 2.4 km north-east of home, walking, battery 54%".
-    func spoken(_ person: Person) -> String {
+    /// "Sam, 2.4 km north-east of home, walking, battery 54%" — or, in the
+    /// turning Orbit with a `heading` (radians), "Sam, 2.4 km ahead and to
+    /// your right, walking, battery 54%".
+    func spoken(_ person: Person, heading: Double? = nil) -> String {
         var parts = [person.isSelf ? "You" : person.name]
         if person.atHome {
-            parts.append("at home")
+            parts.append(facing && !youAreHome ? "with you" : "at home")
         } else {
-            let anchor = centredOnHome ? "home" : "you"
-            parts.append("\(FamilyOrbitMath.formatKm(person.km)) \(FamilyOrbitMath.compass(person.bearing)) of \(anchor)")
-            if let place = person.place, place != "Home" { parts.append("near \(place)") }
+            parts.append("\(FamilyOrbitMath.formatKm(person.km)) \(direction(person.bearing, heading: heading))")
+            if let place = person.place {
+                // Somebody at home while you are out: home is where they are.
+                if place != "Home" { parts.append("near \(place)") } else if facing { parts.append("at home") }
+            }
         }
         if let moving = person.moving { parts.append(moving.verb) }
         if let battery = person.battery { parts.append("battery \(battery)%") }
         if person.stale { parts.append("not seen lately") }
         return parts.joined(separator: ", ")
+    }
+
+    /// "Home, 3.1 km behind you". Nil while there is no home marker.
+    func spokenHome(heading: Double? = nil) -> String? {
+        home.map { "Home, \(FamilyOrbitMath.formatKm($0.km)) \(direction($0.bearing, heading: heading))" }
+    }
+
+    /// "ahead and to your right" with a heading, "north-east of you" facing
+    /// but without one (no compass), "north-east of home" otherwise.
+    private func direction(_ bearing: Double, heading: Double?) -> String {
+        if facing, let heading {
+            return FamilyOrbitMath.relativeWords(FamilyOrbitMath.relative(bearing, facing: heading))
+        }
+        return "\(FamilyOrbitMath.compass(bearing)) of \(centredOnHome ? "home" : "you")"
     }
 }
 
@@ -274,19 +411,29 @@ extension FamilyOrbitMath {
 
 /// Home as the sun, the family as planets. See the note at the top of the file.
 ///
-/// The rings and the tails are one `Canvas` (drawn once per change, no
-/// layers), the people are views — each one a VoiceOver element and a tap
-/// target. Nothing moves while idle: the one animation is the halo round
-/// somebody on the move, and only while `live`.
+/// The rings and the tails are `Canvas`es (drawn once per change, no layers),
+/// the people are views — each one a VoiceOver element and a tap target.
+/// Nothing moves while idle: the one animation is the halo round somebody on
+/// the move, and only while `live`.
+///
+/// Given a `heading`, the picture turns with the phone. The rings are circles
+/// and do not need to, so they stay put with their labels upright; the tails,
+/// the north tick and the planets are one layer that rotates as a whole, and
+/// each planet turns back by the same angle so its initials stay level. A
+/// rotation is a render transform: turning the phone redraws neither Canvas.
 struct FamilyOrbitView: View {
     let model: FamilyOrbitModel
     let colours: [String: Color]
     /// On screen and the app in front: the moving halo may pulse.
     var live: Bool = false
+    /// Which way the phone points, radians from north, unwrapped (see
+    /// `FamilyOrbitMath.unwrap`). Nil is north up — Home's tile, always.
+    var heading: Double? = nil
     /// A planet tapped; nil leaves the whole view to the caller's tap.
     var openPerson: ((String) -> Void)? = nil
     @ScaledMetric(relativeTo: .body) private var planet: CGFloat = 34
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geo in
@@ -294,31 +441,132 @@ struct FamilyOrbitView: View {
             let radius = side / 2 - planet * 0.6
             let centre = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
             let placed = Dictionary(FamilyOrbitMath.place(
-                model.people.map { .init(subject: $0.subject, km: $0.km, bearing: $0.bearing, atHome: $0.atHome) },
+                model.bodies,
                 outer: model.outer,
                 separation: Double(planet * 1.1 / max(radius, 1))
             ).map { ($0.subject, $0) }, uniquingKeysWith: { first, _ in first })
+            let turn = heading ?? 0
 
             ZStack {
-                rings(centre: centre, radius: radius)
-                sun.position(centre)
-                ForEach(model.people) { person in
-                    if let spot = placed[person.subject] {
-                        planetView(person)
+                OrbitRings(outer: model.outer, centre: centre, radius: radius, dark: scheme == .dark)
+                    .equatable()
+                if heading != nil {
+                    OrbitAhead(centre: centre, radius: radius).equatable()
+                }
+                // Everything that turns with the phone.
+                ZStack {
+                    north(centre: centre, radius: radius, upright: turn)
+                    OrbitTails(people: model.people, colours: colours, centre: centre, radius: radius)
+                        .equatable()
+                    sun
+                        .rotationEffect(.radians(turn))
+                        .position(centre)
+                    if let marker = model.home, let spot = placed[FamilyOrbitModel.homeSubject] {
+                        homeMarker(marker)
+                            .rotationEffect(.radians(turn))
                             .position(x: centre.x + spot.x * radius, y: centre.y + spot.y * radius)
                     }
+                    ForEach(model.people) { person in
+                        if let spot = placed[person.subject] {
+                            planetView(person)
+                                .rotationEffect(.radians(turn))
+                                .position(x: centre.x + spot.x * radius, y: centre.y + spot.y * radius)
+                        }
+                    }
                 }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .rotationEffect(.radians(-turn))
+                // No animation into or out of north up: the angle is unwrapped
+                // and may be several turns round, and easing from there to 0
+                // would spin the disc that many times.
+                .animation(reduceMotion || heading == nil ? nil : .easeOut(duration: 0.35), value: turn)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("family-orbit")
     }
 
-    /// The rings, their labels, the compass tick and every tail.
-    private func rings(centre: CGPoint, radius: CGFloat) -> some View {
-        let outer = model.outer
+    /// North, on the rim. It sits at the top until the disc turns, and then
+    /// it is wherever north actually is; the letter itself stays level.
+    private func north(centre: CGPoint, radius: CGFloat, upright turn: Double) -> some View {
+        Text("N")
+            .font(SR.Text.label(10))
+            .foregroundStyle(SR.inkMuted)
+            .rotationEffect(.radians(turn))
+            // Bottom-aligned in a box whose foot is just above the rim: the
+            // letter's own height scales with the reader's text size.
+            .frame(width: 40, height: 40, alignment: .bottom)
+            .position(x: centre.x, y: centre.y - radius - 2 - 20)
+            .accessibilityHidden(true)
+    }
+
+    private var sun: some View {
+        let symbol = model.centredOnHome ? "house.fill" : model.facing && heading != nil ? "location.north.fill" : "location.fill"
+        return ZStack {
+            Circle()
+                .fill(SR.Hue.family.gradient)
+                .frame(width: planet * 1.25, height: planet * 1.25)
+                .shadow(color: SR.Hue.family.glow.opacity(0.55), radius: 14)
+            Image(systemName: symbol)
+                .font(.system(size: planet * 0.45, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .accessibilityLabel(sunLabel)
+    }
+
+    private var sunLabel: String {
+        guard !model.centredOnHome else { return "Home" }
+        guard model.facing, let heading else { return "You" }
+        return "You, facing \(FamilyOrbitMath.compass(FamilyOrbitMath.relative(heading, facing: 0)))"
+    }
+
+    /// Home, while you are away from it: a small sun of its own, at its own
+    /// distance and direction from you.
+    private func homeMarker(_ marker: FamilyOrbitModel.Marker) -> some View {
+        ZStack {
+            Circle()
+                .fill(SR.Hue.family.gradient)
+                .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 2))
+                .shadow(color: SR.Hue.family.glow.opacity(0.45), radius: 6, y: 2)
+            Image(systemName: "house.fill")
+                .font(.system(size: planet * 0.34, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: planet * 0.8, height: planet * 0.8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(model.spokenHome(heading: heading) ?? "Home")
+        .accessibilityIdentifier("orbit-home")
+    }
+
+    @ViewBuilder
+    private func planetView(_ person: FamilyOrbitModel.Person) -> some View {
+        let colour = colours[person.subject] ?? SR.accent
+        let disc = OrbitPlanet(person: person, colour: colour, size: planet, live: live)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(model.spoken(person, heading: heading))
+            .accessibilityIdentifier("orbit-\(person.subject)")
+        if let openPerson {
+            Button { SRHaptic.tap(); openPerson(person.subject) } label: { disc }
+                .buttonStyle(SRPressStyle())
+                .accessibilityAddTraits(.isButton)
+        } else {
+            disc
+        }
+    }
+}
+
+/// The disc, its rings and their labels. Equatable, so a new heading — or
+/// anything else that redraws the Orbit without changing the scale — does
+/// not repaint it.
+struct OrbitRings: View, Equatable {
+    let outer: Double
+    let centre: CGPoint
+    let radius: CGFloat
+    let dark: Bool
+
+    var body: some View {
         let marks = FamilyOrbitMath.rings(outer: outer)
-        let lineColour = SR.ink.opacity(scheme == .dark ? 0.16 : 0.10)
+        let lineColour = SR.ink.opacity(dark ? 0.16 : 0.10)
         return Canvas { context, _ in
             // The faint disc the planets sit on.
             let disc = Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2))
@@ -338,12 +586,23 @@ struct FamilyOrbitView: View {
             let homeRing = radius * FamilyOrbitMath.inner * 0.72
             context.stroke(Path(ellipseIn: CGRect(x: centre.x - homeRing, y: centre.y - homeRing, width: homeRing * 2, height: homeRing * 2)),
                            with: .color(SR.Hue.family.base.opacity(0.25)), lineWidth: 1.5)
-            // North.
-            let n = Text("N").font(SR.Text.label(10)).foregroundStyle(SR.inkMuted)
-            context.draw(n, at: CGPoint(x: centre.x, y: centre.y - radius - 2), anchor: .bottom)
-            // Tails: the last twenty minutes behind anybody on the move,
-            // fading towards where they were.
-            for person in model.people where person.tail.count > 1 {
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Tails: the last twenty minutes behind anybody on the move, fading towards
+/// where they were. In the layer that turns, so they point the way the
+/// planets do.
+struct OrbitTails: View, Equatable {
+    let people: [FamilyOrbitModel.Person]
+    let colours: [String: Color]
+    let centre: CGPoint
+    let radius: CGFloat
+
+    var body: some View {
+        Canvas { context, _ in
+            for person in people where person.tail.count > 1 {
                 let colour = colours[person.subject] ?? SR.accent
                 var path = Path()
                 for (index, point) in person.tail.enumerated() {
@@ -359,34 +618,33 @@ struct FamilyOrbitView: View {
         }
         .accessibilityHidden(true)
     }
+}
 
-    private var sun: some View {
-        ZStack {
-            Circle()
-                .fill(SR.Hue.family.gradient)
-                .frame(width: planet * 1.25, height: planet * 1.25)
-                .shadow(color: SR.Hue.family.glow.opacity(0.55), radius: 14)
-            Image(systemName: model.centredOnHome ? "house.fill" : "location.fill")
-                .font(.system(size: planet * 0.45, weight: .bold))
-                .foregroundStyle(.white)
-        }
-        .accessibilityLabel(model.centredOnHome ? "Home" : "You")
-    }
+/// Ahead, in the turning Orbit: a soft beam up from the centre and a notch at
+/// the top of the rim. It never turns — ahead is always the top of the
+/// screen — which is what makes the rest of the picture read as turning.
+struct OrbitAhead: View, Equatable {
+    let centre: CGPoint
+    let radius: CGFloat
 
-    @ViewBuilder
-    private func planetView(_ person: FamilyOrbitModel.Person) -> some View {
-        let colour = colours[person.subject] ?? SR.accent
-        let disc = OrbitPlanet(person: person, colour: colour, size: planet, live: live)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(model.spoken(person))
-            .accessibilityIdentifier("orbit-\(person.subject)")
-        if let openPerson {
-            Button { SRHaptic.tap(); openPerson(person.subject) } label: { disc }
-                .buttonStyle(SRPressStyle())
-                .accessibilityAddTraits(.isButton)
-        } else {
-            disc
+    var body: some View {
+        Canvas { context, _ in
+            var beam = Path()
+            beam.move(to: centre)
+            beam.addArc(center: centre, radius: radius, startAngle: .degrees(-90 - 22), endAngle: .degrees(-90 + 22), clockwise: false)
+            beam.closeSubpath()
+            context.fill(beam, with: .linearGradient(
+                Gradient(colors: [SR.accent.opacity(0.18), SR.accent.opacity(0)]),
+                startPoint: centre, endPoint: CGPoint(x: centre.x, y: centre.y - radius)
+            ))
+            var notch = Path()
+            notch.move(to: CGPoint(x: centre.x, y: centre.y - radius + 1))
+            notch.addLine(to: CGPoint(x: centre.x - 6, y: centre.y - radius + 10))
+            notch.addLine(to: CGPoint(x: centre.x + 6, y: centre.y - radius + 10))
+            notch.closeSubpath()
+            context.fill(notch, with: .color(SR.accent))
         }
+        .accessibilityHidden(true)
     }
 }
 

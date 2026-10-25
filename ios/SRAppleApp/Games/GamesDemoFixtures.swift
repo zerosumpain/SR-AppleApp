@@ -187,7 +187,8 @@ extension SRDemoFixtures {
                      {"roomId": \(s(demoQuizInviteRoom)), "game": "quiz-night", "difficulty": "easy", "hostName": "Robin",
                       "players": ["Robin", "Alex"], "expiresAt": \(ms(now.addingTimeInterval(170))),
                       "about": "The Solar System · for kids"}],
-         "rooms": [\(storeShotsSkipsWordle ? "" : durableLobbyRows(now))
+         "rooms": [\(hometownsLobbyRows(now))
+                   \(storeShotsSkipsWordle ? "" : durableLobbyRows(now))
                    \(storeShotsSkipsWordle ? "" : missionLobbyRows)
                    \(storeShotsSkipsWordle ? "" : chessLobbyRows)
                    \(storeShotsSkipsWordle ? "" : oneClueLobbyRows)
@@ -208,13 +209,14 @@ extension SRDemoFixtures {
                    {"id": \(s(demoSprintRoom)), "game": "maths-sprint", "phase": "playing", "hostName": "Robin"},
                    \(storeShotsSkipsWordle ? "" : homesteadLobbyRows)
                    {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
-         "paces": {"homestead": ["live", "async"]},
+         "paces": {"homestead": ["live", "async"], "hometowns": ["async"]},
          "serverNow": \(ms(now))}
         """
     }
 
     static func demoRoom(id: String, meJoined: Bool, clock: DemoClock) -> String {
         if let homestead = homesteadRoom(id: id, clock: clock) { return homestead }
+        if let county = hometownsRoom(id: id, clock: clock) { return county }
         if id == demoWordleRoom { return wordleRoom(clock) }
         if id == demoQuizRoom { return quizRoom(reveal: false, clock: clock) }
         if id == demoQuizRevealRoom { return quizRoom(reveal: true, clock: clock) }

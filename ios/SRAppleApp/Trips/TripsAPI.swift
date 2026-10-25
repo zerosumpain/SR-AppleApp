@@ -153,6 +153,21 @@ enum TripsAPI {
             let status: String
             let error: String?
             let result: T?
+            /// v8: the job's progress, a line per stage.
+            let stages: [JobStage]?
+
+            private enum Keys: String, CodingKey { case status, error, result, stages }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: Keys.self)
+                status = try c.decode(String.self, forKey: .status)
+                error = try? c.decodeIfPresent(String.self, forKey: .error)
+                // A running v8 job may carry a partial result of another shape
+                // (a start job keeps `{ id }` as soon as the trip exists): read
+                // leniently, and only insist once the job is done.
+                result = try? c.decodeIfPresent(T.self, forKey: .result)
+                stages = try? c.decodeIfPresent([JobStage].self, forKey: .stages)
+            }
         }
         let job: Job
     }
@@ -174,7 +189,10 @@ enum TripsAPI {
     /// A network blip while polling is retried (the phone may be waking from
     /// the background); a job the server has forgotten (a deploy restarted
     /// it) is said plainly.
-    static func result<T: Decodable>(_ started: Started, as type: T.Type, since: Date, unreadable: String) async throws -> T {
+    static func result<T: Decodable>(
+        _ started: Started, as type: T.Type, since: Date, unreadable: String,
+        onStages: (@MainActor ([JobStage]) -> Void)? = nil
+    ) async throws -> T {
         switch started {
         case .result(let data):
             do { return try JSONDecoder().decode(T.self, from: data) } catch { throw Failure.refused(200, unreadable) }
@@ -191,7 +209,10 @@ enum TripsAPI {
                     guard let polled = try? JSONDecoder().decode(JobPolled<T>.self, from: data) else {
                         throw Failure.refused(200, unreadable)
                     }
+                    if let stages = polled.job.stages, let onStages { await onStages(stages) }
                     switch polled.job.status {
+                    case "cancelled":
+                        throw Failure.refused(499, "Cancelled.")
                     case "done":
                         guard let result = polled.job.result else { throw Failure.refused(200, unreadable) }
                         return result
@@ -256,6 +277,14 @@ enum TripsAPI {
 
     /// "approve", "reject" or "withdraw". 409 when someone decided first.
     @discardableResult
+    /// v8.1: `PUT …/question-pushes {on}` — this person's question notifications for the trip. Returns whether they are on.
+    static func setQuestionPushes(_ on: Bool, trip id: String) async throws -> Bool {
+        struct Reply: Decodable { let on: Bool }
+        let (data, http) = try await exchange(path(id) + "/question-pushes", method: "PUT", body: try JSONEncoder().encode(["on": on]))
+        try check(http, data)
+        return (try? JSONDecoder().decode(Reply.self, from: data).on) ?? on
+    }
+
     static func decide(trip id: String, suggestion sid: String, action: String) async throws -> Decided {
         let body = try JSONEncoder().encode(["action": action])
         // Approving adds the wish and re-solves the plan: give it time.
@@ -288,6 +317,177 @@ enum TripsAPI {
         } catch {
             throw Failure.refused(200, "That route was unreadable.")
         }
+    }
+
+    // MARK: - v8: propose, research, ask
+    //
+    // The server owns every decision: the phone reads the brief, questions
+    // and proposals (`decisions`, or the same fields on the bundle) and posts
+    // choices back BY ID. Accepting replays the proposal's stored, checked
+    // ops on the server — the phone never sends ops, and never a sentence.
+
+    /// `GET …/decisions`.
+    static func decisions(trip id: String) async throws -> DecisionsWire {
+        let data = try await get(path(id) + "/decisions")
+        do { return try JSONDecoder().decode(DecisionsWire.self, from: data) } catch {
+            throw Failure.refused(200, "The planner's questions and ideas were unreadable.")
+        }
+    }
+
+    /// `POST …/proposals`: one group of alternatives. The fast path (the
+    /// research pack and the solver) answers at once; when the pack is not
+    /// ready the server falls back to a search job, polled like any other.
+    static func proposals(_ request: ProposalRequest, trip id: String) async throws -> [TripProposal] {
+        try await run(path(id) + "/proposals", body: try JSONEncoder().encode(request),
+                      as: ProposalGroupReply.self, unreadable: "The planner's ideas were unreadable.").proposals
+    }
+
+    /// What became of a proposal the phone acted on.
+    enum ProposalOutcome {
+        case accepted(DecisionResult)
+        case rejected(DecisionResult)
+        /// 409, the plan moved since: this is the re-checked proposal. Show its
+        /// new difference and ask again.
+        case stale(TripProposal)
+        /// 409, no longer open (someone else decided, or it expired).
+        case closed(String)
+    }
+
+    /// `POST …/proposals/:pid`: Use this, or Not this with a reason.
+    static func decide(_ action: ProposalAction, proposal pid: String, trip id: String) async throws -> ProposalOutcome {
+        let (data, http) = try await exchange(path(id) + "/proposals/" + escape(pid), method: "POST",
+                                              body: try JSONEncoder().encode(action), timeout: 60)
+        if http.statusCode == 409 {
+            if let stale = try? JSONDecoder().decode(DecisionResult.self, from: data), stale.stale == true, let p = stale.proposal {
+                return .stale(p)
+            }
+            let sentence = (try? JSONDecoder().decode(APIError.self, from: data))?.error
+            return .closed(sentence ?? "That has already been decided.")
+        }
+        try check(http, data)
+        guard let result = try? JSONDecoder().decode(DecisionResult.self, from: data) else {
+            throw Failure.refused(200, "The planner's answer was unreadable.")
+        }
+        if case .accept = action { return .accepted(result) }
+        return .rejected(result)
+    }
+
+    /// `POST …/questions/:qid`: an answer, You decide, skip, or a vote.
+    static func answer(_ action: QuestionAction, question qid: String, trip id: String) async throws -> DecisionResult {
+        let (data, http) = try await exchange(path(id) + "/questions/" + escape(qid), method: "POST",
+                                              body: try JSONEncoder().encode(action), timeout: 60)
+        if http.statusCode == 409 {
+            let sentence = (try? JSONDecoder().decode(APIError.self, from: data))?.error
+            throw Failure.refused(409, sentence ?? "That question has already been answered.")
+        }
+        try check(http, data)
+        guard let result = try? JSONDecoder().decode(DecisionResult.self, from: data) else {
+            throw Failure.refused(200, "The planner's answer was unreadable.")
+        }
+        return result
+    }
+
+    /// `POST …/undo`: back to a version (default: the one before the latest).
+    static func undo(toVersion: Int?, trip id: String) async throws -> UndoResult {
+        let (data, http) = try await exchange(path(id) + "/undo", method: "POST",
+                                              body: try JSONEncoder().encode(UndoBody(toVersion: toVersion)), timeout: 60)
+        if http.statusCode == 409 {
+            throw Failure.refused(409, (try? JSONDecoder().decode(APIError.self, from: data))?.error
+                                  ?? "That version can't be put back — it was saved before undo existed.")
+        }
+        try check(http, data)
+        guard let result = try? JSONDecoder().decode(UndoResult.self, from: data) else {
+            throw Failure.refused(200, "The planner's answer was unreadable.")
+        }
+        return result
+    }
+
+    /// `GET …/versions`: every plan version, newest first.
+    static func versions(trip id: String) async throws -> [TripVersionRow] {
+        let data = try await get(path(id) + "/versions")
+        do { return try JSONDecoder().decode(VersionsReply.self, from: data).versions } catch {
+            throw Failure.refused(200, "The plan's history was unreadable.")
+        }
+    }
+
+    /// `PATCH …/brief`: a direct edit — dates, who, pace, a stay — or "Right".
+    static func patchBrief(_ patch: BriefPatch, trip id: String) async throws -> BriefReply {
+        let (data, http) = try await exchange(path(id) + "/brief", method: "PATCH",
+                                              body: try JSONEncoder().encode(patch), timeout: 60)
+        try check(http, data)
+        guard let reply = try? JSONDecoder().decode(BriefReply.self, from: data) else {
+            throw Failure.refused(200, "The planner's answer was unreadable.")
+        }
+        return reply
+    }
+
+    /// `GET …/pack`: the research pack, optionally one kind or tag.
+    static func pack(trip id: String, kind: String? = nil, tag: String? = nil) async throws -> PackReply {
+        var q = URLComponents()
+        q.queryItems = [kind.map { URLQueryItem(name: "kind", value: $0) }, tag.map { URLQueryItem(name: "tag", value: $0) }].compactMap { $0 }
+        let query = q.percentEncodedQuery.map { $0.isEmpty ? "" : "?" + $0 } ?? ""
+        let data = try await get(path(id) + "/pack" + query)
+        do { return try JSONDecoder().decode(PackReply.self, from: data) } catch {
+            throw Failure.refused(200, "The research was unreadable.")
+        }
+    }
+
+    /// `POST …/pack`: build, refresh or "Look further" — a job.
+    static func buildPack(_ action: PackAction, trip id: String) async throws -> PackReply {
+        try await run(path(id) + "/pack", body: try JSONEncoder().encode(action), as: PackReply.self,
+                      unreadable: "The research was unreadable.")
+    }
+
+    /// `GET /api/native/trips/notes`: what the owner's notes already hold for
+    /// these dates (flights, a stay), as labels — never memory text. Empty for
+    /// anyone but the owner, and from a server too old to have notes.
+    static func notes(destination: String, startDate: String, endDate: String) async -> [NoteFact] {
+        var q = URLComponents()
+        q.queryItems = [
+            URLQueryItem(name: "destination", value: destination),
+            URLQueryItem(name: "startDate", value: startDate),
+            URLQueryItem(name: "endDate", value: endDate),
+        ]
+        let query = q.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B") ?? ""
+        guard let (data, http) = try? await exchange("api/native/trips/notes?" + query, method: "GET"),
+              (200..<300).contains(http.statusCode) else { return [] }
+        return (try? JSONDecoder().decode(NotesReply.self, from: data))?.notes ?? []
+    }
+
+    /// How a guided start began.
+    enum StartBegun {
+        /// A durable job with stages, polled with `job(_:)`.
+        case job(StagedJob)
+        /// The trip, made at once (a server that did the work in the request).
+        case made(String)
+    }
+
+    /// `POST /api/native/trips` with `{ start, async: true }`.
+    static func create(start: TripStart) async throws -> StartBegun {
+        let (data, http) = try await exchange("api/native/trips", method: "POST",
+                                              body: try JSONEncoder().encode(StartBody(start: start)), timeout: startTimeout)
+        try check(http, data)
+        if let reply = try? JSONDecoder().decode(StagedJobReply.self, from: data) { return .job(reply.job) }
+        if let made = try? JSONDecoder().decode(TripCreated.self, from: data) { return .made(made.id) }
+        throw Failure.refused(200, "The new trip's answer was unreadable.")
+    }
+
+    /// `GET …/trips/jobs/:id`, with its stages. After a server restart an
+    /// orphaned job reads `failed`, never 404.
+    static func job(_ jobId: String) async throws -> StagedJob {
+        let (data, http) = try await exchange("api/native/trips/jobs/" + escape(jobId), method: "GET")
+        if http.statusCode == 404 { throw Failure.refused(404, "That got lost in an update — try again.") }
+        try check(http, data)
+        guard let reply = try? JSONDecoder().decode(StagedJobReply.self, from: data) else {
+            throw Failure.refused(200, "The planner's progress was unreadable.")
+        }
+        return reply.job
+    }
+
+    /// `DELETE …/trips/jobs/:id`: a real cancel — the server stops the work.
+    /// Best effort: an older server has nothing to stop, and says 404.
+    static func cancelJob(_ jobId: String) async {
+        _ = try? await exchange("api/native/trips/jobs/" + escape(jobId), method: "DELETE")
     }
 
     // MARK: - Plumbing

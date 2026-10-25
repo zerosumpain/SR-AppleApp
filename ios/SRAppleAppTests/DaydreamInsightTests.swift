@@ -62,4 +62,28 @@ final class DaydreamInsightTests: XCTestCase {
         XCTAssertEqual(DaydreamNoteCard.shortDay("2026-10-15"), "15 Oct")
         XCTAssertEqual(DaydreamNoteCard.shortDay("soon"), "soon")
     }
+
+    // MARK: - A rated card stays put until the reader moves on
+
+    @MainActor func testARatedNoteStaysUntilTheScreenIsLeft() async {
+        ReviewDemo.shared.enter()
+        defer { ReviewDemo.shared.leave() }
+        let feedback = NoticedFeedback.shared
+        let rated = DaydreamNote(id: "stay-rated-\(UUID())", outcome: .research, channel: .health, title: "T", body: "",
+                                 createdAt: "2026-10-17T08:00:00Z")
+        let later = DaydreamNote(id: "stay-later-\(UUID())", outcome: .research, channel: .health, title: "T", body: "",
+                                 createdAt: "2026-10-17T08:00:00Z")
+
+        await feedback.record(.useful, for: rated)
+        await feedback.give(.notNow, for: later)
+        XCTAssertFalse(feedback.didFail(rated))
+        XCTAssertTrue(feedback.isShowing(rated), "no timer takes it away mid-read")
+        XCTAssertTrue(feedback.isHeld(rated))
+        XCTAssertFalse(feedback.isFiledNotNow(later), "\u{201c}Not now\u{201d} stays put too")
+
+        feedback.settleHeld()
+        XCTAssertFalse(feedback.isShowing(rated))
+        XCTAssertFalse(feedback.isHeld(rated))
+        XCTAssertTrue(feedback.isFiledNotNow(later))
+    }
 }

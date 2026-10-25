@@ -299,7 +299,8 @@ final class TripTests: XCTestCase {
         let base = "https://strangeramblings.com/"
         let list = try JSONDecoder().decode(TripList.self, from:
             SRDemoFixtures.reply(method: "GET", url: URL(string: base + "api/native/trips")!, body: nil).body)
-        XCTAssertEqual(list.trips.map(\.id), [TripDemo.tripId])
+        // v8: the demo also holds a trip being planned (five days out), for the planning screens.
+        XCTAssertEqual(list.trips.map(\.id), [TripDemo.tripId, TripDemo.planTripId])
         let bundle = try JSONDecoder().decode(TripBundle.self, from:
             SRDemoFixtures.reply(method: "GET", url: URL(string: base + "api/native/trips/\(TripDemo.tripId)")!, body: nil).body)
         let today = TripClock(bundle.trip.timeZone).localDate(Date())
