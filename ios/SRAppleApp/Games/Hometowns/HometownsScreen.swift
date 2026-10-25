@@ -507,7 +507,6 @@ struct HometownsToolbar: View {
 
 // MARK: - The Founding Fortnight (§2.3)
 
-/// "Next week ▶" up to twelve times, ten seconds apart; adults may "Play it all".
 /// The county is paused: nothing grows or is lost until it resumes. The sole
 /// mayor of a solo county (`canPause`) resumes it from here.
 struct HometownsPausedBanner: View {
@@ -553,6 +552,7 @@ struct HometownsPausedBanner: View {
     }
 }
 
+/// "Next week ▶" up to twelve times, ten seconds apart; adults may "Play it all".
 struct HometownsSprintBar: View {
     @ObservedObject var store: HometownsStore
 
