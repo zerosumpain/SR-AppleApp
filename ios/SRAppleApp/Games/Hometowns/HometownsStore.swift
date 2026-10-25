@@ -172,9 +172,10 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         }
         #endif
         guard let page else { return nil }
-        var parts = URLComponents(url: page, resolvingAgainstBaseURL: false)
-        parts?.queryItems = (parts?.queryItems ?? []).filter { $0.name != "app" } + [URLQueryItem(name: "app", value: "1")]
-        return parts?.url ?? page
+        guard var parts = URLComponents(url: page, resolvingAgainstBaseURL: false) else { return page }
+        let kept = (parts.queryItems ?? []).filter { $0.name != "app" }
+        parts.queryItems = kept + [URLQueryItem(name: "app", value: "1")]
+        return parts.url ?? page
     }
 
     /// What `needReload` loads: the wire's page, unless the web view already
