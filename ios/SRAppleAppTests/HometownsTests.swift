@@ -17,9 +17,9 @@ import XCTest
 /// that pinned "283 people" would fail on every retune.
 final class HometownsTests: XCTestCase {
 
-    static let fixtures = ["lobby", "founding", "hamlet", "town", "metropolis", "metropolis-delta", "visiting"]
-    static let whole = ["lobby", "founding", "hamlet", "town", "metropolis", "visiting"]
-    static let founded = ["hamlet", "town", "metropolis", "visiting"]
+    static let fixtures = ["lobby", "founding", "hamlet", "town", "metropolis", "metropolis-delta", "visiting", "deputy"]
+    static let whole = ["lobby", "founding", "hamlet", "town", "metropolis", "visiting", "deputy"]
+    static let founded = ["hamlet", "town", "metropolis", "visiting", "deputy"]
 
     private func load(_ name: String) throws -> Data {
         // In the app's test bundle (xcodegen copies the JSON as resources);
@@ -125,6 +125,7 @@ final class HometownsTests: XCTestCase {
             XCTAssertEqual(w.me?.welcomeBack.count ?? 0, (me?["welcomeBack"] as? [Any])?.count ?? 0, name)
             let town = me?["town"] as? [String: Any]
             XCTAssertEqual(w.town?.orders.count ?? 0, (town?["orders"] as? [Any])?.count ?? 0, name)
+            XCTAssertEqual(w.town?.deputyUndo.count ?? 0, (town?["deputyUndo"] as? [Any])?.count ?? 0, name)
         }
     }
 
@@ -420,6 +421,115 @@ final class HometownsTests: XCTestCase {
         XCTAssertEqual(t.step, 2)
         t.note([["op": "place", "id": "well", "x": 33, "y": 46, "rot": 0]])
         XCTAssertEqual(t.step, 3)
+    }
+
+    // MARK: - Bramble's undo (decision 11)
+
+    /// A Deputy entry as the private town carries it (`UndoEntry`), for the planId rules.
+    private func entry(_ planId: String, day: Int = 3, cost: Double = 0, lots: Int = 1) throws -> HometownsUndo {
+        let tiles = (0..<lots).flatMap { [100 + $0, 0, 0, 0, 1, 0] }
+        let json: [String: Any] = ["planId": planId, "day": day, "atTick": 120, "cost": cost, "tiles": tiles,
+                                   "added": [], "removed": [], "construction": [], "terrainEdits": []]
+        return try JSONDecoder().decode(HometownsUndo.self, from: try JSONSerialization.data(withJSONObject: json))
+    }
+
+    /// `deputy.json`: the hamlet whose mayor was away while Bramble's away
+    /// zoning and growth help ran, so today's Deputy list has a build and zoning.
+    func testBramblesBuildsAndZoningOfTodayComeFromTheFrame() throws {
+        let copy = try copy()
+        let w = try wire("deputy")
+        let town = try XCTUnwrap(w.town)
+        let today = w.deputyToday
+        XCTAssertFalse(today.isEmpty, "Bramble did something today in the fixture")
+        XCTAssertEqual(today, town.deputyUndo, "every entry on the list is of today")
+        let day = try XCTUnwrap(w.me?.predict?.dayIndex)
+        let me = try XCTUnwrap(w.me)
+        let canUndo = Set(me.affordances.canUndo)
+        for plan in today {
+            XCTAssertEqual(plan.day, day, plan.planId)
+            XCTAssertTrue(plan.planId.hasPrefix("deputy.\(day)."), plan.planId)
+            XCTAssertFalse(canUndo.contains(plan.planId), "Bramble's entries never take a place in the mayor's list: \(plan.planId)")
+            XCTAssertFalse(town.undo.contains(plan), plan.planId)
+            XCTAssertGreaterThan(plan.lots, 0, "a Deputy entry changed at least one lot: \(plan.planId)")
+            for level in [HometownsCopyLevel.kid, .adult] {
+                let title = plan.deputyTitle(copy, level)
+                XCTAssertFalse(title.isEmpty, plan.planId)
+                XCTAssertFalse(title.contains("{"), "\(plan.planId) fills every slot: \(title)")
+                XCTAssertFalse(title.contains("deputy."), "a row never shows a raw planId: \(title)")
+                if let refund = plan.refundLine(copy, level) { XCTAssertFalse(refund.contains("{"), refund) }
+            }
+            if plan.deputyKind == .zoned || plan.deputyKind == .rezoned {
+                XCTAssertEqual(plan.cost, 0, "zoning is free to undo: \(plan.planId)")
+                XCTAssertNil(plan.refundLine(copy, .kid))
+                XCTAssertEqual(plan.doneKey, "undo.doneFree")
+            } else {
+                let what = plan.planId.split(separator: ".").dropFirst(2).filter { $0 != "help" }.first.map(String.init)
+                if let what, what != "road" { XCTAssertTrue(copy.has("buildingName.\(what)"), "\(what) has a name") }
+            }
+        }
+        XCTAssertTrue(today.contains { $0.deputyKind == .zoned }, "the away order's zoning is listed")
+        let build = try XCTUnwrap(today.first { $0.deputyKind == .built && $0.cost > 0 }, "a Deputy build is listed")
+        XCTAssertEqual(build.doneKey, "undo.done")
+        XCTAssertNotNil(build.refundLine(copy, .adult))
+        // Every other fixture's mayor was at home: no Deputy rows to show.
+        for name in ["hamlet", "town", "metropolis", "visiting"] {
+            XCTAssertTrue(try wire(name).deputyToday.isEmpty, name)
+        }
+    }
+
+    func testOnlyTodaysDeputyEntriesAreOffered() throws {
+        var raw = try dict("deputy")
+        var me = try XCTUnwrap(raw["me"] as? [String: Any])
+        var town = try XCTUnwrap(me["town"] as? [String: Any])
+        let predict = try XCTUnwrap(me["predict"] as? [String: Any])
+        let day = try XCTUnwrap(predict["dayIndex"] as? Int)
+        var list = try XCTUnwrap(town["deputyUndo"] as? [[String: Any]])
+        XCTAssertGreaterThan(list.count, 1)
+        list[0]["day"] = day - 1
+        town["deputyUndo"] = list
+        me["town"] = town
+        raw["me"] = me
+        let w = try JSONDecoder().decode(HometownsWire.self, from: try JSONSerialization.data(withJSONObject: raw))
+        XCTAssertEqual(w.deputyToday.count, list.count - 1, "an entry of a closed day cannot be undone (404)")
+        XCTAssertFalse(w.deputyToday.contains { $0.day != day })
+        // An older frame without `predict`: the server already dropped closed days' entries, so all are shown.
+        me.removeValue(forKey: "predict")
+        raw["me"] = me
+        let older = try JSONDecoder().decode(HometownsWire.self, from: try JSONSerialization.data(withJSONObject: raw))
+        XCTAssertEqual(older.deputyToday.count, list.count)
+    }
+
+    func testDeputyPlanIdsSayWhatBrambleDid() throws {
+        let copy = try copy()
+        XCTAssertEqual(try entry("deputy.3.zone").deputyKind, .zoned)
+        XCTAssertEqual(try entry("deputy.3.market").deputyKind, .zoned)
+        XCTAssertEqual(try entry("deputy.3.help.zone.industry").deputyKind, .zoned)
+        XCTAssertEqual(try entry("deputy.3.help.rezone.farms").deputyKind, .rezoned)
+        for built in ["deputy.3.well", "deputy.3.help.surgery", "deputy.3.road", "deputy.3.road.2", "deputy.3.zoneless",
+                      "deputy.3.help.zone", "deputy.x.zone", "p123"] {
+            XCTAssertEqual(try entry(built).deputyKind, .built, built)
+        }
+        XCTAssertEqual(try entry("deputy.3.zone", lots: 2).lots, 2)
+        XCTAssertEqual(try entry("deputy.3.zone", lots: 2).deputyTitle(copy, .kid), "Bramble painted 2 plots. Undo it for free.")
+        XCTAssertEqual(try entry("deputy.3.market", lots: 1).deputyTitle(copy, .adult), "Zoned 1 tile (free to undo).")
+        XCTAssertEqual(try entry("deputy.3.help.rezone.shops", lots: 1).deputyTitle(copy, .adult),
+                       "Rezoned 1 empty Homes lot for work (free to undo).")
+        XCTAssertEqual(try entry("deputy.3.road.2", cost: 9000, lots: 6).deputyTitle(copy, .kid), "Lane")
+        XCTAssertEqual(try entry("deputy.3.help.well", cost: 1500).deputyTitle(copy, .adult), "Well")
+        XCTAssertEqual(try entry("deputy.3.road", cost: 9000).refundLine(copy, .adult), "Full refund: £9,000.")
+        XCTAssertNil(try entry("deputy.3.zone").refundLine(copy, .adult))
+        XCTAssertTrue(copy.has("undo.doneFree"), "a free undo has its own words: no coins come back")
+        XCTAssertFalse(copy.say("undo.doneFree", .kid).contains("coins"))
+    }
+
+    func testTheDeputyUndoIsTheOrdinaryUndoMove() throws {
+        let move = HometownsMove.undo(planId: "deputy.3.help.zone.industry")
+        let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: try XCTUnwrap(move.body(since: 7))) as? [String: Any])
+        XCTAssertEqual(body["action"] as? String, "undo")
+        XCTAssertEqual(body["planId"] as? String, "deputy.3.help.zone.industry")
+        XCTAssertFalse((body["moveId"] as? String ?? "").isEmpty, "a moveId, as the mayor's undo sends")
+        let again = try XCTUnwrap(try JSONSerialization.jsonObject(with: try XCTUnwrap(HometownsMove.undo(planId: "deputy.3.help.zone.industry").body(since: 7))) as? [String: Any])
+        XCTAssertNotEqual(again["moveId"] as? String, body["moveId"] as? String, "each tap is its own move")
     }
 
     func testMoveBodies() throws {

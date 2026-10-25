@@ -6,8 +6,8 @@ import SwiftUI
 /// welcome-back cards (`me.welcomeBack`: how long it was, how many live here,
 /// the Bulletin's headlines, the mail); after every Regional Day the county
 /// carries this town's Bulletin. They swipe as cards, every one can be read
-/// aloud, and under them is the mail — Bramble's notes on what the standing
-/// orders did. Closing the sheet tells the server this phone has seen the
+/// aloud, and under them is what Bramble built and zoned today, each with
+/// Undo, then the mail — Bramble's notes on what the standing orders did. Closing the sheet tells the server this phone has seen the
 /// town as it is now (`seen`), so the next open replays only what is new.
 struct WelcomeBackSheet: View {
     @ObservedObject var store: HometownsStore
@@ -41,6 +41,8 @@ struct WelcomeBackSheet: View {
                         .frame(height: cardHeight)
                         .accessibilityIdentifier("hometowns-welcome-cards")
                     }
+                    // Bramble's builds and zoning of today, undoable from here too (decision 11).
+                    HometownsDeputyUndoList(store: store)
                     mail
                 }
                 .padding(.horizontal, SR.gutter)

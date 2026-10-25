@@ -7,7 +7,8 @@ import SwiftUI
 // sheet; the planning itself — dragging roads, painting zones, dropping
 // building ghosts — happens on the map, and the forecast card comes up as
 // soon as there is a plan. "Today's builds" is the undo list: a plan built
-// today comes back in full while nothing has grown on it.
+// today comes back in full while nothing has grown on it. Bramble's builds
+// and zoning of today sit apart under it (decision 11) and undo the same way.
 
 struct HometownsBuildSheet: View {
     @ObservedObject var store: HometownsStore
@@ -18,6 +19,7 @@ struct HometownsBuildSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
                     today
+                    HometownsDeputyUndoList(store: store)
                     ForEach(HometownsCatalogue.trays, id: \.self) { tray in
                         let items = trayItems.filter { $0.tray == tray }
                         if !items.isEmpty {
@@ -96,7 +98,7 @@ struct HometownsBuildSheet: View {
                             }
                             Spacer(minLength: 8)
                             Button {
-                                store.undo(plan.planId)
+                                store.undo(plan)
                             } label: {
                                 SRButtonLabel(title: store.say("undo.button"), icon: "arrow.uturn.backward")
                             }
@@ -189,6 +191,65 @@ struct HometownsBuildSheet: View {
             default: return "star.fill"
             }
         }
+    }
+}
+
+/// Bramble's builds and zoning of today (decision 11, §5.18), each with Undo:
+/// the ordinary `undo` move with the entry's planId, a build for a full
+/// refund and zoning for free, while its lots are as Bramble left them. Shown
+/// in the Build sheet under the mayor's own list and in Welcome back under
+/// the cards; nothing at all on a day Bramble did nothing.
+struct HometownsDeputyUndoList: View {
+    @ObservedObject var store: HometownsStore
+
+    var body: some View {
+        let plans = store.wire?.deputyToday ?? []
+        if !plans.isEmpty {
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                SRSectionLabel(text: store.say("undo.deputyTitle"))
+                VStack(spacing: 0) {
+                    ForEach(Array(plans.enumerated()), id: \.element.id) { index, plan in
+                        if index > 0 { Divider().overlay(SR.divider) }
+                        row(plan)
+                    }
+                }
+                .padding(.horizontal, SR.cardPadding)
+                .padding(.vertical, 4)
+                .srGlassCard(.paper)
+            }
+            .accessibilityIdentifier("hometowns-deputy-today")
+        }
+    }
+
+    private func row(_ plan: HometownsUndo) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "pawprint.fill")
+                .foregroundStyle(SR.accent)
+                .frame(width: 22)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(plan.deputyTitle(store.copy, store.level))
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let refund = plan.refundLine(store.copy, store.level) {
+                    Text(refund)
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            Button {
+                store.undo(plan)
+            } label: {
+                SRButtonLabel(title: store.say("undo.button"), icon: "arrow.uturn.backward")
+            }
+            .srButton(.regular)
+            .accessibilityIdentifier("hometowns-deputy-undo-\(plan.planId)")
+        }
+        .frame(minHeight: SR.tapTarget)
+        .padding(.vertical, 6)
     }
 }
 

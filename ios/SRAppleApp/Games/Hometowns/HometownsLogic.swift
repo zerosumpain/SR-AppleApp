@@ -432,11 +432,15 @@ struct HometownsOrder: Decodable, Equatable, Identifiable {
 }
 
 /// One of today's plans (§9.3), undoable in full before the next Regional Day.
+/// Bramble's builds and zoning are the same record on the town's own Deputy
+/// list (`deputyUndo`, decision 11), with planIds `deputy.<day>.…`.
 struct HometownsUndo: Decodable, Equatable, Identifiable {
     let planId: String
     let day: Int
     let atTick: Int
     let cost: Double
+    /// Lots the plan changed: `tiles` holds six numbers a lot.
+    let lots: Int
 
     var id: String { planId }
 
@@ -446,7 +450,46 @@ struct HometownsUndo: Decodable, Equatable, Identifiable {
         day = c.ht("day", 0)
         atTick = c.ht("atTick", 0)
         cost = c.ht("cost", 0)
+        let tiles: [Double] = c.ht("tiles", [])
+        lots = tiles.count / 6
     }
+
+    /// What a Deputy entry did: painted lots (`deputy.<day>.zone`, `.market`,
+    /// `.help.zone.<zone>`), repainted empty Homes lots for work
+    /// (`.help.rezone.<zone>`), or built (`.<building>`, `.help.<building>`,
+    /// `.road`, `.road.2`). The page tells them apart the same way.
+    enum DeputyKind: Equatable { case zoned, rezoned, built }
+
+    var deputyKind: DeputyKind {
+        let parts = planId.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3, parts[0] == "deputy", !parts[1].isEmpty, parts[1].allSatisfy({ $0.isASCII && $0.isNumber }) else { return .built }
+        if parts.count == 3, parts[2] == "zone" || parts[2] == "market" { return .zoned }
+        if parts.count >= 5, parts[2] == "help", parts[3] == "zone" { return .zoned }
+        if parts.count >= 5, parts[2] == "help", parts[3] == "rezone" { return .rezoned }
+        return .built
+    }
+
+    /// A Deputy row's name: the lots it painted, or what it built (a lane, a Well).
+    func deputyTitle(_ copy: HometownsCopy, _ level: HometownsCopyLevel) -> String {
+        switch deputyKind {
+        case .zoned: return copy.say("undo.deputyZoned", level, ["tiles": .number(Double(lots))])
+        case .rezoned: return copy.say("undo.deputyRezoned", level, ["tiles": .number(Double(lots))])
+        case .built:
+            var rest = planId.split(separator: ".").dropFirst(2).map(String.init)
+            if rest.first == "help" { rest.removeFirst() }
+            guard let what = rest.first else { return HometownsText.date(tick: atTick) }
+            if what == "road" { return copy.say("roadName.lane", level, or: "Lane") }
+            return copy.say("buildingName.\(what)", level, or: HometownsCatalogue.humanised(what))
+        }
+    }
+
+    /// The line under a row: a build's full refund, or nothing for free zoning (its name says so).
+    func refundLine(_ copy: HometownsCopy, _ level: HometownsCopyLevel) -> String? {
+        cost > 0 ? copy.say("undo.refund", level, ["cost": .number(cost)]) : nil
+    }
+
+    /// What to say once it is undone: coins back only when there were coins.
+    var doneKey: String { cost > 0 ? "undo.done" : "undo.doneFree" }
 }
 
 /// Tax rates in basis points (A25): 800 is 8%. `homes` is per wealth tier.
@@ -537,6 +580,8 @@ struct HometownsTown: Decodable, Equatable {
     let initiatives: Int
     let policies: Int
     let undo: [HometownsUndo]
+    /// Bramble's builds and zoning of today (decision 11): the mayor may undo them the same day.
+    let deputyUndo: [HometownsUndo]
     let lastSeenTick: Int
     /// The day's money so far: the sum of the day's ledger lines (£).
     let dayNet: Double
@@ -571,6 +616,7 @@ struct HometownsTown: Decodable, Equatable {
         let policies: [HometownsIgnored] = c.ht("policies", [])
         self.policies = policies.count
         undo = c.htList("undo")
+        deputyUndo = c.htList("deputyUndo")
         lastSeenTick = c.ht("lastSeenTick", 0)
         let books: HometownsBooks? = c.htMaybe("books")
         dayNet = (books?.dayLines ?? []).reduce(0, +)
@@ -754,6 +800,13 @@ struct HometownsWire: Decodable, Equatable {
 
     var town: HometownsTown? { me?.town }
     var level: HometownsCopyLevel { me?.level ?? .adult }
+    /// Bramble's entries of today, oldest first. The private town reaches only
+    /// its own seat, so whoever reads this is the town's mayor (a child, or a
+    /// parent at that seat): the one the engine lets undo them (§5.18).
+    var deputyToday: [HometownsUndo] {
+        let day = me?.predict?.dayIndex
+        return (town?.deputyUndo ?? []).filter { day == nil || $0.day == day }
+    }
     var isHost: Bool { !meId.isEmpty && meId == hostId }
     /// This phone's public card (faces, the public stars).
     var myCard: HometownsPublicTown? {

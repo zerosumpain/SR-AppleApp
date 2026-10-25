@@ -854,9 +854,11 @@ final class HometownsStore: ObservableObject, GameRoomStoring {
         return lastAt > 0 && left > 0 ? Int(left.rounded(.up)) : 0
     }
 
-    func undo(_ planId: String) {
-        send(.undo(planId: planId)) { [weak self] outcome in
-            if outcome == .ok { self?.showNotice(self?.say("undo.done") ?? "Undone.") }
+    /// The ordinary `undo` move, for the mayor's plans and Bramble's alike (decision 11):
+    /// a refusal ("Something has changed there since…") comes back as the engine's sentence.
+    func undo(_ plan: HometownsUndo) {
+        send(.undo(planId: plan.planId)) { [weak self] outcome in
+            if outcome == .ok { self?.showNotice(self?.say(plan.doneKey) ?? "Undone.") }
         }
     }
 
