@@ -155,6 +155,17 @@ final class HealthUploadTests: XCTestCase {
         XCTAssertEqual(reset.refused(two, reason: "Invalid step_count"), .split, "an acceptance resets the count")
     }
 
+    func testLocationsGoBeforeAHealthBackfill() {
+        let fix = LocationRecord(recorded: "2026-09-23T01:00:00Z", latitude: 51.5, longitude: -0.1, accuracy: 5, speed: 0, moving: false)
+        let backlog = (0..<3).map { UploadBatch(health: [bucket("h\($0)", Double($0))]) }
+        let located = UploadBatch(locations: [fix])
+        var round = UploadRound()
+        XCTAssertEqual(round.next(in: backlog + [located])?.id, located.id, "where the phone is outranks a backfill")
+        XCTAssertEqual(round.next(in: backlog)?.id, backlog[0].id, "otherwise the queue's own order")
+        XCTAssertEqual(round.refused(located, reason: "Invalid location"), .hold)
+        XCTAssertEqual(round.next(in: backlog + [located])?.id, backlog[0].id, "a held location does not block the rest")
+    }
+
     func testInvalidJSONAndAProxysPageNeverDrop() {
         var round = UploadRound()
         _ = round.accepted()

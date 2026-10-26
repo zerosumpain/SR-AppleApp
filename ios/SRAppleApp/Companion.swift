@@ -55,6 +55,8 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     @Published var paired: Bool
     @Published var queueCount = 0
     @Published var lastUpload: Date?
+    /// `lastUpload` for Health alone — see `PersistedState.lastHealthUpload`.
+    @Published private(set) var lastHealthUpload: Date?
     /// An enabled Apple Health type the permission sheet has never shown, or
     /// an upgraded install not yet re-asked. See `refreshHealthReview()`.
     @Published private(set) var healthReviewNeeded = false
@@ -90,7 +92,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         healthReviewNeeded = health.needsPermissionReview
         if paired && healthReviewNeeded { message = reviewPrompt }
     }
-    func updateQueue() { queueCount = outbox.state.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }; lastUpload = outbox.state.lastUpload }
+    func updateQueue() { queueCount = outbox.state.batches.reduce(0) { $0 + $1.health.count + $1.locations.count + $1.deleted.count }; lastUpload = outbox.state.lastUpload; lastHealthUpload = outbox.state.lastHealthUpload }
     func pair(server: String, code: String) async {
         busy = true; defer { busy = false }
         do {
@@ -392,7 +394,11 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 // next write just re-sends an already-accepted batch, which is
                 // harmless — unlike deferring an append, which could lose a
                 // record that exists nowhere else.
-                try outbox.change(persist: false) { $0.batches.removeAll { $0.id == batch.id }; $0.lastUpload = Date() }
+                try outbox.change(persist: false) {
+                    $0.batches.removeAll { $0.id == batch.id }
+                    $0.lastUpload = Date()
+                    if !batch.health.isEmpty || !batch.deleted.isEmpty { $0.lastHealthUpload = Date() }
+                }
                 madeProgress = true
                 updateQueue()
                 if queueCount > 0 { message = "Uploading \(queueCount) record\(queueCount == 1 ? "" : "s")…" }

@@ -282,10 +282,11 @@ struct TodayScreen: View {
         // The companion just put new health data on the site: re-read, past
         // the site's cache, so recovery and readiness reflect it.
         //
-        // At most once in five minutes: location points upload every thirty
-        // seconds while moving, and re-reading the whole day past the cache
-        // on each one kept the radio busy for nothing.
-        .onReceive(companion.$lastUpload.removeDuplicates().dropFirst()) { _ in
+        // Health uploads only: location points upload every thirty seconds
+        // while moving, and re-reading the whole day past the cache on each
+        // one kept the radio busy for nothing. And at most once in five
+        // minutes, for a backfill that lands batch after batch.
+        .onReceive(companion.$lastHealthUpload.removeDuplicates().dropFirst()) { _ in
             guard onScreen, Date().timeIntervalSince(freshAfterUpload) > 300 else { return }
             freshAfterUpload = Date()
             Task { await store.load(fresh: true) }

@@ -497,7 +497,7 @@ struct ContentView: View {
         }
         // This phone's own health link, re-judged whenever what it is judged
         // on moves. Everyone's, owner or member — see `PersonalHealthCheck`.
-        .onReceive(companion.$lastUpload.removeDuplicates().dropFirst()) { _ in checkPersonal() }
+        .onReceive(companion.$lastHealthUpload.removeDuplicates().dropFirst()) { _ in checkPersonal() }
         .onReceive(companion.$healthReviewNeeded.removeDuplicates().dropFirst()) { _ in checkPersonal() }
         .onReceive(companion.$paired.removeDuplicates().dropFirst()) { _ in checkPersonal() }
         .onChange(of: scenePhase) { _, phase in
@@ -649,7 +649,7 @@ struct ContentView: View {
             paired: companion.paired,
             healthEnabled: !outbox.state.healthEnabled.isEmpty,
             reviewNeeded: companion.healthReviewNeeded,
-            lastUpload: companion.lastUpload
+            lastUpload: companion.lastHealthUpload ?? companion.lastUpload
         ))
     }
 
