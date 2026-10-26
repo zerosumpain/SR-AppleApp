@@ -109,7 +109,7 @@ final class CaptureRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate
         watchInterruptions()
         await CaptureLive.shared.start(startedAt: now, source: source, withScreenshot: withScreenshot)
         limit = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.maximumLength))
+            try? await Task.sleep(for: .seconds(CaptureRecorder.maximumLength))
             guard !Task.isCancelled else { return }
             await self?.stop()
         }
