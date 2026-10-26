@@ -4,6 +4,8 @@ import SwiftUI
 /// Chronicle, Inventions and one invention. Pushed on More's stack, which
 /// registers `WildmindPageView` for them (`ContentView`).
 enum WildmindPage: Hashable {
+    /// The valley in 3D, full-screen (`WildmindWorldScreen`).
+    case world
     /// `compose`: open with the whisper composer focused.
     case talk(compose: Bool)
     case chronicle
@@ -16,6 +18,7 @@ struct WildmindPageView: View {
 
     var body: some View {
         switch page {
+        case .world: WildmindWorldScreen()
         case .talk(let compose): WildmindTalkScreen(compose: compose)
         case .chronicle: WildmindChronicleScreen()
         case .inventions: WildmindInventionsScreen()

@@ -91,6 +91,7 @@ struct WildmindScreen: View {
     private var links: some View {
         VStack(alignment: .leading, spacing: 12) {
             if access.viewingAs == nil {
+                enterValley
                 NavigationLink(value: WildmindPage.talk(compose: true)) {
                     SRButtonLabel(title: "Whisper to \(mainName)", icon: "ear", fill: true)
                 }
@@ -105,6 +106,38 @@ struct WildmindScreen: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("wildmind-links")
+    }
+
+    /// The way into the world itself: the desktop's valley, in 3D, full-screen.
+    private var enterValley: some View {
+        NavigationLink(value: WildmindPage.world) {
+            HStack(spacing: 14) {
+                Image(systemName: "mountain.2.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(SR.accent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Enter the valley")
+                        .font(SR.Text.title(18))
+                        .foregroundStyle(SR.ink)
+                    Text("The world in 3D, with every panel, the economy and the controls")
+                        .font(SR.Text.secondary(14))
+                        .foregroundStyle(SR.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(SR.inkMuted)
+                    .accessibilityHidden(true)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .srGlassCard(.paper, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("wildmind-enter-valley")
     }
 
     @ViewBuilder
