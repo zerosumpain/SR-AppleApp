@@ -87,7 +87,7 @@ enum PersonalHealthCheck {
     @MainActor
     static func backgroundPass(outbox: Outbox, paired: Bool, defaults: UserDefaults = .standard) async {
         let state = outbox.state
-        let found = items(paired: paired, healthEnabled: !state.healthEnabled.isEmpty, reviewNeeded: false, lastUpload: state.lastUpload)
+        let found = items(paired: paired, healthEnabled: !state.healthEnabled.isEmpty, reviewNeeded: false, lastUpload: state.lastHealthUpload ?? state.lastUpload)
         await notifyOnce(found, defaults: defaults) { request in
             try await UNUserNotificationCenter.current().add(request)
         }

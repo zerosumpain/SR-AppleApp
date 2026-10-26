@@ -36,7 +36,7 @@ struct NewsScreen: View {
                             story: story,
                             saved: store.isSaved(story),
                             kept: store.isKept(story),
-                            busy: store.busyKey == story.key,
+                            busy: store.busyKeys.contains(story.key),
                             actions: AccessPolicy.newsActions(can: store.feed?.can, access: access.current),
                             onAction: { action in Task { await store.act(action, on: story) } }
                         )

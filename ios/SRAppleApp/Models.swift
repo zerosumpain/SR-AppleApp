@@ -87,6 +87,10 @@ struct PersistedState: Codable {
     var sharing = false
     var pendingSharing: Bool?
     var lastUpload: Date?
+    /// The last accepted batch that carried Health records or deletions.
+    /// `lastUpload` moves with every location fix too, so on a phone that
+    /// shares its location it says nothing about Health.
+    var lastHealthUpload: Date?
     var historyStart = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
     /// Everything the settings screen controls. Decoded with a default so an
     /// existing install upgrades without losing its queue — a new non-optional
@@ -179,6 +183,7 @@ struct PersistedState: Codable {
         sharing = try c.decodeIfPresent(Bool.self, forKey: .sharing) ?? false
         pendingSharing = try c.decodeIfPresent(Bool.self, forKey: .pendingSharing)
         lastUpload = try c.decodeIfPresent(Date.self, forKey: .lastUpload)
+        lastHealthUpload = try c.decodeIfPresent(Date.self, forKey: .lastHealthUpload)
         historyStart = try c.decodeIfPresent(Date.self, forKey: .historyStart)
             ?? Calendar.current.date(byAdding: .day, value: -30, to: Date())!
         location = try c.decodeIfPresent(LocationSettings.self, forKey: .location) ?? LocationSettings()

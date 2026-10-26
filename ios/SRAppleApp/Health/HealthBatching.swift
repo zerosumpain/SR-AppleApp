@@ -179,8 +179,12 @@ struct UploadRound {
 
     static let breaker = 3
 
-    /// The next batch to send: the first one not set aside.
-    func next(in queue: [UploadBatch]) -> UploadBatch? { queue.first { !held.contains($0.id) } }
+    /// The next batch to send: the first one not set aside, locations before
+    /// anything else. A Health backfill can queue thousands of records; the
+    /// family's view of where this phone is must not wait behind them.
+    func next(in queue: [UploadBatch]) -> UploadBatch? {
+        queue.first { !held.contains($0.id) && !$0.locations.isEmpty } ?? queue.first { !held.contains($0.id) }
+    }
 
     /// The server took a batch. Returns the held batches that can now be
     /// dropped: it has shown it takes records, so theirs was refused on merit.

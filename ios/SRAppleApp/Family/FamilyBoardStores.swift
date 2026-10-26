@@ -153,7 +153,7 @@ final class FamilyTasksStore: ObservableObject {
         busy = task.id
         defer { busy = nil }
         do {
-            let body = FamilyTaskActionBody(action: action.rawValue, note: note)
+            let body = FamilyTaskActionBody(action: action.rawValue, note: note, expectedUpdatedAt: task.updatedAt)
             try await SiteClient.shared.call("api/native/family/tasks/\(task.id)", method: "PATCH", body: try JSONEncoder().encode(body))
             if action == .delete { SRHaptic.tap() } else { SRHaptic.ok() }
             message = nil
