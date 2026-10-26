@@ -275,6 +275,24 @@ final class ChatStore: ObservableObject {
             message = "That photo could not be read."
             return
         }
+        attachEncoded(photo)
+    }
+
+    /// A photo's file bytes, from the library or Files: read down to size and
+    /// re-encoded off the main thread, which a 48-megapixel HEIC held for
+    /// most of a second per photo.
+    func attachPhoto(data: Data) async {
+        let photo = await Task.detached(priority: .userInitiated) { () -> (data: Data, preview: UIImage)? in
+            ChatUpload.downscaled(data).flatMap(ChatUpload.photo)
+        }.value
+        guard let photo else {
+            message = "That photo could not be read."
+            return
+        }
+        attachEncoded(photo)
+    }
+
+    private func attachEncoded(_ photo: (data: Data, preview: UIImage)) {
         // Named by when it was taken: every photo from the library is otherwise
         // "image.jpg", and they all land in the same /drive folder.
         let stamp = Self.photoStamp.string(from: Date())
@@ -478,13 +496,33 @@ final class ChatStore: ObservableObject {
         }
     }
 
+    /// Deltas not yet in the bubble. Each one used to publish `messages`,
+    /// which re-renders the thread: a fast model sends forty a second.
+    private var tokenBuffer = ""
+    private var tokenFlush: Task<Void, Never>?
+
     private func appendToLiveBubble(_ delta: String) {
-        guard let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[index].content += delta
+        tokenBuffer += delta
+        guard tokenFlush == nil else { return }
+        tokenFlush = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(75))
+            guard !Task.isCancelled else { return }
+            self?.flushTokens()
+        }
+    }
+
+    /// Into the bubble now. Before anything else reads or replaces it.
+    private func flushTokens() {
+        tokenFlush?.cancel(); tokenFlush = nil
+        let text = tokenBuffer
+        tokenBuffer = ""
+        guard !text.isEmpty, let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[index].content += text
         streamTick &+= 1
     }
 
     private func setLiveBubble(_ content: String) {
+        tokenBuffer = ""; tokenFlush?.cancel(); tokenFlush = nil
         guard let id = liveBubbleId, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].content = content
         streamTick &+= 1
@@ -498,6 +536,7 @@ final class ChatStore: ObservableObject {
     /// It also plays the success haptic. Here the placeholder is removed and
     /// the card takes its place.
     private func park() {
+        flushTokens()
         sending = false
         if let id = liveBubbleId { messages.removeAll { $0.id == id && $0.content.isEmpty } }
         liveBubbleId = nil
@@ -506,6 +545,7 @@ final class ChatStore: ObservableObject {
     }
 
     private func finish(with error: String?) {
+        flushTokens()
         sending = false
         jobId = nil
         // The steps taken stay attached to the finished bubble; the thinking and

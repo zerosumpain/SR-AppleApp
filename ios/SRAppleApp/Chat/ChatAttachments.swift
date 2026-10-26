@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 import UniformTypeIdentifiers
 
 /// A file on its way into the next turn.
@@ -44,6 +45,18 @@ enum ChatUpload {
     /// NOT the HEIC the library hands over. The site's allow-list accepts HEIC,
     /// but the vision models behind jkai read JPEG, PNG, GIF and WebP — a HEIC
     /// would be stored perfectly and then understood by nobody.
+    /// A picked photo's bytes as an image no larger than `maxEdge`, read
+    /// straight to that size. `UIImage(data:)` decodes all 48 megapixels first.
+    static func downscaled(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(maxEdge),
+                kCGImageSourceCreateThumbnailWithTransform: true,
+              ] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
     static func photo(_ image: UIImage) -> (data: Data, preview: UIImage)? {
         let scale = min(1, maxEdge / max(image.size.width, image.size.height))
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)

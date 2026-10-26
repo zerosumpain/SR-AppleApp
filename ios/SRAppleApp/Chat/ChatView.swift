@@ -909,9 +909,8 @@ struct ChatScreen: View {
             photoItems = []
             Task {
                 for item in items {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        store.attachPhoto(image)
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        await store.attachPhoto(data: data)
                     } else {
                         store.message = "That photo could not be read."
                     }
@@ -984,8 +983,8 @@ struct ChatScreen: View {
             store.message = "\(url.lastPathComponent) can't be sent from this iPhone."
             return
         }
-        if mime.hasPrefix("image/"), let image = UIImage(data: data) {
-            store.attachPhoto(image)
+        if mime.hasPrefix("image/") {
+            Task { await store.attachPhoto(data: data) }
         } else {
             store.attach(data, filename: url.lastPathComponent, mimeType: mime)
         }
