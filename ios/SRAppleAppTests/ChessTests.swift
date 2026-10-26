@@ -183,6 +183,21 @@ final class ChessTests: XCTestCase {
         XCTAssertNil(ChessRules.balanceText(-3))
     }
 
+    func testTheCapturedSummaryCountsEachKindMostValuableFirst() {
+        let taken = ChessCaptured(white: [.pawn, .knight, .pawn, .queen, .pawn], black: [])
+        let tally = taken.tally(by: .white)
+        XCTAssertEqual(tally.map(\.kind), [.queen, .knight, .pawn])
+        XCTAssertEqual(tally.map(\.count), [1, 1, 3])
+        XCTAssertTrue(taken.tally(by: .black).isEmpty)
+        XCTAssertEqual(taken.points(by: .white), 15)
+        XCTAssertEqual(taken.points(by: .black), 0)
+        XCTAssertEqual(ChessRules.tallyText(.pawn, 3), "\(ChessPieceKind.pawn.glyph)×3")
+        XCTAssertEqual(ChessRules.tallyText(.queen, 1), ChessPieceKind.queen.glyph)
+        XCTAssertEqual(ChessRules.tallySpoken(tally), "a queen, a knight and 3 pawns")
+        XCTAssertEqual(ChessRules.tallySpoken([ChessTally(kind: .rook, count: 2)]), "2 rooks")
+        XCTAssertEqual(ChessRules.tallySpoken([]), "nothing")
+    }
+
     func testTheNewGameSheetSendsTheGameAndLevel() {
         let body = ChessSettings(difficulty: .hard).createBody(invite: ["p_b"])
         XCTAssertEqual(body.game, "chess")
