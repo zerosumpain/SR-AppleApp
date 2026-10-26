@@ -315,6 +315,10 @@ struct FamilyTask: Codable, Hashable, Identifiable {
     var confirmedAt: String?
     var reward: FamilyReward?
     var createdAt: String
+    /// The site's version of the task. An action sends it back, so a tap on
+    /// a row somebody else has changed meanwhile is refused (409), not applied
+    /// to a task the reader never saw. Absent from a site older than it.
+    var updatedAt: String? = nil
 
     init(id: String, title: String, notes: String? = nil, deadline: String? = nil, assignee: String? = nil,
          createdBy: String, status: String = "open", doneBy: String? = nil, doneAt: String? = nil,
@@ -329,7 +333,7 @@ struct FamilyTask: Codable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, notes, deadline, assignee, createdBy, status, doneBy, doneAt
-        case sentBackNote, confirmedBy, confirmedAt, reward, createdAt
+        case sentBackNote, confirmedBy, confirmedAt, reward, createdAt, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -349,6 +353,7 @@ struct FamilyTask: Codable, Hashable, Identifiable {
         confirmedAt = text(.confirmedAt)
         reward = (try? c.decodeIfPresent(FamilyReward.self, forKey: .reward)) ?? nil
         createdAt = text(.createdAt) ?? ""
+        updatedAt = text(.updatedAt)
     }
 
     var isOpen: Bool { status == "open" }
@@ -448,6 +453,8 @@ enum FamilyTaskAction: String, CaseIterable, Hashable {
 struct FamilyTaskActionBody: Encodable, Equatable {
     let action: String
     var note: String? = nil
+    /// `FamilyTask.updatedAt` as read; nil (and so not sent) when unknown.
+    var expectedUpdatedAt: String? = nil
 }
 
 struct FamilyTaskRewardBody: Encodable, Equatable {
