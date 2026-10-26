@@ -76,7 +76,13 @@ struct FamilyScreen: View {
             FamilyPersonScreen(store: store, subject: route.subject)
         }
         .navigationDestination(for: LiveWalkRef.self) { LiveRouteScreen(ref: $0) }
-        .task {
+        // Not in the background: with Always location the process can live
+        // all day, and this loop read the alarm, the household and the walks
+        // every fifteen seconds with nobody looking. Alarms are pushed, and a
+        // background poll could not ring at full volume anyway. Restarted,
+        // with a fresh read, when the app comes back.
+        .task(id: scenePhase != .background) {
+            guard scenePhase != .background else { return }
             await store.load()
             await forecast.load()
             await walks.load()
@@ -91,10 +97,6 @@ struct FamilyScreen: View {
                 // At most once a minute: the store keeps its own clock.
                 await forecast.load()
             }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            Task { await store.load(); await forecast.load() }
         }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message, tone: SR.error) }

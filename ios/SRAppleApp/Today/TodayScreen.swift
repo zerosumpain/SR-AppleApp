@@ -239,7 +239,13 @@ struct TodayScreen: View {
             }
             // Settings are in the hub (⊞), for everyone.
         }
-        .task {
+        // Not in the background. A `.task` outlives the app leaving the front,
+        // and with Always location the process can live all day: this loop
+        // kept reading Today, the household and the family boards every five
+        // minutes with nobody looking. Restarted, with a fresh read, when the
+        // app comes back; `.inactive` (Control Center, a banner) keeps it.
+        .task(id: scenePhase != .background) {
+            guard scenePhase != .background else { return }
             // The Watch's health figures and Today's first alerts come from
             // this store's payload — no second request.
             WatchBridge.shared.attach(today: store)
@@ -268,16 +274,13 @@ struct TodayScreen: View {
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
         .onChange(of: scenePhase) { _, phase in
+            // The ring's live query delivered every Watch sample all day in
+            // the background; the task starts it again on the way back.
+            if phase == .background { move.stop() }
             guard phase == .active else { return }
-            // A planner job left running in the background: pick it up.
+            // A planner job left running in the background: pick it up. The
+            // re-reads come from the task above, restarted on the way back.
             TripJobs.shared.resume()
-            move.start()
-            Task {
-                await store.load()
-                    await family.load()
-                await loadFamilyBoards()
-                await loadTrips()
-            }
         }
         // The companion just put new health data on the site: re-read, past
         // the site's cache, so recovery and readiness reflect it.
@@ -287,7 +290,7 @@ struct TodayScreen: View {
         // one kept the radio busy for nothing. And at most once in five
         // minutes, for a backfill that lands batch after batch.
         .onReceive(companion.$lastHealthUpload.removeDuplicates().dropFirst()) { _ in
-            guard onScreen, Date().timeIntervalSince(freshAfterUpload) > 300 else { return }
+            guard onScreen, scenePhase == .active, Date().timeIntervalSince(freshAfterUpload) > 300 else { return }
             freshAfterUpload = Date()
             Task { await store.load(fresh: true) }
         }

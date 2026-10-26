@@ -65,7 +65,9 @@ struct FamilyStepsScreen: View {
         }
         // Its own task, so it runs beside the step board's, never after it.
         .task { await landgrab.load() }
-        .task {
+        // Polled in front only; restarted with a fresh read on the way back.
+        .task(id: scenePhase != .background) {
+            guard scenePhase != .background else { return }
             await store.load()
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.refreshInterval)
@@ -75,7 +77,6 @@ struct FamilyStepsScreen: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            Task { await store.load() }
             Task { await landgrab.load() }
         }
     }

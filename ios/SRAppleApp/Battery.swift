@@ -133,7 +133,11 @@ final class BatteryMonitor: ObservableObject {
         read()
         guard level >= 0 else { return }
         let entry = BatterySample(at: Date(), level: level, charging: charging, sharing: outbox.state.sharing)
-        try? outbox.change {
+        // Not written through: this list is up to two weeks of samples in the
+        // same file as the upload queue, and rewriting all of it every five
+        // minutes, all day, cost more than the sample was worth. It goes out
+        // with the next real write, a flush, or the move to the background.
+        try? outbox.change(persist: false) {
             $0.battery.append(entry)
             if $0.battery.count > Self.maxSamples {
                 $0.battery.removeFirst($0.battery.count - Self.maxSamples)

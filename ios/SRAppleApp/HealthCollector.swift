@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import CoreLocation
+import UIKit
 
 /// The route handler's running state. A box, not captured `var`s: the
 /// handler may be imported as @Sendable, and mutating a captured var there does
@@ -25,6 +26,15 @@ private final class RouteGathering: @unchecked Sendable {
     private var collectAgain = false
     private var alerting = false
     private var lastAlertPass = Date.distantPast
+    /// When the last observer-driven collect ran with the app out of sight.
+    private var lastBackgroundCollect = Date.distantPast
+    /// The floor between those. "Hourly" background delivery only limits
+    /// relaunching a SUSPENDED app: while the process is alive (location
+    /// tracking, a flush's background task) an observer fires on every sample
+    /// the Watch writes — energy every few minutes, constantly in a workout —
+    /// and each one re-read every enabled kind. Nothing is lost by skipping:
+    /// the anchors pick up where the last pass stopped.
+    static let backgroundCollectGap: TimeInterval = 600
     private var generation = 0
 
     init(outbox: Outbox) {
@@ -134,6 +144,10 @@ private final class RouteGathering: @unchecked Sendable {
                     // the rest ask it to go round once more, and one upload
                     // follows.
                     if self.collecting { self.collectAgain = true; return }
+                    if UIApplication.shared.applicationState != .active {
+                        guard Date().timeIntervalSince(self.lastBackgroundCollect) >= Self.backgroundCollectGap else { return }
+                        self.lastBackgroundCollect = Date()
+                    }
                     let deadline = Date().addingTimeInterval(20)
                     do {
                         repeat {
@@ -255,7 +269,11 @@ private final class RouteGathering: @unchecked Sendable {
             records = records.filter { HealthCatalogue.accepts($0) }
             let gone = deleted.map { $0.uuid.uuidString }
             let nextData = try next.map { try NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
-            try outbox.change {
+            // A page with nothing in it moves only the anchor: kept in memory
+            // and written with the next real change, not a whole state-file
+            // write per kind per wake. Lost to a crash, it re-reads the same
+            // empty page.
+            try outbox.change(persist: !records.isEmpty || !gone.isEmpty) {
                 $0.batches += HealthBatching.batches(records)
                 if !gone.isEmpty { $0.batches.append(UploadBatch(deleted: gone)) }
                 $0.anchors[kind] = nextData
@@ -349,13 +367,14 @@ private final class RouteGathering: @unchecked Sendable {
         // Only buckets whose value moved since they were last queued; the 48
         // hours re-read every wake would otherwise queue ~49 unchanged rows
         // per kind per wake, and fill the offline outbox within a day.
-        var queued = 0
-        try outbox.change {
-            let (changed, sent) = HealthBatching.changed(accepted, since: $0.hourlySent[kind] ?? [:])
+        // Written only when a bucket moved; otherwise only the read window
+        // slid, which costs nothing to re-read if a crash loses it.
+        let (changed, sent) = HealthBatching.changed(accepted, since: outbox.state.hourlySent[kind] ?? [:])
+        let queued = changed.count
+        try outbox.change(persist: queued > 0) {
             $0.batches = HealthBatching.queue(changed, into: $0.batches)
             $0.hourlySent[kind] = sent
             $0.hourlyFrom[kind] = end.addingTimeInterval(-48 * 3600)
-            queued = changed.count
         }
         if queued > 0 { onUpdate?() }
     }

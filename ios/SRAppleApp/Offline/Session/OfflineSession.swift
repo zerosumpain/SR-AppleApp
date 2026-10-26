@@ -81,6 +81,19 @@ final class OfflineSession: ObservableObject {
         defaults.set(id, forKey: Self.playerIdKey)
         playerId = id
         nickname = defaults.string(forKey: Self.nicknameKey) ?? Self.defaultNickname()
+        // The heartbeat stops in the background, where the link has dropped
+        // anyway: a room left open kept a ten-a-second timer running for as
+        // long as location tracking kept the process alive.
+        let centre = NotificationCenter.default
+        centre.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            offlineAssumeMain { self?.timer?.invalidate(); self?.timer = nil }
+        }
+        centre.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            offlineAssumeMain {
+                guard let self, self.link != nil, self.timer == nil else { return }
+                self.startTimer()
+            }
+        }
     }
 
     /// The registered first name if the app knows one, else the phone's name.

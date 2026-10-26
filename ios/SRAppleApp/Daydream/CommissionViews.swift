@@ -14,6 +14,7 @@ struct CommissionDetailScreen: View {
     let id: String
     @ObservedObject private var store = CommissionStore.shared
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     private var commission: DaydreamCommission? { store.commissions.first { $0.id == id } }
 
     var body: some View {
@@ -37,7 +38,8 @@ struct CommissionDetailScreen: View {
         .srGround(.quiet)
         .navigationTitle("Double-check")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
+        .task(id: scenePhase != .background) {
+            guard scenePhase != .background else { return }
             repeat {
                 await store.load(id: id)
                 do { try await Task.sleep(for: .seconds(15)) } catch { break }
