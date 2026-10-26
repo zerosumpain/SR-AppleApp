@@ -120,9 +120,9 @@ import Combine
 
     /// Long-press the app icon.
     ///
-    /// Three verbs, chosen because each is something you want BEFORE the app
-    /// has finished opening: ask a question, see the figures, push what is
-    /// queued. Registered in code rather than `Info.plist` so the titles live
+    /// Four verbs, chosen because each is something you want BEFORE the app
+    /// has finished opening: start a capture (the owner's), ask a question,
+    /// see the figures, push what is queued. Registered in code rather than `Info.plist` so the titles live
     /// beside the routing that honours them — and so they can follow what this
     /// person may use: "Ask jkai" is only there with chat. `ContentView`
     /// re-sets them whenever the site's answer changes.
@@ -139,6 +139,12 @@ import Combine
             return true
         }
         switch kind {
+        case .capture:
+            // Straight into recording, on the Captures page so the timer and
+            // Stop are in front of you. Pressed again while recording, it stops.
+            Self.pending.capture = CaptureLink(captureId: nil)
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            await CaptureRecorder.shared.toggle(source: "app")
         case .ask: Self.pending.tab = .chat
         case .health: Self.pending.tab = .health
         case .sync:

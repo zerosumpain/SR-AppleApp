@@ -49,6 +49,33 @@ struct StartCaptureIntent: AudioRecordingIntent {
     }
 }
 
+/// "New capture" — the phrase and Spotlight tile. Opens the app on Captures
+/// and starts recording (or stops, if one is running). iOS 17, so it can sit
+/// in `SRShortcuts`, whose builder takes no availability check: that is what
+/// puts it in Siri, Spotlight and the Action Button's Shortcut list with no
+/// setup at all. `StartCaptureIntent` stays the one that records without
+/// opening the app.
+struct NewCaptureIntent: AppIntent {
+    static var title: LocalizedStringResource = "New capture"
+    static var description = IntentDescription("Open Captures and start recording. Run it again to stop.")
+    static var openAppWhenRun: Bool = true
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        #if SR_LIVE_EXTENSION
+        return .result()
+        #else
+        guard AccessStore.ownerSite else { throw AccessRefusal.unavailable }
+        AppDelegate.pending.capture = CaptureLink(captureId: nil)
+        NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+        await CaptureRecorder.shared.toggle(source: "button")
+        return .result()
+        #endif
+    }
+}
+
 /// Stop the capture that is recording, and send it. The Live Activity's
 /// Stop button runs this (a `LiveActivityIntent`, so iOS 17).
 struct StopCaptureIntent: LiveActivityIntent {

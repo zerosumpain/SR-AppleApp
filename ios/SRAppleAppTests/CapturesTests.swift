@@ -441,4 +441,31 @@ final class CapturesTests: XCTestCase {
         XCTAssertNil(verdict.reason)
         XCTAssertEqual(verdict.appHint, "Safari")
     }
+
+    // MARK: - The Shortcut's link
+
+    func testShortcutLinkTakesOnlyAShortcutsICloudLink() {
+        let id = "0123456789abcdef0123456789ABCDEF"
+        XCTAssertEqual(CaptureShortcutLink.parse("https://www.icloud.com/shortcuts/\(id)")?.absoluteString,
+                       "https://www.icloud.com/shortcuts/\(id.lowercased())")
+        XCTAssertNotNil(CaptureShortcutLink.parse("  https://icloud.com/shortcuts/\(id)/?x=1 \n"))
+        XCTAssertNil(CaptureShortcutLink.parse("http://www.icloud.com/shortcuts/\(id)"))
+        XCTAssertNil(CaptureShortcutLink.parse("https://www.icloud.com.evil.example/shortcuts/\(id)"))
+        XCTAssertNil(CaptureShortcutLink.parse("https://www.icloud.com/photos/\(id)"))
+        XCTAssertNil(CaptureShortcutLink.parse("https://www.icloud.com/shortcuts/short"))
+        XCTAssertNil(CaptureShortcutLink.parse("shortcuts://create-shortcut"))
+    }
+
+    func testAPastedShortcutLinkIsKeptAndForgotten() {
+        let suite = "captures-link-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(CaptureShortcutLink.current(defaults), CaptureShortcutLink.published)
+        XCTAssertFalse(CaptureShortcutLink.save("not a link", defaults))
+        XCTAssertEqual(CaptureShortcutLink.current(defaults), CaptureShortcutLink.published)
+        XCTAssertTrue(CaptureShortcutLink.save("https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef", defaults))
+        XCTAssertEqual(CaptureShortcutLink.current(defaults)?.lastPathComponent, "0123456789abcdef0123456789abcdef")
+        CaptureShortcutLink.forget(defaults)
+        XCTAssertEqual(CaptureShortcutLink.current(defaults), CaptureShortcutLink.published)
+    }
 }

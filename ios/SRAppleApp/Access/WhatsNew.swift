@@ -34,6 +34,11 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-26-captures-quick", when: "October 2026", title: "Quicker to start", items: [
+            WhatsNewItem(icon: "app.badge", title: "New capture",
+                         detail: "Long-press the app icon, or say \u{201C}New capture in SR Companion\u{201D}. Settings → Captures lists every quick way in, and adds the screenshot Shortcut in one tap once its link is pasted there.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-10-26-captures", when: "October 2026", title: "Say it once", items: [
             WhatsNewItem(icon: "waveform.badge.mic", title: "Captures",
                          detail: "In More. Record a thought or a conversation: it is written out on the phone, voices are told apart, and the site suggests follow-ups that run only when you approve them.",

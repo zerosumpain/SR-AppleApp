@@ -7,14 +7,34 @@ enum CaptureShortcutRecipe {
     static let title = "Capture what's on screen too"
 
     static let steps: [String] = [
-        "Open Shortcuts and tap + to make a new shortcut.",
+        "Tap Open Shortcuts below. It opens on a new, empty shortcut.",
         "Add the Take Screenshot action.",
         "Add Start capture (SR Companion). Tap its Screenshot field and choose the Screenshot from the step above.",
         "Name it \u{201C}Capture this\u{201D} and tap Done.",
-        "Put it on a button: Settings → Action Button → Shortcut → Capture this, or Settings → Accessibility → Touch → Back Tap → Double Tap → Capture this.",
+        buttonStep,
     ]
 
-    static let footer = "Press once to start and again to stop — the timer and a Stop button are on the Lock Screen while it records. Start capture on its own (no screenshot) is also a Control Center and Lock Screen control: edit Control Center, tap Add a Control and search for SR. The screenshot is read on this phone first: if its app is on your deny list below, or it shows a password, a code or a card number, only the app's name is sent."
+    static let buttonStep = "Put it on a button: Settings → Action Button → Shortcut → Capture this, or Settings → Accessibility → Touch → Back Tap → Double Tap → Capture this."
+
+    static let footer = "Press once to start and again to stop — the timer and a Stop button are on the Lock Screen while it records. Made it already? In Shortcuts, long-press Capture this → Share → Copy iCloud Link, and paste it above: from then on this page adds it in one tap, after a reinstall too. The screenshot is read on this phone first: if its app is on your deny list below, or it shows a password, a code or a card number, only the app's name is sent."
+}
+
+/// The ways to start a capture that need no setup beyond the app itself.
+/// Kept as data so the page and anything that quotes it say the same thing.
+enum CaptureQuickStart {
+    struct Way { let title: String; let how: String; let icon: String }
+
+    static let title = "Start a capture fast"
+
+    static let ways: [Way] = [
+        Way(title: "From the app icon", how: "Long-press SR Companion → New capture", icon: "app.badge"),
+        Way(title: "By voice", how: "\u{201C}New capture in SR Companion\u{201D}", icon: "waveform"),
+        Way(title: "Control Center or Lock Screen", how: "Edit → Add a Control → search SR → Capture", icon: "switch.2"),
+        Way(title: "Action Button", how: "Settings → Action Button → Controls → Capture", icon: "button.horizontal.top.press"),
+        Way(title: "In the app", how: "⊞ → Captures → Record", icon: "mic.fill"),
+    ]
+
+    static let footer = "Press again to stop — the same button, the Stop on the Lock Screen, or Stop in Captures. Control Center, the Lock Screen and the Action Button record without opening the app; they need iOS 18."
 }
 
 /// Settings → Captures: the speaker models, the owner's voice, the
@@ -30,30 +50,65 @@ struct CaptureSettingsScreen: View {
     @State private var newName = ""
     @State private var askCellular = false
     @State private var enrolledAt = OwnerVoice.madeAt
+    @State private var shortcutLink = CaptureShortcutLink.current()
+    @State private var pastedLink = ""
+    @State private var linkRefused = false
 
     var body: some View {
         List {
             Section {
-                ForEach(Array(CaptureShortcutRecipe.steps.enumerated()), id: \.offset) { index, step in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text("\(index + 1)")
-                            .font(SR.Text.label())
-                            .foregroundStyle(SR.paper)
-                            .frame(width: 22, height: 22)
-                            .background(Circle().fill(SR.accent))
-                            .accessibilityHidden(true)
-                        Text(step)
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 2)
-                    .srGlassRow()
+                ForEach(CaptureQuickStart.ways, id: \.title) { way in
+                    SRRow(title: way.title, subtitle: way.how, icon: way.icon)
+                        .srGlassRow()
                 }
-                if let shortcuts = URL(string: "shortcuts://create-shortcut") {
-                    Link(destination: shortcuts) {
-                        SRRow(title: "Add to Shortcuts", subtitle: "Opens Shortcuts on a new shortcut", icon: "square.on.square")
+            } header: {
+                SRSectionLabel(text: CaptureQuickStart.title)
+            } footer: {
+                Text(CaptureQuickStart.footer).font(SR.Text.secondary(13))
+            }
+
+            Section {
+                if let link = shortcutLink {
+                    Link(destination: link) {
+                        SRRow(title: "Add \u{201C}Capture this\u{201D}", subtitle: "Opens Shortcuts with it ready — tap Add Shortcut", icon: "plus.square.on.square")
                     }
+                    .srGlassRow()
+                    stepRow(1, CaptureShortcutRecipe.buttonStep)
+                } else {
+                    ForEach(Array(CaptureShortcutRecipe.steps.enumerated()), id: \.offset) { index, step in
+                        stepRow(index + 1, step)
+                    }
+                    if let shortcuts = URL(string: "shortcuts://create-shortcut") {
+                        Link(destination: shortcuts) {
+                            SRRow(title: "Open Shortcuts", subtitle: "On a new, empty shortcut", icon: "square.on.square")
+                        }
+                        .srGlassRow()
+                    }
+                }
+                HStack {
+                    TextField("Paste its iCloud link", text: $pastedLink)
+                        .font(SR.Text.body())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .submitLabel(.done)
+                        .onSubmit(keepLink)
+                    Button("Keep", action: keepLink)
+                        .disabled(pastedLink.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                .srGlassRow()
+                if linkRefused {
+                    Text("That isn't a Shortcuts iCloud link. In Shortcuts, long-press Capture this → Share → Copy iCloud Link.")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.error)
+                        .srGlassRow()
+                }
+                if CaptureShortcutLink.current() != CaptureShortcutLink.published {
+                    Button("Forget the pasted link") {
+                        CaptureShortcutLink.forget()
+                        shortcutLink = CaptureShortcutLink.current()
+                    }
+                    .font(SR.Text.secondary())
                     .srGlassRow()
                 }
             } header: {
@@ -217,6 +272,30 @@ struct CaptureSettingsScreen: View {
         }
         .onDisappear { Task { await enrolment.cancel() } }
         .accessibilityIdentifier("capture-settings")
+    }
+
+    private func stepRow(_ number: Int, _ step: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(number)")
+                .font(SR.Text.label())
+                .foregroundStyle(SR.paper)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(SR.accent))
+                .accessibilityHidden(true)
+            Text(step)
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
+        .srGlassRow()
+    }
+
+    private func keepLink() {
+        linkRefused = !CaptureShortcutLink.save(pastedLink)
+        guard !linkRefused else { return }
+        pastedLink = ""
+        shortcutLink = CaptureShortcutLink.current()
     }
 
     private func add() {

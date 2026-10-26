@@ -307,3 +307,52 @@ enum ScreenshotPolicy {
         return sum % 10 == 0
     }
 }
+
+/// The one-tap way to add the "Capture this" Shortcut: its iCloud link.
+///
+/// An app cannot put a Shortcut in someone's library, and a `.shortcut` file
+/// only imports on iOS 15+ once it is SIGNED — which `shortcuts sign` does
+/// only on a Mac signed in to iCloud, so CI cannot (probed 2026-10-26: "you
+/// must be signed into iCloud"). What does work is a link Shortcuts made: open
+/// it and the phone offers "Add Shortcut". `published` is the link built into
+/// the app once one exists; until then the owner can paste the link of the one
+/// they made, and the page offers it from then on.
+enum CaptureShortcutLink {
+    /// The shared "Capture this", built into the app. None yet.
+    static let published: URL? = nil
+
+    private static let key = "captures.shortcutLink"
+
+    /// The link to offer: a pasted one wins over the built-in one, being newer.
+    static func current(_ defaults: UserDefaults = .standard) -> URL? {
+        defaults.string(forKey: key).flatMap(parse) ?? published
+    }
+
+    /// Keep a pasted link. Returns false, keeping nothing, for anything that
+    /// is not a Shortcuts iCloud link — a link here is opened with one tap.
+    @discardableResult
+    static func save(_ text: String, _ defaults: UserDefaults = .standard) -> Bool {
+        guard let url = parse(text) else { return false }
+        defaults.set(url.absoluteString, forKey: key)
+        return true
+    }
+
+    static func forget(_ defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
+    }
+
+    /// `https://www.icloud.com/shortcuts/<32 hex>`, with or without the `www`
+    /// and a trailing slash or query. Anything else is refused.
+    static func parse(_ text: String) -> URL? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parts = URLComponents(string: trimmed),
+              parts.scheme?.lowercased() == "https",
+              let host = parts.host?.lowercased(), host == "www.icloud.com" || host == "icloud.com"
+        else { return nil }
+        let path = parts.path.split(separator: "/").map(String.init)
+        guard path.count == 2, path[0] == "shortcuts",
+              path[1].count == 32, path[1].allSatisfy({ $0.isHexDigit })
+        else { return nil }
+        return URL(string: "https://www.icloud.com/shortcuts/\(path[1].lowercased())")
+    }
+}

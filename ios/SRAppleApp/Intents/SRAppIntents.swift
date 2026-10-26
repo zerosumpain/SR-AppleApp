@@ -111,6 +111,16 @@ struct SyncNowIntent: AppIntent {
 struct SRShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
+            intent: NewCaptureIntent(),
+            phrases: [
+                "New capture in \(.applicationName)",
+                "Start a capture in \(.applicationName)",
+                "Capture this in \(.applicationName)",
+            ],
+            shortTitle: "New capture",
+            systemImageName: "waveform.badge.mic"
+        )
+        AppShortcut(
             intent: HealthTodayIntent(),
             phrases: [
                 "How am I doing in \(.applicationName)",
