@@ -349,6 +349,23 @@ final class CapturesTests: XCTestCase {
         XCTAssertEqual(turns.count, 2)
     }
 
+    func testAPhraseIsSpreadOverItsWords() {
+        let words = CaptureTurns.spread("ab abcd", start: 10, end: 16)
+        XCTAssertEqual(words.map(\.text), ["ab", "abcd"])
+        XCTAssertEqual(words[0].start, 10)
+        XCTAssertEqual(words[0].end, 12, accuracy: 1e-9)
+        XCTAssertEqual(words[1].end, 16, accuracy: 1e-9)
+        XCTAssertEqual(CaptureTurns.spread("  ", start: 0, end: 1), [])
+    }
+
+    func testCaptureLinks() throws {
+        XCTAssertEqual(CaptureLink.from(url: try XCTUnwrap(URL(string: "sr://captures"))), CaptureLink(captureId: nil))
+        XCTAssertEqual(CaptureLink.from(url: try XCTUnwrap(URL(string: "sr://captures/cap_1"))), CaptureLink(captureId: "cap_1"))
+        XCTAssertNil(CaptureLink.from(url: try XCTUnwrap(URL(string: "sr://trips/t1"))))
+        XCTAssertEqual(CaptureLink.from(userInfo: ["url": "sr://captures/cap_2", "category": "capture"])?.captureId, "cap_2")
+        XCTAssertNil(CaptureLink.from(userInfo: ["category": "capture"]))
+    }
+
     // MARK: - The owner's voice
 
     func testTheNearestVoiceAboveThresholdIsTheOwner() {

@@ -41,6 +41,10 @@ imports_of() {
 compiled=0
 for file in "$SRC"/*.swift; do
   [ -e "$file" ] || continue
+  # The demo fixtures extend the app's `SRDemoFixtures`, which is not here.
+  case "$(basename "$file")" in
+    *DemoFixtures.swift) cp "$file" "$WORK/parse/"; continue ;;
+  esac
   if [ "$(imports_of "$file")" = "Foundation" ]; then
     cp "$file" "$WORK/Sources/SRAppleApp/"
     compiled=$((compiled + 1))

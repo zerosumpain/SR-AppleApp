@@ -30,6 +30,8 @@ struct MoreScreen: View {
     @ObservedObject private var access = AccessStore.shared
     @ObservedObject private var wildmind = WildmindStore.shared
     @ObservedObject private var offline = OfflineSession.shared
+    @ObservedObject private var captures = CaptureStore.shared
+    @ObservedObject private var recorder = CaptureRecorder.shared
     @EnvironmentObject private var router: Router
     @Environment(\.dynamicTypeSize) private var typeSize
     /// A 2×2 tile: half the width (~169pt on a 390pt phone) and a little
@@ -150,13 +152,21 @@ struct MoreScreen: View {
         return summary.toDo > 0 ? "\(summary.toDo) to do" : nil
     }
 
+    /// Recording now, waiting on the phone, or follow-ups to decide.
+    private var captureStatus: String? {
+        if recorder.recording { return "Recording" }
+        if !captures.queue.isEmpty { return captures.queue.count == 1 ? "1 waiting to send" : "\(captures.queue.count) waiting to send" }
+        let open = captures.items.reduce(0) { $0 + $1.actionsOpen }
+        return open > 0 ? (open == 1 ? "1 to decide" : "\(open) to decide") : nil
+    }
+
     private var toDecide: Int {
         daydream.toDecide(feedback: feedback, commissions: commissions)
     }
 
     /// What sits in More, in order, as tiles.
     enum Item: Hashable {
-        case daydream, wildmind, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
+        case daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
         case place(Router.Tab)
     }
 
@@ -165,6 +175,9 @@ struct MoreScreen: View {
         // The daydream loop is the owner's, over the site, and so is the
         // Wildmind valley beside it.
         if AccessStore.ownerSite { all += [.daydream, .wildmind] }
+        // Captures — dictation and conversations, read on the phone and by
+        // the site — are the owner's too, for now.
+        if AccessStore.ownerSite { all.append(.captures) }
         // The family's step board and task list: pages, not tabs, for
         // everyone with the family and the site credential.
         if access.familyBoards { all += [.steps, .tasks, .backlog] }
@@ -248,6 +261,21 @@ struct MoreScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("more-wildmind")
+        case .captures:
+            Button {
+                SRHaptic.tap()
+                router.pushFromHub(CapturesRef())
+            } label: {
+                MoreCard(
+                    icon: "waveform.badge.mic",
+                    fill: SR.accent,
+                    title: "Captures",
+                    blurb: "Record a thought or a conversation. Follow-ups wait for your yes.",
+                    status: captureStatus
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("more-captures")
         case .steps: familyCard(.steps)
         case .tasks: familyCard(.tasks)
         case .backlog: familyCard(.backlog)

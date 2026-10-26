@@ -31,6 +31,14 @@ packages:
   GoogleCast:
     url: https://github.com/googlecast/google-cast-ios-sdk
     exactVersion: 4.8.6
+  # Captures: telling voices apart on the phone (`Captures/CaptureDiarizer.swift`).
+  # Apache-2.0, CoreML. The package carries code only — the speaker models
+  # (~35 MB) download from Hugging Face on first use, on Wi-Fi, and the app
+  # falls back to one speaker without them. Pinned exactly (tag v0.17.7,
+  # 2026-10-08): a bump changes the models it fetches.
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio
+    exactVersion: 0.17.7
 targets:
   SRAppleApp:
     type: application
@@ -55,6 +63,7 @@ targets:
       - package: MapLibre
       - package: GoogleCast
         product: GoogleCastDynamic
+      - package: FluidAudio
     settings:
       base:
         TARGETED_DEVICE_FAMILY: '1'

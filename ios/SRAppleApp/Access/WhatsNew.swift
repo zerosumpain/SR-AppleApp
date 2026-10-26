@@ -34,6 +34,17 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-26-captures", when: "October 2026", title: "Say it once", items: [
+            WhatsNewItem(icon: "waveform.badge.mic", title: "Captures",
+                         detail: "In More. Record a thought or a conversation: it is written out on the phone, voices are told apart, and the site suggests follow-ups that run only when you approve them.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "button.horizontal.top.press", title: "From anywhere",
+                         detail: "Start and stop a capture with the Action Button, Back Tap or a Control Center control, with the timer on the Lock Screen. A Shortcut can add a screenshot. Set it up in Settings → Captures.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "magnifyingglass", title: "Find what was said",
+                         detail: "Search your captures by words, person, app or date, and open anyone mentioned to see every capture they are in.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-10-26-chess-valley", when: "October 2026", title: "Blue against red", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess in colour",
                          detail: "Pieces are blue and red now, the board edge shows whose turn it is, and a Captured card counts what each side has taken."),

@@ -22,6 +22,14 @@ final class VoiceRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     enum Failure: Error { case denied, unavailable }
 
+    /// The recording format, shared with captures (`CaptureRecorder`).
+    static let settings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatMPEG4AAC,
+        AVSampleRateKey: 22_050,
+        AVNumberOfChannelsKey: 1,
+        AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+    ]
+
     func start() async throws {
         guard await AVAudioApplication.requestRecordPermission() else { throw Failure.denied }
         let session = AVAudioSession.sharedInstance()
@@ -29,13 +37,7 @@ final class VoiceRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         try session.setActive(true)
 
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString).m4a")
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 22_050,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
-        ]
-        let recorder = try AVAudioRecorder(url: file, settings: settings)
+        let recorder = try AVAudioRecorder(url: file, settings: Self.settings)
         recorder.delegate = self
         guard recorder.record() else { throw Failure.unavailable }
         self.recorder = recorder

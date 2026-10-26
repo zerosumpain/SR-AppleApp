@@ -840,3 +840,22 @@ enum CaptureClock {
     }
 }
 
+
+/// Where a capture link leads: `sr://captures` (the page) or
+/// `sr://captures/<id>` (one capture) — the Live Activity's tap, and the
+/// "Capture ready" push.
+struct CaptureLink: Equatable {
+    var captureId: String?
+
+    static func from(url: URL) -> CaptureLink? {
+        guard url.scheme?.lowercased() == "sr", url.host?.lowercased() == "captures" else { return nil }
+        let parts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
+        return CaptureLink(captureId: parts.first)
+    }
+
+    /// A notification's `url`, when it is a capture's.
+    static func from(userInfo: [AnyHashable: Any]) -> CaptureLink? {
+        guard let text = userInfo["url"] as? String, let url = URL(string: text) else { return nil }
+        return from(url: url)
+    }
+}

@@ -135,6 +135,23 @@ enum CaptureTurns {
         return ",.;:!?)'’".unicodeScalars.contains(first) ? "" : " "
     }
 
+    /// A phrase the transcriber timed only as a whole, spread over its words
+    /// in proportion to their length — so a phrase that crosses from one
+    /// voice to the next is split near where the voices changed, not given
+    /// whole to whoever spoke first.
+    static func spread(_ text: String, start: Double, end: Double) -> [CaptureTimedText] {
+        let words = text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).map(String.init)
+        guard !words.isEmpty else { return [] }
+        let span = max(end - start, 0)
+        let total = Double(words.reduce(0) { $0 + $1.count })
+        var cursor = start
+        return words.map { word in
+            let share = total > 0 ? span * Double(word.count) / total : span / Double(words.count)
+            defer { cursor += share }
+            return CaptureTimedText(text: word, start: cursor, end: cursor + share)
+        }
+    }
+
     /// The whole transcript, from turns.
     static func transcript(_ turns: [CaptureTurn]) -> String {
         turns.map(\.text).joined(separator: " ")
