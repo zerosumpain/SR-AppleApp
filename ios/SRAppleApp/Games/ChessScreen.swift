@@ -55,7 +55,7 @@ struct ChessScreen: View {
                           startBlocked: room.playing.count != 2)
             case .countdown:
                 GameCountdownView(room: room, store: store,
-                                  note: "White moves first. Your clock runs only on your move.",
+                                  note: "Blue (white) moves first. Your clock runs only on your move.",
                                   id: "chess-countdown")
             case .playing:
                 ChessPlaying(room: room, store: store)
@@ -71,6 +71,21 @@ struct ChessScreen: View {
                 .srPaper()
         }
     }
+}
+
+// MARK: - Each side's colour
+
+extension ChessColour {
+    /// The side's own colour, on its pieces, its bar and the board's edge on
+    /// its move: blue and red read apart at a glance, where cream and ink
+    /// left the family asking whose go it was. Fixed, never the palette's
+    /// accent or alert colours, so a theme cannot make the two sides alike.
+    var tint: Color {
+        self == .white ? Color(light: 0x1D5FD6, dark: 0x6EA8FF) : Color(light: 0xC62828, dark: 0xFF7468)
+    }
+
+    /// "Blue" — the colour the pieces are drawn in, beside the rule's name.
+    var tintName: String { self == .white ? "Blue" : "Red" }
 }
 
 // MARK: - Lobby
@@ -122,7 +137,8 @@ struct ChessTableCard: View {
 // MARK: - The board
 
 /// Eight by eight, `bottom`'s side nearest the player. Pieces are the filled
-/// glyphs in cream and ink; a picked-up piece sits on an orange square, the
+/// glyphs in each side's colour (`ChessColour.tint`), and the board's edge
+/// takes the colour of the side to move; a picked-up piece sits on an orange square, the
 /// squares it may go to carry a dot (a ring over a piece it would take), the
 /// last move is tinted, and a king in check sits on red.
 struct ChessBoardView: View {
@@ -133,6 +149,8 @@ struct ChessBoardView: View {
     var targets: Set<String> = []
     var lastMove: ChessLastMove? = nil
     var checked: ChessSquare? = nil
+    /// The side to move, while the game is on: the edge is drawn in its colour.
+    var turn: ChessColour? = nil
     var interactive: Bool = false
     var onTap: (ChessSquare) -> Void = { _ in }
 
@@ -149,6 +167,12 @@ struct ChessBoardView: View {
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(SR.ink.opacity(0.25), lineWidth: 1))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("chess-board")
+            // A frame round the board, outside the squares, in the colour of
+            // the side to move; the same width when nobody is, so the board
+            // never jumps.
+            .padding(4)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(turn?.tint ?? Color.clear))
+            .animation(.easeInOut(duration: 0.2), value: turn)
     }
 
     private var squares: some View {
@@ -229,9 +253,11 @@ struct ChessSquareView: View {
             if let piece {
                 Text(piece.kind.glyph)
                     .font(.system(size: side * 0.74))
-                    .foregroundStyle(piece.colour == .white ? SR.cream : SR.ink)
-                    .shadow(color: SR.ink.opacity(piece.colour == .white ? 0.85 : 0), radius: 0.8)
-                    .shadow(color: SR.ink.opacity(piece.colour == .white ? 0.5 : 0), radius: 1.5)
+                    .foregroundStyle(piece.colour.tint)
+                    // A pale rim keeps either colour off the tinted squares —
+                    // a red king on the red check square included.
+                    .shadow(color: .white.opacity(0.9), radius: 0.6)
+                    .shadow(color: .white.opacity(0.6), radius: 1.4)
             }
             if showsRank {
                 Text(String(square.rank + 1))
@@ -270,7 +296,8 @@ struct ChessSquareView: View {
 // MARK: - A player's bar
 
 /// Name, colour, what they have taken, and their clock — ticking while it is
-/// their move. Ticks, not an animation (see `LiarsDiceTurnBar`).
+/// their move, when the bar is edged and washed in their colour. Ticks, not an
+/// animation (see `LiarsDiceTurnBar`).
 struct ChessPlayerBar: View {
     let room: GameRoom
     let state: ChessState
@@ -283,38 +310,44 @@ struct ChessPlayerBar: View {
         return playerId == room.meId ? "You" : room.name(of: playerId)
     }
     private var running: Bool { state.phase == .playing && state.turn == colour }
-    private var taken: [ChessPieceKind] { state.captured.by(colour) }
+    private var tally: [ChessTally] { state.captured.tally(by: colour) }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: running ? 0.25 : 60)) { _ in
             let left = state.remaining(colour, now: now())
             HStack(alignment: .center, spacing: 12) {
-                GameInitial(name: name, tone: running ? SR.accent : (colour == .white ? SR.inkMuted : SR.ink))
+                GameInitial(name: name, tone: colour.tint)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(name)
                             .font(SR.Text.title())
                             .foregroundStyle(SR.ink)
                             .lineLimit(1)
-                        Text(colour.name.uppercased())
+                        Text(colour.tintName.uppercased())
                             .font(SR.Text.label())
                             .tracking(1)
-                            .foregroundStyle(SR.inkMuted)
+                            .foregroundStyle(colour.tint)
+                            .accessibilityLabel("\(colour.tintName), playing \(colour.name.lowercased())")
                         if running {
                             Text("TO MOVE")
                                 .font(SR.Text.label())
                                 .tracking(1)
-                                .foregroundStyle(SR.accent)
+                                .foregroundStyle(SR.paper)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(colour.tint))
                         }
                     }
                     // One line that shrinks, then truncates: a row of separate
                     // glyphs could not, and with a dozen pieces taken it pushed
                     // the bar — and the page under it — past the screen's edge.
+                    // Counted per kind ("♟×3"), in the colour of the side they
+                    // were taken from.
                     HStack(spacing: 4) {
-                        if !taken.isEmpty {
-                            Text(taken.map(\.glyph).joined())
+                        if !tally.isEmpty {
+                            Text(tally.map { ChessRules.tallyText($0.kind, $0.count) }.joined(separator: " "))
                                 .font(.system(size: 13))
-                                .foregroundStyle(SR.inkMuted)
+                                .foregroundStyle(colour.other.tint)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.6)
                                 .truncationMode(.tail)
@@ -324,7 +357,7 @@ struct ChessPlayerBar: View {
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkMuted)
                         }
-                        if taken.isEmpty, state.captured.balance(for: colour) <= 0 {
+                        if tally.isEmpty, state.captured.balance(for: colour) <= 0 {
                             Text("Nothing taken yet")
                                 .font(SR.Text.mono())
                                 .foregroundStyle(SR.inkGhost)
@@ -336,25 +369,114 @@ struct ChessPlayerBar: View {
                 Spacer(minLength: 8)
                 Text(ChessRules.clockText(left))
                     .font(SR.Text.figure(26))
-                    .foregroundStyle(running ? (left < 20_000 ? SR.error : SR.accent) : SR.ink)
+                    .foregroundStyle(running ? (left < 20_000 ? SR.error : colour.tint) : SR.ink)
                     .monospacedDigit()
                     .fixedSize()
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(running ? SR.accent.opacity(0.12) : Color.clear))
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(running ? colour.tint.opacity(0.14) : Color.clear))
                     .accessibilityLabel("\(name), \(ChessRules.clockText(left)) left")
                     .accessibilityIdentifier("chess-clock-\(colour.rawValue)")
             }
             .padding(.horizontal, SR.cardPadding)
             .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous).fill(running ? colour.tint.opacity(0.1) : Color.clear))
             .srGlassCard(.paper)
+            .overlay(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .strokeBorder(running ? colour.tint : Color.clear, lineWidth: 2.5))
             .accessibilityElement(children: .contain)
+            .accessibilityValue(running ? "to move" : "")
             .accessibilityIdentifier("chess-bar-\(colour.rawValue)")
         }
     }
 
     private var takenSpoken: String {
-        taken.isEmpty ? "\(name) has taken nothing yet" : "\(name) has taken \(taken.map { $0.name.lowercased() }.joined(separator: ", "))"
+        tally.isEmpty ? "\(name) has taken nothing yet" : "\(name) has taken \(ChessRules.tallySpoken(tally))"
+    }
+}
+
+// MARK: - What each side has taken
+
+/// The captures summed up: a row per side, each kind it has taken with how
+/// many (drawn in the colour of the side that lost them), and the points.
+/// `top` is listed first, as on the board.
+struct ChessCapturedCard: View {
+    let room: GameRoom
+    let state: ChessState
+    let top: ChessColour
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Captured", trailing: lead)
+            VStack(spacing: 0) {
+                row(top)
+                Divider().overlay(SR.divider)
+                row(top.other)
+            }
+            .padding(.horizontal, SR.cardPadding)
+            .srGlassCard(.paper)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chess-captured")
+    }
+
+    /// "Blue +4", or "Level".
+    private var lead: String {
+        let white = state.captured.balance(for: .white)
+        if white == 0 { return "Level" }
+        let ahead: ChessColour = white > 0 ? .white : .black
+        return "\(name(ahead)) +\(abs(white))"
+    }
+
+    private func name(_ colour: ChessColour) -> String {
+        guard let id = state.player(of: colour) else { return colour.tintName }
+        return id == room.meId ? "You" : room.name(of: id)
+    }
+
+    private func row(_ colour: ChessColour) -> some View {
+        let tally = state.captured.tally(by: colour)
+        let points = state.captured.points(by: colour)
+        return HStack(alignment: .center, spacing: 10) {
+            GameInitial(name: name(colour), tone: colour.tint, side: 22)
+            Text(name(colour))
+                .font(SR.Text.bodyMedium(15))
+                .foregroundStyle(SR.ink)
+                .lineLimit(1)
+                .frame(minWidth: 44, alignment: .leading)
+            if tally.isEmpty {
+                Text("Nothing yet")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkGhost)
+            } else {
+                // Five kinds at most: one line, shrinking a little if it must.
+                HStack(spacing: 8) {
+                    ForEach(tally, id: \.kind) { item in
+                        HStack(spacing: 1) {
+                            Text(item.kind.glyph)
+                                .font(.system(size: 20))
+                                .foregroundStyle(colour.other.tint)
+                            if item.count > 1 {
+                                Text("×\(item.count)")
+                                    .font(SR.Text.mono(13))
+                                    .foregroundStyle(SR.ink)
+                            }
+                        }
+                    }
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            }
+            Spacer(minLength: 6)
+            Text(points == 1 ? "1 pt" : "\(points) pts")
+                .font(SR.Text.mono())
+                .foregroundStyle(points > 0 ? SR.ink : SR.inkGhost)
+                .monospacedDigit()
+                .fixedSize()
+        }
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name(colour)) took \(ChessRules.tallySpoken(tally)), \(points) points")
+        .accessibilityIdentifier("chess-captured-\(colour.rawValue)")
     }
 }
 
@@ -381,6 +503,7 @@ struct ChessPlaying: View {
                         targets: store.targetNames,
                         lastMove: state.lastMove,
                         checked: state.checkedKing,
+                        turn: state.phase == .playing ? state.turn : nil,
                         interactive: store.myTurn && !store.sending,
                         onTap: { store.tap($0) }
                     )
@@ -389,6 +512,7 @@ struct ChessPlaying: View {
                     statusLine
                         .frame(maxWidth: .infinity)
                     if store.seated { actions }
+                    ChessCapturedCard(room: room, state: state, top: bottom.other)
                     if !state.moves.isEmpty { moveList(state.moves) }
                     if let rule = state.rule {
                         Text(rule)
@@ -435,7 +559,7 @@ struct ChessPlaying: View {
                     .foregroundStyle(SR.accent)
                 Text(headline)
                     .font(SR.Text.display(24))
-                    .foregroundStyle(state?.check == true ? SR.error : SR.ink)
+                    .foregroundStyle(state?.check == true ? SR.error : (state?.turn.tint ?? SR.ink))
                     .accessibilityIdentifier("chess-headline")
             }
             Spacer(minLength: 8)
@@ -559,6 +683,7 @@ struct ChessFinished: View {
                 )
 
                 if let state {
+                    ChessCapturedCard(room: room, state: state, top: bottom.other)
                     VStack(alignment: .leading, spacing: SR.cardGap) {
                         SRSectionLabel(text: "The final position", trailing: GameResults.count(state.moves.count, "move", "moves"))
                         ChessBoardView(board: state.board, bottom: bottom, lastMove: state.lastMove, checked: state.checkedKing)

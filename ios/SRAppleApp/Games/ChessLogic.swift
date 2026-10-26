@@ -309,6 +309,12 @@ struct ChessClocks: Decodable, Equatable {
     func of(_ colour: ChessColour) -> Double { colour == .white ? white : black }
 }
 
+/// One kind of piece a side has taken, and how many.
+struct ChessTally: Equatable, Hashable {
+    let kind: ChessPieceKind
+    let count: Int
+}
+
 /// What each side has taken, in the order taken, keyed w / b on the wire.
 struct ChessCaptured: Decodable, Equatable {
     let white: [ChessPieceKind]
@@ -331,6 +337,19 @@ struct ChessCaptured: Decodable, Equatable {
 
     /// Pieces this colour has taken.
     func by(_ colour: ChessColour) -> [ChessPieceKind] { colour == .white ? white : black }
+
+    /// What this colour has taken, one entry per kind, most valuable first:
+    /// the summary under the board, which a row of fifteen glyphs was not.
+    func tally(by colour: ChessColour) -> [ChessTally] {
+        let taken = by(colour)
+        return ChessRules.tallyOrder.compactMap { kind in
+            let count = taken.filter { $0 == kind }.count
+            return count > 0 ? ChessTally(kind: kind, count: count) : nil
+        }
+    }
+
+    /// The points this colour has taken.
+    func points(by colour: ChessColour) -> Int { by(colour).reduce(0) { $0 + $1.value } }
 
     /// Material in hand for `colour` against the other side, in points; 0 when level.
     func balance(for colour: ChessColour) -> Int {
@@ -505,6 +524,21 @@ enum ChessRules {
         case "left": return "\(l) left the game — \(wins(w))."
         default: return "Game over."
         }
+    }
+
+    /// Most valuable first; a king is never taken.
+    static let tallyOrder: [ChessPieceKind] = [.queen, .rook, .bishop, .knight, .pawn]
+
+    /// "♟×3": one kind taken, and how many when more than one.
+    static func tallyText(_ kind: ChessPieceKind, _ count: Int) -> String {
+        count > 1 ? "\(kind.glyph)×\(count)" : kind.glyph
+    }
+
+    /// "a queen, 2 rooks and 3 pawns", for VoiceOver.
+    static func tallySpoken(_ tally: [ChessTally]) -> String {
+        let parts = tally.map { $0.count == 1 ? "a \($0.kind.name.lowercased())" : "\($0.count) \($0.kind.name.lowercased())s" }
+        guard let last = parts.last else { return "nothing" }
+        return parts.count == 1 ? last : parts.dropLast().joined(separator: ", ") + " and " + last
     }
 
     /// "+3" for the side ahead on material; nil when level or behind.
