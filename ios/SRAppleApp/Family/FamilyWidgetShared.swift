@@ -28,6 +28,15 @@ import SwiftUI
 enum FamilyWidgetKind {
     static let steps = "FamilySteps"
     static let tasks = "FamilyTasks"
+    /// msg family: the latest threads and what is unread
+    /// (`FamilyMessagesWidgetModel.swift`).
+    static let messages = "FamilyMessages"
+    /// The bat phone's button, which opens the app on a check
+    /// (`BatPhoneURL`).
+    static let batPhone = "FamilyBatPhone"
+
+    /// Every family widget: what a new credential, or none, redraws.
+    static let all = [steps, tasks, messages, batPhone]
 }
 
 /// The widgets' refresh: iOS budgets roughly this often for a widget that
@@ -62,6 +71,8 @@ enum FamilyShelf {
 
     enum Account: String, CaseIterable {
         case credential, steps, tasks
+        /// msg family's latest threads (`FamilyMessagesSnapshot`).
+        case messages
         /// Shares the share extension could not send (FamilyBacklogShared.swift).
         case backlogQueue
         /// The reader's palette, as the widgets and Live Activities paint it
@@ -143,7 +154,10 @@ enum FamilyWidgetFetch {
         await get("api/native/family/tasks")
     }
 
-    private static func get<T: Decodable>(_ path: String) async -> T? {
+    /// Not private: msg family's widget reads its feed through this too
+    /// (`SRAppleLive/FamilyMessagesWidgets.swift`), with a shape this file
+    /// cannot name — the share extension compiles it without that one.
+    static func get<T: Decodable>(_ path: String) async -> T? {
         guard let credential = FamilyShelf.load(FamilyWidgetCredential.self, .credential),
               let origin = URL(string: credential.origin), origin.scheme == "https" else { return nil }
         var request = URLRequest(url: origin.appending(path: path))

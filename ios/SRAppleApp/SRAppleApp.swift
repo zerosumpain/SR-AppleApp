@@ -144,11 +144,11 @@ import Combine
         }
         switch kind {
         case .batPhone:
-            // Sent as it opens, quietly, on Home: no screen of its own to give
-            // it away. A msg family message now, not the alarm (`BatPhone`);
-            // Home's button shows "Bat phone · sent" and takes it back.
+            // Opens on the bat phone's check, as the widget does, and sends
+            // nothing itself: a long-press menu is brushed by accident too,
+            // and the button there keeps its own guard (`BatPhoneLink`).
             Self.pending.tab = .today
-            await BatPhone.shared.send()
+            BatPhoneLink.shared.open()
         case .capture:
             // Straight into recording, on the Captures page so the timer and
             // Stop are in front of you. Pressed again while recording, it stops.

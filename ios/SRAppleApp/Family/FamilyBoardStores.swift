@@ -267,8 +267,7 @@ enum FamilyWidgetBridge {
         if allowed, let token = SiteClient.shared.token {
             let credential = FamilyWidgetCredential(origin: SiteClient.shared.origin.absoluteString, token: token)
             if FamilyShelf.save(credential, .credential) {
-                WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.steps)
-                WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.tasks)
+                for kind in FamilyWidgetKind.all { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
             }
         } else {
             clear()
@@ -278,9 +277,9 @@ enum FamilyWidgetBridge {
     /// Signed out, or no longer family: nothing left behind for a widget.
     static func clear() {
         if SRDemo.isOn { return }
-        guard FamilyShelf.read(.credential) != nil || FamilyShelf.read(.steps) != nil || FamilyShelf.read(.tasks) != nil else { return }
+        guard FamilyShelf.read(.credential) != nil || FamilyShelf.read(.steps) != nil || FamilyShelf.read(.tasks) != nil
+                || FamilyShelf.read(.messages) != nil else { return }
         FamilyShelf.clearAll()
-        WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.steps)
-        WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.tasks)
+        for kind in FamilyWidgetKind.all { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
     }
 }
