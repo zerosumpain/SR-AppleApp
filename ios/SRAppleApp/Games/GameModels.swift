@@ -43,6 +43,9 @@ enum GameKind: String, CaseIterable, Identifiable {
     case manhunt
     case homestead
     case hometowns
+    // Played on this phone, offline: never a room on the site (Games/Physics/).
+    case lander
+    case carRace = "car-race"
 
     var id: String { rawValue }
 
@@ -68,6 +71,8 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "Manhunt"
         case .homestead: return "Homestead"
         case .hometowns: return "Hometowns"
+        case .lander: return "Lander"
+        case .carRace: return "Car Race"
         }
     }
 
@@ -94,6 +99,8 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "Hide and seek outdoors, on the map."
         case .homestead: return "Settle an island. Trade, build, race to the points."
         case .hometowns: return "Build a town each around Kingsport. A year a day."
+        case .lander: return "Tilt to steer, hold to burn. Land softly on the pad."
+        case .carRace: return "Tilt to steer round the track. Race your ghost or the family."
         }
     }
 
@@ -140,6 +147,10 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Three to five of you settle an island. Roll for timber, clay, wool, grain and stone, trade with each other, build roads, cottages and towns, and watch out for the fox. First to the points wins. Play in one sitting or a turn a day."
         case .hometowns:
             return "Everyone builds a town of their own around Kingsport, and the county keeps going for months. Lay roads, paint homes and shops, and watch people move in. A game year passes every real day, towns grow while you're away, and the family settles up each evening. On your own is a real game too."
+        case .lander:
+            return "Bring a little craft down onto the landing pad. Tilt the phone to lean, hold a finger down to fire the engine, and touch down slowly and upright before the fuel runs out. Each landing opens a harder level. Plays offline."
+        case .carRace:
+            return "A top-down race round three circuits. Tilt to steer, brake into the bends and drift out of them. Race your own best ghost, pass the phone round for up to four, or race phone to phone nearby. Plays offline."
         }
     }
 
@@ -165,6 +176,8 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "figure.run"
         case .homestead: return "house.lodge.fill"
         case .hometowns: return "building.2.fill"
+        case .lander: return "moon.fill"
+        case .carRace: return "car.fill"
         }
     }
 }
@@ -247,6 +260,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.homestead, .hard): return "10 points wins. No hints and the shortest turns."
         // A county has no level: the host picks its rivalry instead (the sheet hides this).
         case (.hometowns, _): return "Every county plays the same rules; rivalry is set for the county."
+        // Played on this phone: a lander's levels climb, a race picks its track.
+        case (.lander, _): return "Each landing opens a harder level."
+        case (.carRace, _): return "Pick a track and how many laps."
         }
     }
 

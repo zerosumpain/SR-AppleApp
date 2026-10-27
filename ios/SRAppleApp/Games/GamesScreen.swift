@@ -193,7 +193,8 @@ struct GamesScreen: View {
                             ForEach(GameKind.allCases.filter(offered)) { kind in
                                 Button {
                                     SRHaptic.tap()
-                                    starting = kind
+                                    // A physics game plays on this phone: no room, no sheet.
+                                    if kind.playsOnPhone { router.push(PhysicsGameRef(kind: kind), on: .games) } else { starting = kind }
                                 } label: {
                                     GameCard(kind: kind)
                                 }
@@ -429,6 +430,7 @@ struct GameCard: View {
         case .manhunt: return SR.good
         case .homestead: return SR.good
         case .hometowns: return SR.accentInk
+        case .lander, .carRace: return SR.accentDeep
         }
     }
 }

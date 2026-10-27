@@ -875,6 +875,7 @@ private extension View {
             .navigationDestination(for: GameRoomRef.self) { GameRoomScreen(ref: $0).id($0.id) }
             .navigationDestination(for: GameLeaderboardRef.self) { _ in GameLeaderboardScreen() }
             .navigationDestination(for: MarblerRef.self) { _ in MarblerScreen() }
+            .navigationDestination(for: PhysicsGameRef.self) { PhysicsGameScreen(kind: $0.kind) }
             // Play nearby: offline games, from the Games page and from More.
             .navigationDestination(for: OfflineGamesRef.self) { _ in OfflineGamesScreen() }
             // The Travel kit and its five tools, from the hub.
