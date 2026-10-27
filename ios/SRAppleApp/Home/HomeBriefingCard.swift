@@ -7,6 +7,10 @@ import SwiftUI
 /// the stores the tiles already fill (it asks the site for nothing of its
 /// own) and draws the lines. A fixed height, like every tile: three rows'
 /// room whether one line or three came back, so nothing under it moves.
+///
+/// The owner's tile ends in a "Morning report" row (`report`), the day's
+/// written briefing; Home gives the tile that row's height as well
+/// (`HomeGrid.briefingReport`). Nobody else's phone draws it.
 struct HomeBriefingTile: View {
     let health: TodayHealth?
     let rings: ActivityRingsStore.Rings?
@@ -16,6 +20,8 @@ struct HomeBriefingTile: View {
     let open: (HomeInsight) -> Void
     var hide: (() -> Void)? = nil
     var customise: (() -> Void)? = nil
+    /// Opens the morning report. Nil — no row — for anyone but the owner.
+    var report: (() -> Void)? = nil
 
     @ObservedObject private var steps = FamilyStepsStore.shared
     @ObservedObject private var tasks = FamilyTasksStore.shared
@@ -40,10 +46,17 @@ struct HomeBriefingTile: View {
                         HomeInsightRow(line: line) { open(line) }
                     }
                     Spacer(minLength: 0)
+                    if let report {
+                        Divider().overlay(SR.divider)
+                        HomeMorningReportRow(action: report)
+                    }
                 }
             }
         }
         .contextMenu {
+            if let report {
+                Button { report() } label: { Label("Morning report", systemImage: "sun.horizon") }
+            }
             if let hide {
                 Button { hide() } label: { Label("Hide from Home", systemImage: "eye.slash") }
             }
@@ -132,6 +145,44 @@ struct HomeBriefingTile: View {
         let days = clock.days(from: clock.localDate(now), to: next.startDate)
         return .init(place: HomeTripWords.place(next.destination), days: days,
                      questions: HomeTripWords.openQuestions(trips.bundles[next.id]).count, nextStop: nil, leaveInMinutes: nil)
+    }
+}
+
+/// The foot of the owner's briefing tile: the day's written report, a push
+/// away. One line, shrinking a little before it would be cut, so it fits the
+/// row's fixed (scaled) height at every text size.
+struct HomeMorningReportRow: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            SRHaptic.tap()
+            action()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "sun.horizon.fill")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(SR.accentInk)
+                    .accessibilityHidden(true)
+                Text("Morning report")
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(SR.inkGhost)
+                    .accessibilityHidden(true)
+            }
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Morning report")
+        .accessibilityHint("The day's written briefing")
+        .accessibilityIdentifier("home-morning-report")
     }
 }
 

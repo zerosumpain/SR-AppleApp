@@ -9,6 +9,8 @@ import SwiftUI
 /// under a thumb that was already on its way down.
 struct HomeGrid<Tile: View>: View {
     let kinds: [HomeTileKind]
+    /// The briefing tile ends in the owner's "Morning report" row: room for it.
+    var briefingReport = false
     @ViewBuilder let tile: (HomeTileKind) -> Tile
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var unit: CGFloat = 172
@@ -16,6 +18,8 @@ struct HomeGrid<Tile: View>: View {
     @ScaledMetric(relativeTo: .body) private var ridge: CGFloat = 226
     /// Three of the briefing's lines, whether one came back or three.
     @ScaledMetric(relativeTo: .body) private var briefing: CGFloat = 232
+    /// The "Morning report" row under them, on the owner's tile.
+    @ScaledMetric(relativeTo: .body) private var reportRow: CGFloat = 40
     /// The gauge beside four figures, and the rings under them.
     @ScaledMetric(relativeTo: .body) private var health: CGFloat = 236
     /// The headline, four lanes and yesterday's winner.
@@ -56,7 +60,7 @@ struct HomeGrid<Tile: View>: View {
         switch kind {
         case .family: return hero
         case .familyDay: return ridge
-        case .briefing: return briefing
+        case .briefing: return briefing + (briefingReport ? reportRow : 0)
         case .health: return health
         case .steps: return steps
         case .news: return news

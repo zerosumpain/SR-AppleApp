@@ -96,6 +96,21 @@ final class Router: ObservableObject {
         openFromHub(MorePage.daydream)
     }
 
+    /// The morning report — the owner's alone. Pushed onto Home's stack (from
+    /// the "Worth knowing" tile it is already the stack in front); from
+    /// anywhere else Home is shown with the report on it.
+    func openMorningReport(day: String? = nil) {
+        guard AccessStore.ownerSite else { return }
+        if tab == .today {
+            today.append(MorningReportRef(day: day))
+        } else {
+            var path = NavigationPath()
+            path.append(MorningReportRef(day: day))
+            today = path
+            tab = .today
+        }
+    }
+
     /// Wildmind, a page in the hub — the owner's alone, like Daydream.
     func openWildmind() {
         guard AccessStore.shared.current.owner else { return }
@@ -804,6 +819,8 @@ struct ContentView: View {
             .navigationDestination(for: CaptureRef.self) { CaptureDetailScreen(ref: $0).id($0.id) }
             .navigationDestination(for: CaptureEntityRef.self) { CaptureEntityScreen(ref: $0).id($0.id) }
             .navigationDestination(for: CaptureSettingsRef.self) { _ in CaptureSettingsScreen() }
+            // The morning report, the owner's: from Home's "Worth knowing" tile.
+            .navigationDestination(for: MorningReportRef.self) { MorningReportScreen(day: $0.day) }
             .placeDestinations()
     }
 

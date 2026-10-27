@@ -312,6 +312,10 @@ struct TodayScreen: View {
         }
     }
 
+    /// The morning report is the owner's, over the site — not drawn for a
+    /// member, nor while the owner is viewing the app as one.
+    private var ownsReport: Bool { access.current.owner && site.paired }
+
     /// What Home draws, in order.
     private var visibleTiles: [HomeTileKind] {
         HomeLayout.decode(homeLayout).visible(HomeTileKind.available(access: access.current, sitePaired: site.paired))
@@ -329,7 +333,7 @@ struct TodayScreen: View {
             // answer comes from.
             companionCard
         }
-        HomeGrid(kinds: visibleTiles) { kind in
+        HomeGrid(kinds: visibleTiles, briefingReport: ownsReport) { kind in
             tile(kind)
         }
         .environment(\.homeColours, { router.openColours() })
@@ -444,9 +448,11 @@ struct TodayScreen: View {
         let arrange = { router.today.append(HomeCustomizeRef()) }
         switch kind {
         case .briefing:
+            let report: (() -> Void)? = ownsReport ? { router.openMorningReport() } : nil
             HomeBriefingTile(health: store.payload?.health, rings: rings.rings, news: store.payload?.news,
                              household: access.current.family ? family.view : nil, flows: flowAttention,
-                             open: openInsight, hide: hide, customise: arrange)
+                             open: openInsight, hide: hide, customise: arrange,
+                             report: report)
         case .family:
             HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange, keepsChildren: true) {
                 HomeFamilyTile(store: family, watch: family.view?.watch, live: onScreen && scenePhase == .active)
