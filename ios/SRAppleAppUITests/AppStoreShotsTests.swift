@@ -25,7 +25,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore01Today() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         require(byId(app, "today-family"), "the family map on Today")
         require(byId(app, "today-steps"), "the Steps card on Today")
         require(byId(app, "today-tasks"), "the Tasks card on Today")
@@ -35,7 +35,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore02FamilyMap() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         XCTAssertTrue(app.openTab("Family"), "no way to the Family tab")
         XCTAssertTrue(app.selectFamilyTop("Map"), "no Map switch on Family")
         require(byId(app, "family-map"), "the family map")
@@ -49,7 +49,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore03Steps() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         openPage(app, card: "today-steps", orTab: "Steps")
         require(byId(app, "steps-hero"), "the step board's hero")
         noBanners(app)
@@ -58,7 +58,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore04TasksOpen() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         openPage(app, card: "today-tasks", orTab: "Tasks")
         require(byId(app, "family-tasks-screen"), "the task list")
         let segment = app.segmentedControls.buttons["Open"]
@@ -71,7 +71,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore05TasksOwed() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         openPage(app, card: "today-tasks", orTab: "Tasks")
         require(byId(app, "family-tasks-screen"), "the task list")
         let segment = app.segmentedControls.buttons["Owed"]
@@ -84,7 +84,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore06Health() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         XCTAssertTrue(app.openTab("Health"), "no way to the Health tab")
         // The compact hero carries the verdict in its label ("Readiness 72,
         // Primed. …"): the card itself, then that it says so.
@@ -97,7 +97,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore07ChatThread() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         XCTAssertTrue(app.openTab("Chat"), "no way to the Chat tab")
         let thread = byId(app, "thread-demo-thread-training")
         require(thread, "the training thread in the list")
@@ -110,7 +110,7 @@ final class AppStoreShotsTests: XCTestCase {
 
     @MainActor func testStore08Games() {
         let app = launch()
-        require(app.tabBars.buttons["Home"], "the Today tab")
+        require(app.tray, "the tray")
         XCTAssertTrue(app.openTab("Games"), "no way to the Games tab")
         require(byId(app, "games-screen"), "the Games page")
         require(byId(app, "games-invite-g_demo_invite"), "Sam's invitation")

@@ -16,8 +16,13 @@ final class HomeTests: XCTestCase {
     }
 
     func testTheShortcutsComeLast() {
-        XCTAssertEqual(Array(HomeTileKind.defaultOrder.suffix(2)), [.chat, .wildmind])
-        XCTAssertEqual(HomeTileKind.defaultOrder.filter { $0.size == .compact }, [.chat, .wildmind])
+        XCTAssertEqual(Array(HomeTileKind.defaultOrder.suffix(4)), [.captures, .travel, .chat, .wildmind])
+        XCTAssertEqual(HomeTileKind.defaultOrder.filter { $0.size == .compact }, [.batPhone, .captures, .travel, .chat, .wildmind],
+                       "the bat phone is the one shortcut kept at the top, under the family")
+    }
+
+    func testTheBatPhoneSitsUnderTheFamily() {
+        XCTAssertEqual(Array(HomeTileKind.defaultOrder.prefix(4)), [.briefing, .family, .batPhone, .messages])
     }
 
     func testTilesThatCarryDataAreWide() {
@@ -37,18 +42,20 @@ final class HomeTests: XCTestCase {
         XCTAssertTrue(tiles.contains(.family))
         XCTAssertTrue(tiles.contains(.steps), "family + site credential is the family boards")
         XCTAssertTrue(tiles.contains(.games))
-        for owner in [HomeTileKind.news, .daydream, .flows, .wildmind, .chat] {
+        XCTAssertTrue(tiles.contains(.batPhone), "every family phone has the bat phone")
+        for owner in [HomeTileKind.news, .daydream, .flows, .wildmind, .chat, .diary, .captures] {
             XCTAssertFalse(tiles.contains(owner), "\(owner) leaked to a member")
         }
     }
 
     func testNoSiteCredentialMeansNoBoards() {
         let tiles = HomeTileKind.available(access: AppAccess(family: true), sitePaired: false)
-        XCTAssertEqual(tiles, [.briefing, .family, .health])
+        XCTAssertEqual(tiles, [.briefing, .family, .health, .travel])
     }
 
     func testEveryoneHasHealth() {
-        XCTAssertEqual(HomeTileKind.available(access: .nothing, sitePaired: false), [.briefing, .health])
+        XCTAssertEqual(HomeTileKind.available(access: .nothing, sitePaired: false), [.briefing, .health, .travel],
+                       "Health is at least this phone's own, and the Travel kit runs on the phone")
     }
 
     // MARK: - The reader's layout
@@ -96,6 +103,15 @@ final class HomeTests: XCTestCase {
         XCTAssertEqual(layout.hidden, [.news])
     }
 
+    func testATileStoredTwiceKeepsItsFirstPlace() {
+        let layout = HomeLayout.decode(#"{"order":["health","family","health"]}"#)
+        XCTAssertEqual(layout.order, [.health, .family])
+        // Built in code rather than decoded, the repeat is still drawn once.
+        let built = HomeLayout(order: [.health, .family, .health])
+        let shown = built.visible([.family, .health])
+        XCTAssertEqual(shown, [.health, .family])
+    }
+
     func testGarbageIsTheDefaultLayout() {
         XCTAssertEqual(HomeLayout.decode("not json"), HomeLayout())
         XCTAssertEqual(HomeLayout.decode(""), HomeLayout())
@@ -103,21 +119,25 @@ final class HomeTests: XCTestCase {
 
     // MARK: - Rows
 
-    func testSquaresPairAndALoneSquareTakesTheRow() {
-        let rows = HomeRows.pack([.family, .tasks, .backlog, .trips, .games])
-        XCTAssertEqual(rows, [.full(.family), .pair(.tasks, .backlog), .full(.trips), .full(.games)])
+    func testSquaresPairAndALoneSquareStaysASquare() {
+        let rows = HomeRows.pack([.family, .tasks, .backlog, .trips, .daydream])
+        XCTAssertEqual(rows, [.full(.family), .pair(.tasks, .backlog), .full(.trips), .single(.daydream)])
     }
 
-    func testASquareBeforeAWideTileIsNotLeftWithAHole() {
-        XCTAssertEqual(HomeRows.pack([.tasks, .trips, .games, .backlog]),
-                       [.full(.tasks), .full(.trips), .pair(.games, .backlog)])
+    func testASquarePairsAcrossAWideTile() {
+        XCTAssertEqual(HomeRows.pack([.tasks, .trips, .daydream, .backlog]),
+                       [.pair(.tasks, .daydream), .full(.trips), .single(.backlog)])
     }
 
-    func testShortcutsPairOnlyWithShortcuts() {
-        XCTAssertEqual(HomeRows.pack([.games, .chat, .wildmind, .flows]),
-                       [.full(.games), .pair(.chat, .wildmind), .full(.flows)])
-        XCTAssertEqual(HomeRows.pack([.chat, .tasks, .wildmind]), [.full(.chat), .full(.tasks), .full(.wildmind)],
-                       "a shortcut beside a square would be two heights in one row")
+    func testShortcutsPairWithShortcutsOrStackBesideASquare() {
+        XCTAssertEqual(HomeRows.pack([.daydream, .chat, .wildmind, .tasks]),
+                       [.pair(.daydream, .tasks), .pair(.chat, .wildmind)])
+        XCTAssertEqual(HomeRows.pack([.tasks, .chat]), [.stack(.tasks, [.chat])],
+                       "a shortcut beside a square is stacked in its height, never stretched to it")
+    }
+
+    func testTheReadersSizeIsWhatIsPacked() {
+        XCTAssertEqual(HomeRows.pack([.health, .steps], sizes: [.health: .square, .steps: .square]), [.pair(.health, .steps)])
     }
 
     func testAccessibilitySizesAreOneColumn() {
@@ -386,13 +406,83 @@ final class HomeTests: XCTestCase {
         return try JSONDecoder().decode(HouseholdView.self, from: Data(json.utf8))
     }
 
-    /// msg family holds the bat phone: hidden or not, it is on Home.
-    func testMsgFamilyCannotBeHidden() {
-        var layout = HomeLayout(hidden: [.messages, .news])
+    /// The bat phone: hidden or not, it is on Home. msg family can go now
+    /// the bat phone has a tile of its own.
+    func testTheBatPhoneCannotBeHidden() {
+        var layout = HomeLayout(hidden: [.batPhone, .news])
         let available = HomeTileKind.available(access: .everything, sitePaired: true)
-        XCTAssertTrue(layout.visible(available).contains(.messages))
+        XCTAssertTrue(layout.visible(available).contains(.batPhone))
         XCTAssertFalse(layout.visible(available).contains(.news))
+        layout.set(.batPhone, shown: false)
+        XCTAssertTrue(layout.shows(.batPhone))
         layout.set(.messages, shown: false)
-        XCTAssertTrue(layout.shows(.messages))
+        XCTAssertFalse(layout.shows(.messages))
+    }
+
+    // MARK: - Arrange
+
+    func testASizeIsKeptAndTheDefaultForgotten() {
+        var layout = HomeLayout()
+        layout.set(.steps, size: .square)
+        XCTAssertEqual(layout.size(of: .steps), .square)
+        XCTAssertEqual(HomeLayout.decode(layout.raw).size(of: .steps), .square)
+        layout.set(.steps, size: .wide)
+        XCTAssertNil(layout.sizes[.steps], "the default is not stored")
+        layout.set(.family, size: .square)
+        XCTAssertEqual(layout.size(of: .family), .hero, "the Orbit has one size")
+    }
+
+    func testAnUnknownSizeInStoredJSONIsDropped() {
+        let layout = HomeLayout.decode(#"{"order":[],"hidden":[],"sizes":{"steps":"square","news":"huge","teleport":"wide"}}"#)
+        XCTAssertEqual(layout.sizes, [.steps: .square])
+    }
+
+    func testALayoutFromBeforeSizesStillReads() {
+        let layout = HomeLayout.decode(#"{"order":["health","family"],"hidden":["news"]}"#)
+        XCTAssertEqual(layout.order, [.health, .family])
+        XCTAssertTrue(layout.sizes.isEmpty)
+    }
+
+    func testDroppedOnATileTakesItsPlace() {
+        let available: [HomeTileKind] = [.family, .health, .steps, .tasks]
+        var layout = HomeLayout()
+        layout.move(.tasks, before: .health, available: available)
+        XCTAssertEqual(layout.arranged(available), [.family, .tasks, .health, .steps])
+        layout.move(.family, before: .steps, available: available)
+        XCTAssertEqual(layout.arranged(available), [.tasks, .health, .steps, .family], "dragged down, it lands after")
+    }
+
+    func testNudgeStepsOverHiddenTiles() {
+        let available: [HomeTileKind] = [.family, .health, .steps]
+        var layout = HomeLayout(hidden: [.health])
+        layout.nudge(.steps, by: -1, available: available)
+        XCTAssertEqual(layout.visible(available), [.steps, .family])
+        layout.nudge(.steps, by: -1, available: available)
+        XCTAssertEqual(layout.visible(available), [.steps, .family], "already first")
+    }
+
+    func testAddableIsWhatIsOff() {
+        let available: [HomeTileKind] = [.family, .health, .steps]
+        XCTAssertEqual(HomeLayout(hidden: [.steps]).addable(available), [.steps])
+    }
+
+    func testEveryTileCanBeDrawnAtItsDefault() {
+        for kind in HomeTileKind.allCases {
+            XCTAssertTrue(kind.sizes.contains(kind.defaultSize), "\(kind)")
+            XCTAssertEqual(kind.sizes, kind.sizes.sorted(), "\(kind)'s sizes go smallest first")
+        }
+    }
+
+    func testWhatWaitsOpensOut() {
+        for kind in [HomeTileKind.games, .flows, .diary, .trips, .moves] {
+            XCTAssertTrue(kind.adaptive, "\(kind) should fold when empty")
+            XCTAssertEqual(kind.defaultSize, .wide, "\(kind) starts wide, to fold when there is nothing")
+        }
+    }
+
+    func testAdaptiveTilesCanFold() {
+        for kind in HomeTileKind.allCases where kind.adaptive {
+            XCTAssertTrue(kind.sizes.contains(.square), "\(kind) has no square to fold to")
+        }
     }
 }

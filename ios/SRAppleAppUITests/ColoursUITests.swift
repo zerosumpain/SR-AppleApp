@@ -11,7 +11,7 @@ final class ColoursUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         let any = app.descendants(matching: .any)
 
         let open = any["home-colours"].firstMatch
@@ -34,7 +34,7 @@ final class ColoursUITests: XCTestCase {
 
         any["colours-done"].firstMatch.tap()
         XCTAssertTrue(any["today-hero"].firstMatch.waitForExistence(timeout: 10), "Home did not come back after the palette changed")
-        XCTAssertTrue(app.tabBars.buttons["Home"].isSelected, "the redraw lost the reader's tab")
+        XCTAssertTrue(app.home.exists, "the redraw lost the reader's place")
     }
 
     /// Settings' own Colours row: Settings is a sheet, and a sheet sits
@@ -44,7 +44,7 @@ final class ColoursUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
         let any = app.descendants(matching: .any)
         let row = any["settings-colours"].firstMatch
@@ -57,7 +57,7 @@ final class ColoursUITests: XCTestCase {
         expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: ocean)
         waitForExpectations(timeout: 5)
         any["colours-done"].firstMatch.tap()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 10), "the app did not survive Settings → Colours")
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 10), "the app did not survive Settings → Colours")
     }
 
     /// Arrange Home's Colours row hands over to the Colours sheet.
@@ -65,10 +65,15 @@ final class ColoursUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         let any = app.descendants(matching: .any)
+        // Arrange happens on Home itself; its List is the Settings → Home list.
+        let arrange = any["home-arrange"].firstMatch
+        XCTAssertTrue(arrange.waitForExistence(timeout: 15))
+        for _ in 0..<12 where !arrange.isHittable { app.swipeUp() }
+        arrange.tap()
         let open = any["home-customise"].firstMatch
-        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertTrue(open.waitForExistence(timeout: 10), "Arrange has no List")
         for _ in 0..<12 where !open.isHittable { app.swipeUp() }
         open.tap()
         let row = any["settings-home-colours"].firstMatch

@@ -22,7 +22,7 @@ final class ShowcaseTests: XCTestCase {
     @MainActor func testShowcaseToday() {
         // Mid-morning, whenever CI runs: the family out, the trip running.
         let app = launch(["-SRDemoClock", "10:40"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         settle(app, on: byId(app, "family-orbit"), seconds: 2.5)
         attach(app, "Showcase — Home")
 
@@ -39,7 +39,7 @@ final class ShowcaseTests: XCTestCase {
     /// its tile, shrunk or cut with an ellipsis, never spilling.
     @MainActor func testShowcaseTodayLargeText() {
         let app = launch(["-SRDemoClock", "10:40", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXL"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         settle(app, on: byId(app, "home-briefing"), seconds: 2.5)
         attach(app, "Showcase — Home, larger text")
         for index in 1...6 {
@@ -54,8 +54,8 @@ final class ShowcaseTests: XCTestCase {
     /// page's Family side, with the big bat phone and the quick list on it.
     @MainActor func testShowcaseMsgFamily() {
         let app = launch(["-SRDemoClock", "10:40"])
-        soft(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20), "no Chat tab")
-        app.tabBars.buttons["Chat"].tap()
+        soft(app.trayButton("Chat").waitForExistence(timeout: 20), "no Chat tab")
+        app.trayButton("Chat").tap()
         attach(app, "Showcase — Chat, jkai side")
         let side = byId(app, "threads-side-family")
         settle(app, on: side)
@@ -94,7 +94,7 @@ final class ShowcaseTests: XCTestCase {
     /// A figure on Home's Health tile, tapped: its own chart.
     @MainActor func testShowcaseHomeFigure() {
         let app = launch(["-SRDemoClock", "10:40"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let row = byId(app, "home-vital-hrv")
         settle(app, on: row, seconds: 2)
         guard scroll(app, to: row) else { return soft(false, "no HRV row on the Health tile") }
@@ -106,7 +106,7 @@ final class ShowcaseTests: XCTestCase {
     /// Home in light, as CI otherwise boots it dark.
     @MainActor func testShowcaseTodayLight() {
         let app = launch(["-SRDemoClock", "10:40", "-sr.appearance", "light"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         settle(app, on: byId(app, "family-orbit"), seconds: 2.5)
         attach(app, "Showcase — Home, light")
         for index in 1...2 {
@@ -119,7 +119,7 @@ final class ShowcaseTests: XCTestCase {
     /// A long press on a tile: hide it, or arrange Home.
     @MainActor func testShowcaseTodayPeek() {
         let app = launch(["-SRDemoClock", "10:40"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let tile = byId(app, "today-health")
         settle(app, on: tile, seconds: 2.5)
         tile.press(forDuration: 1.0)
@@ -130,10 +130,16 @@ final class ShowcaseTests: XCTestCase {
     /// Settings → Home: every tile, switched and in order.
     @MainActor func testShowcaseHomeArrange() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
-        let button = byId(app, "home-customise")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
+        let arrange = byId(app, "home-arrange")
         settle(app, on: byId(app, "today-hero"))
-        guard scroll(app, to: button) else { return soft(false, "no Arrange Home button") }
+        guard scroll(app, to: arrange) else { return soft(false, "no Arrange button") }
+        arrange.tap()
+        // Arranging on Home itself: the tiles with − and their size.
+        settle(app, on: byId(app, "home-arrange-banner"))
+        attach(app, "Showcase — Arranging Home")
+        let button = byId(app, "home-customise")
+        guard scroll(app, to: button) else { return soft(false, "no List button while arranging") }
         button.tap()
         settle(app, on: byId(app, "settings-home-family"))
         attach(app, "Showcase — Arrange Home")
@@ -142,7 +148,7 @@ final class ShowcaseTests: XCTestCase {
     /// Colours: the sheet over Home, then Home redrawn in Sunset behind it.
     @MainActor func testShowcaseColours() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let button = byId(app, "home-colours")
         settle(app, on: byId(app, "today-hero"))
         guard scroll(app, to: button) else { return soft(false, "no Colours button") }
@@ -160,7 +166,7 @@ final class ShowcaseTests: XCTestCase {
     /// A member's Home: the Move ring, the family and Play.
     @MainActor func testShowcaseTodayMember() {
         let app = launch(["-SRDemoMember", "-SRDemoClock", "10:40"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         settle(app, on: byId(app, "today-health"), seconds: 2.5)
         attach(app, "Showcase — a member's Home")
         app.swipeUp()
@@ -171,7 +177,7 @@ final class ShowcaseTests: XCTestCase {
     /// Daydream: the tile on Today, then the page in More it opens.
     @MainActor func testShowcaseTodayNoticed() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let tile = byId(app, "today-daydream")
         settle(app, on: tile)
         guard scroll(app, to: tile) else { return soft(false, "no Daydream tile on Home") }
@@ -189,7 +195,7 @@ final class ShowcaseTests: XCTestCase {
     /// The hub (⊞ on every page), with the Wildmind card.
     @MainActor func testShowcaseMore() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         openTab(app, "More")
         settle(app, on: byId(app, "more-screen"))
         soft(byId(app, "more-wildmind").exists, "no Wildmind card in More")
@@ -200,7 +206,7 @@ final class ShowcaseTests: XCTestCase {
     /// person's pinned card.
     @MainActor func testShowcaseWildmind() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         openTab(app, "More")
         settle(app, on: byId(app, "more-screen"))
         let tile = byId(app, "more-wildmind")
@@ -328,7 +334,7 @@ final class ShowcaseTests: XCTestCase {
     /// the cards — a low battery in red, a day that is not yours left off.
     @MainActor func testShowcaseFamily() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let mini = byId(app, "today-family")
         soft(mini.waitForExistence(timeout: 15), "no family tile on Home")
         settle(app, seconds: 3)
@@ -425,7 +431,7 @@ final class ShowcaseTests: XCTestCase {
     /// which `@AppStorage` reads), then the step board they open.
     @MainActor func testShowcaseFamilySteps() {
         let app = launch(["-today-card-steps", "YES", "-today-card-tasks", "YES"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let card = byId(app, "today-steps")
         settle(app, on: card, seconds: 2)
         soft(scroll(app, to: card), "no steps card on Today")
@@ -447,7 +453,7 @@ final class ShowcaseTests: XCTestCase {
     /// the newest ground lit up.
     @MainActor func testShowcaseFamilyLandgrab() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         openTab(app, "Steps")
         settle(app, on: byId(app, "steps-hero"), seconds: 2)
         let section = byId(app, "landgrab-section")
@@ -538,7 +544,7 @@ final class ShowcaseTests: XCTestCase {
     /// and the add sheet with a reward.
     @MainActor func testShowcaseFamilyTasks() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         openTab(app, "Tasks")
         settle(app, on: byId(app, "task-row-t_dishes"), seconds: 2)
         attach(app, "Showcase — Tasks")
@@ -595,7 +601,7 @@ final class ShowcaseTests: XCTestCase {
     /// previews, demo only): a UI test cannot reach the Home Screen.
     @MainActor func testShowcaseFamilyWidgets() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         guard app.openSettings() else { return soft(false, "no way into Settings") }
         let link = byId(app, "settings-widget-previews")
         guard scroll(app, to: link) else { return soft(false, "no widget previews row") }
@@ -990,7 +996,7 @@ final class ShowcaseTests: XCTestCase {
     /// under the banner in both.
     @MainActor func testShowcaseConnectionsBanner() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let banner = byId(app, "connections-banner")
         settle(app, on: banner)
         attach(app, "Showcase — Connection banner on Today")
@@ -1027,7 +1033,7 @@ final class ShowcaseTests: XCTestCase {
 
     @MainActor func testShowcaseSettings() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         soft(app.openSettings(), "no way into Settings from Today or More")
         settle(app)
         attach(app, "Showcase — Settings")
@@ -1092,7 +1098,7 @@ final class ShowcaseTests: XCTestCase {
     /// the Local Network prompt never appears.
     @MainActor func testShowcaseOfflineGames() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         openTab(app, "More")
         settle(app, on: byId(app, "more-screen"))
         let tile = byId(app, "more-offline")
@@ -1134,12 +1140,12 @@ final class ShowcaseTests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 5), "no Got it button")
         done.tap()
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 5), "Got it did not close What's new")
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 10), "no Home tab behind it")
+        soft(app.tray.waitForExistence(timeout: 10), "no Home tab behind it")
     }
 
     @MainActor func testShowcaseTravelKit() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         openTab(app, "More")
         settle(app, on: byId(app, "more-screen"))
         let tile = byId(app, "more-travel")
@@ -1979,18 +1985,18 @@ final class ShowcaseTests: XCTestCase {
     // MARK: - A member
 
     /// A family member given Family and Games and nothing else. Chat, News and
-    /// Flows are not disabled or explained — they are not there, and with
-    /// four tabs nor is More: Games is on the bar.
+    /// Flows are not disabled or explained — they are not there. Games is in
+    /// the tray beside Family, Health and More.
     @MainActor func testShowcaseMemberWithoutChatOrNews() {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo", "-SRDemoMember"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
-        for tab in ["Home", "Health", "Family", "Games"] {
-            XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
+        for tab in ["Health", "Family", "Games", "More"] {
+            XCTAssertTrue(app.trayButton(tab).exists, "missing \(tab) in the tray")
         }
-        for tab in ["Chat", "News", "Flows", "More"] {
-            XCTAssertFalse(app.tabBars.buttons[tab].exists, "\(tab) is on a member's bar")
+        for tab in ["Chat", "News", "Flows"] {
+            XCTAssertFalse(app.trayButton(tab).exists, "\(tab) is in a member's tray")
         }
         XCTAssertFalse(app.buttons["today-ask"].exists, "Ask jkai is on Today without chat")
         settle(app)
@@ -2004,7 +2010,7 @@ final class ShowcaseTests: XCTestCase {
     /// half and full, the stages — and one stop.
     @MainActor func testShowcaseTripDay() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let card = byId(app, "today-trip")
         settle(app, on: card)
         attach(app, "Showcase — Today, trip today")
@@ -2072,7 +2078,7 @@ final class ShowcaseTests: XCTestCase {
     /// before check-in, lunch — and the trip's day timeline and travellers.
     @MainActor func testShowcaseTripArrivalDay() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let card = byId(app, "today-trip")
         settle(app, on: card)
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
@@ -2095,7 +2101,7 @@ final class ShowcaseTests: XCTestCase {
     /// v5: a new trip from the Trips list, by talking to the planner.
     @MainActor func testShowcaseTripNew() {
         let app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let card = byId(app, "today-trip")
         settle(app, on: card)
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
@@ -2120,7 +2126,7 @@ final class ShowcaseTests: XCTestCase {
     /// three ways on, at the top of the Day screen.
     @MainActor func testShowcaseTripOffPlan() {
         let app = launch(["-SRDemoOffPlan"])
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let card = byId(app, "today-trip")
         settle(app, on: card)
         guard scroll(app, to: card) else { return soft(false, "no trip card on Today") }
@@ -2225,7 +2231,7 @@ final class ShowcaseTests: XCTestCase {
 
         // 4. The day itself, as the trip runs.
         app = launch()
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let card = byId(app, "today-trip")
         settle(app, on: card)
         if scroll(app, to: card) {
@@ -2254,7 +2260,7 @@ final class ShowcaseTests: XCTestCase {
     /// The Trips list: from the hub's Trips door, else through today's trip
     /// (its ••• → All days → back).
     @MainActor private func openTripsList(_ app: XCUIApplication) -> Bool {
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         let list = byId(app, "trips-screen")
         if app.openTab("Trips", timeout: 10), list.waitForExistence(timeout: 10) {
             settle(app)
@@ -2352,7 +2358,7 @@ final class ShowcaseTests: XCTestCase {
 
     /// More → Wildmind. False (with a soft miss) when the page did not open.
     @MainActor private func openWildmind(_ app: XCUIApplication) -> Bool {
-        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
         openTab(app, "More")
         settle(app, on: byId(app, "more-screen"))
         let tile = byId(app, "more-wildmind")
@@ -2368,8 +2374,8 @@ final class ShowcaseTests: XCTestCase {
     /// Back out of a room to the Games tab.
     @MainActor private func back(_ app: XCUIApplication) {
         let back = app.navigationBars.buttons.element(boundBy: 0)
-        // On the Games root the bar's first button is the ⊞ hub, not a Back.
-        if back.waitForExistence(timeout: 5), back.identifier != "open-hub" { back.tap() }
+        // On the Games root the bar's first button is the house, not a Back.
+        if back.waitForExistence(timeout: 5), !["open-hub", "open-home"].contains(back.identifier) { back.tap() }
         settle(app, on: byId(app, "games-screen"))
     }
 

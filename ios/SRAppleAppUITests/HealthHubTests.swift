@@ -8,8 +8,8 @@ final class HealthHubTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Health"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Health"].tap()
+        XCTAssertTrue(app.trayButton("Health").waitForExistence(timeout: 20))
+        app.trayButton("Health").tap()
         // The demo has a lapsed Gmail, so the connections banner sits at the
         // top of the tab. In full it takes ~270pt of the viewport, and a whole
         // swipe can then carry a row from below the fold to UNDER the banner

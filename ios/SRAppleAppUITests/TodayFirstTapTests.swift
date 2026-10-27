@@ -16,7 +16,7 @@ final class TodayFirstTapTests: XCTestCase {
         // who switched it on in Settings has it.
         app.launchArguments = ["-SRDemo", "-today-card-steps", "YES"] + extra
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         return app
     }
 

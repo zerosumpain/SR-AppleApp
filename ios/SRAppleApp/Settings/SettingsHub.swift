@@ -107,13 +107,13 @@ struct SettingsScreen: View {
                     SRSectionLabel(text: "Appearance")
                 }
 
-                // Which tiles Home shows, and in what order. Everyone has a
+                // Which tiles Home shows, in what order and at what size. Everyone has a
                 // Home, so everyone has this; it lists only what they may use.
                 Section {
                     NavigationLink {
                         HomeCustomizeScreen()
                     } label: {
-                        SRRow(title: "Home", subtitle: "Choose and arrange the tiles on Home", icon: "square.grid.2x2")
+                        SRRow(title: "Home", subtitle: "Choose, arrange and size the tiles on Home", icon: "square.grid.2x2")
                     }
                     .srGlassRow()
                     .accessibilityIdentifier("settings-home")

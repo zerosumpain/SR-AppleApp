@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// The hub: everything that is not a tab — News, Flows, Daydream, the family
-/// boards — and Settings at the foot. Opened by the ⊞ at the top left of every
-/// page (`SRHubButton`), the same for everyone (John, 2026-10-21: "one layout
-/// for all"); there is no More tab.
+/// boards — and Settings at the foot. Opened by More in the tray (`SRTray`),
+/// the same for everyone (John, 2026-10-21: "one layout for all"; 2026-10-27:
+/// "a more button on the tray which takes you to the more apps page").
 ///
 /// Not iOS's More. That is a navigation controller wrapping each tab's own
 /// `NavigationStack`, so a page opened from it had two bars and two back
@@ -11,10 +11,11 @@ import SwiftUI
 /// what it opens is pushed above it on the same stack: one bar, one back
 /// button, the tab bar where it was.
 ///
-/// A grid of doors, every one the same size, the ones this phone opens most
-/// first (`HubUsage`; John, 2026-10-27). Each says what is waiting behind it
-/// in one line. Games are a tab now, so their invitations are on the tab's
-/// badge and page, not repeated here.
+/// A grid of doors, two across and square, every one the same size (John,
+/// 2026-10-27: "all of them 2x2"), the ones this phone opens most first
+/// (`HubUsage`). Each says what is waiting behind it, and what it is for.
+/// Games are a tab now, so their invitations are on the tray's badge and the
+/// Games page, not repeated here.
 struct MoreScreen: View {
     /// What sits in More for this person, in bar order.
     let places: [Router.Tab]
@@ -41,9 +42,6 @@ struct MoreScreen: View {
     @ObservedObject private var recorder = CaptureRecorder.shared
     @EnvironmentObject private var router: Router
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// Every door the same size (John, 2026-10-27: "always the same size"):
-    /// three across, the mark, the name and one live line.
-    @ScaledMetric(relativeTo: .body) private var tileHeight: CGFloat = 112
     /// The order this visit opened with. Counting a tap must not move the
     /// doors under the thumb on the way out; the next visit has the new order.
     @State private var order: [String] = []
@@ -72,7 +70,7 @@ struct MoreScreen: View {
                 ForEach(Array(rows(entries).enumerated()), id: \.offset) { _, row in
                     HStack(alignment: .top, spacing: SR.cardGap) {
                         ForEach(row) { entry in
-                            HubTile(entry: entry) {
+                            HubTile(entry: entry, square: !typeSize.isAccessibilitySize) {
                                 HubUsage.opened(entry.id)
                                 entry.open()
                             }
@@ -83,7 +81,6 @@ struct MoreScreen: View {
                             Color.clear.frame(maxWidth: .infinity)
                         }
                     }
-                    .frame(height: typeSize.isAccessibilitySize ? nil : tileHeight)
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -92,6 +89,9 @@ struct MoreScreen: View {
         }
         .accessibilityIdentifier("more-screen")
         .srGround(.warm)
+        // The tray, with More lit: this is where it goes.
+        .srTray(.more)
+        .toolbar(.hidden, for: .tabBar)
         .navigationTitle("More")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
@@ -116,11 +116,10 @@ struct MoreScreen: View {
         }
     }
 
-    /// Three across; two from the largest standard text sizes, where a third
-    /// of the width clips the names; one at the accessibility sizes.
+    /// Two across, square; one at the accessibility sizes, where a door
+    /// takes the height its words need.
     private var columns: Int {
-        if typeSize.isAccessibilitySize { return 1 }
-        return typeSize >= .xxLarge ? 2 : 3
+        typeSize.isAccessibilitySize ? 1 : 2
     }
 
     private func rows(_ entries: [HubEntry]) -> [[HubEntry]] {
@@ -298,57 +297,88 @@ struct HubEntry: Identifiable {
     let open: () -> Void
 }
 
-/// A door: the mark on its own colour, a count on it when something waits,
-/// the name, and one live line. Every one the same size.
+/// A door: a square of glass washed with its own colour, the mark large at
+/// the top, a count on it when something waits, then the name, one live line
+/// and what it is for. Every one the same size.
 struct HubTile: View {
     let entry: HubEntry
+    /// Square, two across. Off at the accessibility text sizes, where the
+    /// door is as tall as its words.
+    var square = true
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private static let corner: CGFloat = 26
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
         Button {
             SRHaptic.tap()
             action()
         } label: {
-            SRCard(interactive: true) {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top) {
                     Image(systemName: entry.icon)
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 46, height: 46)
                         .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(LinearGradient(colors: [entry.fill.opacity(0.8), entry.fill], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .fill(LinearGradient(colors: [entry.fill.opacity(0.75), entry.fill],
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
                         )
-                        .overlay(alignment: .topTrailing) {
-                            if entry.count > 0 {
-                                Text("\(entry.count)")
-                                    .font(SR.Text.label(11))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 5)
-                                    .frame(minWidth: 18, minHeight: 18)
-                                    .background(Capsule().fill(SR.error))
-                                    .offset(x: 7, y: -7)
-                            }
-                        }
+                        .shadow(color: entry.fill.opacity(0.35), radius: 8, y: 4)
                         .accessibilityHidden(true)
-                    Spacer(minLength: 0)
-                    Text(entry.title)
-                        .font(SR.Text.title(15))
-                        .foregroundStyle(SR.ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                    // Always a line, so every name sits at the same height.
-                    Text(entry.status ?? " ")
-                        .font(SR.Text.secondary(12))
-                        .foregroundStyle(entry.status == nil ? .clear : SR.accentDeep)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 4)
+                    if entry.count > 0 {
+                        Text("\(entry.count)")
+                            .font(SR.Text.label(12))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: 22, minHeight: 22)
+                            .background(Capsule().fill(SR.error))
+                            .accessibilityHidden(true)
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                Spacer(minLength: 4)
+                Text(entry.title)
+                    .font(SR.Text.display(18))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                // Always a line, so every name sits at the same height.
+                Text(entry.status ?? " ")
+                    .font(SR.Text.title(13))
+                    .foregroundStyle(entry.status == nil ? .clear : SR.accentDeep)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                // What it is for, while the type leaves room for it in a
+                // square; VoiceOver hears it as the hint either way.
+                if !square || typeSize < .xLarge {
+                    Text(entry.hint)
+                        .font(SR.Text.secondary(12))
+                        .foregroundStyle(SR.inkMuted)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                        .accessibilityHidden(true)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background {
+                ZStack {
+                    Color.clear.srGlass(.paper, in: shape)
+                    // The door's colour, softly, from the corner its mark is in.
+                    RadialGradient(colors: [entry.fill.opacity(0.22), .clear], center: .topLeading, startRadius: 0, endRadius: 190)
+                        .clipShape(shape)
+                }
+            }
+            .overlay(shape.strokeBorder(.white.opacity(0.45), lineWidth: 1))
+            .shadow(color: SR.ink.opacity(0.06), radius: 12, y: 5)
+            .contentShape(shape)
+            .aspectRatio(square ? 1 : nil, contentMode: .fit)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([entry.title, entry.status].compactMap { $0 }.joined(separator: ", "))
         .accessibilityHint(entry.hint)
@@ -357,26 +387,9 @@ struct HubTile: View {
     }
 }
 
-/// Navigation value for the hub, pushed onto whichever tab it is opened on.
+/// Navigation value for the hub, pushed onto whichever tab it is opened on
+/// (More, in the tray).
 struct HubRef: Hashable {}
-
-/// The ⊞ at the top left of every tab's first page: the hub, one tap away,
-/// in the same place on every page and for everyone.
-struct SRHubButton: View {
-    @EnvironmentObject private var router: Router
-
-    var body: some View {
-        Button {
-            SRHaptic.tap()
-            router.openHub()
-        } label: {
-            Image(systemName: "square.grid.2x2")
-        }
-        .accessibilityLabel("More")
-        .accessibilityHint("News, Flows, the family boards and Settings")
-        .accessibilityIdentifier("open-hub")
-    }
-}
 
 /// One place's card: an icon on its own colour, the name, what is in it now.
 struct MorePlaceCard: View {

@@ -12,8 +12,8 @@ final class ChatComposerTests: XCTestCase {
         app.launchArguments = ["-SRDemo"]
         app.launch()
 
-        XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Chat"].tap()
+        XCTAssertTrue(app.trayButton("Chat").waitForExistence(timeout: 20))
+        app.trayButton("Chat").tap()
         let thread = app.descendants(matching: .any)["thread-demo-thread-training"].firstMatch
         XCTAssertTrue(thread.waitForExistence(timeout: 15))
         thread.tap()
@@ -47,8 +47,8 @@ final class ChatComposerTests: XCTestCase {
         app.launchArguments = ["-SRDemo"]
         app.launch()
 
-        XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Chat"].tap()
+        XCTAssertTrue(app.trayButton("Chat").waitForExistence(timeout: 20))
+        app.trayButton("Chat").tap()
         let thread = app.descendants(matching: .any)["thread-demo-thread-training"].firstMatch
         XCTAssertTrue(thread.waitForExistence(timeout: 15))
         thread.tap()
@@ -71,8 +71,8 @@ final class ChatComposerTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Chat"].tap()
+        XCTAssertTrue(app.trayButton("Chat").waitForExistence(timeout: 20))
+        app.trayButton("Chat").tap()
         let thread = app.descendants(matching: .any)["thread-demo-thread-training"].firstMatch
         XCTAssertTrue(thread.waitForExistence(timeout: 15))
         thread.tap()
@@ -167,8 +167,8 @@ final class ChatComposerTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Chat"].tap()
+        XCTAssertTrue(app.trayButton("Chat").waitForExistence(timeout: 20))
+        app.trayButton("Chat").tap()
         let new = app.buttons["thread-new"]
         XCTAssertTrue(new.waitForExistence(timeout: 15))
         new.tap()

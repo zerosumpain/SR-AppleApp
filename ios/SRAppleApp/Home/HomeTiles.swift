@@ -109,7 +109,10 @@ struct HomeHealthTile: View {
     /// A figure's row tapped: open its chart.
     var openFigure: ((HealthFigure) -> Void)? = nil
     @ScaledMetric(relativeTo: .body) private var dial: CGFloat = 104
+    /// On a square: the dial alone, a little smaller, with its word under it.
+    @ScaledMetric(relativeTo: .body) private var smallDial: CGFloat = 88
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.homeTileSize) private var size
 
     /// The figures the tile lists, in this order. Steps is the step race's.
     static let figureKeys = ["recovery", "hrv", "rhr", "sleep"]
@@ -117,7 +120,19 @@ struct HomeHealthTile: View {
     var body: some View {
         HomeTileFrame(kind: .health, look: .glass) {
             VStack(alignment: .leading, spacing: 12) {
-                if let readiness = shownReadiness {
+                if size == .square {
+                    // The one picture that says how the day stands: readiness
+                    // in the owner's, the rings in anybody's.
+                    Group {
+                        if let readiness = shownReadiness {
+                            ReadinessDial(score: readiness.score, label: readiness.label)
+                        } else {
+                            HomeRingsDial(rings: rings)
+                        }
+                    }
+                    .frame(width: smallDial, height: smallDial)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let readiness = shownReadiness {
                     HStack(alignment: .center, spacing: 14) {
                         ReadinessDial(score: readiness.score, label: readiness.label)
                             .frame(width: dial, height: dial)
@@ -254,10 +269,27 @@ struct HomeDeltaChip: View {
 struct HomeStepsTile: View {
     @ObservedObject private var store = FamilyStepsStore.shared
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.homeTileSize) private var size
 
     var body: some View {
         HomeTileFrame(kind: .steps, look: .glass, badge: place) {
-            if let board = store.shown, let me = board.mine {
+            if size == .square, let board = store.shown, let me = board.mine {
+                // A square: your count and what the race means for you; the
+                // lanes need the width.
+                VStack(alignment: .leading, spacing: 4) {
+                    Spacer(minLength: 0)
+                    Text(FamilySteps.figure(me.steps))
+                        .font(SR.Text.figure(30))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(FamilySteps.gap(board) ?? "steps today")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkSecondary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                }
+            } else if let board = store.shown, let me = board.mine {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(FamilySteps.figure(me.steps))
@@ -534,6 +566,14 @@ struct HomeMovesTile: View {
     @ObservedObject private var forecast = FamilyForecastStore.shared
     let colours: [String: Color]
     let initials: [String: String]
+    @Environment(\.homeTileSize) private var size
+
+    /// Whether anybody is due anywhere: nil until the desk has answered.
+    /// What Home folds the tile by (`HomeTileKind.adaptive`).
+    static func hasContent(_ forecast: FamilyForecast?, now: Date = Date()) -> Bool? {
+        guard let forecast else { return nil }
+        return forecast.next.contains { isoDate($0.leaveAt).map { $0 > now.addingTimeInterval(-600) } ?? false }
+    }
 
     var body: some View {
         let now = Date()
@@ -553,15 +593,24 @@ struct HomeMovesTile: View {
                     Text("Leaves about \(first.1.formatted(date: .omitted, time: .shortened))")
                         .font(SR.Text.secondary(13))
                         .opacity(0.9)
-                    MovesAxis(marks: moves.prefix(6).map { move, at in
-                        MovesAxis.Mark(id: move.correctionKey, at: at, colour: colours[move.subject] ?? .white,
-                                       initials: initials[move.subject] ?? String((names[move.subject] ?? "?").prefix(2)),
-                                       subject: move.subject)
-                    }, from: now)
+                    if size == .square {
+                        Spacer(minLength: 0)
+                        if moves.count > 1 {
+                            Text("and \(moves.count - 1) more coming up")
+                                .font(SR.Text.label(12))
+                                .opacity(0.85)
+                        }
+                    } else {
+                        MovesAxis(marks: moves.prefix(6).map { move, at in
+                            MovesAxis.Mark(id: move.correctionKey, at: at, colour: colours[move.subject] ?? .white,
+                                           initials: initials[move.subject] ?? String((names[move.subject] ?? "?").prefix(2)),
+                                           subject: move.subject)
+                        }, from: now)
+                    }
                 }
             } else {
                 Spacer(minLength: 0)
-                HomeFigure(value: "All quiet", caption: "Nobody is due anywhere for a while", size: 24)
+                HomeFigure(value: "All quiet", caption: "Nobody is due anywhere for a while", size: 24, captionLines: 2)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -575,6 +624,7 @@ struct HomeMovesTile: View {
 
 struct HomeMessagesTile: View {
     @ObservedObject private var store = FamilyMessagesStore.shared
+    @Environment(\.homeTileSize) private var size
 
     var body: some View {
         HomeTileFrame(kind: .messages, badge: store.unreadCount > 0 ? "\(store.unreadCount) NEW" : nil) {
@@ -583,7 +633,7 @@ struct HomeMessagesTile: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(line)
                             .font(SR.Text.secondary(14))
-                            .lineLimit(2)
+                            .lineLimit(size == .square ? 3 : 2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         if let at = store.lastActivity {
                             Text(at, style: .relative)
@@ -603,8 +653,10 @@ struct HomeMessagesTile: View {
                     HomeFigure(value: "Say hi", caption: "To everyone at once", size: 24)
                 }
                 Spacer(minLength: 0)
-                // One tap sends; the bat phone is two (`BatPhoneButton`).
-                FamilyQuickStrip(onFill: true, identifier: "home-quick")
+                // One tap sends. Not on a square: the strip needs the width.
+                if size != .square {
+                    FamilyQuickStrip(onFill: true, identifier: "home-quick")
+                }
             }
         }
         .accessibilityLabel("msg family. " + (store.unreadCount > 0 ? "\(store.unreadCount) new. " : "") + (store.latestLine ?? "No messages yet"))
@@ -613,55 +665,165 @@ struct HomeMessagesTile: View {
 
 // MARK: - Backlog
 
+/// What is saved to watch or do together. Wide, the newest thing itself —
+/// its picture, its title, who it is for — rather than a count of things.
 struct HomeBacklogTile: View {
     @ObservedObject private var store = FamilyBacklogStore.shared
+    @Environment(\.homeTileSize) private var size
 
     var body: some View {
         let line = store.board.map(FamilyBacklogRules.todayLine)
         // What is for you is in the caption, not a badge: a badge beside
         // "Backlog" in a square tile left no room for the name.
         let forYou = line?.forYou ?? 0
-        let newest = line?.newest.first?.title ?? "Nothing saved yet"
-        HomeTileFrame(kind: .backlog) {
-            VStack(alignment: .leading, spacing: 8) {
-                SpineShelf(count: line?.waiting ?? 0, fresh: forYou)
-                Spacer(minLength: 0)
-                HomeFigure(value: "\(line?.waiting ?? 0)", unit: "saved", caption: forYou > 0 ? "\(forYou) for you · \(newest)" : newest)
+        let newest = line?.newest.first
+        let title = newest.map(Self.title) ?? "Nothing saved yet"
+        HomeTileFrame(kind: .backlog, badge: size == .wide && forYou > 0 ? "\(forYou) FOR YOU" : nil) {
+            if size == .wide, let newest {
+                HStack(alignment: .center, spacing: 12) {
+                    thumbnail(newest)
+                        .frame(width: 112, height: 84)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(SR.Text.title(15))
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.85)
+                        Text([newest.siteName, line.map { "\($0.waiting) saved" }].compactMap { $0 }.joined(separator: " · "))
+                            .font(SR.Text.secondary(12))
+                            .lineLimit(1)
+                            .opacity(0.9)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxHeight: .infinity)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    SpineShelf(count: line?.waiting ?? 0, fresh: forYou)
+                    Spacer(minLength: 0)
+                    HomeFigure(value: "\(line?.waiting ?? 0)", unit: "saved", caption: forYou > 0 ? "\(forYou) for you · \(title)" : title)
+                }
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Backlog. \(line?.waiting ?? 0) saved, \(line?.forYou ?? 0) for you")
+        .accessibilityLabel("Backlog. \(line?.waiting ?? 0) saved, \(forYou) for you. Newest: \(title)")
+    }
+
+    static func title(_ item: FamilyBacklogItem) -> String {
+        if let title = item.title, !title.isEmpty { return title }
+        if let note = item.note, !note.isEmpty { return note }
+        return item.siteName ?? "Saved link"
+    }
+
+    /// The link's own picture, or its kind's mark on the tile's colour while
+    /// there is none (an idea, or a page without one).
+    @ViewBuilder
+    private func thumbnail(_ item: FamilyBacklogItem) -> some View {
+        let mark = ZStack {
+            HomeTileKind.backlog.hue.onFill.opacity(0.22)
+            Image(systemName: FamilyBacklogRules.symbol(item))
+                .font(.title2.weight(.semibold))
+        }
+        if let raw = item.thumbnailUrl, let url = URL(string: raw) {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    mark
+                }
+            }
+        } else {
+            mark
+        }
     }
 }
 
 // MARK: - Games
 
+/// Games: what is waiting on you — invitations and games on your move —
+/// then games in play. Wide when there is any of that; a square that says
+/// "Play" when there is none (`HomeTileKind.adaptive`).
 struct HomeGamesTile: View {
     @EnvironmentObject private var games: GamesStore
+    @Environment(\.homeTileSize) private var size
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// What the wide tile lists, most pressing first.
+    struct Line: Identifiable {
+        let id: String
+        let symbol: String
+        let text: String
+        let detail: String
+    }
+
+    /// Something waiting or in play: the tile opens out for it.
+    @MainActor
+    static func hasContent(_ games: GamesStore) -> Bool { !games.invites.isEmpty || !games.rooms.isEmpty }
 
     var body: some View {
         let invites = games.invites.count
-        HomeTileFrame(kind: .games) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading) {
-                    Spacer(minLength: 0)
-                    if let invite = games.invites.first {
-                        HomeFigure(value: GameNames.title(invite.game),
-                                   caption: invites > 1 ? "\(invite.hostName) and \(invites - 1) more invited you" : "\(invite.hostName) invited you",
-                                   size: 20, captionLines: 2)
-                    } else {
-                        HomeFigure(value: games.rooms.isEmpty ? "Play" : "\(games.rooms.count)", unit: games.rooms.isEmpty ? nil : "in play",
-                                   caption: games.rooms.isEmpty ? "Start one for the family" : "Rooms still open", size: 26, captionLines: 2)
+        let turns = games.rooms.filter(\.myTurn).count
+        HomeTileFrame(kind: .games, badge: size == .wide && invites + turns > 0 ? "\(invites + turns) FOR YOU" : nil) {
+            if size == .wide, !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(lines.prefix(typeSize >= .xxLarge ? 2 : 3)) { line in
+                        HStack(spacing: 8) {
+                            Image(systemName: line.symbol)
+                                .font(.footnote.weight(.bold))
+                                .frame(width: 20)
+                                .accessibilityHidden(true)
+                            Text(line.text)
+                                .font(SR.Text.title(14))
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(line.detail)
+                                .font(SR.Text.secondary(12))
+                                .lineLimit(1)
+                                .opacity(0.9)
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-                DieFace(pips: max(1, min(invites + games.rooms.count, 6)))
-                    .frame(width: 44, height: 44)
-                    .symbolEffect(.bounce, value: invites)
+            } else {
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading) {
+                        Spacer(minLength: 0)
+                        if let invite = games.invites.first {
+                            HomeFigure(value: GameNames.title(invite.game),
+                                       caption: invites > 1 ? "\(invite.hostName) and \(invites - 1) more invited you" : "\(invite.hostName) invited you",
+                                       size: 20, captionLines: 2)
+                        } else if turns > 0 {
+                            HomeFigure(value: "\(turns)", unit: "your move",
+                                       caption: games.rooms.first(where: \.myTurn).map { GameNames.title($0.game) } ?? "", size: 26, captionLines: 2)
+                        } else {
+                            HomeFigure(value: games.rooms.isEmpty ? "Play" : "\(games.rooms.count)", unit: games.rooms.isEmpty ? nil : "in play",
+                                       caption: games.rooms.isEmpty ? "Start one for the family" : "Rooms still open", size: 26, captionLines: 2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    DieFace(pips: max(1, min(invites + games.rooms.count, 6)))
+                        .frame(width: 44, height: 44)
+                        .symbolEffect(.bounce, value: invites)
+                }
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(invites > 0 ? "Games. \(invites) invites" : "Games")
+        .accessibilityLabel("Games. " + (lines.isEmpty ? "Nothing waiting" : lines.prefix(3).map { "\($0.text), \($0.detail)" }.joined(separator: ". ")))
+    }
+
+    private var lines: [Line] {
+        let invited = games.invites.map {
+            Line(id: "invite-\($0.roomId)", symbol: "envelope.fill", text: GameNames.title($0.game), detail: "\($0.hostName) invited you")
+        }
+        let mine = games.rooms.filter(\.myTurn).map {
+            Line(id: "turn-\($0.id)", symbol: "hand.point.right.fill", text: GameNames.title($0.game), detail: "Your move")
+        }
+        let others = games.rooms.filter { !$0.myTurn }.map { room in
+            Line(id: "room-\(room.id)", symbol: "gamecontroller.fill", text: GameNames.title(room.game),
+                 detail: room.waitingFor.first.map { "Waiting on \($0)" } ?? "In play")
+        }
+        return invited + mine + others
     }
 }
 
@@ -719,9 +881,11 @@ struct HomeShortcutTile: View {
 struct HomeNewsTile: View {
     let news: TodayNews?
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.homeTileSize) private var size
 
     var body: some View {
-        let stories = Array((news?.stories ?? []).prefix(typeSize >= .xxLarge ? 2 : 3))
+        // A square has the room for the top story alone.
+        let stories = Array((news?.stories ?? []).prefix(size == .square ? 1 : typeSize >= .xxLarge ? 2 : 3))
         let top = max(stories.compactMap(\.heat).max() ?? 1, 0.0001)
         HomeTileFrame(kind: .news, look: .glass, badge: (news?.unseen ?? 0) > 0 ? "\(news!.unseen) NEW" : nil) {
             if stories.isEmpty {
@@ -741,7 +905,7 @@ struct HomeNewsTile: View {
                                 Text(story.title)
                                     .font(SR.Text.title(14))
                                     .foregroundStyle(SR.ink)
-                                    .lineLimit(1)
+                                    .lineLimit(size == .square ? 4 : 1)
                                 Text(story.sourceLabel)
                                     .font(SR.Text.mono(11))
                                     .foregroundStyle(SR.inkMuted)
@@ -780,19 +944,54 @@ struct HomeDaydreamTile: View {
 
 // MARK: - Flows
 
+/// The workflows: how many are working, and the one failing or next to run.
+/// Wide when something is failing — each failing flow by name — and a
+/// square when all is well (`HomeTileKind.adaptive`).
 struct HomeFlowsTile: View {
     @ObservedObject var store: FlowAttentionStore
+    @Environment(\.homeTileSize) private var size
+
+    /// Something failing: the tile opens out to name it. Nil until read.
+    @MainActor
+    static func hasContent(_ store: FlowAttentionStore) -> Bool? {
+        guard store.loaded else { return nil }
+        return store.all.contains(where: FlowStats.isFailing)
+    }
 
     var body: some View {
         let stats = store.stats(now: Date())
         let failing = store.all.filter(FlowStats.isFailing).map(\.title)
-        HomeTileFrame(kind: .flows) {
-            VStack(alignment: .leading, spacing: 8) {
-                FlowDots(working: stats.working, failing: stats.failing)
-                Spacer(minLength: 0)
-                HomeFigure(value: store.loaded ? "\(stats.working)" : "—", unit: "working",
-                           caption: failing.first.map { "Failing: \($0)" }
-                               ?? stats.next.map { "Next \(FlowStats.when($0.at, now: Date()))" } ?? "Nothing scheduled")
+        HomeTileFrame(kind: .flows, badge: size == .wide && !failing.isEmpty ? "\(failing.count) FAILING" : nil) {
+            if size == .wide, !failing.isEmpty {
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        FlowDots(working: stats.working, failing: stats.failing)
+                        Spacer(minLength: 0)
+                        HomeFigure(value: "\(stats.working)", unit: "working")
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(failing.prefix(3), id: \.self) { title in
+                            Label(title, systemImage: "exclamationmark.triangle.fill")
+                                .font(SR.Text.secondary(13))
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        if let next = stats.next {
+                            Text("Next \(FlowStats.when(next.at, now: Date()))")
+                                .font(SR.Text.label(12))
+                                .opacity(0.85)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    FlowDots(working: stats.working, failing: stats.failing)
+                    Spacer(minLength: 0)
+                    HomeFigure(value: store.loaded ? "\(stats.working)" : "—", unit: "working",
+                               caption: failing.first.map { "Failing: \($0)" }
+                                   ?? stats.next.map { "Next \(FlowStats.when($0.at, now: Date()))" } ?? "Nothing scheduled")
+                }
             }
         }
         .accessibilityElement(children: .ignore)

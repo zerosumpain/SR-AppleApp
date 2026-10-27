@@ -1,26 +1,52 @@
 import XCTest
 
-/// Five places at most on the bar, the same for everyone: Home, Family,
-/// Games, Chat, Health. News, Flows, Daydream, Wildmind, the family boards and
-/// Settings are in the hub — the ⊞ (`open-hub`) at the top left of every tab's
-/// first page. Every test that opens a place by name goes through here, so a
-/// place moving between the bar and the hub changes one place, not every test.
+/// The tray along the foot of every place's first page: Family, Games, Chat
+/// and Health as this person may open them, and More, which opens the hub
+/// (`open-hub`). Home is not in the tray: it is the house (`open-home`) at the
+/// top left of every other place's first page (John, 2026-10-27). The tray is
+/// the app's own (`SRTray`), not the system tab bar, so tests find its
+/// buttons as `tray-<place>`. Every test that opens a place by name goes
+/// through here, so a place moving between the tray and the hub changes one
+/// place, not every test.
 extension XCUIApplication {
-    /// Opens a place by its label: its tab when it has one, else its card in
-    /// the hub. "More" opens the hub itself. Returns false when neither route
-    /// finds it.
+    /// The tray: on every place's first page and on More. Its being there is
+    /// how a test knows the app is past Welcome and up.
+    @MainActor var tray: XCUIElement { descendants(matching: .any)["sr-tray"].firstMatch }
+
+    /// Home's first page.
+    @MainActor var home: XCUIElement { descendants(matching: .any)["today-hero"].firstMatch }
+
+    /// A place's button in the tray, by its label: "Family", "Games", "Chat",
+    /// "Health" — or "More".
+    @MainActor func trayButton(_ name: String) -> XCUIElement {
+        name == "More" ? buttons["open-hub"].firstMatch : buttons["tray-\(name.lowercased())"].firstMatch
+    }
+
+    /// Back out of pushed pages until a first page — with the tray — shows.
+    /// Pushed pages have no tray, as a game room or a thread never had a bar.
+    @MainActor
+    func backToFirstPage(limit: Int = 5) {
+        for _ in 0..<limit where !tray.exists {
+            let back = navigationBars.buttons.element(boundBy: 0)
+            guard back.exists, back.identifier != "open-home" else { return }
+            back.tap()
+            _ = tray.waitForExistence(timeout: 2)
+        }
+    }
+
+    /// Opens a place by its label: Home by its house, a place in the tray by
+    /// its button, else its card in the hub. "More" opens the hub itself.
+    /// Returns false when no route finds it.
     @MainActor @discardableResult
     func openTab(_ name: String, timeout: TimeInterval = 20) -> Bool {
         if name == "More" { return openHub(timeout: timeout) }
-        let direct = tabBars.buttons[name]
+        if name == "Home" { return openHome(timeout: timeout) }
+        let direct = trayButton(name)
         if direct.waitForExistence(timeout: 2) {
             direct.tap()
             return true
         }
-        // A swipe up the page folds the iOS 26 bar down to the selected tab
-        // alone (`tabBarMinimizeBehavior(.onScrollDown)`), so the tab may be
-        // there and folded away. A swipe back down opens it out again.
-        swipeDown()
+        backToFirstPage()
         if direct.waitForExistence(timeout: 2) {
             direct.tap()
             return true
@@ -40,17 +66,27 @@ extension XCUIApplication {
         return true
     }
 
-    /// Opens the hub from the page on screen — the ⊞ at the top left of a
-    /// tab's first page. A tap while the app is still settling from launch
-    /// can be lost: the hub not appearing is the sign, and tapping again is
-    /// the fix.
+    /// Home, by the house at the top left of a place's first page.
+    @MainActor @discardableResult
+    func openHome(timeout: TimeInterval = 20) -> Bool {
+        if home.exists { return true }
+        backToFirstPage()
+        if home.exists { return true }
+        let house = buttons["open-home"].firstMatch
+        guard house.waitForExistence(timeout: timeout) else { return home.exists }
+        house.tap()
+        return home.waitForExistence(timeout: 10)
+    }
+
+    /// Opens the hub — More, in the tray. A tap while the app is still
+    /// settling from launch can be lost: the hub not appearing is the sign,
+    /// and tapping again is the fix.
     @MainActor @discardableResult
     func openHub(timeout: TimeInterval = 20) -> Bool {
         let button = buttons["open-hub"].firstMatch
         let hub = descendants(matching: .any)["more-screen"].firstMatch
-        // Already on it: a test's "back" from a tab's first page lands on the
-        // ⊞ (the bar's first button there) and opens the hub itself.
         if hub.exists { return true }
+        if !button.exists { backToFirstPage() }
         guard button.waitForExistence(timeout: timeout) else { return hub.exists }
         for attempt in 0..<3 {
             if button.exists && button.isHittable { button.tap() }
