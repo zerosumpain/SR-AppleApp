@@ -385,4 +385,14 @@ final class HomeTests: XCTestCase {
         """
         return try JSONDecoder().decode(HouseholdView.self, from: Data(json.utf8))
     }
+
+    /// msg family holds the bat phone: hidden or not, it is on Home.
+    func testMsgFamilyCannotBeHidden() {
+        var layout = HomeLayout(hidden: [.messages, .news])
+        let available = HomeTileKind.available(access: .everything, sitePaired: true)
+        XCTAssertTrue(layout.visible(available).contains(.messages))
+        XCTAssertFalse(layout.visible(available).contains(.news))
+        layout.set(.messages, shown: false)
+        XCTAssertTrue(layout.shows(.messages))
+    }
 }

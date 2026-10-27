@@ -139,6 +139,11 @@ import Combine
             return true
         }
         switch kind {
+        case .batPhone:
+            // Sent as it opens, quietly, on Home: no screen of its own to give
+            // it away. The tile there shows "Bat phone · sent" and stand down.
+            Self.pending.tab = .today
+            await FamilyAlarmStore.shared.raiseQuietly()
         case .capture:
             // Straight into recording, on the Captures page so the timer and
             // Stop are in front of you. Pressed again while recording, it stops.

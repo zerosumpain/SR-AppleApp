@@ -203,6 +203,9 @@ enum AccessPolicy {
     static func quickActions(for access: AppAccess) -> [QuickActionKind] {
         QuickActionKind.allCases.filter { kind in
             switch kind {
+            // Long-press the app icon on the iPhone's Home Screen: the bat
+            // phone on every family phone with nothing to set up.
+            case .batPhone: return allows(.family, access)
             case .capture: return access.owner
             case .ask: return allows(.chat, access)
             case .health, .sync: return true
@@ -239,6 +242,8 @@ struct NewsCan: Decodable, Equatable {
 
 /// The Home Screen quick actions, by the type string iOS hands back.
 enum QuickActionKind: String, CaseIterable {
+    /// First, so it is never the one iOS leaves off past four.
+    case batPhone = "com.strangeramblings.com.appleapp.batphone"
     case capture = "com.strangeramblings.com.appleapp.capture"
     case ask = "com.strangeramblings.com.appleapp.ask"
     case health = "com.strangeramblings.com.appleapp.health"
@@ -247,6 +252,7 @@ enum QuickActionKind: String, CaseIterable {
     @MainActor var item: UIApplicationShortcutItem {
         let (title, icon): (String, String) = {
             switch self {
+            case .batPhone: return ("Bat phone", "phone.connection.fill")
             case .capture: return ("New capture", "waveform.badge.mic")
             case .ask: return ("Ask jkai", "bubble.left.and.text.bubble.right")
             case .health: return ("Health today", "heart.text.square")

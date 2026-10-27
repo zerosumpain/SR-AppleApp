@@ -176,6 +176,8 @@ struct HomeCustomizeScreen: View {
                         }
                     }
                     .tint(kind.hue.base)
+                    // msg family holds the bat phone: on every Home, always.
+                    .disabled(kind.alwaysShown)
                     .srGlassRow()
                     .accessibilityIdentifier("settings-home-\(kind.rawValue)")
                 }

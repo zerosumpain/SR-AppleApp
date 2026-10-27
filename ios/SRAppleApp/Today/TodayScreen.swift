@@ -440,7 +440,7 @@ struct TodayScreen: View {
 
     @ViewBuilder
     private func tile(_ kind: HomeTileKind) -> some View {
-        let hide = { withAnimation(.snappy) { var next = HomeLayout.decode(homeLayout); next.set(kind, shown: false); homeLayout = next.raw } }
+        let hide: (() -> Void)? = kind.alwaysShown ? nil : { withAnimation(.snappy) { var next = HomeLayout.decode(homeLayout); next.set(kind, shown: false); homeLayout = next.raw } }
         let arrange = { router.today.append(HomeCustomizeRef()) }
         switch kind {
         case .briefing:

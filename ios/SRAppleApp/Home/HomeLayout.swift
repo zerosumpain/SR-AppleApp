@@ -123,6 +123,10 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
 
     var hue: SR.Hue { SRPaint.current.hue(hueKey) }
 
+    /// On Home whatever the reader's layout says: msg family holds the bat
+    /// phone, which must be on every family phone (John, 2026-10-27).
+    var alwaysShown: Bool { self == .messages }
+
     /// The order a new install gets. The briefing first — what matters,
     /// from everything — then the family, because where everyone is is the
     /// thing the app is opened for, and a line to them (with the bat phone)
@@ -223,13 +227,13 @@ struct HomeLayout: Codable, Equatable {
 
     /// What Home draws. PURE.
     func visible(_ available: [HomeTileKind]) -> [HomeTileKind] {
-        arranged(available).filter { !hidden.contains($0) }
+        arranged(available).filter(shows)
     }
 
-    func shows(_ kind: HomeTileKind) -> Bool { !hidden.contains(kind) }
+    func shows(_ kind: HomeTileKind) -> Bool { kind.alwaysShown || !hidden.contains(kind) }
 
     mutating func set(_ kind: HomeTileKind, shown: Bool) {
-        if shown { hidden.remove(kind) } else { hidden.insert(kind) }
+        if shown || kind.alwaysShown { hidden.remove(kind) } else { hidden.insert(kind) }
     }
 
     /// A drag in Settings → Home, over the arranged list.
