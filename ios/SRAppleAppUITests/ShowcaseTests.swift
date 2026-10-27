@@ -424,9 +424,11 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Steps, scrolled")
     }
 
-    /// Landgrab under the step board: this week's ground by person, then the
-    /// map of what changed hands — the whole week, one outing selected (its
-    /// hexes lit, its trace drawn), and a quiet week from the picker.
+    /// Landgrab under the step board: the family's ground all time (the
+    /// default view), then this week's ground by person, then the map of what
+    /// changed hands — the whole week, one outing selected (its hexes lit, its
+    /// trace drawn), a quiet week from the picker — and the family map, with
+    /// the newest ground lit up.
     @MainActor func testShowcaseFamilyLandgrab() {
         let app = launch()
         soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
@@ -434,6 +436,24 @@ final class ShowcaseTests: XCTestCase {
         settle(app, on: byId(app, "steps-hero"), seconds: 2)
         let section = byId(app, "landgrab-section")
         soft(scroll(app, to: section), "no Landgrab section under the step board")
+        // A previous run may have left the game chosen; the family first.
+        let familySwitch = app.segmentedControls.buttons["Family"]
+        if familySwitch.exists { familySwitch.tap() }
+        if byId(app, "landgrab-family-total").waitForExistence(timeout: 5) {
+            _ = scroll(app, to: byId(app, "landgrab-see-map"))
+            soft(byId(app, "landgrab-part-f_sam").exists, "no family part for Sam")
+            attach(app, "Showcase — Steps, Landgrab the family")
+        } else {
+            soft(false, "no family view in Landgrab")
+        }
+        // The game for the rest: this week, by person.
+        let weekSwitch = app.segmentedControls.buttons["This week"]
+        if weekSwitch.waitForExistence(timeout: 5) {
+            weekSwitch.tap()
+            settle(app)
+        } else {
+            soft(false, "no This week switch")
+        }
         // Bring the whole board above the tab bar: its last row is the link.
         let open = byId(app, "landgrab-see-changes")
         let reached = scroll(app, to: open)
@@ -480,6 +500,21 @@ final class ShowcaseTests: XCTestCase {
             }
         } else {
             soft(false, "no week picker")
+        }
+
+        // The same map, switched to the family: everything explored, solid,
+        // opened on the demo's trip with today's ground lit up.
+        app.swipeDown()
+        let familyMap = app.segmentedControls.buttons["Family"]
+        if familyMap.waitForExistence(timeout: 5) {
+            familyMap.tap()
+            settle(app, on: byId(app, "landgrab-family-map"), seconds: 3)
+            attach(app, "Showcase — Landgrab map, the family")
+            app.swipeUp()
+            settle(app)
+            attach(app, "Showcase — Landgrab map, everyone's part and the places")
+        } else {
+            soft(false, "no Family switch on the map")
         }
     }
 

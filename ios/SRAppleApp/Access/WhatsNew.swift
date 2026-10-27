@@ -60,6 +60,8 @@ enum WhatsNew {
                          detail: "Under the newest message in msg family: who is where, with a low battery marked — tap someone to write to them — what came in since you last looked, the one-tap messages and bat phone, and an idea or two for the moment, like a dinner poll at teatime."),
             WhatsNewItem(icon: "figure.walk", title: "Steps, fresh",
                          detail: "Opening Steps asks everyone's phone for its count and where it is, so the race is up to the minute."),
+            WhatsNewItem(icon: "map.fill", title: "Landgrab, together",
+                         detail: "Landgrab under Steps now opens on everywhere the family has explored between you, all time: the total, a solid map with today's new ground lit up, the places and everyone's part. This week's game is one tap away."),
             WhatsNewItem(icon: "suitcase.rolling", title: "Trips move on",
                          detail: "A slot whose time has gone drops off the Lock Screen and alerts, done or not — no more breakfast at noon."),
         ]),
