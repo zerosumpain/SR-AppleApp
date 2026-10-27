@@ -13,6 +13,17 @@ final class PhysicsScoresTests: XCTestCase {
         XCTAssertFalse(PhysicsScoreBook().landerBest > 0)
     }
 
+    func testALandingMidRunKeepsTheBestWithoutCountingARun() {
+        var book = PhysicsScoreBook()
+        XCTAssertTrue(book.noteLander(score: 380, level: 1))
+        XCTAssertFalse(book.noteLander(score: 200, level: 1))
+        XCTAssertEqual(book.landerBest, 380)
+        XCTAssertEqual(book.landerRuns, 0)
+        // The run then ends on the same score: counted, but not a new best.
+        XCTAssertFalse(book.recordLander(score: 380, level: 2))
+        XCTAssertEqual(book.landerRuns, 1)
+    }
+
     func testRacesKeepTheBestTimeAndLapPerTrack() {
         var book = PhysicsScoreBook()
         XCTAssertTrue(book.recordRace(track: "paddock", time: 70, bestLap: 22))

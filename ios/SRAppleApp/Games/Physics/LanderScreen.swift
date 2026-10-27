@@ -92,10 +92,14 @@ final class LanderGame: ObservableObject {
             return true
         case .landed(let landing):
             SRHaptic.ok()
+            if book.noteLander(score: run.score, level: run.level) {
+                newBest = true
+                store.save(book)
+            }
             stage = .landed(landing)
         case .crashed(let crash):
             SRHaptic.bad()
-            newBest = book.recordLander(score: run.score, level: run.level)
+            book.recordLander(score: run.score, level: run.level)
             store.save(book)
             stage = .crashed(crash)
         }

@@ -20,6 +20,13 @@ struct PhysicsScoreBook: Codable, Equatable {
     @discardableResult
     mutating func recordLander(score: Int, level: Int) -> Bool {
         landerRuns += 1
+        return noteLander(score: score, level: level)
+    }
+
+    /// A run still going, after a landing: kept as the best if it is one, so
+    /// a run abandoned mid-way (the app closed on the next level) still counts.
+    @discardableResult
+    mutating func noteLander(score: Int, level: Int) -> Bool {
         guard score > landerBest else { return false }
         landerBest = score
         landerBestLevel = level
