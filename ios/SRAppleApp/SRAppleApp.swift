@@ -58,6 +58,12 @@ import Combine
         } else {
             TripArrivals.shared.start { 1 + WatchedPlace.maximum }
         }
+        // A capture card left on the Lock Screen by an app that was killed
+        // while recording: nothing is recording now, so it goes. (A launch BY
+        // the Start intent starts its own card after this.)
+        Task { @MainActor in
+            if !CaptureRecorder.shared.recording { await CaptureLive.shared.endAll() }
+        }
         // Off the plan: significant-change and visit wake-ups while a trip
         // day runs, so a relaunch for one must find this delegate too.
         TripOffPlan.shared.start()
@@ -114,9 +120,9 @@ import Combine
 
     /// Long-press the app icon.
     ///
-    /// Three verbs, chosen because each is something you want BEFORE the app
-    /// has finished opening: ask a question, see the figures, push what is
-    /// queued. Registered in code rather than `Info.plist` so the titles live
+    /// Four verbs, chosen because each is something you want BEFORE the app
+    /// has finished opening: start a capture (the owner's), ask a question,
+    /// see the figures, push what is queued. Registered in code rather than `Info.plist` so the titles live
     /// beside the routing that honours them — and so they can follow what this
     /// person may use: "Ask jkai" is only there with chat. `ContentView`
     /// re-sets them whenever the site's answer changes.
@@ -133,6 +139,12 @@ import Combine
             return true
         }
         switch kind {
+        case .capture:
+            // Straight into recording, on the Captures page so the timer and
+            // Stop are in front of you. Pressed again while recording, it stops.
+            Self.pending.capture = CaptureLink(captureId: nil)
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            await CaptureRecorder.shared.toggle(source: "app")
         case .ask: Self.pending.tab = .chat
         case .health: Self.pending.tab = .health
         case .sync:
@@ -319,6 +331,12 @@ import Combine
             await AppUpdate.shared.check(force: true)
             return
         }
+        // "Capture ready" (`url: sr://captures/<id>`): the capture, to review.
+        if let capture = CaptureLink.from(userInfo: response.notification.request.content.userInfo) {
+            Self.pending.capture = capture
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
         if category == "connections" {
             Self.pending.openConnections = true
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
@@ -397,6 +415,8 @@ import Combine
     var familyThread: String?
     /// A trip day, from a tapped trip alert.
     var trip: TripLink?
+    /// A capture, from a tapped "Capture ready".
+    var capture: CaptureLink?
     var openAlerts = false
     var openConnections = false
     var daydreamCommission: String?
@@ -428,6 +448,11 @@ import Combine
             self.trip = nil
             tab = nil
         }
+        if let capture {
+            router.openCaptures(capture)
+            self.capture = nil
+            tab = nil
+        }
         if let tab { router.show(tab) }
         tab = nil
         if sync {
@@ -452,6 +477,9 @@ import Combine
                             // recording, then anything waiting goes up.
                             FollowSession.recoverInterrupted()
                             await RecordingQueue.shared.flush()
+                            // A capture that was waiting — recorded offline,
+                            // or stopped as the app was killed — goes up.
+                            await CaptureStore.shared.drain()
                             if companion.paired { await companion.sync() }
                         }
                         .onChange(of: scenePhase) { _, phase in
@@ -463,6 +491,7 @@ import Combine
                                 if companion.paired { Task { await companion.sync() } }
                                 Task { await SiteClient.shared.retryPendingRevocations(); await PushRegistration.shared.sync() }
                                 Task { await RecordingQueue.shared.flush() }
+                                Task { await CaptureStore.shared.drain() }
                             }
                             if phase == .background {
                                 battery.sample()

@@ -79,6 +79,12 @@ targets:
       - path: SRAppleApp/Journey/JourneyAttributes.swift
       # The trip day's card (`Trips/TripLive.swift` starts it), likewise.
       - path: SRAppleApp/Trips/TripAttributes.swift
+      # A capture while it records, and the intents its Stop button and the
+      # Capture control run. The intents are compiled here so the extension
+      # can name them, and performed in the APP (they are in both targets);
+      # `SR_LIVE_EXTENSION` compiles this copy's perform() to a no-op.
+      - path: SRAppleApp/Captures/CaptureAttributes.swift
+      - path: SRAppleApp/Captures/CaptureIntents.swift
       # The family widgets' boards, rules, Keychain shelf and faces, shared
       # with the app that fills them.
       - path: SRAppleApp/Family/FamilyBoardModels.swift
@@ -98,6 +104,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID).live
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) SR_LIVE_EXTENSION
         PROVISIONING_PROFILE_SPECIFIER: $(SR_LIVE_PROFILE)
         INFOPLIST_FILE: SRAppleLive/Info.plist
         # One Keychain ACCESS group shared with the app, for the family

@@ -35,7 +35,7 @@ struct SettingsScreen: View {
     @State private var path = NavigationPath()
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
 
-    enum Route: Hashable { case notifications, connections, health, location, hold, bike, log, about, viewAs, deleteAccount }
+    enum Route: Hashable { case notifications, connections, health, location, hold, bike, captures, log, about, viewAs, deleteAccount }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -121,6 +121,11 @@ struct SettingsScreen: View {
                         link(.hold, "Hold my location", hold.hold?.line() ?? "Show the family a fixed place for a while", "location.slash")
                     }
                     link(.bike, "Bike", bikePresence.bike?.name ?? "Mark rides on your e-bike", "bicycle")
+                    // The owner's, like Captures itself: the Action Button
+                    // recipe, the speaker models, the screenshot deny list.
+                    if AccessStore.ownerSite {
+                        link(.captures, "Captures", "Shortcut, speaker models, your voice and screenshots", "waveform.badge.mic")
+                    }
                     link(.log, "Gate history", "When GPS slept, and why", "list.bullet.rectangle")
                 } header: {
                     SRSectionLabel(text: "What it collects")
@@ -188,6 +193,7 @@ struct SettingsScreen: View {
                 case .location: LocationSettingsScreen(outbox: outbox, companion: companion, location: location, battery: battery)
                 case .hold: if LocationHoldStore.offered { LocationHoldScreen() }
                 case .bike: BikeScreen(bike: bikePresence)
+                case .captures: if AccessStore.ownerSite { CaptureSettingsScreen() }
                 case .log: ActivityLogScreen(outbox: outbox)
                 case .about: AboutScreen()
                 case .viewAs:
