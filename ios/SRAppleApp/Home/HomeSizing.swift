@@ -58,13 +58,13 @@ enum HomeSize: String, Codable, CaseIterable, Comparable {
 /// could be found to sit beside: it stays a square, at half the width, rather
 /// than being stretched across the row (a tile that folded to 2×2 because it
 /// had nothing to say must not then be drawn 4×2).
-enum HomePackedRow<ID: Hashable>: Hashable, Identifiable {
-    case full(ID)
-    case pair(ID, ID)
-    case single(ID)
-    case stack(ID, [ID])
+enum HomePackedRow<Member: Hashable>: Hashable, Identifiable {
+    case full(Member)
+    case pair(Member, Member)
+    case single(Member)
+    case stack(Member, [Member])
 
-    var members: [ID] {
+    var members: [Member] {
         switch self {
         case .full(let a), .single(let a): return [a]
         case .pair(let a, let b): return [a, b]
@@ -72,7 +72,7 @@ enum HomePackedRow<ID: Hashable>: Hashable, Identifiable {
         }
     }
 
-    var id: [ID] { members }
+    var id: [Member] { members }
 }
 
 enum HomeSizing {
@@ -110,10 +110,10 @@ enum HomeSizing {
     /// takes the next shortcut, else the next square (stacked beside it),
     /// else the whole row. At the accessibility text sizes (`folded`)
     /// everything is one column.
-    static func pack<ID: Hashable>(_ tiles: [(id: ID, size: HomeSize)], folded: Bool = false) -> [HomePackedRow<ID>] {
+    static func pack<Member: Hashable>(_ tiles: [(id: Member, size: HomeSize)], folded: Bool = false) -> [HomePackedRow<Member>] {
         if folded { return tiles.map { .full($0.id) } }
         var used = Set<Int>()
-        var rows: [HomePackedRow<ID>] = []
+        var rows: [HomePackedRow<Member>] = []
         for index in tiles.indices where !used.contains(index) {
             used.insert(index)
             let tile = tiles[index]
