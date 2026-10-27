@@ -21,8 +21,8 @@ IMAGE="${HOME_CHECK_IMAGE:-swift:6.0-jammy}"
 BASE="${HOME_CHECK_TMP:-${TMPDIR:-/tmp}}"
 APP="$ROOT/ios/SRAppleApp"
 HOMEDIR="$APP/Home"
-PURE=(Home/HomeBriefing.swift Family/FamilyMessageTools.swift)
-TESTS=(HomeBriefingTests.swift FamilyMessageToolsTests.swift)
+PURE=(Home/HomeBriefing.swift Family/FamilyMessageTools.swift More/HubUsage.swift)
+TESTS=(HomeBriefingTests.swift FamilyMessageToolsTests.swift HubUsageTests.swift)
 
 command -v docker >/dev/null || { echo "home-check: docker is not installed" >&2; exit 2; }
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null

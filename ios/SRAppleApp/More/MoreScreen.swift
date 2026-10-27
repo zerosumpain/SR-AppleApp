@@ -11,9 +11,10 @@ import SwiftUI
 /// what it opens is pushed above it on the same stack: one bar, one back
 /// button, the tab bar where it was.
 ///
-/// A front page rather than a list of names: one card per place saying what
-/// is in it. Games are a tab now, so their invitations are on the tab's badge
-/// and page, not repeated here.
+/// A grid of doors, every one the same size, the ones this phone opens most
+/// first (`HubUsage`; John, 2026-10-27). Each says what is waiting behind it
+/// in one line. Games are a tab now, so their invitations are on the tab's
+/// badge and page, not repeated here.
 struct MoreScreen: View {
     /// What sits in More for this person, in bar order.
     let places: [Router.Tab]
@@ -27,6 +28,7 @@ struct MoreScreen: View {
     @ObservedObject private var tasks = FamilyTasksStore.shared
     @ObservedObject private var backlog = FamilyBacklogStore.shared
     @ObservedObject private var landgrab = LandgrabStore.shared
+    @ObservedObject private var trips = TripStore.shared
     @ObservedObject private var access = AccessStore.shared
     @ObservedObject private var wildmind = WildmindStore.shared
     @ObservedObject private var offline = OfflineSession.shared
@@ -34,45 +36,49 @@ struct MoreScreen: View {
     @ObservedObject private var recorder = CaptureRecorder.shared
     @EnvironmentObject private var router: Router
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// A 2×2 tile: half the width (~169pt on a 390pt phone) and a little
-    /// taller, so the mark, the name, two lines and a status chip fit
-    /// unclipped. Games and News are 1×2 — Today's tile height (~82pt).
-    @ScaledMetric(relativeTo: .body) private var square: CGFloat = 190
-    @ScaledMetric(relativeTo: .body) private var short: CGFloat = 82
+    /// Every door the same size (John, 2026-10-27: "always the same size"):
+    /// three across, the mark, the name and one live line.
+    @ScaledMetric(relativeTo: .body) private var tileHeight: CGFloat = 112
+    /// The order this visit opened with. Counting a tap must not move the
+    /// doors under the thumb on the way out; the next visit has the new order.
+    @State private var order: [String] = []
 
-    /// News, as a short door at the top of the hub for whoever has it
-    /// (John, 2026-10-05). Games was its partner; it is a tab now.
-    private var shortcuts: [Router.Tab] { [Router.Tab.news].filter { access.allows($0) } }
+    /// News, for whoever has it (John, 2026-10-05).
+    private var showsNews: Bool { access.allows(.news) }
+
+    /// Trips, so hiding the Home tile never hides them: the same rule as the
+    /// Home tile (`HomeTileKind.trips`) — the family, over the site.
+    private var showsTrips: Bool {
+        (access.current.owner || access.current.family) && (SiteClient.shared.isPaired || SRDemo.isOn)
+    }
 
     var body: some View {
+        let entries = arranged
         ScrollView {
-            // A plain stack: a handful of cards and one row need no laziness,
-            // and a lazy stack whose last child (Settings) is measured at a
-            // different height than it was estimated at loops at the bottom.
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                // Every tile the same size, so the page reads as a set of
-                // doors rather than a list to scroll: Games and News short
-                // (1×2), everything else square (2×2), two to a row. One
-                // column at the accessibility text sizes, where a square
-                // would clip its own words.
-                let folded = typeSize.isAccessibilitySize
-                VStack(spacing: SR.cardGap) {
-                    // Trips, so hiding the Home tile never hides them.
-                    HomeTripsDoor()
-                    if !shortcuts.isEmpty {
-                        HStack(spacing: SR.cardGap) {
-                            ForEach(shortcuts, id: \.self) { shortcut($0) }
-                            if shortcuts.count == 1 { Color.clear.frame(maxWidth: .infinity) }
+            // A plain stack: a handful of rows need no laziness, and a lazy
+            // stack whose last child is measured at a different height than
+            // it was estimated at loops at the bottom.
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                Text("Most used first")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .padding(.horizontal, 2)
+                    .accessibilityHidden(true)
+                ForEach(Array(rows(entries).enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .top, spacing: SR.cardGap) {
+                        ForEach(row) { entry in
+                            HubTile(entry: entry) {
+                                HubUsage.opened(entry.id)
+                                entry.open()
+                            }
+                            .frame(maxWidth: .infinity)
                         }
-                        .frame(height: folded ? nil : short)
-                    }
-                    ForEach(Array(rows(folded: folded).enumerated()), id: \.offset) { _, row in
-                        HStack(alignment: .top, spacing: SR.cardGap) {
-                            ForEach(row, id: \.self) { tile($0) }
-                            if row.count == 1 && !folded { Color.clear.frame(maxWidth: .infinity) }
+                        // A short last row keeps its doors the size of the rest.
+                        ForEach(0..<(columns - row.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity)
                         }
-                        .frame(height: folded ? nil : square)
                     }
+                    .frame(height: typeSize.isAccessibilitySize ? nil : tileHeight)
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -84,6 +90,7 @@ struct MoreScreen: View {
         .navigationTitle("More")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
+        .onAppear { order = HubUsage.load().ordered(items.map(\.id), now: Date()) }
         .task {
             if access.familyBoards {
                 if steps.board == nil { await steps.load() }
@@ -102,47 +109,25 @@ struct MoreScreen: View {
         }
     }
 
-    private func familyCard(_ page: FamilyPage) -> some View {
-        Button {
-            SRHaptic.tap()
-            router.pushFromHub(page)
-        } label: {
-            switch page {
-            case .steps:
-                MoreCard(
-                    icon: "figure.walk",
-                    fill: SR.good,
-                    title: "Steps",
-                    blurb: "Today's family step board. Top spot is checked every fifteen minutes.",
-                    status: steps.shown.flatMap(FamilySteps.place)
-                )
-            case .tasks:
-                MoreCard(
-                    icon: "checklist",
-                    fill: SR.accentDeep,
-                    title: "Tasks",
-                    blurb: "Jobs for the family, with a reward when a parent confirms them.",
-                    status: tasks.summary.flatMap { taskStatus($0) }
-                )
-            case .backlog:
-                MoreCard(
-                    icon: "tray.full",
-                    fill: SR.accentInk,
-                    title: "Backlog",
-                    blurb: "Videos, links and ideas the family shared to watch or do together.",
-                    status: backlog.board.flatMap(FamilyBacklogRules.status)
-                )
-            case .messages:
-                MoreCard(
-                    icon: "bubble.left.and.text.bubble.right",
-                    fill: SR.accent,
-                    title: "msg family",
-                    blurb: "One line to everyone's phone, and their replies."
-                )
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("more-\(page.rawValue)")
+    /// Three across; two from the largest standard text sizes, where a third
+    /// of the width clips the names; one at the accessibility sizes.
+    private var columns: Int {
+        if typeSize.isAccessibilitySize { return 1 }
+        return typeSize >= .xxLarge ? 2 : 3
+    }
+
+    private func rows(_ entries: [HubEntry]) -> [[HubEntry]] {
+        stride(from: 0, to: entries.count, by: columns).map { Array(entries[$0..<min($0 + columns, entries.count)]) }
+    }
+
+    /// The doors in this visit's order. One gained since the visit began
+    /// (access arriving) goes at the end rather than reshuffling the rest.
+    private var arranged: [HubEntry] {
+        let all = items.map(entry)
+        let rank = Dictionary(order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { a, _ in a })
+        return all.enumerated()
+            .sorted { (rank[$0.element.id] ?? order.count + $0.offset, $0.offset) < (rank[$1.element.id] ?? order.count + $1.offset, $1.offset) }
+            .map(\.element)
     }
 
     private func taskStatus(_ summary: FamilyTasksSummary) -> String? {
@@ -164,14 +149,28 @@ struct MoreScreen: View {
         daydream.toDecide(feedback: feedback, commissions: commissions)
     }
 
-    /// What sits in More, in order, as tiles.
+    /// What sits in More, as doors.
     enum Item: Hashable {
-        case daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
+        case trips, news, daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
         case place(Router.Tab)
+
+        /// The door's identifier (`more-<id>`, which the UI tests find it
+        /// by) and its key in `HubUsage`.
+        var id: String {
+            switch self {
+            case .place(let tab): return tab.rawValue
+            case .settings: return "settings"
+            default: return String(describing: self)
+            }
+        }
     }
 
+    /// Every door this person has, in the hub's own order — the order a new
+    /// install sees, and the tie-break for doors used equally.
     private var items: [Item] {
         var all: [Item] = []
+        if showsTrips { all.append(.trips) }
+        if showsNews { all.append(.news) }
         // The daydream loop is the owner's, over the site, and so is the
         // Wildmind valley beside it.
         if AccessStore.ownerSite { all += [.daydream, .wildmind] }
@@ -186,186 +185,170 @@ struct MoreScreen: View {
         // Landgrab, once its board has somebody on it — hidden, like the
         // section on Steps, when the site says no or has nothing.
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
-        // News is the short door above the grid, not a square.
         all += places.filter { $0 != .news }.map(Item.place)
-        // The Travel kit: translation, signs, phrases, money, the way back.
-        // Everyone's, like Play nearby — it all runs on the phone.
-        all.append(.travel)
-        // Play nearby: offline games over Bluetooth or a hotspot. Everyone's —
-        // it never touches the site, so no pairing and no games access needed.
-        all.append(.offline)
-        // Sync now and Settings last, tiles like the rest.
+        // The Travel kit and Play nearby are everyone's: they run on the phone.
+        all += [.travel, .offline]
         all += [.sync, .settings]
         return all
     }
 
-    /// Pairs, for the grid. A plain stack of rows rather than a lazy grid: a
-    /// lazy container whose last child is measured at a different height than
-    /// it was estimated at loops at the bottom.
-    private func rows(folded: Bool) -> [[Item]] {
-        if folded { return items.map { [$0] } }
-        return stride(from: 0, to: items.count, by: 2).map { Array(items[$0..<min($0 + 2, items.count)]) }
+    /// One door: what it shows, and where it goes.
+    private func entry(_ item: Item) -> HubEntry {
+        switch item {
+        case .trips:
+            let next = trips.upcoming()
+            let questions = HomeTripWords.openQuestions(next.flatMap { trips.bundles[$0.id] })
+            return HubEntry(id: item.id, icon: HomeTileKind.trips.symbol, fill: HomeTileKind.trips.hue.base, title: "Trips",
+                            status: tripStatus(next: next, questions: questions.count), count: questions.count,
+                            hint: "Plan a trip, or open the one on now") {
+                if let next, let first = questions.first, trips.running() == nil {
+                    router.openTrip(TripLink(tripId: next.id, date: nil, questionId: first.id))
+                } else if trips.summaries.isEmpty {
+                    router.openTrips(start: true)
+                } else {
+                    router.openTrips()
+                }
+            }
+        case .news:
+            return HubEntry(id: item.id, icon: "newspaper.fill", fill: SR.accentInk, title: "News", status: nil,
+                            hint: "The wire, ranked by what is moving") { router.pushFromHub(Router.Tab.news) }
+        case .daydream:
+            return HubEntry(id: item.id, icon: "sparkles", fill: SR.accentInk, title: "Daydream",
+                            status: toDecide > 0 ? "\(toDecide) to decide" : nil, count: toDecide,
+                            hint: "What jkai spotted in your days, and your call on each") { router.pushFromHub(Router.MorePage.daydream) }
+        case .wildmind:
+            // The day of this life, once the page has been opened — More does
+            // not ask the valley on its own.
+            return HubEntry(id: item.id, icon: "mountain.2", fill: SR.good, title: "Wildmind",
+                            status: wildmind.answer?.snapshot?.time.day.map { "Day \($0)" },
+                            hint: "Two Claude minds in a valley, inventing whatever they need") { router.pushFromHub(Router.MorePage.wildmind) }
+        case .captures:
+            return HubEntry(id: item.id, icon: "waveform.badge.mic", fill: SR.accent, title: "Captures", status: captureStatus,
+                            hint: "Record a thought or a conversation") { router.pushFromHub(CapturesRef()) }
+        case .steps:
+            return HubEntry(id: item.id, icon: "figure.walk", fill: SR.good, title: "Steps", status: steps.shown.flatMap(FamilySteps.place),
+                            hint: "Today's family step board") { router.pushFromHub(FamilyPage.steps) }
+        case .tasks:
+            return HubEntry(id: item.id, icon: "checklist", fill: SR.accentDeep, title: "Tasks", status: tasks.summary.flatMap { taskStatus($0) },
+                            hint: "Jobs for the family, with a reward when a parent confirms them") { router.pushFromHub(FamilyPage.tasks) }
+        case .backlog:
+            return HubEntry(id: item.id, icon: "tray.full", fill: SR.accentInk, title: "Backlog", status: backlog.board.flatMap(FamilyBacklogRules.status),
+                            hint: "Videos, links and ideas to watch or do together") { router.pushFromHub(FamilyPage.backlog) }
+        case .messages:
+            return HubEntry(id: item.id, icon: "bubble.left.and.text.bubble.right", fill: SR.accent, title: "msg family", status: nil,
+                            hint: "One line to everyone's phone") { router.pushFromHub(FamilyPage.messages) }
+        case .landgrab:
+            return HubEntry(id: item.id, icon: "hexagon.fill", fill: SR.accent, title: "Landgrab", status: Landgrab.moreStatus(landgrab.board),
+                            hint: "Ground the family has won") {
+                if let week = landgrab.board.flatMap(Landgrab.currentWeek) { router.pushFromHub(LandgrabMapRef(week: week.start)) }
+            }
+        case .place(let place):
+            let card = MorePlaceCard(place: place, games: games)
+            return HubEntry(id: item.id, icon: card.icon, fill: card.fill, title: card.title, status: card.status,
+                            count: place == .games ? games.invites.count : 0, hint: card.blurb) { router.pushFromHub(place) }
+        case .travel:
+            return HubEntry(id: item.id, icon: "airplane", fill: SR.accentDeep, title: "Travel kit", status: nil,
+                            hint: "Live translation, signs, phrases, money and the way back") { router.pushFromHub(TravelKitRef()) }
+        case .offline:
+            return HubEntry(id: item.id, icon: "dot.radiowaves.left.and.right", fill: SR.accent, title: "Play nearby",
+                            status: offline.inRoom ? "In a room" : nil,
+                            hint: "Games for phones in the same room, no internet needed") { router.pushFromHub(OfflineGamesRef()) }
+        case .sync:
+            return HubEntry(id: item.id, icon: "arrow.triangle.2.circlepath", fill: SR.good, title: companion.busy ? "Syncing…" : "Sync now",
+                            status: companion.lastUpload.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" },
+                            hint: companion.message) {
+                Task { await companion.sync() }
+            }
+        case .settings:
+            return HubEntry(id: item.id, icon: "gearshape.fill", fill: SR.inkSecondary, title: "Settings", status: nil,
+                            identifier: "open-settings", hint: "Notifications, connections, Apple Health and this iPhone") { router.openSettings() }
+        }
     }
 
-    /// News, one unit tall and two across, as Today's tiles are.
-    private func shortcut(_ place: Router.Tab) -> some View {
+    /// The trip on now, the next one, or nothing yet — the door's one line.
+    private func tripStatus(next: TripSummary?, questions: Int) -> String? {
+        if trips.running() != nil { return "On now" }
+        if questions > 0 { return questions == 1 ? "1 question" : "\(questions) questions" }
+        if let next {
+            let clock = TripClock(next.timeZone)
+            let days = clock.days(from: clock.localDate(Date()), to: next.startDate)
+            return days <= 0 ? "Soon" : days == 1 ? "Tomorrow" : "In \(days) days"
+        }
+        return nil
+    }
+}
+
+/// One door on the hub.
+struct HubEntry: Identifiable {
+    let id: String
+    let icon: String
+    let fill: Color
+    let title: String
+    let status: String?
+    var count = 0
+    /// What the UI tests and VoiceOver find it by; `more-<id>` unless said.
+    var identifier: String? = nil
+    /// What is behind it, for VoiceOver (the tile has no room to say).
+    var hint: String = ""
+    let open: () -> Void
+}
+
+/// A door: the mark on its own colour, a count on it when something waits,
+/// the name, and one live line. Every one the same size.
+struct HubTile: View {
+    let entry: HubEntry
+    let action: () -> Void
+
+    var body: some View {
         Button {
             SRHaptic.tap()
-            router.pushFromHub(place)
+            action()
         } label: {
-            TodayTileCard(title: place == .games ? "Games" : "News") {
-                TodayTileGlyph(
-                    symbol: place == .games ? "gamecontroller.fill" : "newspaper.fill",
-                    tone: place == .games ? SR.accent : SR.accentInk,
-                    count: place == .games ? games.invites.count : 0
-                )
+            SRCard(interactive: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Image(systemName: entry.icon)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(LinearGradient(colors: [entry.fill.opacity(0.8), entry.fill], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        )
+                        .overlay(alignment: .topTrailing) {
+                            if entry.count > 0 {
+                                Text("\(entry.count)")
+                                    .font(SR.Text.label(11))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .frame(minWidth: 18, minHeight: 18)
+                                    .background(Capsule().fill(SR.error))
+                                    .offset(x: 7, y: -7)
+                            }
+                        }
+                        .accessibilityHidden(true)
+                    Spacer(minLength: 0)
+                    Text(entry.title)
+                        .font(SR.Text.title(15))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    // Always a line, so every name sits at the same height.
+                    Text(entry.status ?? " ")
+                        .font(SR.Text.secondary(12))
+                        .foregroundStyle(entry.status == nil ? .clear : SR.accentDeep)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-        .accessibilityIdentifier("more-\(place.rawValue)")
-    }
-
-    @ViewBuilder
-    private func tile(_ item: Item) -> some View {
-        switch item {
-        case .daydream:
-            Button {
-                SRHaptic.tap()
-                router.pushFromHub(Router.MorePage.daydream)
-            } label: {
-                MoreCard(
-                    icon: "sparkles",
-                    fill: SR.accentInk,
-                    title: "Daydream",
-                    blurb: "What jkai spotted in your days, and your call on each.",
-                    status: toDecide > 0 ? "\(toDecide) to decide" : nil
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("more-daydream")
-        case .wildmind:
-            Button {
-                SRHaptic.tap()
-                router.pushFromHub(Router.MorePage.wildmind)
-            } label: {
-                MoreCard(
-                    icon: "mountain.2",
-                    fill: SR.good,
-                    title: "Wildmind",
-                    blurb: "Two Claude minds in a valley, inventing whatever they need.",
-                    // The day of this life, once the page has been opened —
-                    // More does not ask the valley on its own.
-                    status: wildmind.answer?.snapshot?.time.day.map { "Day \($0)" }
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("more-wildmind")
-        case .captures:
-            Button {
-                SRHaptic.tap()
-                router.pushFromHub(CapturesRef())
-            } label: {
-                MoreCard(
-                    icon: "waveform.badge.mic",
-                    fill: SR.accent,
-                    title: "Captures",
-                    blurb: "Record a thought or a conversation. Follow-ups wait for your yes.",
-                    status: captureStatus
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("more-captures")
-        case .steps: familyCard(.steps)
-        case .tasks: familyCard(.tasks)
-        case .backlog: familyCard(.backlog)
-        case .messages: familyCard(.messages)
-        case .landgrab:
-            Button {
-                SRHaptic.tap()
-                if let week = landgrab.board.flatMap(Landgrab.currentWeek) {
-                    router.pushFromHub(LandgrabMapRef(week: week.start))
-                }
-            } label: {
-                MoreCard(
-                    icon: "hexagon.fill",
-                    fill: SR.accent,
-                    title: "Landgrab",
-                    blurb: "Ground the family won and lost this week, and the outings that took it.",
-                    status: Landgrab.moreStatus(landgrab.board)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("more-landgrab")
-        case .place(let place):
-            Button {
-                SRHaptic.tap()
-                router.pushFromHub(place)
-            } label: {
-                MorePlaceCard(place: place, games: games)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("more-\(place.rawValue)")
-        case .travel:
-            Button {
-                SRHaptic.tap()
-                router.pushFromHub(TravelKitRef())
-            } label: {
-                MoreCard(
-                    icon: "airplane",
-                    fill: SR.accentDeep,
-                    title: "Travel kit",
-                    blurb: "Live translation, signs, phrases, money and the way back."
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("more-travel")
-        case .offline:
-            Button {
-                SRHaptic.tap()
-                router.pushFromHub(OfflineGamesRef())
-            } label: {
-                MoreCard(
-                    icon: "dot.radiowaves.left.and.right",
-                    fill: SR.accent,
-                    title: "Play nearby",
-                    blurb: "Games for phones in the same room. No internet needed.",
-                    status: offline.inRoom ? "In a room" : nil
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("more-offline")
-        case .sync:
-            Button {
-                SRHaptic.tap()
-                Task { await companion.sync() }
-            } label: {
-                MoreCard(
-                    icon: "arrow.triangle.2.circlepath",
-                    fill: SR.good,
-                    title: companion.busy ? "Syncing…" : "Sync now",
-                    blurb: companion.message,
-                    status: companion.lastUpload.map { "Last upload \($0.formatted(date: .omitted, time: .shortened))" }
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(companion.busy)
-            .accessibilityIdentifier("more-sync")
-        case .settings:
-            Button {
-                SRHaptic.tap()
-                router.openSettings()
-            } label: {
-                MoreCard(
-                    icon: "gearshape.fill",
-                    fill: SR.inkSecondary,
-                    title: "Settings",
-                    blurb: "Notifications, connections, Apple Health and this iPhone."
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("open-settings")
-        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([entry.title, entry.status].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityHint(entry.hint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(entry.identifier ?? "more-\(entry.id)")
     }
 }
 
@@ -401,7 +384,7 @@ struct MorePlaceCard: View {
         MoreCard(icon: icon, fill: fill, title: title, blurb: blurb, status: status)
     }
 
-    private var title: String {
+    var title: String {
         switch place {
         case .games: return "Games"
         case .news: return "News"
@@ -410,7 +393,7 @@ struct MorePlaceCard: View {
         }
     }
 
-    private var icon: String {
+    var icon: String {
         switch place {
         case .games: return "gamecontroller.fill"
         case .news: return "newspaper.fill"
@@ -419,7 +402,7 @@ struct MorePlaceCard: View {
         }
     }
 
-    private var fill: Color {
+    var fill: Color {
         switch place {
         case .games: return SR.accent
         case .news: return SR.accentInk
@@ -427,7 +410,7 @@ struct MorePlaceCard: View {
         }
     }
 
-    private var blurb: String {
+    var blurb: String {
         switch place {
         case .games:
             return "\(GameKind.allCases.count) quick games to play together, live, from any phone in the family."
@@ -438,7 +421,7 @@ struct MorePlaceCard: View {
     }
 
     /// Something live to say, or nothing.
-    private var status: String? {
+    var status: String? {
         guard place == .games else { return nil }
         let invites = games.invites.count
         let rooms = games.rooms.count
