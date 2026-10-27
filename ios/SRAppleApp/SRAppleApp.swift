@@ -144,10 +144,11 @@ import Combine
         }
         switch kind {
         case .batPhone:
-            // Sent as it opens, quietly, on Home: no screen of its own to give
-            // it away. The tile there shows "Bat phone · sent" and stand down.
+            // Opens on the bat phone's check, as the widget does, and sends
+            // nothing itself: a long-press menu is brushed by accident too,
+            // and the button there keeps its own guard (`BatPhoneLink`).
             Self.pending.tab = .today
-            await FamilyAlarmStore.shared.raiseQuietly()
+            BatPhoneLink.shared.open()
         case .capture:
             // Straight into recording, on the Captures page so the timer and
             // Stop are in front of you. Pressed again while recording, it stops.
