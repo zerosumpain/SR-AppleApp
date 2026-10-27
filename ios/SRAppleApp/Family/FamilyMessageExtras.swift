@@ -9,7 +9,8 @@ import UserNotifications
 // MARK: - The words
 
 /// A message's words with every "@Name" of the family in the accent, and an
-/// "@" of this phone's own person in bold too.
+/// "@" of this phone's own person in bold too. Web addresses are links (a
+/// bat phone's map, a shared page).
 struct FamilyMessageText: View {
     let body_: String
     let names: [String]
@@ -49,6 +50,18 @@ struct FamilyMessageText: View {
                 if name.caseInsensitiveCompare(me ?? "") == .orderedSame {
                     out[a..<b].swiftUI.font = SR.Text.bodyMedium(15).bold()
                 }
+            }
+        }
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            for match in detector.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let url = match.url, let found = Range(match.range, in: text) else { continue }
+                let start = text.distance(from: text.startIndex, to: found.lowerBound)
+                let length = text.distance(from: found.lowerBound, to: found.upperBound)
+                guard start + length <= out.characters.count else { continue }
+                let a = out.index(out.startIndex, offsetByCharacters: start)
+                let b = out.index(a, offsetByCharacters: length)
+                out[a..<b].link = url
+                out[a..<b].swiftUI.underlineStyle = .single
             }
         }
         return out
@@ -341,7 +354,8 @@ struct FamilyComposerAccessories: View {
 
 // MARK: - Headings
 
-/// "Today", "Yesterday", "Mon 26 Oct" between the threads.
+/// "Today", "Yesterday", "Mon 26 Oct" between the days of the conversation:
+/// a small capsule in the middle, as WhatsApp marks them.
 struct FamilyDayHeading: View {
     let title: String
 
@@ -349,9 +363,14 @@ struct FamilyDayHeading: View {
         Text(title.uppercased())
             .font(SR.Text.label(11))
             .tracking(1)
-            .foregroundStyle(SR.inkMuted)
+            .foregroundStyle(SR.inkSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(SR.surface))
+            .overlay(Capsule().strokeBorder(SR.line, lineWidth: 1))
             .frame(maxWidth: .infinity)
-            .padding(.top, 6)
+            .padding(.top, 14)
+            .padding(.bottom, 4)
             .accessibilityAddTraits(.isHeader)
     }
 }

@@ -293,3 +293,139 @@ enum BatPhoneWords {
         return "\(minutes / 60) h \(String(format: "%02d", minutes % 60)) drive from you"
     }
 }
+
+// MARK: - The conversation
+
+/// msg family read as one conversation, the way WhatsApp reads (John,
+/// 2026-10-27: "organise it like WhatsApp so it's easy to distinguish replies
+/// and your own messages … showing the latest on open").
+///
+/// The site still keeps THREADS — a message and the replies under it — and
+/// that does not change. This lays them out as lines in time order instead:
+/// every message, and every reply in words under the message it answers,
+/// quoted, so a reply is plain at a glance. Emoji answers and poll votes are
+/// counted on their message rather than given a line each. Lines from one
+/// person a few minutes apart are grouped, so a name and circle are said once
+/// per run rather than on every bubble. PURE.
+enum FamilyChatStream {
+    struct Reply: Equatable {
+        let id: String
+        /// Who: their id, or their name when an older site sent no id.
+        let from: String
+        let name: String
+        let body: String
+        let at: Date?
+        let mine: Bool
+        /// An emoji or a poll vote: counted on the message, not a line.
+        let counted: Bool
+        /// Their place in the household, for their circle's colour.
+        var subject: String? = nil
+    }
+
+    struct Message: Equatable {
+        let id: String
+        let from: String
+        let name: String
+        let body: String
+        let at: Date?
+        let mine: Bool
+        let replies: [Reply]
+        var subject: String? = nil
+    }
+
+    /// The message a reply answers, quoted over it.
+    struct Quote: Equatable {
+        let name: String
+        let text: String
+        let mine: Bool
+        var subject: String? = nil
+        /// Who wrote it, as `Line.from`: their colour when they have no subject.
+        var from: String = ""
+    }
+
+    struct Line: Equatable, Identifiable {
+        /// The message's or the reply's own id.
+        let id: String
+        /// The message it belongs to: itself, or the one a reply answers.
+        let thread: String
+        let reply: Bool
+        let from: String
+        let name: String
+        let body: String
+        let at: Date?
+        let mine: Bool
+        /// Over a reply: whose message it answers, and its first line.
+        let quote: Quote?
+        var subject: String? = nil
+        /// The first of a run from one person: their name and circle go here.
+        var startsGroup = true
+        /// The last of a run: the bubble's tail and a little more room after.
+        var endsGroup = true
+        /// "Today", "Yesterday"… when this line starts a new day.
+        var day: String?
+    }
+
+    /// How far apart two lines from one person can be and still be one run.
+    static let groupGap: TimeInterval = 5 * 60
+
+    /// Every line in time order, oldest first, with its day heading and its
+    /// place in a run. Undated lines keep the order they came in, a reply
+    /// after its message.
+    static func lines(_ messages: [Message], now: Date, calendar: Calendar = .current) -> [Line] {
+        var raw: [(line: Line, at: Date, order: Int)] = []
+        for message in messages {
+            let quote = Quote(name: message.mine ? "You" : message.name, text: quoteText(message.body), mine: message.mine,
+                              subject: message.subject, from: message.from)
+            raw.append((Line(id: message.id, thread: message.id, reply: false, from: message.from, name: message.name,
+                             body: message.body, at: message.at, mine: message.mine, quote: nil, subject: message.subject),
+                        message.at ?? .distantPast, raw.count))
+            for reply in message.replies where !reply.counted {
+                raw.append((Line(id: reply.id, thread: message.id, reply: true, from: reply.from, name: reply.name,
+                                 body: reply.body, at: reply.at, mine: reply.mine, quote: quote, subject: reply.subject),
+                            reply.at ?? message.at ?? .distantPast, raw.count))
+            }
+        }
+        var out = raw.sorted { $0.at == $1.at ? $0.order < $1.order : $0.at < $1.at }.map(\.line)
+        var lastDay: String?
+        for index in out.indices {
+            if let at = out[index].at {
+                let day = FamilyMessageTools.dayTitle(at, now: now, calendar: calendar)
+                if day != lastDay { out[index].day = day }
+                lastDay = day
+            }
+            guard index > 0 else { continue }
+            let before = out[index - 1], line = out[index]
+            var together = before.from == line.from && line.day == nil
+            if together, let a = before.at, let b = line.at { together = b.timeIntervalSince(a) <= groupGap }
+            out[index].startsGroup = !together
+            out[index - 1].endsGroup = !together
+        }
+        return out
+    }
+
+    /// Where the "New" line goes: the first line from somebody else newer
+    /// than `since` (every line from somebody else when this phone has never
+    /// had msg family open). Nil when nothing is new.
+    static func firstNew(_ lines: [Line], since: Date?) -> Int? {
+        lines.firstIndex { isNew($0, since: since) }
+    }
+
+    /// How many lines from somebody else came in after `since`.
+    static func newCount(_ lines: [Line], since: Date?) -> Int {
+        lines.filter { isNew($0, since: since) }.count
+    }
+
+    private static func isNew(_ line: Line, since: Date?) -> Bool {
+        guard !line.mine, let at = line.at else { return false }
+        return since.map { at > $0 } ?? true
+    }
+
+    /// A message as a quote: a poll's question, otherwise its first line,
+    /// clipped.
+    static func quoteText(_ body: String, limit: Int = 80) -> String {
+        if let poll = FamilyPoll.parse(body) { return "\(FamilyPoll.mark) \(poll.question)" }
+        let first = body.split(separator: "\n", omittingEmptySubsequences: true).first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        return first.count > limit ? String(first.prefix(limit - 1)) + "…" : first
+    }
+}

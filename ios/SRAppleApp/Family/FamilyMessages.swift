@@ -225,12 +225,37 @@ final class FamilyMessagesStore: ObservableObject {
     static let draftsKey = "familyMessages.drafts"
 
     /// The threads, the one that moved last at the foot — the way a
-    /// conversation reads, and where the box to write in is.
+    /// conversation reads, and where the box to write in is. Undo and the
+    /// suggestions read it; msg family itself draws `stream`.
     var thread: [FamilyMessage] {
         (feed?.messages ?? []).reversed().enumerated().sorted { a, b in
             let x = a.element.lastActivity ?? .distantPast, y = b.element.lastActivity ?? .distantPast
             return x == y ? a.offset < b.offset : x < y
         }.map(\.element)
+    }
+
+    /// Every message and reply in words as one conversation, oldest first,
+    /// the way msg family draws it (`FamilyChatStream`).
+    var stream: [FamilyChatStream.Line] {
+        FamilyChatStream.lines((feed?.messages ?? []).reversed().map(Self.streamed), now: Date())
+    }
+
+    /// A message as the stream reads it: emoji and poll votes are counted on
+    /// the message, so they are not lines.
+    static func streamed(_ message: FamilyMessage) -> FamilyChatStream.Message {
+        let poll = FamilyPoll.parse(message.body)
+        return FamilyChatStream.Message(
+            id: message.id, from: message.fromId.isEmpty ? message.fromName : message.fromId, name: message.fromName,
+            body: message.body, at: parseTimestamp(message.at), mine: message.mine,
+            replies: message.replies.map { reply in
+                FamilyChatStream.Reply(
+                    id: reply.id, from: reply.fromId.isEmpty ? reply.fromName : reply.fromId, name: reply.fromName,
+                    body: reply.body, at: parseTimestamp(reply.at), mine: reply.mine,
+                    counted: reply.reaction || poll?.option(of: reply.body) != nil, subject: reply.fromSubject
+                )
+            },
+            subject: message.fromSubject
+        )
     }
 
     /// One thread, by its message.

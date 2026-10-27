@@ -152,6 +152,98 @@ final class FamilyMessageToolsTests: XCTestCase {
         XCTAssertNil(BatPhoneWords.drive(seconds: .infinity))
     }
 
+    func testBatPhoneIsAMessageWithAMapLink() {
+        let body = BatPhoneWords.message(place: "Station Road, Anytown", battery: 0.234, lat: 51.5, lon: -0.12)
+        XCTAssertEqual(body, "🦇 Bat phone — I need you.\nAt Station Road, Anytown · Battery 23%\nhttps://maps.apple.com/?ll=51.50000,-0.12000&q=Bat%20phone")
+        XCTAssertTrue(BatPhoneWords.isBatPhone(body))
+        XCTAssertLessThanOrEqual(body.count, 500, "fits in one message")
+        XCTAssertEqual(BatPhoneWords.message(place: nil, battery: nil, lat: nil, lon: nil), BatPhoneWords.opening,
+                       "nothing known still says it")
+        XCTAssertEqual(BatPhoneWords.message(place: nil, battery: nil, lat: 0, lon: 0), BatPhoneWords.opening,
+                       "a null island fix is no fix")
+        XCTAssertFalse(BatPhoneWords.isBatPhone("Bat phone me later"))
+    }
+
+    // MARK: - The conversation
+
+    private func message(_ id: String, _ from: String, _ body: String, _ minute: Double, mine: Bool = false,
+                         replies: [FamilyChatStream.Reply] = []) -> FamilyChatStream.Message {
+        FamilyChatStream.Message(id: id, from: from, name: from.capitalized, body: body,
+                                 at: ten.addingTimeInterval(minute * 60), mine: mine, replies: replies)
+    }
+
+    private func reply(_ id: String, _ from: String, _ body: String, _ minute: Double?, mine: Bool = false,
+                       counted: Bool = false) -> FamilyChatStream.Reply {
+        FamilyChatStream.Reply(id: id, from: from, name: from.capitalized, body: body,
+                               at: minute.map { ten.addingTimeInterval($0 * 60) }, mine: mine, counted: counted)
+    }
+
+    func testTheConversationReadsInTimeOrderWithRepliesQuoted() {
+        let lines = FamilyChatStream.lines([
+            message("m2", "alex", "Home by 7", 30, replies: [reply("r3", "sam", "Plate's in the oven", 34, mine: true)]),
+            message("m1", "sam", "Pizza tonight?\nOrdering at six", 0, mine: true, replies: [
+                reply("r1", "robin", "👍", 2, counted: true),
+                reply("r2", "robin", "Pepperoni please!", 40),
+            ]),
+        ], now: ten.addingTimeInterval(3600), calendar: london)
+        XCTAssertEqual(lines.map(\.id), ["m1", "m2", "r3", "r2"], "time order, emoji counted not listed")
+        XCTAssertEqual(lines[3].thread, "m1")
+        XCTAssertTrue(lines[3].reply)
+        XCTAssertEqual(lines[3].quote, FamilyChatStream.Quote(name: "You", text: "Pizza tonight?", mine: true, from: "sam"),
+                       "a reply quotes the first line of what it answers")
+        XCTAssertNil(lines[0].quote)
+        XCTAssertEqual(lines[0].day, "Today")
+        XCTAssertNil(lines[1].day, "one heading a day")
+    }
+
+    func testARunFromOnePersonIsOneGroup() {
+        let lines = FamilyChatStream.lines([
+            message("a", "alex", "One", 0),
+            message("b", "alex", "Two", 3),
+            message("c", "alex", "Much later", 20),
+            message("d", "sam", "Me", 21, mine: true),
+        ], now: ten, calendar: london)
+        XCTAssertEqual(lines.map(\.startsGroup), [true, false, true, true])
+        XCTAssertEqual(lines.map(\.endsGroup), [false, true, true, true])
+    }
+
+    func testANewDayBreaksARun() {
+        let lines = FamilyChatStream.lines([
+            message("a", "alex", "Late", -601),   // 23:59 yesterday
+            message("b", "alex", "Early", -598),  // 00:02 today, three minutes on
+        ], now: ten, calendar: london)
+        XCTAssertEqual(lines.compactMap(\.day).count, 2)
+        XCTAssertTrue(lines[1].startsGroup)
+    }
+
+    func testAnUndatedReplyFollowsItsMessage() {
+        let lines = FamilyChatStream.lines([
+            message("m", "alex", "Hi", 0, replies: [reply("r", "robin", "Hello", nil)]),
+            message("n", "kit", "Later", 1),
+        ], now: ten, calendar: london)
+        XCTAssertEqual(lines.map(\.id), ["m", "r", "n"])
+    }
+
+    func testTheNewLineIsTheFirstLineFromSomebodyElse() {
+        let lines = FamilyChatStream.lines([
+            message("a", "alex", "Old", 0),
+            message("b", "sam", "Mine, new", 10, mine: true),
+            message("c", "robin", "New", 12, replies: [reply("r", "kit", "Newer", 13)]),
+        ], now: ten, calendar: london)
+        let since = ten.addingTimeInterval(5 * 60)
+        XCTAssertEqual(FamilyChatStream.firstNew(lines, since: since), 2)
+        XCTAssertEqual(FamilyChatStream.newCount(lines, since: since), 2)
+        XCTAssertNil(FamilyChatStream.firstNew(lines, since: ten.addingTimeInterval(3600)))
+        XCTAssertEqual(FamilyChatStream.newCount(lines, since: nil), 3, "never opened: everyone else's lines")
+    }
+
+    func testAQuoteIsShort() {
+        let poll = FamilyPoll(question: "Film?", options: ["A", "B"]).body
+        XCTAssertEqual(FamilyChatStream.quoteText(poll), "📊 Film?")
+        XCTAssertEqual(FamilyChatStream.quoteText(String(repeating: "a", count: 100), limit: 10), "aaaaaaaaa…")
+        XCTAssertEqual(FamilyChatStream.quoteText("\n  First  \nSecond"), "First")
+    }
+
     func testQuickLinesAreShortAndDistinct() {
         XCTAssertEqual(Set(FamilyMessageTools.quickSend).count, FamilyMessageTools.quickSend.count)
         XCTAssertTrue(FamilyMessageTools.quickSend.allSatisfy { !$0.isEmpty && $0.count <= 24 })

@@ -1,17 +1,18 @@
 import SwiftUI
 
-/// msg family's landing: the family as it is now, under the newest thread and
-/// over the box (John, 2026-10-27: "improve the landing screen for family
-/// chat — make it more interesting and useful").
+/// msg family's "Family now": the family as it is now (John, 2026-10-27:
+/// "improve the landing screen for family chat — make it more interesting and
+/// useful").
 ///
-/// At the foot, not the top: msg family opens at the foot — the thread that
-/// moved last sits by the box (2026-10-21) — so the foot is where somebody
-/// lands. Above the oldest thread it would only be found by scrolling back
-/// through all of them. It scrolls away as the threads are scrolled back.
+/// It was first drawn under the newest thread, over the box, where msg family
+/// opened. Later the same day John asked for the conversation itself to open
+/// at the latest message, which that panel pushed off the screen; so it is
+/// now a sheet from the bar's "Family now" button, and the page itself only
+/// when there are no messages yet to read.
 ///
 /// Top to bottom:
-/// - What you missed: "3 new since 08:10 — Katie, Fintan". A tap goes up to
-///   the "New" line.
+/// - What you missed: "3 new since 08:10 — Katie, Fintan". A tap closes the
+///   sheet and goes to the "New" line.
 /// - Who's around: everybody else's circle and where they are. A tap starts a
 ///   message to them ("@Sam " in the box); a hold offers their page.
 /// - The quick lines and the bat phone (`FamilyQuickStrip`). These SEND.
