@@ -85,6 +85,26 @@ final class HouseholdTests: XCTestCase {
         }
     }
 
+    /// A sync holds `busy` for as long as its upload takes, and one starts on
+    /// every return to the foreground. The Settings switch used to return
+    /// without a word while it did — flipped, and nothing happened. It is
+    /// taken now: on this phone at once, and owed to the server (which this
+    /// unpaired phone cannot reach).
+    @MainActor func testTheSharingSwitchIsTakenWhileASyncRuns() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
+        try outbox.change { $0.sharing = true }
+        let companion = Companion(outbox: outbox)
+        companion.busy = true
+
+        await companion.setSharing(false)
+
+        XCTAssertFalse(outbox.state.sharing, "paused on this phone at once")
+        XCTAssertEqual(outbox.state.pendingSharing, false, "and queued for the server")
+        XCTAssertFalse(companion.savingSharing, "the switch is live again")
+    }
+
     /// I-1: a re-paired phone whose person is already sharing on the server
     /// adopts that, and so is never asked.
     func testARePairedPhoneAdoptsTheServersSharing() {

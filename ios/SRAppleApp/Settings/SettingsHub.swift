@@ -590,7 +590,9 @@ struct AppleHealthScreen: View {
                             .foregroundStyle(SR.ink)
                     }
                     .tint(SR.accent)
-                    .disabled(companion.busy)
+                    // Its own sheet, never a sync: a sync runs on every return
+                    // to the foreground, and these went grey under the thumb.
+                    .disabled(companion.askingHealth)
                     .srGlassRow()
                     .frame(minHeight: SR.tapTarget)
                 }
@@ -604,7 +606,7 @@ struct AppleHealthScreen: View {
                           icon: "heart.text.square")
                 }
                 .buttonStyle(.plain)
-                .disabled(companion.busy || outbox.state.healthEnabled.isEmpty)
+                .disabled(companion.askingHealth || outbox.state.healthEnabled.isEmpty)
                 .srGlassRow()
             } header: {
                 SRSectionLabel(text: "Categories")
@@ -625,7 +627,10 @@ struct AppleHealthScreen: View {
                         .foregroundStyle(SR.ink)
                 }
                 .tint(SR.accent)
-                .disabled(companion.busy || !companion.paired)
+                // Not while `me` has not answered (unpaired, or the first
+                // sync since launch still uploading): off would be a guess,
+                // and flipping a guess shows nothing.
+                .disabled(companion.savingSteps || companion.profile == nil)
                 .srGlassRow()
                 Text("Off by default. When enabled, family members can see your daily count and ranking in the app, widgets and step notifications. This is separate from private Health uploads and location sharing.")
                     .font(SR.Text.mono())
@@ -642,7 +647,7 @@ struct AppleHealthScreen: View {
                         .foregroundStyle(SR.ink)
                 }
                 .tint(SR.accent)
-                .disabled(companion.busy)
+                .disabled(companion.savingSharing)
                 .srGlassRow()
                 .frame(minHeight: SR.tapTarget)
 
