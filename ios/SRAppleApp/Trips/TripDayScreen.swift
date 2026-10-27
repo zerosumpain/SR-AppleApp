@@ -36,6 +36,7 @@ struct TripDayScreen: View {
     var group: String? = nil
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var offPlan = TripOffPlan.shared
+    @ObservedObject private var trail = TripTrail.shared
     @EnvironmentObject private var router: Router
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
@@ -178,9 +179,13 @@ struct TripDayScreen: View {
                   let option = stop.mealOptions?.first(where: { $0.id == ref.optionId }) else { return nil }
             return (stop, option)
         }
+        // What is behind you is off the map: a day gone by has no route
+        // left, and today loses what the phone has walked.
+        let gone = date < clock.localDate(now)
         let scene = TripMapScene.day(
-            day, bundle: bundle, done: Set(progress.doneStopIds), nextId: nextId,
-            selectedId: picked?.id ?? (pickedMeal == nil ? nil : selected), preview: preview
+            day, bundle: bundle, done: gone ? Set(day.stops.map(\.id)) : Set(progress.doneStopIds), nextId: nextId,
+            selectedId: picked?.id ?? (pickedMeal == nil ? nil : selected), preview: preview,
+            walked: isToday ? trail.walked(tripId, date) : nil
         )
         // The glance over a big map on the day itself — unless something has
         // gone wrong, which is said first and must not sit under the fold.

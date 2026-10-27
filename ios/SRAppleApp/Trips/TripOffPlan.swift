@@ -263,6 +263,7 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
         let good = locations.filter { $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy < 200 }
         Task { @MainActor in
             self.fixes = Array((self.fixes + good).filter { Date().timeIntervalSince($0.timestamp) < 40 * 60 }.suffix(60))
+            TripTrail.shared.add(good)
             self.check()
         }
     }
