@@ -91,7 +91,16 @@ while IFS= read -r file; do
   cp "$file" "$WORK/parse/$rel"
 done < <(find "$OFFLINE" -name '*.swift' | sort)
 
+# Car Race's nearby rules live with the physics games and lean on their
+# track and timing logic, both Foundation-only; its tests come along below.
+for name in CarRaceLogic CarRaceNearbyRules; do
+  cp "$ROOT/ios/SRAppleApp/Games/Physics/$name.swift" "$WORK/Sources/SRAppleApp/"
+  compiled=$((compiled + 1))
+done
+
 tests=0
+cp "$TESTS/CarRaceNearbyTests.swift" "$WORK/Tests/SRAppleAppTests/"
+tests=$((tests + 1))
 for file in "$TESTS"/Offline*Tests.swift; do
   [ -e "$file" ] || continue
   cp "$file" "$WORK/Tests/SRAppleAppTests/"

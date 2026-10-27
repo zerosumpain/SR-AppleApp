@@ -37,19 +37,21 @@ final class OfflineCatalogueTests: XCTestCase {
         OfflineGameEntry(CodeBreakerRules.self),
         OfflineGameEntry(SteadyHandRules.self),
         OfflineGameEntry(SeaBattleRules.self),
+        OfflineGameEntry(CarRaceNearbyRules.self),
     ]
 
     private static let expectedIds = [
         "crazy-eights", "go-fish", "blackjack", "cheat", "old-maid", "knockout-whist", "higher-lower",
         "quick-draw", "snap", "colour-clash", "whack-a-mole", "hot-potato", "swipe-says", "reflex-grid",
         "maths-sprint", "dots-and-boxes", "memory-pairs", "four-in-a-row", "code-breaker", "steady-hand", "sea-battle",
+        "car-race",
     ]
 
     private static let seeds: [UInt64] = [1, 7, 42, 2026, 0xDEAD_BEEF]
 
     // MARK: - The list
 
-    func testTheRosterIsTwentyOneGamesInThreeSections() {
+    func testTheRosterIsTwentyTwoGamesInThreeSections() {
         checkTheList(Self.roster)
     }
 
@@ -140,17 +142,17 @@ final class OfflineCatalogueTests: XCTestCase {
 
     private func checkTheList(_ entries: [OfflineGameEntry], file: StaticString = #filePath, line: UInt = #line) {
         let infos = entries.map(\.info)
-        XCTAssertEqual(infos.count, 21, file: file, line: line)
+        XCTAssertEqual(infos.count, 22, file: file, line: line)
         XCTAssertEqual(infos.map(\.id), Self.expectedIds, file: file, line: line)
         XCTAssertEqual(Set(infos.map(\.id)).count, infos.count, "ids are unique", file: file, line: line)
         XCTAssertEqual(Set(infos.map(\.title)).count, infos.count, "titles are unique", file: file, line: line)
         XCTAssertEqual(infos.filter { $0.category == .card }.count, 7, file: file, line: line)
         XCTAssertEqual(infos.filter { $0.category == .reaction }.count, 7, file: file, line: line)
-        XCTAssertEqual(infos.filter { $0.category == .skill }.count, 7, file: file, line: line)
+        XCTAssertEqual(infos.filter { $0.category == .skill }.count, 8, file: file, line: line)
         // Grouped by section, in the order the page shows them.
         let sections = infos.map(\.category)
         XCTAssertEqual(sections, Array(repeating: .card, count: 7) + Array(repeating: .reaction, count: 7)
-                       + Array(repeating: .skill, count: 7), file: file, line: line)
+                       + Array(repeating: .skill, count: 8), file: file, line: line)
         for info in infos {
             XCTAssertTrue(info.minPlayers >= 1 && info.minPlayers <= info.maxPlayers
                           && info.maxPlayers <= OfflineRoom.capacity,
@@ -241,6 +243,7 @@ final class OfflineCatalogueTests: XCTestCase {
         case "code-breaker": return OfflineRulesAudit.problems(CodeBreakerRules.self)
         case "steady-hand": return OfflineRulesAudit.problems(SteadyHandRules.self)
         case "sea-battle": return OfflineRulesAudit.problems(SeaBattleRules.self)
+        case "car-race": return OfflineRulesAudit.problems(CarRaceNearbyRules.self)
         default: return ["no rules type for '\(id)'"]
         }
     }

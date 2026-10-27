@@ -39,6 +39,7 @@ enum OfflineCatalogue {
         OfflineCatalogueItem(CodeBreakerRules.self) { CodeBreakerView(context: $0) },
         OfflineCatalogueItem(SteadyHandRules.self) { SteadyHandView(context: $0) },
         OfflineCatalogueItem(SeaBattleRules.self) { SeaBattleView(context: $0) },
+        OfflineCatalogueItem(CarRaceNearbyRules.self) { CarRaceNearbyView(context: $0) },
     ]
 
     /// What the host's room can start.
