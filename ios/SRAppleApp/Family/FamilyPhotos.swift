@@ -42,7 +42,7 @@ final class FamilyPhotos: ObservableObject {
     private init() {
         let saved = Self.readIndex()
         entries = saved
-        images = Dictionary(uniqueKeysWithValues: saved.compactMap { e in Self.cached(e).map { (e.id, $0) } })
+        images = Dictionary(saved.compactMap { e in Self.cached(e).map { (e.id, $0) } }, uniquingKeysWith: { _, last in last })
     }
 
     /// A person's picture, by id or by subject; nil draws their initials.

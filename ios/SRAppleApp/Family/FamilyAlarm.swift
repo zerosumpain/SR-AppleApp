@@ -436,18 +436,22 @@ struct FamilyAlarmButton: View {
     @ObservedObject private var store = FamilyAlarmStore.shared
     @State private var open = false
 
+    /// A bat phone is not shown here: it must not light anything up on the
+    /// sender's screen.
+    private var sounding: Bool { store.raised.map { !$0.quiet } ?? false }
+
     var body: some View {
         Button {
             SRHaptic.tap()
             open = true
         } label: {
-            Image(systemName: store.raised == nil ? "sos.circle.fill" : "light.beacon.max.fill")
+            Image(systemName: sounding ? "light.beacon.max.fill" : "sos.circle.fill")
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(.white, SR.error)
                 .font(.system(size: 20, weight: .bold))
-                .symbolEffect(.pulse, options: .repeating, isActive: store.raised != nil)
+                .symbolEffect(.pulse, options: .repeating, isActive: sounding)
         }
-        .accessibilityLabel(store.raised == nil ? "Raise the alarm" : "Alarm raised")
+        .accessibilityLabel(sounding ? "Alarm raised" : "Raise the alarm")
         .accessibilityIdentifier("family-alarm")
         .sheet(isPresented: $open) { RaiseAlarmSheet() }
     }
@@ -467,7 +471,7 @@ struct RaiseAlarmSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if let raised = store.raised {
+                    if let raised = store.raised, !raised.quiet {
                         raisedCard(raised)
                     } else {
                         Text("Every other phone in the family rings loudly, with where you are. Use it when you need help now.")
