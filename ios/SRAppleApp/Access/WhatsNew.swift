@@ -41,6 +41,8 @@ enum WhatsNew {
                          detail: "Tap Bat phone twice, on Home or over Threads, and the family is told urgently where you are, your battery and how far a drive it is. Nothing sounds or pops up on your phone."),
             WhatsNewItem(icon: "bubble.left.and.text.bubble.right", title: "One-tap messages",
                          detail: "\u{201C}On my way\u{201D}, \u{201C}Home in 10\u{201D}, where you are and more, sent in one tap from Home or Threads — with a few seconds to take it back."),
+            WhatsNewItem(icon: "person.2.wave.2", title: "Family now",
+                         detail: "Under the newest message in msg family: who is where, with a low battery marked — tap someone to write to them — what came in since you last looked, the one-tap messages and bat phone, and an idea or two for the moment, like a dinner poll at teatime."),
             WhatsNewItem(icon: "figure.walk", title: "Steps, fresh",
                          detail: "Opening Steps asks everyone's phone for its count and where it is, so the race is up to the minute."),
             WhatsNewItem(icon: "suitcase.rolling", title: "Trips move on",
