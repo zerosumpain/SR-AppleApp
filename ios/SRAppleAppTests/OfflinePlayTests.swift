@@ -26,6 +26,12 @@ final class OfflinePlayTests: XCTestCase {
                        [.hotspot, .nearby])
         // Nothing known: try both.
         XCTAssertEqual(OfflineDiscovery.routes(for: OfflineFoundHost(id: "a", name: "A")), [.hotspot, .nearby])
+        let both = OfflineFoundHost(id: "a", name: "A", via: [.hotspot, .nearby])
+        XCTAssertEqual(OfflineDiscovery.routes(for: both, failed: .hotspot), [.nearby, .hotspot],
+                       "the route that hung last time goes last")
+        XCTAssertEqual(OfflineDiscovery.routes(for: both, failed: .nearby), [.hotspot, .nearby])
+        XCTAssertEqual(OfflineDiscovery.routes(for: OfflineFoundHost(id: "a", name: "A", via: [.hotspot]), failed: .hotspot),
+                       [.hotspot], "the only route is still tried")
     }
 
     func testARoomKeyIsEightHexDigits() {
@@ -84,6 +90,16 @@ final class OfflinePlayTests: XCTestCase {
         XCTAssertEqual(back.match(in: [OfflineFoundHost(id: "r2", name: "Other"), OfflineFoundHost(id: "r1", name: "Sam's game")])?.id, "r1")
         XCTAssertFalse(back.givenUp(now: 100 + OfflineReconnect.patience - 1))
         XCTAssertTrue(back.givenUp(now: 100 + OfflineReconnect.patience))
+    }
+
+    func testTheTimeoutsLeaveRoomForBothRoutes() {
+        // One route's join timeout covers Nearby's invitations (3 × 8 s plus
+        // a second between) and the hello and welcome after it.
+        XCTAssertGreaterThanOrEqual(OfflineReconnect.joinTimeout, 3 * 8 + 2 + OfflineReconnect.helloEvery)
+        // A dropped guest has time to find the room and try both routes.
+        XCTAssertGreaterThanOrEqual(OfflineReconnect.patience, 12 + 26 + OfflineReconnect.rebrowseEvery)
+        // The host holds the seat at least as long as the guest keeps trying.
+        XCTAssertGreaterThan(OfflineRoom.seatHeld, OfflineReconnect.patience)
     }
 
     // MARK: - The room with computer players

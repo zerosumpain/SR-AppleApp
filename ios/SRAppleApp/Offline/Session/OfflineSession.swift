@@ -99,8 +99,13 @@ final class OfflineSession: ObservableObject {
     private var lastPing: Double = 0
     /// Guest: the test ping in flight.
     private var testPing: (id: Int, sentAt: Double)?
-    /// Guest: when the current join began, to give up on one that hangs.
+    /// Guest: when the current join (or the route it is on now) began, to
+    /// give up on one that hangs. Set until the host's `welcome`, not just
+    /// until the link connects: a connected link whose hello was lost would
+    /// otherwise sit on "Joining…" for ever.
     private var joinStartedAt: Double?
+    /// Guest: when the last hello went, so it is sent again until welcomed.
+    private var lastHello: Double = 0
     /// Guest: the room to get back into after a drop.
     private var reconnect: OfflineReconnect?
     private var lastRejoin: Double = 0
@@ -373,11 +378,14 @@ final class OfflineSession: ObservableObject {
             addresses = list
         case .problem(let text):
             problem = text
+        case .trying:
+            // The dual link has moved on to its other route: that route gets
+            // the whole join timeout, not what the first one left of it.
+            if role == .guest, joinStartedAt != nil { joinStartedAt = OfflineUptime.now() }
         case .connected(let peer):
             if role == .guest, peer == OfflineLinkPeer.host {
                 route = link?.connectedVia
-                joinStartedAt = nil
-                sendToHost(.hello(playerId: playerId, name: OfflineRoom.cleanName(nickname), version: OfflineEnvelope.version))
+                sayHello()
                 ping()
             }
         case .disconnected(let peer):
@@ -453,7 +461,8 @@ final class OfflineSession: ObservableObject {
         case .bye:
             guard let id = playerOfPeer.removeValue(forKey: peer) else { return }
             if peerOfPlayer[id] == peer { peerOfPlayer[id] = nil }
-            room?.drop(id, now: OfflineUptime.now())
+            // They chose to go: no seat is held for them.
+            room?.drop(id, now: OfflineUptime.now(), deliberate: true)
             flush()
         default:
             break
@@ -463,6 +472,7 @@ final class OfflineSession: ObservableObject {
     private func guestReceived(_ message: OfflineMessage) {
         switch message {
         case .welcome:
+            joinStartedAt = nil
             stage = .room
             problem = nil
             reconnect = nil
@@ -529,9 +539,11 @@ final class OfflineSession: ObservableObject {
         link.browse(playerName: OfflineRoom.cleanName(nickname))
     }
 
-    /// Reconnecting: knock again as soon as the room is in the list.
+    /// Reconnecting: knock again as soon as the room is in the list (and not
+    /// while a link is already connected and waiting on its welcome).
     private func rejoinIfBack() {
-        guard let reconnect, joinStartedAt == nil, let link, let host = reconnect.match(in: found) else { return }
+        guard let reconnect, joinStartedAt == nil, route == nil, let link,
+              let host = reconnect.match(in: found) else { return }
         let now = OfflineUptime.now()
         joinStartedAt = now
         lastRejoin = now
@@ -576,6 +588,16 @@ final class OfflineSession: ObservableObject {
 
     private func sendToHost(_ message: OfflineMessage) {
         send(message, to: OfflineLinkPeer.host)
+    }
+
+    /// Guest: who I am, to the host. Sent on connecting and again every
+    /// couple of seconds until the welcome comes: one lost hello (a send that
+    /// failed, or data that reached the host before it had registered the
+    /// connection) must not leave a guest knocking for ever. The host takes a
+    /// repeated hello from the same player as a rejoin, so it is harmless.
+    private func sayHello() {
+        lastHello = OfflineUptime.now()
+        sendToHost(.hello(playerId: playerId, name: OfflineRoom.cleanName(nickname), version: OfflineEnvelope.version))
     }
 
     private func ping() {
@@ -634,10 +656,13 @@ final class OfflineSession: ObservableObject {
         case .connecting:
             if let started = joinStartedAt, now - started >= OfflineReconnect.joinTimeout {
                 joinStartedAt = nil
+                route = nil
                 stage = .browsing
                 problem = "That room did not answer. Try again — or move closer to the host."
                 link?.browse(playerName: OfflineRoom.cleanName(nickname))
                 lastRebrowse = now
+            } else if route != nil, now - lastHello >= OfflineReconnect.helloEvery {
+                sayHello()
             }
         case .reconnecting:
             guard let reconnect else { return }
@@ -646,11 +671,15 @@ final class OfflineSession: ObservableObject {
                 return
             }
             // A knock that hangs is abandoned; the room is knocked on again
-            // a few seconds later if it is still listed.
-            if let started = joinStartedAt, now - started >= OfflineReconnect.joinTimeout / 2 {
+            // a few seconds later if it is still listed. The dual link
+            // remembers the route that hung and tries the other one first.
+            if let started = joinStartedAt, now - started >= OfflineReconnect.joinTimeout {
                 joinStartedAt = nil
+                route = nil
                 link?.browse(playerName: OfflineRoom.cleanName(nickname))
                 lastRebrowse = now
+            } else if joinStartedAt != nil, route != nil, now - lastHello >= OfflineReconnect.helloEvery {
+                sayHello()
             } else if joinStartedAt == nil, now - lastRejoin >= 3 {
                 rejoinIfBack()
             }

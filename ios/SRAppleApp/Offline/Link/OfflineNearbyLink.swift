@@ -38,8 +38,10 @@ import MultipeerConnectivity
 final class OfflineNearbyLink: NSObject, OfflineLink {
     /// 1–15 characters, lowercase letters, digits and single hyphens.
     static let serviceType = "sr-play"
-    /// How long one invitation may wait for the host to answer.
-    static let inviteTimeout: TimeInterval = 10
+    /// How long one invitation may wait for the host to answer. Three of
+    /// these, with a second between, must fit in the session's
+    /// `OfflineReconnect.joinTimeout`.
+    static let inviteTimeout: TimeInterval = 8
     /// Invitations a join sends before it gives up.
     static let inviteAttempts = 3
 
@@ -210,7 +212,9 @@ final class OfflineNearbyLink: NSObject, OfflineLink {
         if isHost {
             switch state {
             case .connected:
-                let key = keyOf[peer] ?? UUID().uuidString
+                // Already known when its first message got here first.
+                guard keyOf[peer] == nil else { return }
+                let key = UUID().uuidString
                 keyOf[peer] = key
                 peerOf[key] = peer
                 onEvent?(.connected(peer: key))
@@ -259,7 +263,19 @@ final class OfflineNearbyLink: NSObject, OfflineLink {
 
     private func received(_ data: Data, from peer: MCPeerID) {
         if isHost {
-            guard let key = keyOf[peer] else { return }
+            // A guest's first message can arrive before the session has told
+            // us it connected (the two delegate calls come on different
+            // queues). Dropping it lost the guest's hello; register the peer
+            // now instead, and the `.connected` that follows finds it known.
+            let key: String
+            if let known = keyOf[peer] {
+                key = known
+            } else {
+                key = UUID().uuidString
+                keyOf[peer] = key
+                peerOf[key] = peer
+                onEvent?(.connected(peer: key))
+            }
             onEvent?(.received(data, from: key))
         } else if peer == hostPeer {
             onEvent?(.received(data, from: OfflineLinkPeer.host))

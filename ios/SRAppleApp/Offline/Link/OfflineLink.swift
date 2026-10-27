@@ -32,6 +32,10 @@ enum OfflineLinkEvent {
     case listening(addresses: [String])
     /// A sentence for the screen: permission off, Bluetooth off, no route.
     case problem(String)
+    /// Guest, dual link only: the first route did not connect and the join
+    /// is now trying this one. The session restarts its join timer, so the
+    /// fallback gets its full time rather than whatever the first route left.
+    case trying(OfflineTransport)
 }
 
 /// The key a guest uses for its host.

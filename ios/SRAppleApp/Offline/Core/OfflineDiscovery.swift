@@ -98,10 +98,15 @@ enum OfflineDiscovery {
         }
     }
 
-    /// The links to try for `host`, in order.
-    static func routes(for host: OfflineFoundHost) -> [OfflineTransport] {
+    /// The links to try for `host`, in order. A route that failed on the
+    /// last attempt at this room (`failed`) goes last, so a guest whose Wi-Fi
+    /// route is listed but unreachable tries Nearby first next time rather
+    /// than spending every attempt on the same dead route.
+    static func routes(for host: OfflineFoundHost, failed: OfflineTransport? = nil) -> [OfflineTransport] {
         let known = preference.filter { host.via.contains($0) }
-        return known.isEmpty ? preference : known
+        let routes = known.isEmpty ? preference : known
+        guard let failed, routes.count > 1, routes.contains(failed) else { return routes }
+        return routes.filter { $0 != failed } + [failed]
     }
 
     /// A short room id for a new room: eight hex digits from `seed`. Short,
@@ -158,11 +163,18 @@ enum OfflinePeerHealth: Equatable {
 /// host's screen dimming: each drops a connection that comes back if it is
 /// asked to, so the guest asks rather than ending the game.
 struct OfflineReconnect: Equatable {
-    /// How long a dropped guest keeps looking for its room.
-    static let patience: Double = 45
-    /// How long one attempt to connect may take before the guest goes back
-    /// to the list (the links have their own, shorter, timeouts inside it).
-    static let joinTimeout: Double = 25
+    /// How long a dropped guest keeps looking for its room: long enough to
+    /// find it again and try both routes in full (`joinTimeout` each).
+    static let patience: Double = 60
+    /// How long one route of a join may take, up to the host's welcome,
+    /// before the guest gives up on it. It covers the slower link's own
+    /// budget: Nearby's `inviteAttempts` invitations of `inviteTimeout` with
+    /// a second between them (3 × 8 + 2 = 26 s), and Wi-Fi's 12 s connect.
+    /// The dual link restarts it when it falls back to its other route.
+    static let joinTimeout: Double = 30
+    /// How often a connected guest says hello again while it waits for the
+    /// host's welcome.
+    static let helloEvery: Double = 2
     /// How often a browse that has found nothing is restarted: the first
     /// browse can start before the Local Network permission is granted, and
     /// then finds nothing until it is restarted.

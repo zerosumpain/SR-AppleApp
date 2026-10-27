@@ -26,6 +26,10 @@ final class OfflineDualLink: OfflineLink {
     private var joining: (host: OfflineFoundHost, trying: OfflineTransport, left: [OfflineTransport])?
     /// Guest: the link connected to the host.
     private var active: OfflineTransport?
+    /// Guest: the route that last failed for each room id, tried last next
+    /// time. Kept across `browse` and `stop`, which is how a reconnect that
+    /// hung on Wi-Fi gets to try Nearby first.
+    private var failedRoute: [String: OfflineTransport] = [:]
 
     init() {
         links = [.nearby: OfflineNearbyLink(), .hotspot: OfflineHotspotLink()]
@@ -49,7 +53,7 @@ final class OfflineDualLink: OfflineLink {
     }
 
     func join(_ host: OfflineFoundHost) {
-        var routes = OfflineDiscovery.routes(for: host)
+        var routes = OfflineDiscovery.routes(for: host, failed: failedRoute[host.id])
         let first = routes.removeFirst()
         attempt(host, via: first, left: routes)
     }
@@ -82,6 +86,9 @@ final class OfflineDualLink: OfflineLink {
     }
 
     func stop() {
+        // A join abandoned part-way (the session's timeout) failed on the
+        // route it was trying.
+        if let joining { failedRoute[joining.host.id] = joining.trying }
         for link in links.values { link.stop() }
         found = [:]
         joining = nil
@@ -111,7 +118,7 @@ final class OfflineDualLink: OfflineLink {
         case .problem(let text):
             // No Wi-Fi is no problem while Nearby is carrying the room.
             if transport == .nearby || text == OfflineHotspotLink.localNetworkDenied { onEvent?(.problem(text)) }
-        case .found:
+        case .found, .trying:
             break
         }
     }
@@ -122,9 +129,10 @@ final class OfflineDualLink: OfflineLink {
             found[transport] = hosts
             onEvent?(.found(OfflineDiscovery.merge(found)))
         case .connected(let peer):
-            guard active == nil, joining?.trying == transport else { return }
+            guard active == nil, let joining, joining.trying == transport else { return }
             active = transport
-            joining = nil
+            failedRoute[joining.host.id] = nil
+            self.joining = nil
             // One route is enough; the other link stops scanning and listening.
             for (other, link) in links where other != transport { link.stop() }
             onEvent?(.connected(peer: peer))
@@ -133,7 +141,10 @@ final class OfflineDualLink: OfflineLink {
                 active = nil
                 onEvent?(.disconnected(peer: peer))
             } else if let joining, joining.trying == transport {
+                failedRoute[joining.host.id] = transport
                 if let next = joining.left.first {
+                    // Before the attempt, which can fail at once and say so.
+                    onEvent?(.trying(next))
                     attempt(joining.host, via: next, left: Array(joining.left.dropFirst()))
                 } else {
                     self.joining = nil
@@ -142,7 +153,7 @@ final class OfflineDualLink: OfflineLink {
             }
         case .received(let data, let peer):
             if active == transport { onEvent?(.received(data, from: peer)) }
-        case .listening:
+        case .listening, .trying:
             break
         case .problem(let text):
             let carrying = active == transport || joining?.trying == transport

@@ -88,10 +88,14 @@ or not, games access or not.
 - Up to **5 players including the host** (`OfflineRoom.capacity`). A sixth `hello` is
   refused with a sentence. A player who joins mid-match **watches** (spectator view,
   `view(of:for: nil)`) and plays the next one.
-- A guest who drops **mid-match keeps their seat** (marked away); `Rules.playerLeft` is
-  called; if fewer than `info.minPlayers` remain the match ends with
-  `Rules.standings` as it stands. The same player id reconnecting retakes the seat and is
-  re-sent the lobby and their view. In the lobby a dropped guest is simply removed.
+- A guest who drops **mid-match keeps their seat** (marked away) and the seat is **held
+  for `OfflineRoom.seatHeld`** (the guest's reconnect patience plus 10 s): the game is not
+  told, so a two-player match survives a radio blip. The same player id reconnecting in
+  that time retakes the seat and is re-sent the lobby and their view. Once the hold runs
+  out (or at once, for a guest who pressed Leave and sent `bye`), `Rules.playerLeft` is
+  called, and if fewer than `info.minPlayers` remain, with no other seat still held, the
+  match ends with `Rules.standings` as it stands. In the lobby a dropped guest is simply
+  removed.
 - **Host leaving ends the room** for everyone.
 - After a match the lobby's phase is `.finished` with the standings; the host chooses
   *Play again* or *Pick another game*.
@@ -563,7 +567,8 @@ line by line before handing it back:
   host advertises `room`, `v` and `rid`; guests list rooms by `rid`. The `MCPeerID` is
   made once and kept in UserDefaults — a fresh one per room left ghost peers in other
   phones' lists that hung for the whole invitation timeout. A join invites up to 3 times
-  (10 s each); a connected guest stops browsing. MultipeerConnectivity cannot hang up on
+  (8 s each); a connected guest stops browsing. A guest's first message reaching the host
+  before its "connected" callback registers the peer rather than being dropped. MultipeerConnectivity cannot hang up on
   a single peer, so a refused guest leaves when it reads `refused`.
 - **Wi-Fi / hotspot**: `NWListener` on TCP port **47474** when free (else any port, shown
   with the address), advertised as Bonjour `_srplay._tcp` with a TXT record (`rid`, `v`,
@@ -576,8 +581,13 @@ line by line before handing it back:
   and browsing in the background: the session calls `refresh()` whenever the app comes to
   the front, and restarts an empty browse every 10 s.
 - **Dropped guests rejoin**: a guest that loses the host mid-room looks for the same
-  room id for 45 s (`OfflineReconnect`) and rejoins its own seat (same player id); games
-  with an away state take it back with `.back`. A join that hangs 25 s returns to the list.
+  room id for 60 s (`OfflineReconnect.patience`) and rejoins its own seat (same player
+  id); games with an away state take it back with `.back`. Each route of a join gets
+  `OfflineReconnect.joinTimeout` (30 s, enough for Nearby's three invitations) up to the
+  host's `welcome`: the dual link reports `.trying` when it falls back to its other route
+  and the session restarts the timer. A connected guest re-sends `hello` every 2 s until
+  welcomed, so one lost hello cannot leave it on "Joining…". A route that hung is tried
+  last on the next attempt at that room (`OfflineDiscovery.routes(for:failed:)`).
 - **Test connection** (lobby): a guest times a ping round trip; the host re-advertises and
   says who it has heard from (guests ping every 3 s once settled; `OfflinePeerHealth`).
 - The host must keep the app open; the room screen disables auto-lock while it is up.
