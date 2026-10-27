@@ -18,6 +18,11 @@ import SwiftUI
 /// @mentions picked out, with "Mentions you" on a thread that names you;
 /// "Remind me later" and Share on the long press; quick messages, "where I
 /// am" and a counter over the box; and the box keeps an unsent draft.
+///
+/// Later the same day (John: "improve the landing screen for family chat"):
+/// under the newest thread, where the screen opens, the family as it is now —
+/// who is where, what came in since last time, the quick lines and the bat
+/// phone, and a few suggestions for the moment (`FamilyChatLanding`).
 struct FamilyMessagesScreen: View {
     @ObservedObject private var store = FamilyMessagesStore.shared
     @EnvironmentObject private var router: Router
@@ -26,7 +31,13 @@ struct FamilyMessagesScreen: View {
     /// A message of mine, waiting on "Delete?".
     @State private var deleting: FamilyThreadDeleting?
     @State private var query = ""
-    @State private var writingPoll = false
+    /// The poll sheet, blank or written out by a suggestion.
+    @State private var pollDraft: FamilyPollDraft?
+    /// Bumped to bring the keyboard up: something on the landing has just
+    /// put words in the box.
+    @State private var focusRequest = 0
+    /// A person's page, opened from the landing.
+    @State private var personPage: FamilyPersonRoute?
     /// When msg family was last read, as it stood when this screen opened:
     /// the "New" line stays where it was for the whole visit.
     @State private var openedReadAt: Date?
@@ -34,12 +45,24 @@ struct FamilyMessagesScreen: View {
 
     var body: some View {
         let faces = FamilyFaces()
+        // Before the screen has appeared, the mark it is about to take — so
+        // the first frame already draws the "New" line and the landing where
+        // they stay, and nothing grows under the scroll to the foot.
+        let since = opened ? openedReadAt : store.readAt
         let shown = store.thread.filter { matches($0) }
         let pinned = query.isEmpty ? shown.filter { store.pinned.contains($0.id) } : []
         let rest = shown.filter { !pinned.contains($0) }
-        let firstNew = rest.firstIndex { store.isUnread($0, since: openedReadAt) }
-        let newCount = rest.filter { store.isUnread($0, since: openedReadAt) }.count
+        let firstNew = rest.firstIndex { store.isUnread($0, since: since) }
+        let newCount = rest.filter { store.isUnread($0, since: since) }.count
+        // Where "what you missed" jumps to: the "New" line, or a pinned
+        // thread when that is all that is new.
+        let newTarget: String? = firstNew != nil
+            ? "new-line"
+            : pinned.first(where: { store.isUnread($0, since: since) }).map { "pin-\($0.id)" }
         ScrollViewReader { proxy in
+            let jumpToNew: (() -> Void)? = newTarget.map { (target: String) -> (() -> Void) in
+                return { withAnimation(.snappy) { proxy.scrollTo(target, anchor: .top) } }
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if store.thread.isEmpty {
@@ -60,7 +83,7 @@ struct FamilyMessagesScreen: View {
                     if !pinned.isEmpty {
                         FamilyDayHeading(title: "Pinned")
                         ForEach(pinned) { message in
-                            card(message, faces: faces, unread: store.isUnread(message, since: openedReadAt)).id("pin-\(message.id)")
+                            card(message, faces: faces, unread: store.isUnread(message, since: since)).id("pin-\(message.id)")
                         }
                     }
                     ForEach(Array(rest.enumerated()), id: \.element.id) { index, message in
@@ -69,9 +92,19 @@ struct FamilyMessagesScreen: View {
                             FamilyDayHeading(title: day)
                         }
                         if index == firstNew, query.isEmpty {
-                            FamilyNewLine(count: newCount)
+                            FamilyNewLine(count: newCount).id("new-line")
                         }
-                        card(message, faces: faces, unread: store.isUnread(message, since: openedReadAt)).id(message.id)
+                        card(message, faces: faces, unread: store.isUnread(message, since: since)).id(message.id)
+                    }
+                    if query.isEmpty, store.loaded || !store.thread.isEmpty {
+                        FamilyChatLanding(
+                            since: since,
+                            fill: { addToBox($0) },
+                            poll: { pollDraft = $0 },
+                            openThread: { openThread($0) },
+                            openPerson: { personPage = FamilyPersonRoute(subject: $0) },
+                            jumpToNew: jumpToNew
+                        )
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -95,13 +128,14 @@ struct FamilyMessagesScreen: View {
                             if store.notice == notice { store.notice = nil }
                         }
                 }
-                FamilyComposerAccessories(draft: $draft, names: store.mentionNames) { writingPoll = true }
+                FamilyComposerAccessories(draft: $draft, names: store.mentionNames) { pollDraft = FamilyPollDraft() }
                 FamilyMessageComposer(
                     draft: $draft,
                     placeholder: "Start a thread for the family",
                     busy: store.busy == "new",
                     error: store.thread.isEmpty ? nil : store.message,
-                    identifier: "family-msg"
+                    identifier: "family-msg",
+                    focusRequest: focusRequest
                 ) {
                     let text = draft
                     Task { if await store.send(text) { draft = "" } }
@@ -114,9 +148,12 @@ struct FamilyMessagesScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.load() }
         .task { await FamilyPhotos.shared.load() }
+        .task { await FamilyChatLanding.refresh() }
         .srRefreshable { await store.load() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await store.load() } }
+            guard phase == .active else { return }
+            Task { await store.load() }
+            Task { await FamilyChatLanding.refresh() }
         }
         .onAppear {
             // The "New" line is drawn against when it was last read; reading it
@@ -127,10 +164,21 @@ struct FamilyMessagesScreen: View {
         .onChange(of: store.lastActivityISO) { _, _ in store.markRead() }
         .onDisappear { store.markRead() }
         .onChange(of: draft) { _, text in FamilyMessagesStore.saveDraft(text, for: "new") }
-        .sheet(isPresented: $writingPoll) {
-            FamilyPollComposer { poll in await store.send(poll.body) }
+        .sheet(item: $pollDraft) { written in
+            FamilyPollComposer(question: written.question, options: written.options) { poll in await store.send(poll.body) }
+        }
+        .navigationDestination(item: $personPage) { route in
+            FamilyChatPersonPage(subject: route.subject)
         }
         .familyThreadDelete($deleting, store: store)
+    }
+
+    /// Words from the landing into the box, after whatever is there already
+    /// — nothing unsent is lost — with the keyboard up.
+    private func addToBox(_ words: String) {
+        let kept = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft = kept.isEmpty ? words : kept + " " + words
+        focusRequest += 1
     }
 
     private func matches(_ message: FamilyMessage) -> Bool {
@@ -142,8 +190,12 @@ struct FamilyMessagesScreen: View {
     }
 
     private func open(_ message: FamilyMessage) {
+        openThread(message.id)
+    }
+
+    private func openThread(_ id: String) {
         SRHaptic.tap()
-        router.push(FamilyThreadRef(id: message.id), on: router.tab)
+        router.push(FamilyThreadRef(id: id), on: router.tab)
     }
 
     // MARK: - A thread's card
@@ -635,7 +687,11 @@ struct FamilyMessageComposer: View {
     let busy: Bool
     let error: String?
     let identifier: String
+    /// Bumped by the screen to bring the keyboard up: a person or a
+    /// suggestion on the landing has just put words in the box.
+    var focusRequest = 0
     let send: () -> Void
+    @FocusState private var focused: Bool
 
     private var sendable: Bool { FamilyMessages.sendable(draft) != nil && !busy }
 
@@ -663,6 +719,7 @@ struct FamilyMessageComposer: View {
                         .padding(.vertical, 12)
                         .frame(minHeight: 48)
                         .srGlass(.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .focused($focused)
                         .accessibilityIdentifier("\(identifier)-composer")
 
                     Button {
@@ -690,5 +747,6 @@ struct FamilyMessageComposer: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+        .onChange(of: focusRequest) { _, _ in focused = true }
     }
 }
