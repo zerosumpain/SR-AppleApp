@@ -560,6 +560,8 @@ struct ContentView: View {
             // scene leaves, and nothing claims it runs when the app is shut.
             syncGamesPoll()
             guard phase == .active else { return }
+            // Games played with no internet go to the leaderboard now if they can.
+            OfflineResultStore.shared.syncSoon()
             // A quick action taken while the app was merely backgrounded never
             // goes through `task`, which runs once per view lifetime.
             drainPending()
@@ -926,6 +928,7 @@ private extension View {
             .navigationDestination(for: MarblerRef.self) { _ in MarblerScreen() }
             // Play nearby: offline games, from the Games page and from More.
             .navigationDestination(for: OfflineGamesRef.self) { _ in OfflineGamesScreen() }
+            .navigationDestination(for: SoloGameRef.self) { OfflineSoloScreen(kind: $0.kind) }
             // The Travel kit and its five tools, from the hub.
             .navigationDestination(for: TravelKitRef.self) { _ in TravelKitScreen() }
             .navigationDestination(for: TravelToolRef.self) { $0.screen }

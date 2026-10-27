@@ -78,8 +78,12 @@ struct OfflineLobbyPlayer: Codable, Equatable, Identifiable {
     var present: Bool
     /// In the running match (rather than waiting for the next one).
     var inMatch: Bool
+    /// A computer player the host's phone moves for. Optional on the wire,
+    /// so a lobby from a phone that has never heard of bots still reads.
+    var bot: Bool? = nil
 
     var player: OfflinePlayer { OfflinePlayer(id: id, name: name) }
+    var isBot: Bool { bot == true }
 }
 
 /// The room, as every player sees it.
@@ -94,6 +98,11 @@ struct OfflineLobby: Codable, Equatable {
     var match: Int
     /// The last match's table, once it has finished.
     var standings: [OfflineStanding]?
+    /// The room's own id: the same one its links advertise, so a dropped
+    /// guest can find this room again, and every phone files a finished
+    /// match under the same key when it syncs the result later. Optional on
+    /// the wire for the same reason as `bot`.
+    var roomKey: String? = nil
 
     /// The players as `OfflinePlayer`, seat order.
     var roster: [OfflinePlayer] { players.map(\.player) }

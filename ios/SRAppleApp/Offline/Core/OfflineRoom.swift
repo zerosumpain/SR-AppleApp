@@ -22,8 +22,14 @@ struct OfflineRoom {
     /// eight or fewer, and five keeps a TCP hotspot room comfortable.
     static let capacity = 5
 
+    /// Computer players' names, in the order they sit down: four, so a host
+    /// alone can fill every other seat at the table.
+    static let botNames = ["Robo", "Chip", "Pixel", "Sprocket"]
+
     let hostId: String
     let roomName: String
+    /// The room's id on the air and in synced results (`OfflineLobby.roomKey`).
+    let roomKey: String
     private let games: [String: OfflineGameEntry]
 
     /// Seat order: the host first, then guests as they joined.
@@ -37,10 +43,27 @@ struct OfflineRoom {
 
     private var lobbySent: [String: OfflineLobby] = [:]
     private var viewSent: [String: OfflineViewPacket] = [:]
+    /// Host clock: when each computer player next looks for a move.
+    private var botDue: [String: Double] = [:]
+    /// The view each computer player last "saw", so a change to it (its
+    /// turn coming round) starts its thinking time afresh.
+    private var botSeen: [String: Data] = [:]
+    /// Host clock: when each player who dropped mid-match was last here.
+    /// The game is not told until `seatHeld` has passed, so a blip in a
+    /// two-player game does not hand the other player a forfeit win.
+    private var awaySince: [String: Double] = [:]
 
-    init(host: OfflinePlayer, roomName: String, games: [OfflineGameEntry]) {
+    /// How long a dropped player's seat is held before the game plays on
+    /// without them. A little longer than the guest keeps trying to get back
+    /// (`OfflineReconnect.patience`), because the two phones notice the drop
+    /// a few seconds apart and the host must not give up first.
+    static let seatHeld: Double = OfflineReconnect.patience + 10
+
+    init(host: OfflinePlayer, roomName: String, games: [OfflineGameEntry],
+         roomKey: String = OfflineDiscovery.roomKey(seed: OfflineRNG.freshSeed())) {
         self.hostId = host.id
         self.roomName = roomName
+        self.roomKey = roomKey
         var byId: [String: OfflineGameEntry] = [:]
         for entry in games { byId[entry.info.id] = entry }
         self.games = byId
@@ -51,7 +74,22 @@ struct OfflineRoom {
 
     var lobby: OfflineLobby {
         OfflineLobby(hostId: hostId, roomName: roomName, players: players, gameId: gameId,
-                     phase: phase, match: matchNumber, standings: standings)
+                     phase: phase, match: matchNumber, standings: standings, roomKey: roomKey)
+    }
+
+    /// Computer players in the room.
+    var bots: [OfflineLobbyPlayer] { players.filter(\.isBot) }
+
+    /// Whether a computer player may be added now, as a refusal sentence; nil when it may.
+    var addBotProblem: String? {
+        if phase == .playing { return "Finish this game first." }
+        guard let entry else { return "Pick a game first." }
+        guard entry.hasBot else { return "\(entry.info.title) has no computer player yet." }
+        if players.count >= min(Self.capacity, entry.info.maxPlayers) {
+            return "\(entry.info.title) has every seat filled."
+        }
+        if bots.count >= Self.botNames.count { return "That is every computer player." }
+        return nil
     }
 
     /// The chosen game's entry.
@@ -88,8 +126,13 @@ struct OfflineRoom {
         if let index = players.firstIndex(where: { $0.id == player.id }) {
             players[index].present = true
             players[index].name = name
+            awaySince[player.id] = nil
             forget(player.id)
             return
+        }
+        // A person beats a computer player to a seat, between matches.
+        if players.count >= Self.capacity, phase != .playing, let bot = players.lastIndex(where: \.isBot) {
+            players.remove(at: bot)
         }
         if players.count >= Self.capacity {
             throw OfflineRefusal("The room is full — \(Self.capacity) is the most.")
@@ -98,32 +141,69 @@ struct OfflineRoom {
         players.append(OfflineLobbyPlayer(id: player.id, name: name, present: true, inMatch: false))
     }
 
-    /// A player has gone. Out of a lobby they are simply removed; out of a
-    /// running match they keep their seat (marked away), the game is told,
-    /// and a match that falls below its minimum ends with the table as it stands.
-    mutating func drop(_ playerId: String, now: Double) {
+    /// A player has gone. Out of a lobby they are simply removed. Out of a
+    /// running match they keep their seat, marked away. A player who chose
+    /// to leave (`deliberate`, their `bye`) is given up on at once. A dropped
+    /// connection gets `seatHeld` to come back first. Most drops are a locked
+    /// phone or a radio blip, and in a two-player game telling the game at
+    /// once would end the match before the guest had any chance to rejoin.
+    /// Once the game is told, a match that falls below its minimum ends with
+    /// the table as it stands.
+    mutating func drop(_ playerId: String, now: Double, deliberate: Bool = false) {
         guard playerId != hostId, let index = players.firstIndex(where: { $0.id == playerId }) else { return }
         forget(playerId)
         guard phase == .playing, players[index].inMatch else {
             players.remove(at: index)
+            awaySince[playerId] = nil
             return
         }
         players[index].present = false
-        match?.playerLeft(playerId, now: now)
-        if let info = match?.info, players.filter({ $0.inMatch && $0.present }).count < info.minPlayers {
-            finish()
-        } else {
-            checkOver()
+        if deliberate {
+            awaySince[playerId] = nil
+            giveUp(on: [playerId], now: now)
+        } else if awaySince[playerId] == nil {
+            awaySince[playerId] = now
         }
     }
+
+    /// Players whose seat is being held for them now, mid-match.
+    var held: [String] { awaySince.keys.sorted() }
 
     // MARK: - The host's choices
 
     /// Choose the next game. Only between matches.
     mutating func choose(_ gameId: String) throws {
         guard phase != .playing else { throw OfflineRefusal("Finish this game first.") }
-        guard games[gameId] != nil else { throw OfflineRefusal("This phone does not know that game.") }
+        guard let next = games[gameId] else { throw OfflineRefusal("This phone does not know that game.") }
         self.gameId = gameId
+        // A game with no computer player cannot seat one; nor can a game
+        // with fewer seats than there are players and bots.
+        if !next.hasBot {
+            players.removeAll(where: \.isBot)
+        } else {
+            while players.count > next.info.maxPlayers, let last = players.lastIndex(where: \.isBot) {
+                players.remove(at: last)
+            }
+        }
+    }
+
+    /// Seat a computer player for the chosen game, named from `botNames`.
+    @discardableResult
+    mutating func addBot() throws -> String {
+        if let problem = addBotProblem { throw OfflineRefusal(problem) }
+        let taken = Set(players.map(\.name))
+        let name = Self.botNames.first { !taken.contains($0) } ?? "Bot \(bots.count + 1)"
+        var n = bots.count + 1
+        while players.contains(where: { $0.id == "bot-\(n)" }) { n += 1 }
+        let id = "bot-\(n)"
+        players.append(OfflineLobbyPlayer(id: id, name: name, present: true, inMatch: false, bot: true))
+        return id
+    }
+
+    /// Stand a computer player down. Only between matches.
+    mutating func removeBot(_ id: String) throws {
+        guard phase != .playing else { throw OfflineRefusal("Finish this game first.") }
+        players.removeAll { $0.id == id && $0.isBot }
     }
 
     /// Start the chosen game with everyone present. `seed` comes from
@@ -133,11 +213,14 @@ struct OfflineRoom {
         guard let entry else { throw OfflineRefusal("Pick a game.") }
         players.removeAll { !$0.present }
         for index in players.indices { players[index].inMatch = true }
+        awaySince = [:]
         match = entry.begin(players.map(\.player), seed, now)
         matchNumber += 1
         phase = .playing
         standings = nil
         viewSent = [:]
+        botDue = [:]
+        botSeen = [:]
         checkOver()
     }
 
@@ -155,8 +238,38 @@ struct OfflineRoom {
     /// The host's ~10 Hz heartbeat.
     mutating func tick(now: Double) {
         guard phase == .playing else { return }
+        let overdue = awaySince.filter { now - $0.value >= Self.seatHeld }.keys.sorted()
+        if !overdue.isEmpty {
+            for id in overdue { awaySince[id] = nil }
+            giveUp(on: overdue, now: now)
+            guard phase == .playing else { return }
+        }
         match?.tick(now: now)
         checkOver()
+        moveBots(now: now)
+    }
+
+    /// How long a computer player "thinks" before a move — long enough to
+    /// see what it did, short enough not to drag.
+    static let botThink: Double = 0.9
+
+    /// Each computer player looks at the table `botThink` after it last
+    /// changed and moves if it has a move — so it never answers in the same
+    /// instant as the person before it, and goes again (a box closed, a card
+    /// drawn) after another pause.
+    private mutating func moveBots(now: Double) {
+        guard phase == .playing else { return }
+        for bot in players where bot.isBot && bot.inMatch {
+            guard let seen = match?.viewData(for: bot.id) else { return }
+            if botSeen[bot.id] != seen {
+                botSeen[bot.id] = seen
+                botDue[bot.id] = now + Self.botThink
+                continue
+            }
+            guard let due = botDue[bot.id], now >= due, phase == .playing else { continue }
+            botDue[bot.id] = nil
+            if match?.botAct(bot.id, now: now) == true { checkOver() }
+        }
     }
 
     /// The host stops the match early: standings as they stand.
@@ -174,6 +287,7 @@ struct OfflineRoom {
         players.removeAll { !$0.present }
         for index in players.indices { players[index].inMatch = false }
         viewSent = [:]
+        awaySince = [:]
     }
 
     /// The game's view `playerId` would be sent now (a spectator's if they
@@ -193,12 +307,13 @@ struct OfflineRoom {
     mutating func outbox() -> [OfflineOutgoing] {
         var out: [OfflineOutgoing] = []
         let current = lobby
-        for player in players where player.present && lobbySent[player.id] != current {
+        // Bots are moved here, on the host; nothing is sent to them.
+        for player in players where player.present && !player.isBot && lobbySent[player.id] != current {
             out.append(OfflineOutgoing(to: player.id, message: .lobby(current)))
             lobbySent[player.id] = current
         }
         if let match, phase != .lobby, let gameId {
-            for player in players where player.present {
+            for player in players where player.present && !player.isBot {
                 let packet = OfflineViewPacket(
                     gameId: gameId, match: matchNumber,
                     data: match.viewData(for: player.inMatch ? player.id : nil),
@@ -214,6 +329,19 @@ struct OfflineRoom {
     }
 
     // MARK: - Private
+
+    /// Tell the game these players have gone, then end a match that is now
+    /// below its minimum, unless a seat is still being held for somebody
+    /// who may yet come back.
+    private mutating func giveUp(on ids: [String], now: Double) {
+        for id in ids { match?.playerLeft(id, now: now) }
+        if let info = match?.info, awaySince.isEmpty,
+           players.filter({ $0.inMatch && $0.present }).count < info.minPlayers {
+            finish()
+        } else {
+            checkOver()
+        }
+    }
 
     private mutating func checkOver() {
         if match?.isOver == true { finish() }

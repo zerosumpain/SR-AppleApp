@@ -323,8 +323,8 @@ final class OfflineCoreTests: XCTestCase {
         _ = room.outbox()
         room.tick(now: 5)
         XCTAssertEqual(room.phase, .playing)
-        room.tick(now: 61)
-        XCTAssertEqual(room.phase, .finished, "the test game times out at sixty seconds")
+        room.tick(now: 301)
+        XCTAssertEqual(room.phase, .finished, "the test game times out at five minutes")
     }
 
     func testANewcomerMidMatchWatchesAsASpectator() throws {
@@ -371,16 +371,67 @@ final class OfflineCoreTests: XCTestCase {
         XCTAssertEqual(try secret(views(back)["g2"]).me, "g2", "back in their own seat, with their own secret")
     }
 
-    func testAMatchBelowItsMinimumEnds() throws {
+    func testAMatchBelowItsMinimumEndsOnceTheSeatIsGivenUp() throws {
         var room = room()
         try room.join(guest(1), version: OfflineEnvelope.version)
         try room.choose("secret")
         try room.start(seed: 1, now: 0)
         room.drop("g1", now: 1)
+        XCTAssertEqual(room.phase, .playing, "a dropped seat is held, not given up at once")
+        XCTAssertEqual(room.held, ["g1"])
+        room.tick(now: 1 + OfflineRoom.seatHeld - 1)
+        XCTAssertEqual(room.phase, .playing)
+        room.tick(now: 1 + OfflineRoom.seatHeld)
         XCTAssertEqual(room.phase, .finished)
         XCTAssertEqual(room.standings?.count, 2)
+        XCTAssertEqual(room.held, [])
         room.backToLobby()
         XCTAssertEqual(room.players.map(\.id), ["h"], "the absent leave with the match")
+    }
+
+    func testATwoPlayerMatchSurvivesADropAndARejoin() throws {
+        var room = room()
+        try room.join(guest(1), version: OfflineEnvelope.version)
+        try room.choose("secret")
+        try room.start(seed: 1, now: 0)
+        _ = room.outbox()
+        room.drop("g1", now: 1)
+        room.tick(now: 20)
+        XCTAssertEqual(room.phase, .playing)
+        // A second drop of the same seat (the old connection timing out late)
+        // does not restart or shorten the hold.
+        room.drop("g1", now: 30)
+        try room.join(guest(1), version: OfflineEnvelope.version)
+        XCTAssertEqual(room.held, [])
+        XCTAssertEqual(room.players.first { $0.id == "g1" }?.present, true)
+        room.tick(now: 1 + OfflineRoom.seatHeld + 5)
+        XCTAssertEqual(room.phase, .playing, "back in time: the match goes on")
+        let back = room.outbox()
+        XCTAssertEqual(try secret(views(back)["g1"]).me, "g1", "in their own seat")
+        try room.act(action(.add(1)), by: "g1", match: 1, now: 70)
+    }
+
+    func testAPlayerWhoLeavesOnPurposeIsNotWaitedFor() throws {
+        var room = room()
+        try room.join(guest(1), version: OfflineEnvelope.version)
+        try room.choose("secret")
+        try room.start(seed: 1, now: 0)
+        room.drop("g1", now: 1, deliberate: true)
+        XCTAssertEqual(room.phase, .finished)
+        XCTAssertEqual(room.held, [])
+    }
+
+    func testAMatchWaitsForEverySeatItIsHolding() throws {
+        var room = room()
+        try room.join(guest(1), version: OfflineEnvelope.version)
+        try room.join(guest(2), version: OfflineEnvelope.version)
+        try room.choose("secret")
+        try room.start(seed: 1, now: 0)
+        room.drop("g1", now: 1)
+        room.drop("g2", now: 10, deliberate: true)
+        XCTAssertEqual(room.phase, .playing, "g1 may yet come back")
+        room.tick(now: 1 + OfflineRoom.seatHeld)
+        XCTAssertEqual(room.phase, .finished)
     }
 
     func testTheHostCanEndAMatchEarly() throws {
@@ -523,7 +574,8 @@ final class OfflineCoreTests: XCTestCase {
 
 /// Each player is dealt a secret number nobody else may see; anyone may add to
 /// a shared total; `finish` ends it, the highest secret plus total winning.
-/// Times out sixty seconds after it starts.
+/// Times out five minutes after it starts: longer than a held seat, so the
+/// tests of a dropped player are not ended by the clock.
 private enum OfflineSecretRules: OfflineGameRules {
     static let info = OfflineGameInfo(id: "secret", title: "Secret", blurb: "A test.", category: .skill,
                                       minPlayers: 2, maxPlayers: 3, symbol: "lock", howToPlay: ["Test."])
@@ -551,7 +603,7 @@ private enum OfflineSecretRules: OfflineGameRules {
     static func start(players: [OfflinePlayer], now: Double, rng: inout OfflineRNG) -> State {
         var secrets: [String: Int] = [:]
         for player in players { secrets[player.id] = rng.int(in: 1...100) }
-        return State(players: players, secrets: secrets, endsAt: now + 60)
+        return State(players: players, secrets: secrets, endsAt: now + 300)
     }
 
     static func apply(_ action: Action, by playerId: String, to state: inout State, now: Double, rng: inout OfflineRNG) throws {
