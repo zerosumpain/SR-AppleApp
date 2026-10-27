@@ -2,11 +2,12 @@ import Foundation
 
 // MARK: - Demo Landgrab
 //
-// `-SRDemo` answers for `/api/native/family/landgrab` and
-// `/api/native/family/landgrab/changes`. Synthetic throughout — the
+// `-SRDemo` answers for `/api/native/family/landgrab`,
+// `/api/native/family/landgrab/changes` and
+// `/api/native/family/landgrab/explored`. Synthetic throughout — the
 // repository is public. The ground is a grid of 48 m hexes laid over Central
 // Park, New York (as the demo's other tracks are), never anywhere the family
-// walks.
+// walks; the family view's trip "today" is on Boston Common.
 //
 // This week: Sam ran a loop round the reservoir and took everything inside
 // it, some of it Alex's; Alex walked down the west side; Robin rode the north
@@ -22,6 +23,8 @@ extension SRDemoFixtures {
         switch parts.count {
         case 4:
             return landgrabWeeks(clock, count: min(12, max(1, Int(query["weeks"] ?? "") ?? 6)))
+        case 5 where parts[4] == "explored":
+            return LandgrabDemo.explored(clock)
         case 5 where parts[4] == "changes":
             let mondays = LandgrabDemo.mondays(clock.now, count: 12)
             guard let week = query["week"], let index = mondays.firstIndex(of: week) else {
@@ -300,6 +303,87 @@ enum LandgrabDemo {
         return "{\"week\":{\"start\":\(F.s(week)),\"end\":\(F.s(sunday(week))),\"current\":\(F.b(current))},"
             + "\"bounds\":\(bounds),\"focus\":\(focus),\"people\":[\(peopleJSON.joined(separator: ","))],"
             + "\"hexes\":[\(hexJSON.joined(separator: ","))],\"changes\":[\(changeJSON.joined(separator: ","))],\"truncated\":false}"
+    }
+
+    // MARK: Explored (the family view)
+
+    /// The family's ground, all time: the park and the streets round it at
+    /// home, and a trip to Boston Common whose newest ground is today's — so
+    /// the map opens away from home, as it does on a real trip. The figures
+    /// are made up to read well together, not counted from the shapes.
+    static func explored(_ clock: SRDemoFixtures.DemoClock) -> String {
+        typealias F = SRDemoFixtures
+        let today = Landgrab.ymd(clock.now)
+        let yesterday = Landgrab.ymd(clock.date(minutesAgo: 24 * 60))
+        let monday = Landgrab.monday(of: clock.now)
+        let home: [[(Double, Double)]] = [
+            ellipse(centre: (40.7853, -73.9625), latRadius: 0.0034, lonRadius: 0.0040, points: 48),
+            ribbon(line(from: (40.7738, -73.9745), to: (40.7808, -73.9693), points: 20, wobble: 0.00018), widthM: 130),
+            ribbon(line(from: (40.7905, -73.9585), to: (40.7968, -73.9528), points: 20, wobble: 0.00022), widthM: 130),
+            ribbon(line(from: (40.7680, -73.9810), to: (40.7760, -73.9590), points: 24, wobble: 0.0003), widthM: 160),
+        ]
+        let awayToday: [[(Double, Double)]] = [
+            ellipse(centre: (42.3550, -71.0656), latRadius: 0.0018, lonRadius: 0.0024, points: 32),
+            ribbon(line(from: (42.3520, -71.0710), to: (42.3590, -71.0600), points: 20, wobble: 0.0002), widthM: 140),
+        ]
+        let awayBefore: [[(Double, Double)]] = [
+            ribbon(line(from: (42.3600, -71.0590), to: (42.3650, -71.0540), points: 14, wobble: 0.0002), widthM: 140),
+        ]
+        func polygons(_ shapes: [[(Double, Double)]]) -> String {
+            let items = shapes.map { shape in
+                let ring = LandgrabPolyline.encode(shape.map { LandgrabPoint(lat: $0.0, lon: $0.1) })
+                return "{\"outer\":\(F.s(ring)),\"holes\":[]}"
+            }
+            return "[\(items.joined(separator: ","))]"
+        }
+        func figure(_ cells: Int, _ km2: Double) -> String { "{\"cells\":\(cells),\"km2\":\(F.n(km2))}" }
+        let weekCells = monday == today ? 410 : 590
+        let weekKm2 = monday == today ? 1.31 : 1.88
+        let parts: [(Person, Int, Double, Int, Int)] = [
+            (alex, 5_100, 11.9, 3_900, 260), (sam, 3_480, 8.1, 2_310, 150), (robin, 1_890, 4.4, 1_190, 0), (kit, 515, 1.2, 460, 0),
+        ]
+        let people = parts.map { p, cells, km2, firsts, todayCells in
+            "{\"id\":\(F.s(p.id)),\"name\":\(F.s(p.name)),\"me\":\(F.b(p.me)),\"colour\":\(F.s(p.colour)),"
+                + "\"cells\":\(cells),\"km2\":\(F.n(km2)),\"firsts\":\(firsts),\"today\":\(todayCells)}"
+        }
+        let bounds = { (minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) in
+            "{\"minLat\":\(F.coord(minLat)),\"minLon\":\(F.coord(minLon)),\"maxLat\":\(F.coord(maxLat)),\"maxLon\":\(F.coord(maxLon))}"
+        }
+        let places = [
+            "{\"lat\":40.781,\"lon\":-73.967,\"cells\":7290,\"km2\":16.5,\"bounds\":\(bounds(40.7660, -73.9830, 40.7990, -73.9500)),"
+                + "\"first\":\"2025-01-04\",\"last\":\(F.s(Landgrab.ymd(clock.date(minutesAgo: 9 * 24 * 60)))),\"home\":true}",
+            "{\"lat\":42.357,\"lon\":-71.064,\"cells\":590,\"km2\":1.88,\"bounds\":\(bounds(42.3500, -71.0730, 42.3670, -71.0520)),"
+                + "\"first\":\(F.s(yesterday)),\"last\":\(F.s(today)),\"home\":false}",
+        ]
+        let body: [String] = [
+            "{\"family\":\"The family\",\"updatedAt\":\(F.s(clock.iso(minutesAgo: 12))),\"since\":\"2025-01-04\",",
+            "\"today\":\(F.s(today)),\"weekStart\":\(F.s(monday)),",
+            "\"total\":\(figure(7_910, 18.4)),\"todayNew\":\(figure(410, 1.31)),\"weekNew\":\(figure(weekCells, weekKm2)),",
+            "\"people\":[\(people.joined(separator: ","))],\"places\":[\(places.joined(separator: ","))],",
+            "\"otherPlaces\":{\"count\":2,\"cells\":30,\"km2\":0.07},",
+            "\"shape\":{\"zoom\":19,\"vertices\":0,\"truncated\":false,\"polygons\":\(polygons(home + awayToday + awayBefore))},",
+            "\"fresh\":{\"day\":\(F.s(today)),\"cells\":410,\"km2\":1.31,",
+            "\"shape\":{\"zoom\":19,\"vertices\":0,\"truncated\":false,\"polygons\":\(polygons(awayToday))}},",
+            "\"focus\":{\"lat\":40.78530,\"lon\":-73.96250,\"radiusM\":1600}}",
+        ]
+        return body.joined()
+    }
+
+    /// A path drawn `widthM` wide: one side out, the other back.
+    static func ribbon(_ path: [(Double, Double)], widthM: Double) -> [(Double, Double)] {
+        guard path.count > 1 else { return path }
+        let half = widthM / 2
+        var left: [(Double, Double)] = []
+        var right: [(Double, Double)] = []
+        for (i, p) in path.enumerated() {
+            let a = path[max(0, i - 1)], b = path[min(path.count - 1, i + 1)]
+            let dx = (b.1 - a.1) * metresPerLon, dy = (b.0 - a.0) * metresPerLat
+            let length = max(1e-9, hypot(dx, dy))
+            let nx = -dy / length * half, ny = dx / length * half
+            left.append((p.0 + ny / metresPerLat, p.1 + nx / metresPerLon))
+            right.append((p.0 - ny / metresPerLat, p.1 - nx / metresPerLon))
+        }
+        return left + right.reversed()
     }
 
     // MARK: Geometry (flat-earth near the origin; it is a park, not a continent)
