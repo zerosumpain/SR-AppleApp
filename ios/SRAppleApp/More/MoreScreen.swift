@@ -246,7 +246,7 @@ struct MoreScreen: View {
                             hint: "One line to everyone's phone") { router.pushFromHub(FamilyPage.messages) }
         case .landgrab:
             return HubEntry(id: item.id, icon: "hexagon.fill", fill: SR.accent, title: "Landgrab", status: Landgrab.moreStatus(landgrab.board),
-                            hint: "Ground the family has won") {
+                            hint: "Everywhere the family has explored, and this week's game") {
                 if let week = landgrab.board.flatMap(Landgrab.currentWeek) { router.pushFromHub(LandgrabMapRef(week: week.start)) }
             }
         case .place(let place):
