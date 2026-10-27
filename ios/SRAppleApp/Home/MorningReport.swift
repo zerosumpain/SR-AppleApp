@@ -430,7 +430,7 @@ enum BriefingLinks {
 
 // MARK: - Lenient decoding
 
-private struct Lossy<Value: Decodable>: Decodable {
+private struct MorningReportLossy<Value: Decodable>: Decodable {
     let value: Value?
 
     init(from decoder: Decoder) throws {
@@ -457,7 +457,7 @@ private extension KeyedDecodingContainer {
 
     /// The elements that decode; a missing key, a null or a non-array is [].
     func lossyArray<Value: Decodable>(_ type: Value.Type, _ key: Key) -> [Value] {
-        guard let items = try? decodeIfPresent([Lossy<Value>].self, forKey: key) else { return [] }
+        guard let items = try? decodeIfPresent([MorningReportLossy<Value>].self, forKey: key) else { return [] }
         return items.compactMap(\.value)
     }
 }
