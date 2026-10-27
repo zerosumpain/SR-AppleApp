@@ -44,7 +44,7 @@ enum WhatsNew {
             WhatsNewItem(icon: "square.grid.3x3", title: "A tidier More",
                          detail: "Every door on More is the same size now, and the ones you use most come first."),
             WhatsNewItem(icon: "phone.connection.fill", title: "Bat phone on every phone",
-                         detail: "msg family, with the bat phone, always stays on Home — and it's on the app icon's long-press menu too."),
+                         detail: "The bat phone is at the top of Home, beside the date, on every family phone — and on the app icon's long-press menu too."),
             WhatsNewItem(icon: "paperplane", title: "Release to the family",
                          detail: "Settings → Release to the family chooses which build the family's phones are offered, or rolls them back — no need for the website.",
                          ownerOnly: true),

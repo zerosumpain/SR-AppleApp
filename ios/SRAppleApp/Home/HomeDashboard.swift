@@ -74,14 +74,26 @@ struct HomeHeader: View {
     let name: String?
     let line: String?
     var now: Date = Date()
-    @ScaledMetric(relativeTo: .largeTitle) private var height: CGFloat = 112
+    /// The bat phone, at the top right of every family phone's Home — the
+    /// first thing on the page, whatever the tiles below are arranged as
+    /// (John, 2026-10-27: "I can't see the bat phone bit").
+    var batPhone = false
+    /// Room for the bat phone's row on every phone, so the header is one
+    /// height whether it shows or not (and never moves when access arrives).
+    @ScaledMetric(relativeTo: .largeTitle) private var height: CGFloat = 128
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(now.formatted(.dateTime.weekday(.wide).day().month(.wide)).uppercased())
-                .font(SR.Text.label(12))
-                .tracking(1.2)
-                .foregroundStyle(SR.accent)
+            HStack(alignment: .center, spacing: 8) {
+                Text(now.formatted(.dateTime.weekday(.wide).day().month(.wide)).uppercased())
+                    .font(SR.Text.label(12))
+                    .tracking(1.2)
+                    .foregroundStyle(SR.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                if batPhone { BatPhoneButton().fixedSize() }
+            }
             Text(greeting)
                 .font(SR.Text.hero(34))
                 .foregroundStyle(
@@ -98,7 +110,8 @@ struct HomeHeader: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .bottomLeading)
-        .accessibilityElement(children: .combine)
+        // The words read as one; the bat phone stays a button of its own.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("today-hero")
     }
 

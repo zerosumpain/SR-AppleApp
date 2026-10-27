@@ -180,7 +180,8 @@ struct TodayScreen: View {
             // under it the thing the app is opened for — where everyone is.
             VStack(alignment: .leading, spacing: 18) {
                 HomeHeader(name: family.view?.people.first(where: \.isSelf)?.name,
-                           line: HomeHeader.line(view: access.current.family ? family.view : nil, tasksToDo: nil))
+                           line: HomeHeader.line(view: access.current.family ? family.view : nil, tasksToDo: nil),
+                           batPhone: access.familyBoards)
                 cards
             }
             .padding(.horizontal, SR.gutter)
