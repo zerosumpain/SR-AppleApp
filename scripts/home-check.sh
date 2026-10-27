@@ -4,11 +4,12 @@
 #   scripts/home-check.sh
 #
 # Like `offline-check.sh`, for Home and msg family: the briefing's ranking
-# (`Home/HomeBriefing.swift`) and msg family's tools
+# (`Home/HomeBriefing.swift`), the morning report's wire shape
+# (`Home/MorningReport.swift`) and msg family's tools
 # (`Family/FamilyMessageTools.swift`) are Foundation-only by design, so they
 # are compiled here as a throwaway SwiftPM module NAMED `SRAppleApp` (the
 # tests' `@testable import SRAppleApp` is untouched) with their test files
-# (`HomeBriefingTests`, `FamilyMessageToolsTests`) as its test target, in the
+# (`HomeBriefingTests`, `MorningReportTests`, `FamilyMessageToolsTests`) as its test target, in the
 # swift:6.0-jammy image in Swift 5 language mode, as the app is. Every other
 # file under Home/ is put through `swiftc -parse`: no imports resolved, no
 # types checked, but the unbalanced brace is caught before CI.
@@ -21,8 +22,8 @@ IMAGE="${HOME_CHECK_IMAGE:-swift:6.0-jammy}"
 BASE="${HOME_CHECK_TMP:-${TMPDIR:-/tmp}}"
 APP="$ROOT/ios/SRAppleApp"
 HOMEDIR="$APP/Home"
-PURE=(Home/HomeBriefing.swift Family/FamilyMessageTools.swift)
-TESTS=(HomeBriefingTests.swift FamilyMessageToolsTests.swift)
+PURE=(Home/HomeBriefing.swift Home/MorningReport.swift Family/FamilyMessageTools.swift)
+TESTS=(HomeBriefingTests.swift MorningReportTests.swift FamilyMessageToolsTests.swift)
 
 command -v docker >/dev/null || { echo "home-check: docker is not installed" >&2; exit 2; }
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
