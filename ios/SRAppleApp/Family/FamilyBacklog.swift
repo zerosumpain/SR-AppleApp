@@ -207,15 +207,19 @@ final class FamilyBacklogStore: ObservableObject {
         }
     }
 
-    /// The evening round-up, on or off. False when the site refused.
+    /// The evening round-up, on or off. False when the site refused. Moved
+    /// at once and put back if refused, as the switch promises: set only
+    /// once the site answered, it sprang back under the thumb first.
     @discardableResult
     func setDigest(_ on: Bool) async -> Bool {
+        let was = board?.digest
+        board?.digest = on
         do {
             try await SiteClient.shared.call("api/native/family/backlog/digest", method: "PUT", body: try JSONEncoder().encode(["on": on]))
-            board?.digest = on
             message = nil
             return true
         } catch {
+            board?.digest = was ?? !on
             message = Self.sentence(for: error)
             return false
         }
