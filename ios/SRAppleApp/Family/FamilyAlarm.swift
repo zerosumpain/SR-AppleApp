@@ -33,16 +33,21 @@ struct FamilyAlarm: Decodable, Equatable, Identifiable {
     let alarmId: String
     let from: String
     let name: String
-    /// `siren` or `morse`.
+    /// `siren`, `morse`, or `quiet` — the bat phone.
     let kind: String
     let message: String?
     let lat: Double?
     let lon: Double?
     let at: String
     let cancelledAt: String?
+    /// The bat phone's: the sender's battery (0…1) and the place their phone
+    /// named, when it could. Nil from a site before them.
+    var battery: Double? = nil
+    var place: String? = nil
 
     var id: String { alarmId }
     var cancelled: Bool { cancelledAt != nil }
+    var quiet: Bool { kind == FamilyAlarmKind.quiet.rawValue }
 
     /// From a push's custom keys — the same fields at the payload's top level.
     init?(userInfo: [AnyHashable: Any]) {
@@ -56,10 +61,12 @@ struct FamilyAlarm: Decodable, Equatable, Identifiable {
         lon = (userInfo["lon"] as? NSNumber)?.doubleValue
         at = userInfo["at"] as? String ?? timestamp(Date())
         cancelledAt = nil
+        battery = (userInfo["battery"] as? NSNumber)?.doubleValue
+        place = userInfo["place"] as? String
     }
 
     init(alarmId: String, from: String, name: String, kind: String, message: String?,
-         lat: Double?, lon: Double?, at: String, cancelledAt: String?) {
+         lat: Double?, lon: Double?, at: String, cancelledAt: String?, battery: Double? = nil, place: String? = nil) {
         self.alarmId = alarmId
         self.from = from
         self.name = name
@@ -69,19 +76,50 @@ struct FamilyAlarm: Decodable, Equatable, Identifiable {
         self.lon = lon
         self.at = at
         self.cancelledAt = cancelledAt
+        self.battery = battery
+        self.place = place
     }
 }
 
 enum FamilyAlarmKind: String, CaseIterable, Identifiable {
     case siren
     case morse
+    /// The bat phone (`BatPhoneButton`): nothing sounds or shows on the
+    /// sender's phone; everyone else is told urgently who, where, their
+    /// battery and how far a drive it is.
+    case quiet
 
     var id: String { rawValue }
-    var title: String { self == .siren ? "Siren" : "Morse SOS" }
-    var detail: String { self == .siren ? "A rising and falling wail" : "··· ––– ··· beeping, over and over" }
-    var symbol: String { self == .siren ? "light.beacon.max.fill" : "dot.radiowaves.left.and.right" }
+    /// The two the alarm sheet offers; the bat phone has its own button.
+    static let sounding: [FamilyAlarmKind] = [.siren, .morse]
+
+    var title: String {
+        switch self {
+        case .siren: return "Siren"
+        case .morse: return "Morse SOS"
+        case .quiet: return "Bat phone"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .siren: return "A rising and falling wail"
+        case .morse: return "··· ––– ··· beeping, over and over"
+        case .quiet: return "Nothing sounds on your phone"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .siren: return "light.beacon.max.fill"
+        case .morse: return "dot.radiowaves.left.and.right"
+        case .quiet: return "phone.connection.fill"
+        }
+    }
+
     /// The bundled file, and the push's `sound` — the names must match the
-    /// site's (`sr-siren.caf`, `sr-morse.caf`).
+    /// site's (`sr-siren.caf`, `sr-morse.caf`). A bat phone's push makes the
+    /// default sound; open, the app rings it as morse.
     var sound: String { self == .siren ? "sr-siren" : "sr-morse" }
 }
 
@@ -141,6 +179,73 @@ final class FamilyAlarmStore: ObservableObject {
         }
     }
 
+    /// The bat phone: no sound, no screen, no success buzz — a phone held
+    /// by someone in trouble must not give them away. Where they are, their
+    /// battery and the place's name go with it, each only if it comes fast.
+    /// True when it went.
+    @discardableResult
+    func raiseQuietly() async -> Bool {
+        guard !sending else { return false }
+        sending = true
+        failure = nil
+        defer { sending = false }
+        struct Reply: Decodable { let alarmId: String; let pushed: Int; let recipients: Int }
+        var body: [String: Any] = ["kind": FamilyAlarmKind.quiet.rawValue]
+        let battery = Self.batteryLevel()
+        if let battery { body["battery"] = battery }
+        let here = await OneFix.current(timeout: .seconds(4))
+        var place: String?
+        if let here {
+            body["position"] = ["lat": here.latitude, "lon": here.longitude]
+            place = await Self.placeName(here)
+            if let place { body["place"] = place }
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: body)
+            let reply: Reply = try await SiteClient.shared.send("api/native/family/alarm", method: "POST", body: data, asSelf: true)
+            raised = FamilyAlarm(alarmId: reply.alarmId, from: "", name: "You", kind: FamilyAlarmKind.quiet.rawValue,
+                                 message: nil, lat: here?.latitude, lon: here?.longitude,
+                                 at: timestamp(Date()), cancelledAt: nil, battery: battery, place: place)
+            raisedTo = reply.recipients
+            return true
+        } catch {
+            failure = "Not sent: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// 0…1, or nil where iOS will not say (a simulator).
+    static func batteryLevel() -> Double? {
+        let device = UIDevice.current
+        let was = device.isBatteryMonitoringEnabled
+        device.isBatteryMonitoringEnabled = true
+        let level = device.batteryLevel
+        if !was { device.isBatteryMonitoringEnabled = false }
+        return level >= 0 ? Double(level) : nil
+    }
+
+    /// "Elton Parade, Darlington", if the geocoder answers in two seconds.
+    static func placeName(_ at: CLLocationCoordinate2D) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                let marks = try? await CLGeocoder().reverseGeocodeLocation(CLLocation(latitude: at.latitude, longitude: at.longitude))
+                guard let mark = marks?.first else { return nil }
+                let first = mark.areasOfInterest?.first ?? mark.thoroughfare ?? mark.name
+                let parts = [first, mark.locality].compactMap { $0 }.reduce(into: [String]()) { out, part in
+                    if !out.contains(part) { out.append(part) }
+                }
+                return parts.isEmpty ? nil : String(parts.joined(separator: ", ").prefix(80))
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
     func standDown() async {
         guard let raised else { return }
         do {
@@ -162,7 +267,7 @@ final class FamilyAlarmStore: ObservableObject {
         // The same alarm again (a poll after the push): keep ringing, and
         // keep whichever copy says more.
         if incoming?.alarmId == alarm.alarmId {
-            if alarm.lat != nil || alarm.message != nil, incoming != alarm { incoming = alarm }
+            if alarm.lat != nil || alarm.message != nil || alarm.place != nil, incoming != alarm { incoming = alarm }
             return
         }
         incoming = alarm
@@ -180,7 +285,7 @@ final class FamilyAlarmStore: ObservableObject {
         if let alarm = incoming {
             incoming = FamilyAlarm(alarmId: alarm.alarmId, from: alarm.from, name: alarm.name, kind: alarm.kind,
                                    message: alarm.message, lat: alarm.lat, lon: alarm.lon, at: alarm.at,
-                                   cancelledAt: timestamp(Date()))
+                                   cancelledAt: timestamp(Date()), battery: alarm.battery, place: alarm.place)
         }
     }
 
@@ -370,7 +475,7 @@ struct RaiseAlarmSheet: View {
                             .foregroundStyle(SR.inkSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                         VStack(spacing: 10) {
-                            ForEach(FamilyAlarmKind.allCases) { option in
+                            ForEach(FamilyAlarmKind.sounding) { option in
                                 kindRow(option)
                             }
                         }
@@ -575,6 +680,8 @@ struct IncomingAlarmView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flash = false
+    /// A bat phone's drive from here, from Apple Maps; nil until it answers.
+    @State private var drive: String?
 
     var body: some View {
         ZStack {
@@ -583,13 +690,25 @@ struct IncomingAlarmView: View {
                 .ignoresSafeArea()
             VStack(spacing: 22) {
                 Spacer()
-                Image(systemName: alarm.cancelled ? "checkmark.shield.fill" : "light.beacon.max.fill")
+                Image(systemName: alarm.cancelled ? "checkmark.shield.fill" : alarm.quiet ? FamilyAlarmKind.quiet.symbol : "light.beacon.max.fill")
                     .font(.system(size: 76, weight: .bold))
                     .symbolEffect(.pulse, options: .repeating, isActive: !alarm.cancelled && !reduceMotion)
-                Text(alarm.cancelled ? "\(alarm.name.uppercased()) IS OK" : "\(alarm.name.uppercased()) RAISED THE ALARM")
+                Text(headline)
                     .font(SR.Text.hero(34))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                if alarm.quiet && !alarm.cancelled {
+                    VStack(spacing: 6) {
+                        ForEach(BatPhoneWords.facts(place: alarm.place, battery: alarm.battery, drive: drive), id: \.self) { line in
+                            Text(line)
+                        }
+                    }
+                    .font(SR.Text.bodyMedium(19))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("family-alarm-facts")
+                }
                 if let message = alarm.message, !message.isEmpty {
                     Text("“\(message)”")
                         .font(SR.Text.bodyMedium(19))
@@ -600,6 +719,21 @@ struct IncomingAlarmView: View {
                     .font(SR.Text.mono(14))
                     .opacity(0.85)
                 Spacer()
+                if alarm.quiet, !alarm.cancelled, let lat = alarm.lat, let lon = alarm.lon,
+                   let url = URL(string: "https://maps.apple.com/?daddr=\(lat),\(lon)&dirflg=d") {
+                    Button {
+                        store.silence()
+                        openURL(url)
+                    } label: {
+                        Label("Drive there", systemImage: "car.fill")
+                            .font(SR.Text.title(18))
+                            .frame(maxWidth: .infinity, minHeight: 56)
+                            .foregroundStyle(SR.error)
+                            .background(Capsule().fill(.white))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("family-alarm-drive")
+                }
                 if !alarm.cancelled, let lat = alarm.lat, let lon = alarm.lon,
                    let url = URL(string: "https://maps.apple.com/?ll=\(lat),\(lon)&q=\(alarm.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Here")") {
                     Button {
@@ -643,8 +777,18 @@ struct IncomingAlarmView: View {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) { flash = true }
         }
+        .task(id: alarm.lat) {
+            guard alarm.quiet, let lat = alarm.lat, let lon = alarm.lon else { return }
+            drive = await BatPhoneDrive.from(here: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("family-alarm-incoming")
+    }
+
+    private var headline: String {
+        let name = alarm.name.uppercased()
+        if alarm.cancelled { return "\(name) IS OK" }
+        return alarm.quiet ? "BAT PHONE — \(name) NEEDS YOU" : "\(name) RAISED THE ALARM"
     }
 
     private var when: String {

@@ -99,6 +99,40 @@ struct TripProgress: Equatable {
 
     var showsBehind: Bool { behindMin >= Self.behindThresholdMin }
 
+    /// After its planned leave, someone who got there and never left is
+    /// given this long (the off-plan idle prompt's room) before the stop
+    /// is past too.
+    static let pastGraceMin = 30.0
+
+    /// A stop whose planned slot is over: the clock is past its planned
+    /// leave, or, for one arrived at and not left, past that by the grace.
+    /// Done or not, it is nothing more to tell anyone about.
+    static func isPast(_ stop: PlannedStop, mark: TripStopMark?, nowMin: Double) -> Bool {
+        if mark?.done == true { return true }
+        let end = max(stop.arriveMin, stop.departMin)
+        let there = mark?.arrivedAt != nil
+        return nowMin >= end + (there ? pastGraceMin : 0)
+    }
+
+    /// The marks with every past stop not yet done counted as skipped.
+    static func telling(day: PlannedDay, marks: [String: TripStopMark], nowMin: Double) -> [String: TripStopMark] {
+        var out = marks
+        for stop in day.stops where marks[stop.id]?.done != true && isPast(stop, mark: marks[stop.id], nowMin: nowMin) {
+            var mark = marks[stop.id] ?? TripStopMark()
+            mark.skipped = true
+            out[stop.id] = mark
+        }
+        return out
+    }
+
+    /// Where the person is for what the phone SAYS — the Lock Screen, a
+    /// notification, Home: a slot whose time has gone drops off, ticked or
+    /// not, so breakfast is not still "next" at noon. The Day screen keeps
+    /// `of`, where an unticked slot is still a slot to tick or re-plan.
+    static func toTell(day: PlannedDay, marks: [String: TripStopMark], nowMin: Double, clock: TripClock) -> TripProgress {
+        of(day: day, marks: telling(day: day, marks: marks, nowMin: nowMin), nowMin: nowMin, clock: clock)
+    }
+
     /// The stop the Now card is about: where you are, or where you are going.
     var currentIndex: Int? {
         switch phase {

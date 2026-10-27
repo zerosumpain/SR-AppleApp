@@ -253,6 +253,43 @@ final class TripTests: XCTestCase {
         XCTAssertEqual(p.behindMin, 0, "silence is not evidence of lateness")
     }
 
+    /// What the phone SAYS drops a slot once its time has gone, ticked or
+    /// not: breakfast is not still "next" at noon. The Day screen's
+    /// progress keeps it.
+    func testAPastSlotDropsOffWhatThePhoneSays() throws {
+        let clock = TripClock("Europe/Rome")
+        let day = Self.day()
+        XCTAssertEqual(TripProgress.of(day: day, marks: [:], nowMin: 620, clock: clock).next, 1)
+        let told = TripProgress.toTell(day: day, marks: [:], nowMin: 620, clock: clock)
+        XCTAssertEqual(told.phase, .heading(2))
+        XCTAssertEqual(told.next, 2)
+        XCTAssertEqual(told.behindMin, 0)
+        let state = try XCTUnwrap(TripLive.state(day: day, progress: told, clock: clock))
+        XCTAssertEqual(state.nextTitle, "stay:2026-10-27:end")
+        XCTAssertEqual(TripProgress.toTell(day: day, marks: [:], nowMin: 641, clock: clock).phase, .finished)
+    }
+
+    /// Got there and never left: half an hour past the planned leave, then
+    /// that stop is past too.
+    func testAStopYouNeverLeftDropsAfterTheGrace() throws {
+        let clock = TripClock("Europe/Rome")
+        let day = Self.day()
+        let marks = ["pantheon": TripStopMark(arrivedAt: clock.date("2026-10-27", minutes: 565))]
+        XCTAssertEqual(TripProgress.toTell(day: day, marks: marks, nowMin: 620, clock: clock).phase, .at(1))
+        XCTAssertEqual(TripProgress.toTell(day: day, marks: marks, nowMin: 636, clock: clock).phase, .heading(2))
+    }
+
+    /// An off-plan alert about a stop now done or past, or another day, is
+    /// withdrawn; one about a place (an unplanned stop) stands.
+    func testStaleOffPlanAlerts() {
+        let gone: Set<String> = ["pantheon"]
+        XCTAssertTrue(TripOffPlan.stale("t1|2026-10-27|behind:pantheon", tripId: "t1", date: "2026-10-27", gone: gone))
+        XCTAssertFalse(TripOffPlan.stale("t1|2026-10-27|behind:colosseum", tripId: "t1", date: "2026-10-27", gone: gone))
+        XCTAssertTrue(TripOffPlan.stale("t1|2026-10-26|idle:colosseum", tripId: "t1", date: "2026-10-27", gone: gone))
+        XCTAssertFalse(TripOffPlan.stale("t1|2026-10-27|unplanned-stop:20950:6238", tripId: "t1", date: "2026-10-27", gone: gone))
+        XCTAssertFalse(TripOffPlan.stale("t2|2026-10-27|behind:pantheon", tripId: "t1", date: "2026-10-27", gone: gone))
+    }
+
     func testArrivingLateIsBehind() throws {
         let clock = TripClock("Europe/Rome")
         let marks = [

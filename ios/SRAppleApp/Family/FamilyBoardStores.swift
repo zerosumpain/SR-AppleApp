@@ -11,6 +11,12 @@ import WidgetKit
 @MainActor
 final class FamilyStepsStore: ObservableObject {
     static let shared = FamilyStepsStore()
+    /// The silent push's category: "send your steps and where you are".
+    nonisolated static let reportCategory = "family-report"
+
+    /// A round of "ask everyone" while its answers are coming in: how many
+    /// people the site woke. Nil when none is out.
+    @Published private(set) var asking: Int?
 
     /// As the site sent it.
     @Published private(set) var board: FamilyStepsBoard?
@@ -50,6 +56,28 @@ final class FamilyStepsStore: ObservableObject {
             message = board == nil ? Self.sentence(for: error) : nil
         }
         if AccessStore.shared.viewingAs == nil { live = await LiveSteps.today() }
+    }
+
+    /// Opening Steps asks every other family phone, by a silent push, to
+    /// send its steps and where it is now (John, 2026-10-27), then re-reads
+    /// the board and the family's places as the answers land: phones take a
+    /// few seconds to wake, and the site re-reads the counts at about 25 s
+    /// and 60 s. The site holds a round to one a minute for the family, so
+    /// opening the page twice wakes nobody twice.
+    func askEveryone() async {
+        guard SiteClient.shared.isPaired, !SRDemo.isOn, AccessStore.shared.viewingAs == nil, asking == nil else { return }
+        struct Reply: Decodable { let asked: Int; let people: Int; let throttled: Bool? }
+        guard let reply: Reply = try? await SiteClient.shared.send(
+            "api/native/family/steps/ask", method: "POST", body: Data("{}".utf8), asSelf: true
+        ), reply.throttled != true, reply.people > 0 else { return }
+        asking = reply.people
+        defer { asking = nil }
+        for wait in [12, 18, 35] {
+            try? await Task.sleep(for: .seconds(wait))
+            if Task.isCancelled { return }
+            await load()
+            await FamilyStore.current?.load()
+        }
     }
 
     /// "View as" changed: the board was somebody else's.

@@ -92,26 +92,6 @@ struct FamilyOrbitLegend: View {
     }
 }
 
-struct HomeFamilyDayTile: View {
-    @ObservedObject var store: FamilyStore
-    let watch: [WatchedPlace]?
-
-    var body: some View {
-        HomeTileFrame(kind: .familyDay, look: .glass) {
-            if let view = store.view, let model = FamilyRibbonsModel.make(view: view, watch: watch) {
-                FamilyRibbonsView(model: FamilyRibbonsModel(rows: Array(model.rows.prefix(3)), start: model.start, end: model.end, maxKm: model.maxKm),
-                                  colours: SR.PersonHue.assign(view.people.map(\.subject)))
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-            } else {
-                Text(store.loaded ? "No trails yet today — a day at home is a flat line." : "Reading the day…")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            }
-        }
-    }
-}
-
 // MARK: - Health
 
 /// The owner's morning in one tile: readiness on a dial, each of the site's
@@ -458,7 +438,7 @@ struct HomeTripsTile: View {
 
     private func runningTile(_ bundle: TripBundle, date: String, now: Date) -> some View {
         let day = store.day(bundle.trip.id, date)
-        let progress = store.progress(bundle.trip.id, date, now: now)
+        let progress = store.progressToTell(bundle.trip.id, date, now: now)
         let stops = day?.stops ?? []
         let done = Set(progress?.doneStopIds ?? [])
         let currentIndex: Int? = {
@@ -575,7 +555,8 @@ struct HomeMovesTile: View {
                         .opacity(0.9)
                     MovesAxis(marks: moves.prefix(6).map { move, at in
                         MovesAxis.Mark(id: move.correctionKey, at: at, colour: colours[move.subject] ?? .white,
-                                       initials: initials[move.subject] ?? String((names[move.subject] ?? "?").prefix(2)))
+                                       initials: initials[move.subject] ?? String((names[move.subject] ?? "?").prefix(2)),
+                                       subject: move.subject)
                     }, from: now)
                 }
             } else {
@@ -596,41 +577,36 @@ struct HomeMessagesTile: View {
     @ObservedObject private var store = FamilyMessagesStore.shared
 
     var body: some View {
-        HomeTileFrame(kind: .messages) {
-            VStack(alignment: .leading, spacing: 8) {
+        HomeTileFrame(kind: .messages, badge: store.unreadCount > 0 ? "\(store.unreadCount) NEW" : nil) {
+            VStack(alignment: .leading, spacing: 10) {
                 if let line = store.latestLine {
-                    Text(line)
-                        .font(SR.Text.secondary(14))
-                        .lineLimit(3)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            UnevenRoundedRectangle(topLeadingRadius: 14, bottomLeadingRadius: 4, bottomTrailingRadius: 14, topTrailingRadius: 14, style: .continuous)
-                                .fill(.white.opacity(0.22))
-                        )
-                    Spacer(minLength: 0)
-                    if let at = store.lastActivity {
-                        HStack(spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(line)
+                            .font(SR.Text.secondary(14))
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let at = store.lastActivity {
                             Text(at, style: .relative)
                                 .font(SR.Text.label(12))
                                 .opacity(0.9)
                                 .lineLimit(1)
-                            if store.unreadCount > 0 {
-                                Text("\(store.unreadCount) new")
-                                    .font(SR.Text.label(12))
-                                    .padding(.horizontal, 6)
-                                    .background(Capsule().fill(.white.opacity(0.25)))
-                                    .fixedSize()
-                            }
+                                .fixedSize()
                         }
                     }
+                    .padding(10)
+                    .background(
+                        UnevenRoundedRectangle(topLeadingRadius: 14, bottomLeadingRadius: 4, bottomTrailingRadius: 14, topTrailingRadius: 14, style: .continuous)
+                            .fill(.white.opacity(0.22))
+                    )
+                    .accessibilityElement(children: .combine)
                 } else {
-                    Spacer(minLength: 0)
                     HomeFigure(value: "Say hi", caption: "To everyone at once", size: 24)
                 }
+                Spacer(minLength: 0)
+                // One tap sends; the bat phone is two (`BatPhoneButton`).
+                FamilyQuickStrip(onFill: true, identifier: "home-quick")
             }
         }
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("msg family. " + (store.unreadCount > 0 ? "\(store.unreadCount) new. " : "") + (store.latestLine ?? "No messages yet"))
     }
 }

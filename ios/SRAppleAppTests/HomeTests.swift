@@ -21,7 +21,7 @@ final class HomeTests: XCTestCase {
     }
 
     func testTilesThatCarryDataAreWide() {
-        for kind in [HomeTileKind.briefing, .health, .steps, .news, .moves, .trips, .familyDay] {
+        for kind in [HomeTileKind.briefing, .health, .steps, .news, .moves, .trips] {
             XCTAssertEqual(kind.size, .wide, "\(kind) needs a row of its own for its numbers")
         }
     }
@@ -44,7 +44,7 @@ final class HomeTests: XCTestCase {
 
     func testNoSiteCredentialMeansNoBoards() {
         let tiles = HomeTileKind.available(access: AppAccess(family: true), sitePaired: false)
-        XCTAssertEqual(tiles, [.briefing, .family, .health, .familyDay])
+        XCTAssertEqual(tiles, [.briefing, .family, .health])
     }
 
     func testEveryoneHasHealth() {
@@ -104,8 +104,8 @@ final class HomeTests: XCTestCase {
     // MARK: - Rows
 
     func testSquaresPairAndALoneSquareTakesTheRow() {
-        let rows = HomeRows.pack([.family, .tasks, .messages, .trips, .games])
-        XCTAssertEqual(rows, [.full(.family), .pair(.tasks, .messages), .full(.trips), .full(.games)])
+        let rows = HomeRows.pack([.family, .tasks, .backlog, .trips, .games])
+        XCTAssertEqual(rows, [.full(.family), .pair(.tasks, .backlog), .full(.trips), .full(.games)])
     }
 
     func testASquareBeforeAWideTileIsNotLeftWithAHole() {

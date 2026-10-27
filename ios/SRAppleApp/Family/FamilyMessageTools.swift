@@ -196,6 +196,10 @@ enum FamilyMessageTools {
     /// One tap puts one in the box; nothing is sent until Send.
     static let quick = ["On my way", "Running late", "Home in 10", "Dinner's ready", "Who's in tonight?", "Love you x"]
 
+    /// One tap SENDS one — Home's msg family tile and the top of Threads
+    /// (`FamilyQuickStrip`), with a few seconds to take it back.
+    static let quickSend = ["On my way", "Home in 10", "Running late", "Where is everyone?", "Call me when you can", "All good 👍"]
+
     // MARK: - The counter
 
     /// How many characters are left, once it is worth saying: within the last
@@ -232,5 +236,28 @@ enum FamilyMessageTools {
             let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
             return calendar.date(bySettingHour: 8, minute: 0, second: 0, of: tomorrow) ?? tomorrow
         }
+    }
+}
+
+/// What a bat phone says about the person who pressed it — where, their
+/// battery, and the drive to them — each line only when it is known.
+///
+/// Foundation only, beside the message tools in the Linux harness.
+enum BatPhoneWords {
+    /// "At Elton Parade, Darlington", "Battery 23%", "14 min drive from you".
+    static func facts(place: String?, battery: Double?, drive: String?) -> [String] {
+        var out: [String] = []
+        if let place = place?.trimmingCharacters(in: .whitespacesAndNewlines), !place.isEmpty { out.append("At \(place)") }
+        if let battery, battery >= 0, battery <= 1 { out.append("Battery \(Int((battery * 100).rounded()))%") }
+        if let drive { out.append(drive) }
+        return out
+    }
+
+    /// "14 min drive from you", "1 h 35 drive from you"; nil for no answer.
+    static func drive(seconds: Double?) -> String? {
+        guard let seconds, seconds.isFinite, seconds >= 0 else { return nil }
+        let minutes = max(1, Int((seconds / 60).rounded(.up)))
+        if minutes < 90 { return "\(minutes) min drive from you" }
+        return "\(minutes / 60) h \(String(format: "%02d", minutes % 60)) drive from you"
     }
 }

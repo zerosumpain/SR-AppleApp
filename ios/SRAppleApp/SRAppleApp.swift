@@ -164,6 +164,16 @@ import Combine
     /// still delivers everything, and the next launch asks again.
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {}
 
+    /// A silent push. The one kind: somebody opened Steps, and the site asks
+    /// every other family phone for its steps and where it is
+    /// (`family-report`). iOS rations these and skips an app that was swiped
+    /// away, so it is a nudge, never the only way the board fills.
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard (userInfo["category"] as? String) == FamilyStepsStore.reportCategory, let companion else { return .noData }
+        await companion.reportForFamily()
+        return .newData
+    }
+
     /// An answer to a stalled chat turn, from a notification button — often on
     /// the Watch, with the app in the background. Said only when it did NOT
     /// land: a notification for every success would be noise over the silence

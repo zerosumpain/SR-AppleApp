@@ -34,6 +34,18 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-27-family-extras", when: "October 2026", title: "Closer to the family", items: [
+            WhatsNewItem(icon: "person.crop.circle", title: "Your photo",
+                         detail: "Settings → Your photo puts a picture of you in place of your initials — on the map, in msg family and on the step board."),
+            WhatsNewItem(icon: "phone.connection.fill", title: "Bat phone",
+                         detail: "Tap Bat phone twice, on Home or over Threads, and the family is told urgently where you are, your battery and how far a drive it is. Nothing sounds or pops up on your phone."),
+            WhatsNewItem(icon: "bubble.left.and.text.bubble.right", title: "One-tap messages",
+                         detail: "\u{201C}On my way\u{201D}, \u{201C}Home in 10\u{201D}, where you are and more, sent in one tap from Home or Threads — with a few seconds to take it back."),
+            WhatsNewItem(icon: "figure.walk", title: "Steps, fresh",
+                         detail: "Opening Steps asks everyone's phone for its count and where it is, so the race is up to the minute."),
+            WhatsNewItem(icon: "suitcase.rolling", title: "Trips move on",
+                         detail: "A slot whose time has gone drops off the Lock Screen and alerts, done or not — no more breakfast at noon."),
+        ]),
         WhatsNewRelease(id: "2026-10-27-trip-walked", when: "October 2026", title: "Behind you", items: [
             WhatsNewItem(icon: "map", title: "Trip maps lose what you've walked",
                          detail: "On a trip day the route you have already walked comes off the map, the walk you are on starts where you are, and days gone by leave the trip map. Days still to come stay as planned."),

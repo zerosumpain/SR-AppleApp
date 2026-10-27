@@ -20,6 +20,19 @@ struct FamilyStepsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
+                if let asking = store.asking {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small).tint(SR.accent)
+                        Text("Asking \(asking == 1 ? "1 phone" : "\(asking) phones") for their steps and where they are…")
+                            .font(SR.Text.secondary(13))
+                            .foregroundStyle(SR.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 4)
+                    .transition(.opacity)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("steps-asking")
+                }
                 if let board = store.shown {
                     FamilyStepsHero(board: board)
                     if !board.people.isEmpty {
@@ -65,6 +78,9 @@ struct FamilyStepsScreen: View {
         }
         // Its own task, so it runs beside the step board's, never after it.
         .task { await landgrab.load() }
+        // Every other phone in the family, asked for its count and place now.
+        .task { await store.askEveryone() }
+        .animation(.snappy, value: store.asking)
         .task {
             await store.load()
             while !Task.isCancelled {
@@ -162,6 +178,7 @@ struct FamilyStepsHero: View {
 struct FamilyStepsRow: View {
     let person: FamilyStepsPerson
     let leader: Int
+    @ObservedObject private var photos = FamilyPhotos.shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -169,6 +186,9 @@ struct FamilyStepsRow: View {
                 .font(SR.Text.label(15))
                 .foregroundStyle(person.rank == 1 ? SR.accent : SR.inkMuted)
                 .frame(width: 28)
+            if let image = photos.image(id: person.id, subject: nil) {
+                FamilyPhotoCircle(image: image, size: 32)
+            }
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Text(person.me ? "You" : person.name)

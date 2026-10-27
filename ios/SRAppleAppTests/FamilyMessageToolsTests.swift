@@ -134,4 +134,26 @@ final class FamilyMessageToolsTests: XCTestCase {
                        "ten minutes before six is tomorrow's six")
         XCTAssertEqual(FamilyMessageTools.remindAt(.morning, now: ten, calendar: london), ten.addingTimeInterval(22 * 3600))
     }
+
+    // MARK: - Bat phone
+
+    func testBatPhoneSaysWhatItKnows() {
+        XCTAssertEqual(BatPhoneWords.facts(place: "Elton Parade, Darlington", battery: 0.234, drive: "14 min drive from you"),
+                       ["At Elton Parade, Darlington", "Battery 23%", "14 min drive from you"])
+        XCTAssertEqual(BatPhoneWords.facts(place: "  ", battery: nil, drive: nil), [])
+        XCTAssertEqual(BatPhoneWords.facts(place: nil, battery: 1.2, drive: nil), [], "a level iOS never gives is dropped")
+    }
+
+    func testBatPhoneDriveWords() {
+        XCTAssertEqual(BatPhoneWords.drive(seconds: 13 * 60 + 5), "14 min drive from you")
+        XCTAssertEqual(BatPhoneWords.drive(seconds: 0), "1 min drive from you")
+        XCTAssertEqual(BatPhoneWords.drive(seconds: 95 * 60), "1 h 35 drive from you")
+        XCTAssertNil(BatPhoneWords.drive(seconds: nil))
+        XCTAssertNil(BatPhoneWords.drive(seconds: .infinity))
+    }
+
+    func testQuickLinesAreShortAndDistinct() {
+        XCTAssertEqual(Set(FamilyMessageTools.quickSend).count, FamilyMessageTools.quickSend.count)
+        XCTAssertTrue(FamilyMessageTools.quickSend.allSatisfy { !$0.isEmpty && $0.count <= 24 })
+    }
 }

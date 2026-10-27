@@ -238,6 +238,15 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         guard !delivered.isEmpty, let body = try? JSONEncoder().encode(["ids": delivered]) else { return }
         let _: API.Acknowledgement? = try? await api.request("alerts/ack", method: "POST", data: body, timeout: HouseholdAlerts.requestTimeout)
     }
+    /// The family asked (a silent push from someone's Steps page): where
+    /// this phone is and today's steps, up to the companion server now, in
+    /// the half-minute iOS gives a silent push.
+    func reportForFamily() async {
+        guard paired else { return }
+        await location.reportNow()
+        await sync(collectingFor: 10)
+    }
+
     /// `collectingFor`: 120 s in the foreground; a background refresh passes
     /// 15 s so the upload and the notification pass still fit its budget.
     func sync(collectingFor seconds: TimeInterval = 120) async {

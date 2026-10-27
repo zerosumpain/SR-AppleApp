@@ -73,16 +73,16 @@ struct SRChipStrip: View {
 
 extension View {
     /// A strip pinned under the bar with the page scrolling behind both, as
-    /// every tab's page scrolls behind the `sr.` mark. On iOS 26 the bar's
-    /// scroll-edge blur reaches down under the strip (`safeAreaBar`); before
-    /// it, a plain inset.
-    @ViewBuilder
+    /// every tab's page scrolls behind the `sr.` mark.
+    ///
+    /// A plain inset on every OS. `safeAreaBar` stretched iOS 26's
+    /// scroll-edge effect down under the strip, which painted a grey band
+    /// across the top of Health with a shadow over everything scrolling
+    /// under it (John, 2026-10-27). Inset, the effect stays the bar's own
+    /// height, as on every other tab, and the chips — opaque capsules —
+    /// float over the page.
     func srPinnedStrip<Strip: View>(@ViewBuilder _ strip: () -> Strip) -> some View {
-        if #available(iOS 26.0, *) {
-            safeAreaBar(edge: .top, spacing: 0) { strip() }
-        } else {
-            safeAreaInset(edge: .top, spacing: 0) { strip() }
-        }
+        safeAreaInset(edge: .top, spacing: 0) { strip() }
     }
 
     /// The top of a tab's first page, the same on every tab: the hub on the

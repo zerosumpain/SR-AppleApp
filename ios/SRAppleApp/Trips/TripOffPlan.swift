@@ -146,8 +146,12 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
         // v5: its options change the plan, which only the creator and the
         // parents may; anyone else is not prompted.
         guard store.bundles[r.tripId]?.can.canEdit != false else { return }
-        guard let progress = store.progress(r.tripId, r.date, now: now) else { return }
         let nowMin = r.clock.minutes(now)
+        // A slot whose time has gone drops off, ticked or not: nothing is
+        // said about it again, and what was said is taken back.
+        let marks = TripProgress.telling(day: r.day, marks: store.marks(r.tripId), nowMin: nowMin)
+        let progress = TripProgress.of(day: r.day, marks: marks, nowMin: nowMin, clock: r.clock)
+        withdrawPast(tripId: r.tripId, date: r.date, day: r.day, marks: marks)
         let recent = fixes
             .filter { r.clock.localDate($0.timestamp) == r.date && now.timeIntervalSince($0.timestamp) < 30 * 60 }
             .map { TripOffPlanRules.Fix(at: TripLatLng(lat: $0.coordinate.latitude, lng: $0.coordinate.longitude), minute: r.clock.minutes($0.timestamp)) }
@@ -159,7 +163,7 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
             )
         }
         let findings = TripOffPlanRules.detect(
-            day: r.day, marks: store.marks(r.tripId), progress: progress, nowMin: nowMin,
+            day: r.day, marks: marks, progress: progress, nowMin: nowMin,
             fixes: recent, dwell: dwell, clock: r.clock
         )
         guard prompt == nil,
@@ -181,6 +185,33 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
                 slotAtRisk: finding.slotAtRisk
             ))
         }
+    }
+
+    /// The prompt on show and the delivered alerts about a stop that is
+    /// now done or past — or about another day — are withdrawn.
+    private func withdrawPast(tripId: String, date: String, day: PlannedDay, marks: [String: TripStopMark]) {
+        let gone = Set(day.stops.filter { marks[$0.id]?.done == true }.map(\.id))
+        if let prompt, Self.stale(prompt.id, tripId: tripId, date: date, gone: gone) { dismiss() }
+        Task {
+            let centre = UNUserNotificationCenter.current()
+            let ids = await centre.deliveredNotifications().map(\.request.identifier).filter { id in
+                id.hasPrefix(Self.alertPrefix) && Self.stale(String(id.dropFirst(Self.alertPrefix.count)), tripId: tripId, date: date, gone: gone)
+            }
+            if !ids.isEmpty { centre.removeDeliveredNotifications(withIdentifiers: ids) }
+        }
+    }
+
+    nonisolated static let alertPrefix = "trip-offplan-"
+
+    /// A raised key, "<trip>|<date>|<kind>:<stop>": stale once its day is
+    /// not today or its stop is done or past. A place's key (an unplanned
+    /// stop) has no stop and stands.
+    nonisolated static func stale(_ key: String, tripId: String, date: String, gone: Set<String>) -> Bool {
+        let parts = key.split(separator: "|", maxSplits: 2).map(String.init)
+        guard parts.count == 3, parts[0] == tripId else { return false }
+        if parts[1] != date { return true }
+        guard let colon = parts[2].firstIndex(of: ":") else { return false }
+        return gone.contains(String(parts[2][parts[2].index(after: colon)...]))
     }
 
     /// Show it (and say it, if nobody is looking), then fetch the options.
@@ -253,7 +284,7 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
         // Time-sensitive only when a booked slot would be missed: everything
         // else can wait for the next glance.
         content.interruptionLevel = prompt.observation.kind == .behind && prompt.slotAtRisk ? .timeSensitive : .active
-        let request = UNNotificationRequest(identifier: "trip-offplan-\(prompt.id)", content: content, trigger: nil)
+        let request = UNNotificationRequest(identifier: Self.alertPrefix + prompt.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { _ in }
     }
 
@@ -264,6 +295,8 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
         Task { @MainActor in
             self.fixes = Array((self.fixes + good).filter { Date().timeIntervalSince($0.timestamp) < 40 * 60 }.suffix(60))
             TripTrail.shared.add(good)
+            // A wake-up is also the Lock Screen's chance to move on.
+            TripLive.shared.refresh()
             self.check()
         }
     }
@@ -274,6 +307,7 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
         let departed = visit.departureDate != Date.distantFuture
         Task { @MainActor in
             self.visitSince = departed || arrived == Date.distantPast ? nil : (location, arrived)
+            TripLive.shared.refresh()
             self.check()
         }
     }

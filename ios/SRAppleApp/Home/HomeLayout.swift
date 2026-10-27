@@ -20,7 +20,7 @@ import SwiftUI
 enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
     // `briefing` is last so that `allCases`, which the Colours sheet reads
     // for a hue's symbol, finds Daydream's own tile before it.
-    case family, familyDay, health, steps, tasks, trips, moves, messages, backlog, games, chat, news, daydream, flows, wildmind, briefing
+    case family, health, steps, tasks, trips, moves, messages, backlog, games, chat, news, daydream, flows, wildmind, briefing
 
     var id: String { rawValue }
 
@@ -31,7 +31,7 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
     var size: Size {
         switch self {
         case .family: return .hero
-        case .briefing, .familyDay, .health, .steps, .trips, .news, .moves: return .wide
+        case .briefing, .health, .steps, .trips, .news, .moves, .messages: return .wide
         case .chat, .wildmind: return .compact
         default: return .square
         }
@@ -40,7 +40,6 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .family: return "Family"
-        case .familyDay: return "Everyone's day"
         case .health: return "Health"
         case .steps: return "Steps"
         case .tasks: return "Tasks"
@@ -62,13 +61,12 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
     var blurb: String {
         switch self {
         case .family: return "Everyone around home: how far, which way, who is moving"
-        case .familyDay: return "Each person's day as a ridge — time out, how far"
         case .health: return "Readiness, your figures against your week, and today's rings"
         case .steps: return "The family step race, everyone's count"
         case .tasks: return "What is left on the task list"
         case .trips: return "Today's stops, or the next trip"
         case .moves: return "Who is due to leave, and when"
-        case .messages: return "The newest family message"
+        case .messages: return "The newest family message, one-tap lines and the bat phone"
         case .backlog: return "Things saved to watch and read"
         case .games: return "Invites and games in play"
         case .chat: return "A new question for jkai"
@@ -83,7 +81,6 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
     var symbol: String {
         switch self {
         case .family: return "person.2.wave.2.fill"
-        case .familyDay: return "waveform.path.ecg"
         case .health: return "heart.fill"
         case .steps: return "figure.walk"
         case .tasks: return "checklist"
@@ -105,7 +102,7 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
     /// the family's three are all the family's colour.
     var hueKey: SR.HueKey {
         switch self {
-        case .family, .familyDay, .moves: return .family
+        case .family, .moves: return .family
         case .health: return .health
         case .steps: return .steps
         case .tasks: return .tasks
@@ -128,10 +125,11 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
 
     /// The order a new install gets. The briefing first — what matters,
     /// from everything — then the family, because where everyone is is the
-    /// thing the app is opened for. The shortcuts last.
+    /// thing the app is opened for, and a line to them (with the bat phone)
+    /// straight under it. The squares in pairs; the shortcuts last.
     static let defaultOrder: [HomeTileKind] = [
-        .briefing, .family, .health, .steps, .familyDay, .trips, .moves, .tasks,
-        .messages, .news, .daydream, .flows, .backlog, .games, .chat, .wildmind,
+        .briefing, .family, .messages, .health, .steps, .trips, .moves, .news,
+        .tasks, .backlog, .daydream, .flows, .games, .chat, .wildmind,
     ]
 
     /// Every tile this person may have, in the default order. PURE.
@@ -145,7 +143,7 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         return defaultOrder.filter { kind in
             switch kind {
             case .briefing: return true
-            case .family, .familyDay: return AccessPolicy.allows(.family, access)
+            case .family: return AccessPolicy.allows(.family, access)
             case .health: return true
             case .steps, .tasks, .moves, .messages, .backlog: return boards
             case .trips: return sitePaired && (access.owner || access.family)

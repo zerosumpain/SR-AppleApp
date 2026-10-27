@@ -23,7 +23,8 @@ final class TripLive {
         guard let running = store.running(now: now),
               let day = store.day(running.bundle.trip.id, running.date),
               let clock = store.clock(running.bundle.trip.id),
-              let progress = store.progress(running.bundle.trip.id, running.date, now: now),
+              // A slot whose time has gone is not "next", ticked or not.
+              let progress = store.progressToTell(running.bundle.trip.id, running.date, now: now),
               let state = Self.state(day: day, progress: progress, clock: clock),
               Self.isOn(day: day, clock: clock, now: now) else {
             Task { await self.endAll() }

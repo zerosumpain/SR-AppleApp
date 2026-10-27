@@ -13,7 +13,6 @@ struct HomeGrid<Tile: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var unit: CGFloat = 172
     @ScaledMetric(relativeTo: .body) private var hero: CGFloat = 372
-    @ScaledMetric(relativeTo: .body) private var ridge: CGFloat = 226
     /// Three of the briefing's lines, whether one came back or three.
     @ScaledMetric(relativeTo: .body) private var briefing: CGFloat = 232
     /// The gauge beside four figures, and the rings under them.
@@ -21,6 +20,8 @@ struct HomeGrid<Tile: View>: View {
     /// The headline, four lanes and yesterday's winner.
     @ScaledMetric(relativeTo: .body) private var steps: CGFloat = 224
     @ScaledMetric(relativeTo: .body) private var news: CGFloat = 188
+    /// The newest line, and the row of one-tap lines under it.
+    @ScaledMetric(relativeTo: .body) private var messages: CGFloat = 184
     @ScaledMetric(relativeTo: .body) private var shortcut: CGFloat = 66
 
     static var gap: CGFloat { 14 }
@@ -55,11 +56,11 @@ struct HomeGrid<Tile: View>: View {
     private func height(_ kind: HomeTileKind) -> CGFloat {
         switch kind {
         case .family: return hero
-        case .familyDay: return ridge
         case .briefing: return briefing
         case .health: return health
         case .steps: return steps
         case .news: return news
+        case .messages: return messages
         default: return kind.size == .compact ? shortcut : unit
         }
     }

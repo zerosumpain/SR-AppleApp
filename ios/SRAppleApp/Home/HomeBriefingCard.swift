@@ -120,7 +120,7 @@ struct HomeBriefingTile: View {
         if let running = trips.running(now: now) {
             let id = running.bundle.trip.id
             let stops = trips.day(id, running.date)?.stops ?? []
-            let progress = trips.progress(id, running.date, now: now)
+            let progress = trips.progressToTell(id, running.date, now: now)
             let next = progress?.next.flatMap { stops.indices.contains($0) ? stops[$0] : nil }
             let clock = TripClock(running.bundle.trip.timeZone)
             let leave = progress?.leaveMin.map { Int(($0 - clock.minutes(now)).rounded()) }

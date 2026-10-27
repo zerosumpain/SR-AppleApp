@@ -60,6 +60,11 @@ struct ThreadListScreen: View {
                     }
                 }
                 .srBareRow()
+                // A line to everyone in one tap, and the bat phone.
+                if access.familyBoards {
+                    FamilyQuickStrip(identifier: "threads-quick")
+                        .srBareRow()
+                }
             }
 
             if !store.pinned.isEmpty && store.query.isEmpty {

@@ -451,10 +451,6 @@ struct TodayScreen: View {
             HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange, keepsChildren: true) {
                 HomeFamilyTile(store: family, watch: family.view?.watch, live: onScreen && scenePhase == .active)
             }
-        case .familyDay:
-            HomeTileButton(kind: kind, id: "home-family-day", action: { router.show(.family) }, hide: hide, customise: arrange) {
-                HomeFamilyDayTile(store: family, watch: family.view?.watch)
-            }
         case .health:
             // The owner's figures are each a button into their own chart, so
             // the tile keeps its children; a member's is one button.
@@ -487,7 +483,9 @@ struct TodayScreen: View {
                               initials: family.view?.initials ?? [:])
             }
         case .messages:
-            HomeTileButton(kind: kind, id: "home-messages", action: { router.openFamilyPage(.messages) }, hide: hide, customise: arrange) {
+            // The quick lines and the bat phone are buttons of their own.
+            HomeTileButton(kind: kind, id: "home-messages", action: { router.openFamilyPage(.messages) }, hide: hide, customise: arrange,
+                           keepsChildren: true) {
                 HomeMessagesTile()
             }
         case .backlog:

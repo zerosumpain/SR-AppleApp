@@ -88,6 +88,8 @@ final class FamilyStore: ObservableObject {
                 }
             }
             if message != nil { message = nil }
+            // The family's pictures ride along, at most every five minutes.
+            Task { await FamilyPhotos.shared.load() }
         } catch {
             if Self.isRefusal(error) {
                 real = nil; view = nil; updated = nil

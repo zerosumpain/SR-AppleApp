@@ -81,6 +81,17 @@ struct SettingsScreen: View {
                     .buttonStyle(.plain)
                     .srGlassRow()
                     .accessibilityIdentifier("settings-colours")
+                    // Your circle, as the family sees it: a picture in place
+                    // of your initials. The site keeps it, so family only.
+                    if access.familyBoards && site.paired {
+                        NavigationLink {
+                            FamilyPhotoScreen()
+                        } label: {
+                            SRRow(title: "Your photo", subtitle: "Shown to the family in place of your initials", icon: "person.crop.circle")
+                        }
+                        .srGlassRow()
+                        .accessibilityIdentifier("settings-family-photo")
+                    }
                 } header: {
                     SRSectionLabel(text: "Appearance")
                 }

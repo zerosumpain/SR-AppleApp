@@ -113,6 +113,7 @@ struct FamilyMessagesScreen: View {
         .navigationTitle("msg family")
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.load() }
+        .task { await FamilyPhotos.shared.load() }
         .srRefreshable { await store.load() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.load() } }

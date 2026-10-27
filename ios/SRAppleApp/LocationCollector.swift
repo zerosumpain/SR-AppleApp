@@ -164,6 +164,17 @@ import UIKit
     func requestPermission() { manager.requestWhenInUseAuthorization() }
     func requestAlways() { manager.requestAlwaysAuthorization() }
 
+    /// The family asked where this phone is (the Steps page's "ask
+    /// everyone", by a silent push): one fresh fix, recorded now whatever
+    /// the gate's state — a sleeping gate has no answer to give. Nothing
+    /// while sharing is off, and `record` drops it under the owner's hold.
+    func reportNow(timeout: Duration = .seconds(8)) async {
+        guard outbox.state.sharing, !SRDemo.isOn else { return }
+        guard let fix = await OneShotLocation.fix(timeout: timeout),
+              fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= max(settings.accuracyCeiling, 200) else { return }
+        record(fix, moving: false)
+    }
+
     /// Ask for Motion & Fitness now, while somebody is looking at the screen.
     /// See `MotionGate.primePermission()` for why this cannot be left until the
     /// gate actually needs it.
