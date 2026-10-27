@@ -155,6 +155,7 @@ struct HomeRingBars: View {
                                 .font(SR.Text.label(11))
                                 .foregroundStyle(SR.inkSecondary)
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.7)
                             Spacer(minLength: 2)
                             Text("\(Int(ring.value.rounded()))/\(Int(ring.goal.rounded()))")
                                 .font(SR.Text.mono(11))

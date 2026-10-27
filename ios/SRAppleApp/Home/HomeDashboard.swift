@@ -15,12 +15,12 @@ struct HomeGrid<Tile: View>: View {
     @ScaledMetric(relativeTo: .body) private var hero: CGFloat = 372
     @ScaledMetric(relativeTo: .body) private var ridge: CGFloat = 226
     /// Three of the briefing's lines, whether one came back or three.
-    @ScaledMetric(relativeTo: .body) private var briefing: CGFloat = 248
+    @ScaledMetric(relativeTo: .body) private var briefing: CGFloat = 232
     /// The gauge beside four figures, and the rings under them.
-    @ScaledMetric(relativeTo: .body) private var health: CGFloat = 252
+    @ScaledMetric(relativeTo: .body) private var health: CGFloat = 236
     /// The headline, four lanes and yesterday's winner.
     @ScaledMetric(relativeTo: .body) private var steps: CGFloat = 224
-    @ScaledMetric(relativeTo: .body) private var news: CGFloat = 196
+    @ScaledMetric(relativeTo: .body) private var news: CGFloat = 188
     @ScaledMetric(relativeTo: .body) private var shortcut: CGFloat = 66
 
     static var gap: CGFloat { 14 }

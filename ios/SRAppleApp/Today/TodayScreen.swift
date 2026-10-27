@@ -340,7 +340,9 @@ struct TodayScreen: View {
                 SRHaptic.tap()
                 router.today.append(HomeCustomizeRef())
             } label: {
-                SRButtonLabel(title: "Arrange Home", icon: "slider.horizontal.3", fill: true)
+                // "Arrange", not "Arrange Home": half the width in capitals
+                // cut it to "ARRANGE H…".
+                SRButtonLabel(title: "Arrange", icon: "slider.horizontal.3", fill: true)
             }
             .srButton(.regular)
             .controlSize(.large)

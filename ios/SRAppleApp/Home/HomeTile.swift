@@ -51,17 +51,19 @@ struct HomeTileFrame<Content: View>: View {
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(vivid ? kind.hue.onFill.opacity(0.92) : kind.hue.base))
                 .accessibilityHidden(true)
+            // The tile's name wins over its badge: a square tile is narrow,
+            // and "2 FAILING" once squeezed "Flows" down to an ellipsis.
             Text(kind.title)
                 .font(SR.Text.title(15))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+                .layoutPriority(2)
             Spacer(minLength: 4)
             if let badge {
-                // The badge keeps its words; the title gives way first.
                 Text(badge)
                     .font(SR.Text.label(12))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.7)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(vivid ? kind.hue.onFill.opacity(0.22) : kind.hue.wash))
