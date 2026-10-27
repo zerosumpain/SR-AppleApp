@@ -269,12 +269,10 @@ struct MoreScreen: View {
     private func tripStatus(next: TripSummary?, questions: Int) -> String? {
         if trips.running() != nil { return "On now" }
         if questions > 0 { return questions == 1 ? "1 question" : "\(questions) questions" }
-        if let next {
-            let clock = TripClock(next.timeZone)
-            let days = clock.days(from: clock.localDate(Date()), to: next.startDate)
-            return days <= 0 ? "Soon" : days == 1 ? "Tomorrow" : "In \(days) days"
-        }
-        return nil
+        guard let next else { return nil }
+        let clock = TripClock(next.timeZone)
+        guard let days = clock.days(from: clock.localDate(Date()), to: next.startDate) else { return nil }
+        return days <= 0 ? "Soon" : days == 1 ? "Tomorrow" : "In \(days) days"
     }
 }
 
