@@ -304,7 +304,8 @@ final class FamilyMessagesStore: ObservableObject {
         return FamilyMessageTools.mentionCandidates("", names: household + writers)
     }
 
-    static func first(_ name: String) -> String {
+    /// `nonisolated`: pure, and the reminder scheduler calls it off the main actor.
+    nonisolated static func first(_ name: String) -> String {
         name.split(separator: " ").first.map(String.init) ?? name
     }
 
