@@ -499,13 +499,21 @@ final class OfflinePlayTests: XCTestCase {
         XCTAssertEqual(bare.settled, [])
     }
 
-    func testTheUploadIsTheRowsAsTheyAre() throws {
-        let body = try JSONEncoder().encode(OfflineResultUpload(results: [result("a")]))
+    func testTheUploadIsTheRowsWithTheGameNamespaced() throws {
+        let row = result("a", game: "maths-sprint", at: 5)
+        let body = try JSONEncoder().encode(OfflineResultUpload(results: [row]))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         let rows = try XCTUnwrap(object["results"] as? [[String: Any]])
         XCTAssertEqual(rows.first?["id"] as? String, "a")
         XCTAssertEqual(rows.first?["mode"] as? String, "solo")
-        XCTAssertEqual(rows.first?["won"] as? Bool, true)
+        XCTAssertEqual(rows.first?["won"] as? Bool, row.won)
+        XCTAssertEqual(rows.first?["finishedAt"] as? Double, 5)
+        // Never the online Quick Maths Sprint's board.
+        XCTAssertEqual(rows.first?["game"] as? String, "offline:maths-sprint")
+        XCTAssertEqual(rows.first?["source"] as? String, "offline")
+        // Every field of the result goes, plus `source`.
+        let plain = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(row)) as? [String: Any])
+        XCTAssertEqual(Set(rows.first?.keys.map { $0 } ?? []), Set(plain.keys).union(["source"]))
     }
 
     // MARK: - The wire stays readable

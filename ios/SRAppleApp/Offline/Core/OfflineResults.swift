@@ -160,12 +160,66 @@ struct OfflineResultQueue: Codable, Equatable {
     }
 }
 
-/// `POST api/native/games/offline-results`: `{ results: [...] }`, each row
-/// exactly an `OfflineResult`. The site files a row as a `game_results` row
-/// for the caller — room id `offline-<id>`, round 1 — so a retry, or the same
-/// match from another phone, lands once per person.
+/// `POST api/native/games/offline-results`: `{ results: [...] }`, each row an
+/// `OfflineResult` with its game namespaced (`game: "offline:<id>"`, plus
+/// `source: "offline"`). The site files a row as a `game_results` row for the
+/// caller — room id `offline-<id>`, round 1 — so a retry, or the same match
+/// from another phone, lands once per person.
+///
+/// The namespace matters because an offline game can share an id with an
+/// online one and score differently: the offline Maths Sprint has no
+/// difficulty and scores ten a sum plus a streak bonus, so its rows must
+/// never land on the online `maths-sprint` board. The site decides whether
+/// to show offline boards beside the online ones; the phone keeps the plain
+/// id for its own tallies.
 struct OfflineResultUpload: Encodable {
+    static let gamePrefix = "offline:"
+    static let source = "offline"
+
     let results: [OfflineResult]
+
+    /// The game id as the site files it.
+    static func wireGame(_ id: String) -> String { gamePrefix + id }
+
+    private enum CodingKeys: String, CodingKey { case results }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(results.map(Row.init), forKey: .results)
+    }
+
+    /// One row on the wire: every field of the result, the game namespaced.
+    private struct Row: Encodable {
+        let id: String
+        let game: String
+        let source: String
+        let title: String
+        let mode: OfflineResult.Mode
+        let finishedAt: Double
+        let players: Int
+        let bots: Int
+        let rank: Int
+        let score: Int
+        let won: Bool
+        let detail: String?
+        let opponents: [String]
+
+        init(_ result: OfflineResult) {
+            id = result.id
+            game = OfflineResultUpload.wireGame(result.game)
+            source = OfflineResultUpload.source
+            title = result.title
+            mode = result.mode
+            finishedAt = result.finishedAt
+            players = result.players
+            bots = result.bots
+            rank = result.rank
+            score = result.score
+            won = result.won
+            detail = result.detail
+            opponents = result.opponents
+        }
+    }
 }
 
 /// The site's answer: the ids it recorded, and the ids it will never take

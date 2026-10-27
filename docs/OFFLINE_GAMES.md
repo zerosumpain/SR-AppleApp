@@ -602,3 +602,10 @@ line by line before handing it back:
   `POST api/native/games/offline-results` `{ results: [...] }` → `{ recorded: [id],
   rejected: [id] }` when paired and online — at once, when the network returns, when the
   app comes to the front, and on a backoff (15 s → 15 min). A 404 keeps them waiting.
+  On the wire each row's game is namespaced, `game: "offline:<id>"` with
+  `source: "offline"` (`OfflineResultUpload`), so the offline Maths Sprint (no difficulty,
+  10 a sum plus a streak bonus) can never land on the online `maths-sprint` board; the
+  phone's own tallies keep the plain id. **The SR-Main route does not exist yet**: it
+  should write one `game_results` row per caller keyed by (`offline-<id>`, user), so
+  retries are idempotent, and answer `{ recorded, rejected }`. Until it ships every
+  result stays on the phone (`.notReady`).
