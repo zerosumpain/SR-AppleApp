@@ -22,6 +22,8 @@ final class GamesShelfTests: XCTestCase {
         XCTAssertEqual(GameCategory.of("homestead"), .strategy)
         XCTAssertEqual(GameCategory.of("tap-duel"), .quick)
         XCTAssertEqual(GameCategory.of("marble-race"), .physics)
+        XCTAssertEqual(GameCategory.of("lander"), .physics)
+        XCTAssertEqual(GameCategory.of("car-race"), .physics)
         XCTAssertEqual(GameCategory.of("manhunt"), .outdoor)
     }
 
@@ -88,6 +90,19 @@ final class GamesShelfTests: XCTestCase {
         GameUsage.save(usage, defaults)
         XCTAssertEqual(GameUsage.load(defaults), usage)
         XCTAssertNil(defaults.data(forKey: HubUsage.key))
+    }
+
+    /// A play counted by another screen survives the next one counted here.
+    func testRecordAddsToWhatIsSaved() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "games-usage-record-test"))
+        defaults.removePersistentDomain(forName: "games-usage-record-test")
+        let held = GameUsage.load(defaults)
+        GameUsage.record("lander", now: now, defaults)
+        let after = GameUsage.record("chess", now: now, defaults)
+        XCTAssertEqual(held, HubUsage())
+        XCTAssertEqual(after.score("lander", now: now), 1, accuracy: 0.001)
+        XCTAssertEqual(after.score("chess", now: now), 1, accuracy: 0.001)
+        XCTAssertEqual(GameUsage.load(defaults), after)
     }
 
     // MARK: The banner

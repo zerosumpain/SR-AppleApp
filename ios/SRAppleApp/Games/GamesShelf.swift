@@ -102,6 +102,9 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         "maths-sprint": .quick,
         "sequence-memory": .quick,
         "marble-race": .physics,
+        // Played on this phone, never a room (the physics games' own branch).
+        "lander": .physics,
+        "car-race": .physics,
         "manhunt": .outdoor,
     ]
 }
@@ -111,6 +114,18 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
 /// mix. Counted when a game is started or an invite joined, never on a look.
 enum GameUsage {
     static let key = "games-usage"
+
+    /// Count one play of `game` and return the new counts. Reads the saved
+    /// counts afresh rather than adding to a copy held since launch, so a play
+    /// counted elsewhere (a game on this phone, Play nearby) is never written
+    /// over by the next room started here.
+    @discardableResult
+    static func record(_ game: String, now: Date = Date(), _ defaults: UserDefaults = .standard) -> HubUsage {
+        var usage = load(defaults)
+        usage.record(game, now: now)
+        save(usage, defaults)
+        return usage
+    }
 
     static func load(_ defaults: UserDefaults = .standard) -> HubUsage {
         guard let data = defaults.data(forKey: key), let usage = try? JSONDecoder().decode(HubUsage.self, from: data) else {

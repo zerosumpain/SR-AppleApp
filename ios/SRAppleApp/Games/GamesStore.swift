@@ -114,10 +114,10 @@ final class GamesStore: ObservableObject {
         UserDefaults.standard.set(Array(bannerDismissed.suffix(100)), forKey: Self.dismissedKey)
     }
 
-    /// One start or join, counted for the shelf's order.
+    /// One play, counted for the shelf's order: a room started or joined, or
+    /// a game opened on this phone (which has no room to count it by).
     func recordPlay(_ game: String) {
-        usage.record(game, now: Date())
-        GameUsage.save(usage)
+        usage = GameUsage.record(game, now: Date())
     }
 
     /// The paces the new-game sheet may offer for a game; empty = live only.

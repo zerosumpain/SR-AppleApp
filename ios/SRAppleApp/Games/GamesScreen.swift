@@ -365,7 +365,7 @@ struct GamesScreen: View {
     private func tile(_ kind: GameKind, idPrefix: String) -> some View {
         Button {
             SRHaptic.tap()
-            starting = kind
+            open(kind)
         } label: {
             GameTile(kind: kind)
         }
@@ -373,6 +373,15 @@ struct GamesScreen: View {
         // Tap Duel keeps the id it shipped with; the favourites row has its own
         // ids, so a test looking for a game's tile finds the one on its shelf.
         .accessibilityIdentifier(idPrefix == "games-new" && kind == .tapDuel ? "games-new" : "\(idPrefix)-\(kind.rawValue)")
+    }
+
+    /// Where a game's tile goes: the new-game sheet, which starts a room on
+    /// the site. Every tap on the shelf comes through here, so this is where a
+    /// game played on this phone with no room (the physics games' branch,
+    /// `playsOnPhone`) is sent to its own screen instead, and counted as
+    /// played (`store.recordPlay`), since no room will ever count it.
+    private func open(_ kind: GameKind) {
+        starting = kind
     }
 
     /// Hometowns is offered only once the site plays it (its lobby lists the
