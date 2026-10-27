@@ -3,11 +3,12 @@
 #
 #   scripts/home-check.sh
 #
-# Like `offline-check.sh`, for Home: the briefing's ranking
-# (`ios/SRAppleApp/Home/HomeBriefing.swift`) is Foundation-only by design, so
-# it is compiled here as a throwaway SwiftPM module NAMED `SRAppleApp` (the
-# test's `@testable import SRAppleApp` is untouched) with
-# `ios/SRAppleAppTests/HomeBriefingTests.swift` as its test target, in the
+# Like `offline-check.sh`, for Home and msg family: the briefing's ranking
+# (`Home/HomeBriefing.swift`) and msg family's tools
+# (`Family/FamilyMessageTools.swift`) are Foundation-only by design, so they
+# are compiled here as a throwaway SwiftPM module NAMED `SRAppleApp` (the
+# tests' `@testable import SRAppleApp` is untouched) with their test files
+# (`HomeBriefingTests`, `FamilyMessageToolsTests`) as its test target, in the
 # swift:6.0-jammy image in Swift 5 language mode, as the app is. Every other
 # file under Home/ is put through `swiftc -parse`: no imports resolved, no
 # types checked, but the unbalanced brace is caught before CI.
@@ -18,9 +19,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${HOME_CHECK_IMAGE:-swift:6.0-jammy}"
 BASE="${HOME_CHECK_TMP:-${TMPDIR:-/tmp}}"
-HOMEDIR="$ROOT/ios/SRAppleApp/Home"
-PURE=(HomeBriefing.swift)
-TESTS=(HomeBriefingTests.swift)
+APP="$ROOT/ios/SRAppleApp"
+HOMEDIR="$APP/Home"
+PURE=(Home/HomeBriefing.swift Family/FamilyMessageTools.swift)
+TESTS=(HomeBriefingTests.swift FamilyMessageToolsTests.swift)
 
 command -v docker >/dev/null || { echo "home-check: docker is not installed" >&2; exit 2; }
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
@@ -31,7 +33,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/Sources/SRAppleApp" "$WORK/Tests/SRAppleAppTests" "$WORK/parse"
 
 for name in "${PURE[@]}"; do
-  file="$HOMEDIR/$name"
+  file="$APP/$name"
   imports="$({ grep -E '^[[:space:]]*import[[:space:]]' "$file" || true; } | awk '{print $NF}' | sort -u | tr '\n' ' ' | sed 's/ $//')"
   if [ "$imports" != "Foundation" ]; then
     echo "home-check: $name must import only Foundation (it imports: ${imports:-nothing})" >&2
@@ -40,7 +42,7 @@ for name in "${PURE[@]}"; do
   cp "$file" "$WORK/Sources/SRAppleApp/"
 done
 for file in "$HOMEDIR"/*.swift; do
-  case " ${PURE[*]} " in *" $(basename "$file") "*) continue ;; esac
+  case " ${PURE[*]} " in *" Home/$(basename "$file") "*) continue ;; esac
   cp "$file" "$WORK/parse/"
 done
 for name in "${TESTS[@]}"; do cp "$ROOT/ios/SRAppleAppTests/$name" "$WORK/Tests/SRAppleAppTests/"; done

@@ -72,6 +72,19 @@ struct SRChipStrip: View {
 }
 
 extension View {
+    /// A strip pinned under the bar with the page scrolling behind both, as
+    /// every tab's page scrolls behind the `sr.` mark. On iOS 26 the bar's
+    /// scroll-edge blur reaches down under the strip (`safeAreaBar`); before
+    /// it, a plain inset.
+    @ViewBuilder
+    func srPinnedStrip<Strip: View>(@ViewBuilder _ strip: () -> Strip) -> some View {
+        if #available(iOS 26.0, *) {
+            safeAreaBar(edge: .top, spacing: 0) { strip() }
+        } else {
+            safeAreaInset(edge: .top, spacing: 0) { strip() }
+        }
+    }
+
     /// The top of a tab's first page, the same on every tab: the hub on the
     /// left, the `sr.` mark in the middle. The page adds its own trailing items.
     func srTabBar() -> some View {

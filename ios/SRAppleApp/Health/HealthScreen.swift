@@ -57,16 +57,19 @@ struct HealthScreen: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            if access.current.owner {
-                SRChipStrip(chips: Self.areas.map(\.chip), identifier: "health-strip") { chip in
-                    guard let area = Self.areas.first(where: { $0.chip.id == chip.id }) else { return }
-                    router.push(area.route, on: .health)
+        // The strip is pinned over the list, not stacked above it: stacked,
+        // the list began under the strip and never scrolled behind the `sr.`
+        // bar the way every other tab's page does (John, 2026-10-27).
+        list
+            .srPinnedStrip {
+                if access.current.owner {
+                    SRChipStrip(chips: Self.areas.map(\.chip), identifier: "health-strip") { chip in
+                        guard let area = Self.areas.first(where: { $0.chip.id == chip.id }) else { return }
+                        router.push(area.route, on: .health)
+                    }
                 }
             }
-            list
-        }
-        .srGround(.vital)
+            .srGround(.vital)
         .onReceive(companion.$paired.removeDuplicates()) { companionPaired = $0 }
         .navigationTitle("Health")
         // Inline, not large. A large title renders BLANK on this OS with this

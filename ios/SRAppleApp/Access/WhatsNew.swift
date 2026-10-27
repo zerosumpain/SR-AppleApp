@@ -34,6 +34,18 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-27-msg-family", when: "October 2026", title: "More to msg family", items: [
+            WhatsNewItem(icon: "chart.bar", title: "Polls",
+                         detail: "Tap Poll over the box, ask a question with up to four answers, and everyone votes with a tap. Tap again to change your mind."),
+            WhatsNewItem(icon: "at", title: "Mentions",
+                         detail: "Type @ to pick someone. Their name stands out, and a thread that mentions you says so."),
+            WhatsNewItem(icon: "circle.badge", title: "What's new to you",
+                         detail: "A line shows what came in since you last looked, and Chat and Home count it."),
+            WhatsNewItem(icon: "text.bubble", title: "Quicker to write",
+                         detail: "One tap for \u{201C}On my way\u{201D}, \u{201C}Running late\u{201D} or where you are. What you were writing waits for you if you leave."),
+            WhatsNewItem(icon: "bell.badge", title: "Pin, search, remind, share",
+                         detail: "Hold a message to pin it to the top, be reminded about it later, or share it. Search finds any message, reply or name, and days have headings."),
+        ]),
         WhatsNewRelease(id: "2026-10-27-home-pulse", when: "October 2026", title: "A Home that tells you things", items: [
             WhatsNewItem(icon: "sparkle", title: "Worth knowing",
                          detail: "The top of Home picks the three things that matter right now — who is leaving soon, a task that is late, how far you are behind on steps and how long a walk would close it. Tap one to go straight there."),

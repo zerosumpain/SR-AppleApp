@@ -11,16 +11,34 @@ import SwiftUI
 /// newest reply. A tap opens the thread (`FamilyThreadScreen`), where the
 /// replies hang under the message, indented, each with its person's circle.
 /// The thread that moved last is at the foot, by the box to start a new one.
+///
+/// 2026-10-27 (John: "at least 10 new features"): a "New" line over what
+/// came in since this phone last had it open, and a dot on those threads;
+/// day headings; search; threads pinned to the top on this phone; polls;
+/// @mentions picked out, with "Mentions you" on a thread that names you;
+/// "Remind me later" and Share on the long press; quick messages, "where I
+/// am" and a counter over the box; and the box keeps an unsent draft.
 struct FamilyMessagesScreen: View {
     @ObservedObject private var store = FamilyMessagesStore.shared
     @EnvironmentObject private var router: Router
     @Environment(\.scenePhase) private var scenePhase
-    @State private var draft = ""
+    @State private var draft = FamilyMessagesStore.draft("new")
     /// A message of mine, waiting on "Delete?".
     @State private var deleting: FamilyThreadDeleting?
+    @State private var query = ""
+    @State private var writingPoll = false
+    /// When msg family was last read, as it stood when this screen opened:
+    /// the "New" line stays where it was for the whole visit.
+    @State private var openedReadAt: Date?
+    @State private var opened = false
 
     var body: some View {
         let faces = FamilyFaces()
+        let shown = store.thread.filter { matches($0) }
+        let pinned = query.isEmpty ? shown.filter { store.pinned.contains($0.id) } : []
+        let rest = shown.filter { !pinned.contains($0) }
+        let firstNew = rest.firstIndex { store.isUnread($0, since: openedReadAt) }
+        let newCount = rest.filter { store.isUnread($0, since: openedReadAt) }.count
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -35,9 +53,25 @@ struct FamilyMessagesScreen: View {
                         } else {
                             ProgressView().tint(SR.accent).frame(maxWidth: .infinity).padding(.vertical, 60)
                         }
+                    } else if shown.isEmpty {
+                        SREmpty(title: "Nothing matches", icon: "magnifyingglass", message: "Search looks through every message, reply and name.")
+                            .padding(.top, 40)
                     }
-                    ForEach(store.thread) { message in
-                        card(message, faces: faces).id(message.id)
+                    if !pinned.isEmpty {
+                        FamilyDayHeading(title: "Pinned")
+                        ForEach(pinned) { message in
+                            card(message, faces: faces, unread: store.isUnread(message, since: openedReadAt)).id("pin-\(message.id)")
+                        }
+                    }
+                    ForEach(Array(rest.enumerated()), id: \.element.id) { index, message in
+                        let day = dayTitle(message)
+                        if index == 0 || dayTitle(rest[index - 1]) != day {
+                            FamilyDayHeading(title: day)
+                        }
+                        if index == firstNew, query.isEmpty {
+                            FamilyNewLine(count: newCount)
+                        }
+                        card(message, faces: faces, unread: store.isUnread(message, since: openedReadAt)).id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -50,16 +84,28 @@ struct FamilyMessagesScreen: View {
             }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search messages")
         .safeAreaInset(edge: .bottom) {
-            FamilyMessageComposer(
-                draft: $draft,
-                placeholder: "Start a thread for the family",
-                busy: store.busy == "new",
-                error: store.thread.isEmpty ? nil : store.message,
-                identifier: "family-msg"
-            ) {
-                let text = draft
-                Task { if await store.send(text) { draft = "" } }
+            VStack(spacing: 6) {
+                if let notice = store.notice {
+                    SRBanner(text: notice)
+                        .padding(.horizontal, 12)
+                        .task(id: notice) {
+                            try? await Task.sleep(for: .seconds(3))
+                            if store.notice == notice { store.notice = nil }
+                        }
+                }
+                FamilyComposerAccessories(draft: $draft, names: store.mentionNames) { writingPoll = true }
+                FamilyMessageComposer(
+                    draft: $draft,
+                    placeholder: "Start a thread for the family",
+                    busy: store.busy == "new",
+                    error: store.thread.isEmpty ? nil : store.message,
+                    identifier: "family-msg"
+                ) {
+                    let text = draft
+                    Task { if await store.send(text) { draft = "" } }
+                }
             }
         }
         .srPaper()
@@ -71,7 +117,27 @@ struct FamilyMessagesScreen: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.load() } }
         }
+        .onAppear {
+            // The "New" line is drawn against when it was last read; reading it
+            // now moves the mark for next time.
+            if !opened { openedReadAt = store.readAt; opened = true }
+            store.markRead()
+        }
+        .onChange(of: store.lastActivityISO) { _, _ in store.markRead() }
+        .onDisappear { store.markRead() }
+        .onChange(of: draft) { _, text in FamilyMessagesStore.saveDraft(text, for: "new") }
+        .sheet(isPresented: $writingPoll) {
+            FamilyPollComposer { poll in await store.send(poll.body) }
+        }
         .familyThreadDelete($deleting, store: store)
+    }
+
+    private func matches(_ message: FamilyMessage) -> Bool {
+        FamilyMessageTools.matches(query, in: [message.body, message.fromName] + message.replies.flatMap { [$0.body, $0.fromName] })
+    }
+
+    private func dayTitle(_ message: FamilyMessage) -> String {
+        FamilyMessageTools.dayTitle(message.lastActivity ?? parseTimestamp(message.at) ?? Date(), now: Date())
     }
 
     private func open(_ message: FamilyMessage) {
@@ -84,21 +150,49 @@ struct FamilyMessagesScreen: View {
     /// The sender's circle beside their words; the emoji in a line of chips;
     /// then who answered — their circles, overlapped, and the newest reply.
     /// The whole card opens the thread; a long press still answers in place.
-    private func card(_ message: FamilyMessage, faces: FamilyFaces) -> some View {
-        Button { open(message) } label: {
+    private func card(_ message: FamilyMessage, faces: FamilyFaces, unread: Bool) -> some View {
+        let poll = FamilyPoll.parse(message.body)
+        let me = store.myName
+        let mentioned = me.map { name in
+            (!message.mine && FamilyMessageTools.mentions(message.body, name: name))
+                || message.replies.contains { !$0.mine && FamilyMessageTools.mentions($0.body, name: name) }
+        } ?? false
+        return Button { open(message) } label: {
             HStack(alignment: .top, spacing: 10) {
                 FamilyFace(subject: message.fromSubject, id: message.fromId, name: message.fromName, size: 36, faces: faces)
+                    .overlay(alignment: .topTrailing) {
+                        if unread {
+                            Circle().fill(SR.accentDeep)
+                                .frame(width: 11, height: 11)
+                                .overlay(Circle().stroke(SR.paper, lineWidth: 2))
+                                .offset(x: 3, y: -3)
+                                .accessibilityLabel("New")
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 4) {
                     FamilyMessageByline(name: message.mine ? "You" : message.fromName, at: message.at,
                                         mine: message.mine, trailing: message.mine && message.recipients > 0 ? "to \(message.recipients)" : nil)
-                    Text(message.body)
-                        .font(SR.Text.body(15))
-                        .foregroundStyle(SR.ink)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    FamilyMessageTally(tally: message.tally)
-                    if let last = message.textReplies.last {
-                        repliesLine(message, last: last, faces: faces)
+                    if let poll {
+                        FamilyPollView(poll: poll, counts: poll.tally(FamilyMessagesStore.votes(message)))
+                    } else {
+                        FamilyMessageText(message.body, names: store.mentionNames, me: me)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 6) {
+                        if store.pinned.contains(message.id) {
+                            Image(systemName: "pin.fill")
+                                .font(SR.Text.label(10))
+                                .foregroundStyle(SR.accentDeep)
+                                .accessibilityLabel("Pinned")
+                        }
+                        if mentioned { FamilyMentionTag() }
+                        FamilyMessageTally(tally: message.tally)
+                    }
+                    // A poll's votes are its bars, not replies.
+                    let words = poll.map { p in message.textReplies.filter { p.option(of: $0.body) == nil } } ?? message.textReplies
+                    if let last = words.last {
+                        repliesLine(words, last: last, faces: faces)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -116,15 +210,18 @@ struct FamilyMessagesScreen: View {
             FamilyMessageAnswers(message: message, store: store, deleting: $deleting) { open(message) }
         }
         .accessibilityIdentifier("family-message-\(message.id)")
+        .accessibilityValue(unread ? "New" : "")
         .accessibilityHint("Opens the thread. Touch and hold to answer with an emoji.")
     }
 
     /// "3 replies · Robin: Pepperoni please!" under the circles of who said them.
-    private func repliesLine(_ message: FamilyMessage, last: FamilyMessageReply, faces: FamilyFaces) -> some View {
-        let count = message.textReplies.count
+    private func repliesLine(_ replies: [FamilyMessageReply], last: FamilyMessageReply, faces: FamilyFaces) -> some View {
+        let count = replies.count
+        var seen = Set<String>()
+        let repliers = replies.filter { seen.insert($0.fromId.isEmpty ? $0.fromName : $0.fromId).inserted }
         return HStack(spacing: 8) {
             HStack(spacing: -8) {
-                ForEach(message.repliers.prefix(4)) { reply in
+                ForEach(repliers.prefix(4)) { reply in
                     FamilyFace(subject: reply.fromSubject, id: reply.fromId, name: reply.fromName, size: 22, faces: faces)
                 }
             }
@@ -158,6 +255,7 @@ struct FamilyThreadScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
     @State private var deleting: FamilyThreadDeleting?
+    @State private var draftLoaded = false
 
     /// How far an answer from somebody else sits in from the message.
     static let indent: CGFloat = 30
@@ -188,15 +286,34 @@ struct FamilyThreadScreen: View {
             // The thread itself went: there is nothing left to stand on.
             if id == ref.id { dismiss() }
         }
+        .onAppear {
+            if !draftLoaded { draft = FamilyMessagesStore.draft(ref.id); draftLoaded = true }
+            store.markRead()
+        }
+        .onChange(of: draft) { _, text in FamilyMessagesStore.saveDraft(text, for: ref.id) }
+        .onChange(of: store.lastActivityISO) { _, _ in store.markRead() }
+    }
+
+    /// Written out with a `Void` return, not as a closure that is only a
+    /// `Task`: see `ThreadListScreen.startThread` for why.
+    private func vote(_ option: Int, in message: FamilyMessage, poll: FamilyPoll) {
+        Task { await store.vote(option, in: message, poll: poll) }
+    }
+
+    /// The replies in words: a poll's votes are drawn as its bars instead.
+    private func words(_ message: FamilyMessage) -> [FamilyMessageReply] {
+        guard let poll = FamilyPoll.parse(message.body) else { return message.textReplies }
+        return message.textReplies.filter { poll.option(of: $0.body) == nil }
     }
 
     private func thread(_ message: FamilyMessage, faces: FamilyFaces) -> some View {
-        ScrollViewReader { proxy in
+        let replies = words(message)
+        return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     root(message, faces: faces)
-                    ForEach(Array(message.textReplies.enumerated()), id: \.element.id) { index, reply in
-                        replyRow(reply, in: message, last: index == message.textReplies.count - 1, faces: faces)
+                    ForEach(Array(replies.enumerated()), id: \.element.id) { index, reply in
+                        replyRow(reply, in: message, last: index == replies.count - 1, faces: faces)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -211,11 +328,20 @@ struct FamilyThreadScreen: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
+                if let notice = store.notice {
+                    SRBanner(text: notice)
+                        .padding(.horizontal, 12)
+                        .task(id: notice) {
+                            try? await Task.sleep(for: .seconds(3))
+                            if store.notice == notice { store.notice = nil }
+                        }
+                }
                 // The quick emoji, for a message somebody else sent: one tap,
                 // as from the notification.
                 if !message.mine {
                     reactionsBar(message)
                 }
+                FamilyComposerAccessories(draft: $draft, names: store.mentionNames)
                 FamilyMessageComposer(
                     draft: $draft,
                     placeholder: message.mine ? "Add to your thread" : "Reply to \(message.fromName)",
@@ -238,11 +364,15 @@ struct FamilyThreadScreen: View {
             VStack(alignment: .leading, spacing: 6) {
                 FamilyMessageByline(name: message.mine ? "You" : message.fromName, at: message.at, mine: message.mine,
                                     trailing: message.mine && message.recipients > 0 ? "to \(message.recipients)" : nil)
-                Text(message.body)
-                    .font(SR.Text.body(17))
-                    .foregroundStyle(SR.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                if let poll = FamilyPoll.parse(message.body) {
+                    FamilyPollView(poll: poll, counts: poll.tally(FamilyMessagesStore.votes(message)),
+                                   vote: { vote($0, in: message, poll: poll) },
+                                   busy: store.busy != nil)
+                } else {
+                    FamilyMessageText(message.body, names: store.mentionNames, me: store.myName, size: 17)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
                 FamilyMessageTally(tally: message.tally)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -250,7 +380,8 @@ struct FamilyThreadScreen: View {
         .padding(12)
         .srGlassCard(.paper)
         .contextMenu { FamilyMessageAnswers(message: message, store: store, deleting: $deleting, open: nil) }
-        .accessibilityElement(children: .combine)
+        // A poll's options are buttons of their own; anything else reads as one.
+        .accessibilityElement(children: FamilyPoll.parse(message.body) == nil ? .combine : .contain)
         .accessibilityIdentifier("family-thread-message")
     }
 
@@ -265,9 +396,7 @@ struct FamilyThreadScreen: View {
             FamilyFace(subject: reply.fromSubject, id: reply.fromId, name: reply.fromName, size: fromSender ? 32 : 28, faces: faces)
             VStack(alignment: .leading, spacing: 3) {
                 FamilyMessageByline(name: reply.mine ? "You" : reply.fromName, at: reply.at, mine: reply.mine, trailing: nil)
-                Text(reply.body)
-                    .font(SR.Text.body(15))
-                    .foregroundStyle(SR.ink)
+                FamilyMessageText(reply.body, names: store.mentionNames, me: store.myName)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -298,6 +427,9 @@ struct FamilyThreadScreen: View {
                 UIPasteboard.general.string = reply.body
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
+            }
+            ShareLink(item: "\(reply.mine ? "Me" : reply.fromName): \(reply.body)") {
+                Label("Share…", systemImage: "square.and.arrow.up")
             }
             if reply.mine {
                 Button(role: .destructive) {
@@ -414,15 +546,35 @@ struct FamilyMessageAnswers: View {
                 .controlGroupStyle(.compactMenu)
             }
         }
+        // A poll's answers, to vote from the long press without opening it.
+        if let poll = FamilyPoll.parse(message.body) {
+            let counts = poll.tally(FamilyMessagesStore.votes(message))
+            ForEach(counts) { count in
+                Button {
+                    Task { await store.vote(count.option, in: message, poll: poll) }
+                } label: {
+                    Label("\(count.mine ? "Take back" : "Vote") \(count.label)", systemImage: count.mine ? "checkmark.circle.fill" : "circle")
+                }
+            }
+        }
         if let open {
             Button(action: open) {
                 Label(message.mine ? "Open the thread" : "Reply", systemImage: "arrowshape.turn.up.left")
             }
         }
         Button {
+            store.togglePin(message.id)
+        } label: {
+            Label(store.pinned.contains(message.id) ? "Unpin" : "Pin to the top", systemImage: store.pinned.contains(message.id) ? "pin.slash" : "pin")
+        }
+        FamilyRemindMenu(message: message, store: store)
+        Button {
             UIPasteboard.general.string = message.body
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
+        }
+        ShareLink(item: "\(message.mine ? "Me" : message.fromName): \(message.body)") {
+            Label("Share…", systemImage: "square.and.arrow.up")
         }
         // What this person sent, and only that: their own emoji go at once,
         // the message itself asks first.
@@ -490,6 +642,15 @@ struct FamilyMessageComposer: View {
         VStack(spacing: 6) {
             if let error {
                 SRBanner(text: error, tone: SR.error)
+            }
+            // How much room is left, once it is nearly gone.
+            if let left = FamilyMessageTools.remaining(draft) {
+                Text(left >= 0 ? "\(left) characters left" : "\(-left) too many — trim it to send")
+                    .font(SR.Text.mono(12))
+                    .foregroundStyle(left >= 0 ? SR.inkMuted : SR.error)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 8)
+                    .accessibilityIdentifier("\(identifier)-counter")
             }
             SRGlassGroup(spacing: 10) {
                 HStack(alignment: .bottom, spacing: 10) {
