@@ -68,6 +68,8 @@ struct GameRoomScreen: View {
                 HomesteadScreen(roomId: ref.id)
             case .hometowns?:
                 HometownsScreen(roomId: ref.id)
+            case .lander?, .carRace?:
+                PhysicsGameScreen(kind: GameKind(rawValue: game) ?? .lander)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",

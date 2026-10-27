@@ -381,7 +381,13 @@ struct GamesScreen: View {
     /// `playsOnPhone`) is sent to its own screen instead, and counted as
     /// played (`store.recordPlay`), since no room will ever count it.
     private func open(_ kind: GameKind) {
-        starting = kind
+        // Lander and Car Race play on this phone, with no room to start.
+        if kind.playsOnPhone {
+            store.recordPlay(kind.rawValue)
+            router.push(PhysicsGameRef(kind: kind), on: .games)
+        } else {
+            starting = kind
+        }
     }
 
     /// Hometowns is offered only once the site plays it (its lobby lists the
