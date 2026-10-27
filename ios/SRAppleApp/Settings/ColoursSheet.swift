@@ -11,6 +11,9 @@ struct SRPaletteSheet: View {
     @ObservedObject private var store = SRPaletteStore.shared
     @ObservedObject private var access = AccessStore.shared
     @Environment(\.dismiss) private var dismiss
+    /// A palette card's name line: the one part of a card that grows with the
+    /// reader's text size (its title type scales against `.headline`).
+    @ScaledMetric(relativeTo: .headline) private var cardName: CGFloat = 18
 
     var body: some View {
         let palette = store.palette
@@ -102,27 +105,41 @@ struct SRPaletteSheet: View {
 
     // MARK: - Presets
 
+    /// Two rows of cards, filled column by column: fourteen palettes are seven
+    /// columns to scroll, not fourteen. The chosen one is scrolled into view
+    /// when the sheet opens.
     private func presets(selected: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(SRPalette.presets) { preset in
-                    Button {
-                        SRHaptic.select()
-                        store.update { $0.preset = preset.id }
-                    } label: {
-                        SRPaletteCard(palette: SRPalette.resolve(choiceFor(preset)), selected: preset.id == selected)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHGrid(rows: presetRows, spacing: 12) {
+                    ForEach(SRPalette.presets) { preset in
+                        Button {
+                            SRHaptic.select()
+                            store.update { $0.preset = preset.id }
+                        } label: {
+                            SRPaletteCard(palette: SRPalette.resolve(choiceFor(preset)), selected: preset.id == selected)
+                        }
+                        .buttonStyle(SRPressStyle())
+                        .accessibilityLabel(preset.name)
+                        .accessibilityHint(preset.blurb)
+                        .accessibilityAddTraits(preset.id == selected ? .isSelected : [])
+                        .accessibilityIdentifier("colours-preset-\(preset.id)")
+                        .id(preset.id)
                     }
-                    .buttonStyle(SRPressStyle())
-                    .accessibilityLabel(preset.name)
-                    .accessibilityHint(preset.blurb)
-                    .accessibilityAddTraits(preset.id == selected ? .isSelected : [])
-                    .accessibilityIdentifier("colours-preset-\(preset.id)")
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .scrollClipDisabled()
+            .onAppear { proxy.scrollTo(selected, anchor: .center) }
         }
-        .scrollClipDisabled()
+    }
+
+    /// Fixed rows: a lazy grid in a horizontal scroll view has no height of its
+    /// own to share out, and a card is a known height but for its name.
+    private var presetRows: [GridItem] {
+        let card = SRPaletteCard.drawnHeight + cardName
+        return [GridItem(.fixed(card), spacing: 12), GridItem(.fixed(card))]
     }
 
     /// The reader's choice as it would be with `preset` picked: each card
@@ -218,7 +235,10 @@ struct SRPaletteSheet: View {
     /// plus Health's Move ring and, for the owner, the alerts. PURE.
     static func keys(access: AppAccess, sitePaired: Bool) -> [SR.HueKey] {
         var out: [SR.HueKey] = []
-        for kind in HomeTileKind.available(access: access, sitePaired: sitePaired) where !out.contains(kind.hueKey) {
+        // The briefing has no colour of its own to change: each of its lines
+        // wears its source's.
+        for kind in HomeTileKind.available(access: access, sitePaired: sitePaired)
+        where kind != .briefing && !out.contains(kind.hueKey) {
             out.append(kind.hueKey)
             if kind == .health { out.append(.move) }
         }
@@ -243,6 +263,12 @@ struct SRPaletteCard: View {
     let palette: SRPalette
     let selected: Bool
     @Environment(\.colorScheme) private var scheme
+
+    /// The card's height but for its name line, which the picker's grid adds
+    /// at the reader's text size: padding, icon, tiles, people and the gaps
+    /// between them, as `body` lays them out (10 + 30 + 8 + 78 + 8 + 7 + 8 +
+    /// 10). Change one, change both.
+    static let drawnHeight: CGFloat = 159
 
     var body: some View {
         let dark = scheme == .dark
