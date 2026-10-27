@@ -9,18 +9,30 @@ import SwiftUI
 /// here or in Settings: access decides what EXISTS, the reader decides what is
 /// SHOWN.
 ///
+/// Pulse (2026-10-27): John found Prism "more like an index" than a page
+/// with anything on it. So the page now leads with the briefing — the three
+/// things worth knowing, ranked across every feature (`HomeBriefing`) — and
+/// the tiles that carry data are wide charts with their numbers written on
+/// them. The two that only take you somewhere, Ask jkai and Wildmind, shrank
+/// to shortcuts at the foot.
+///
 /// Everything in this file is pure, so each rule is a unit test.
 enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
-    case family, familyDay, health, steps, tasks, trips, moves, messages, backlog, games, chat, news, daydream, flows, wildmind
+    // `briefing` is last so that `allCases`, which the Colours sheet reads
+    // for a hue's symbol, finds Daydream's own tile before it.
+    case family, familyDay, health, steps, tasks, trips, moves, messages, backlog, games, chat, news, daydream, flows, wildmind, briefing
 
     var id: String { rawValue }
 
-    enum Size { case hero, wide, square }
+    /// `compact`: a shortcut, two to a short row — a feature with nothing to
+    /// chart, kept on Home without taking a tile's room.
+    enum Size { case hero, wide, square, compact }
 
     var size: Size {
         switch self {
         case .family: return .hero
-        case .familyDay, .trips, .news, .moves: return .wide
+        case .briefing, .familyDay, .health, .steps, .trips, .news, .moves: return .wide
+        case .chat, .wildmind: return .compact
         default: return .square
         }
     }
@@ -42,6 +54,7 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         case .daydream: return "Daydream"
         case .flows: return "Flows"
         case .wildmind: return "Wildmind"
+        case .briefing: return "Worth knowing"
         }
     }
 
@@ -50,8 +63,8 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .family: return "Everyone around home: how far, which way, who is moving"
         case .familyDay: return "Each person's day as a ridge — time out, how far"
-        case .health: return "Readiness and today's Move ring"
-        case .steps: return "The family step race"
+        case .health: return "Readiness, your figures against your week, and today's rings"
+        case .steps: return "The family step race, everyone's count"
         case .tasks: return "What is left on the task list"
         case .trips: return "Today's stops, or the next trip"
         case .moves: return "Who is due to leave, and when"
@@ -59,10 +72,11 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         case .backlog: return "Things saved to watch and read"
         case .games: return "Invites and games in play"
         case .chat: return "A new question for jkai"
-        case .news: return "How hot the desk is running"
+        case .news: return "The top stories and how fast each is moving"
         case .daydream: return "What the loop noticed"
         case .flows: return "Workflows running and failing"
         case .wildmind: return "The world it is building"
+        case .briefing: return "The three things that matter most right now, from everything below"
         }
     }
 
@@ -83,6 +97,7 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         case .daydream: return "cloud.fill"
         case .flows: return "point.3.connected.trianglepath.dotted"
         case .wildmind: return "leaf.fill"
+        case .briefing: return "sparkle"
         }
     }
 
@@ -103,16 +118,20 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         case .daydream: return .daydream
         case .flows: return .flows
         case .wildmind: return .wildmind
+        // The briefing's lines each wear their own source's hue; its own
+        // mark is the loop's colour, the app's colour for "noticed".
+        case .briefing: return .daydream
         }
     }
 
     var hue: SR.Hue { SRPaint.current.hue(hueKey) }
 
-    /// The order a new install gets. Family first, always: where everyone is
-    /// is the thing the app is opened for.
+    /// The order a new install gets. The briefing first — what matters,
+    /// from everything — then the family, because where everyone is is the
+    /// thing the app is opened for. The shortcuts last.
     static let defaultOrder: [HomeTileKind] = [
-        .family, .health, .steps, .familyDay, .trips, .tasks, .chat, .moves,
-        .messages, .backlog, .games, .daydream, .news, .flows, .wildmind,
+        .briefing, .family, .health, .steps, .familyDay, .trips, .moves, .tasks,
+        .messages, .news, .daydream, .flows, .backlog, .games, .chat, .wildmind,
     ]
 
     /// Every tile this person may have, in the default order. PURE.
@@ -125,6 +144,7 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
         let ownerSite = access.owner && sitePaired
         return defaultOrder.filter { kind in
             switch kind {
+            case .briefing: return true
             case .family, .familyDay: return AccessPolicy.allows(.family, access)
             case .health: return true
             case .steps, .tasks, .moves, .messages, .backlog: return boards
@@ -226,9 +246,11 @@ struct HomeLayout: Codable, Equatable {
 }
 
 /// How tiles sit on the page: heroes and wide tiles take a row, squares go two
-/// to a row. A square left alone — the last one, or one before a wide tile —
-/// takes the whole row rather than leaving a hole beside it. At the
-/// accessibility text sizes everything is one column. PURE.
+/// to a row, and so do shortcuts — a square beside a square, a shortcut beside
+/// a shortcut, never one of each (they are different heights). One left alone
+/// — the last, or one before something it cannot pair with — takes the whole
+/// row rather than leaving a hole beside it. At the accessibility text sizes
+/// everything is one column. PURE.
 enum HomeRows {
     enum Row: Equatable, Identifiable {
         case full(HomeTileKind)
@@ -247,11 +269,12 @@ enum HomeRows {
         var rows: [Row] = []
         var waiting: HomeTileKind?
         for kind in kinds {
-            if kind.size == .square {
-                if let first = waiting {
+            if kind.size == .square || kind.size == .compact {
+                if let first = waiting, first.size == kind.size {
                     rows.append(.pair(first, kind))
                     waiting = nil
                 } else {
+                    if let first = waiting { rows.append(.full(first)) }
                     waiting = kind
                 }
             } else {

@@ -276,6 +276,15 @@ final class Router: ObservableObject {
         }
     }
 
+    /// One of /health's figures on its own page — a figure tapped on Home.
+    /// Home holds Today's copy, which carries no history; the page looks the
+    /// figure up in the Health tab's summary, which does.
+    func openHealthFigure(_ figure: HealthFigure) {
+        show(.health)
+        guard AccessStore.shared.allows(.health) else { return }
+        push(HealthFigureRef(today: figure), on: .health)
+    }
+
     /// Open one game room — a tapped invite notification. Lands on Games
     /// with the room pushed; somebody without games lands on Today.
     /// `game` picks the room's screen at once; without it the room is read

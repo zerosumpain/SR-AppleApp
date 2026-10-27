@@ -1,136 +1,260 @@
 import SwiftUI
 
-// The small pictures inside Home's tiles.
+// The pictures inside Home's tiles.
 //
 // Each borrows a form that is famous for saying one thing at a glance, sized
-// down to a tile and drawn in the tile's own type colour (`foregroundStyle`
-// from `HomeTileFrame`), so one picture works on every hue:
+// to a tile. The vivid tiles' pictures are drawn in the tile's own type colour
+// (`foregroundStyle` from `HomeTileFrame`), so one picture works on every hue;
+// the glass tiles' charts carry their numbers written on them and use the
+// palette's reading colours, because green-for-better needs a ground it reads on.
 //
-// - Steps: a RADIAL BAR race — one lane per person, the arc's sweep their
-//   share of the leader's count (the form of Apple's own rings, as a league).
-// - Health: a NIGHTINGALE ROSE — Florence Nightingale's coxcomb, one petal
-//   per part of readiness, petal AREA (not radius) true to the score.
+// - Health: a GAUGE for readiness, figures against the week, and the three
+//   rings as bars along the foot.
+// - Steps: a BAR RACE — one bar per person, the count at its end.
 // - Tasks: a WAFFLE — one square per task, so "three left" is three squares.
-// - News: WARMING STRIPES — Ed Hawkins's climate stripes, one stripe per
-//   story, cool to hot by how fast it is moving.
+// - News: WARMING STRIPES — Ed Hawkins's climate stripes, one per story,
+//   cool to hot by how fast it is moving.
 // - Trips: a METRO LINE — Harry Beck's diagram: stops as stations, the ones
 //   behind you filled.
 // - Backlog: a SHELF of spines, one per thing saved.
 //
 // Static unless their data changes: nothing here runs a timer.
 
-// MARK: - Steps: radial bars
+// MARK: - Steps: the bar race
 
-struct StepsLanes: View {
-    struct Lane: Equatable, Identifiable {
+/// One bar per person, longest first, each as long as their share of the
+/// leader's count, with the count written at its end. The caller's bar is
+/// the strong one.
+struct StepsRace: View {
+    struct Row: Equatable, Identifiable {
         let id: String
+        let name: String
         let steps: Int
         let me: Bool
     }
 
-    let lanes: [Lane]
+    let rows: [Row]
+    @ScaledMetric(relativeTo: .caption) private var nameWidth: CGFloat = 56
+    @ScaledMetric(relativeTo: .caption) private var countWidth: CGFloat = 52
+    @ScaledMetric(relativeTo: .caption) private var bar: CGFloat = 12
 
     var body: some View {
-        Canvas { context, size in
-            let side = min(size.width, size.height)
-            let centre = CGPoint(x: size.width / 2, y: size.height / 2)
-            let leader = Double(max(lanes.map(\.steps).max() ?? 1, 1))
-            let pitch = side / 2 / CGFloat(max(lanes.count, 1) + 1)
-            let width = max(4, pitch * 0.62)
-            for (index, lane) in lanes.enumerated() {
-                let r = side / 2 - CGFloat(index) * pitch - width / 2
-                guard r > width else { continue }
-                var track = Path()
-                track.addArc(center: centre, radius: r, startAngle: .degrees(-90), endAngle: .degrees(180), clockwise: false)
-                var faint = context
-                faint.opacity = 0.2
-                faint.stroke(track, with: .foreground, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                let sweep = 270 * Double(lane.steps) / leader
-                guard sweep > 0 else { continue }
-                var arc = Path()
-                arc.addArc(center: centre, radius: r, startAngle: .degrees(-90), endAngle: .degrees(-90 + max(sweep, 4)), clockwise: false)
-                var strong = context
-                strong.opacity = lane.me ? 1 : 0.6
-                strong.stroke(arc, with: .foreground, style: StrokeStyle(lineWidth: width, lineCap: .round))
+        let leader = Double(max(rows.map(\.steps).max() ?? 1, 1))
+        VStack(spacing: 6) {
+            ForEach(rows) { row in
+                HStack(spacing: 8) {
+                    Text(row.name)
+                        .font(row.me ? SR.Text.label(12) : SR.Text.secondary(12))
+                        .foregroundStyle(row.me ? SR.ink : SR.inkSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(width: nameWidth, alignment: .leading)
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(SR.ink.opacity(0.06))
+                            Capsule()
+                                .fill(row.me ? AnyShapeStyle(SR.Hue.steps.gradient) : AnyShapeStyle(SR.Hue.steps.base.opacity(0.38)))
+                                .frame(width: max(bar, geo.size.width * CGFloat(Double(row.steps) / leader)))
+                        }
+                    }
+                    .frame(height: bar)
+                    Text(FamilySteps.figure(row.steps))
+                        .font(SR.Text.mono(12))
+                        .foregroundStyle(row.me ? SR.ink : SR.inkSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(width: countWidth, alignment: .trailing)
+                }
             }
         }
         .accessibilityHidden(true)
     }
 }
 
-// MARK: - Health: the rose
+// MARK: - Health: the gauge
 
-/// One petal per part of readiness, area-true: a petal at half the score has
-/// half the area, so its radius is the square root. The Move ring runs round
-/// the outside.
-struct ReadinessRose: View {
-    /// 0…100 each.
-    let petals: [Double]
-    /// Today's Move ring, 0…1+ (closes past 1).
-    let move: Double?
+/// Readiness on a three-quarter dial: the arc is the score out of a hundred,
+/// the number and its word in the middle.
+struct ReadinessDial: View {
+    let score: Double
+    let label: String
 
     var body: some View {
-        Canvas { context, size in
-            let side = min(size.width, size.height)
-            let centre = CGPoint(x: size.width / 2, y: size.height / 2)
-            let outer = side / 2 - 5
-            let roseR = outer - 9
-            if let move {
-                var track = Path()
-                track.addArc(center: centre, radius: outer, startAngle: .degrees(0), endAngle: .degrees(360), clockwise: false)
-                context.stroke(track, with: .color(.white.opacity(0.2)), lineWidth: 5)
-                var arc = Path()
-                arc.addArc(center: centre, radius: outer, startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * min(move, 1)), clockwise: false)
-                context.stroke(arc, with: .color(.white), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let line = max(6, side * 0.1)
+            let fraction = min(max(score, 0), 100) / 100
+            ZStack {
+                Circle()
+                    .trim(from: 0, to: 0.75)
+                    .stroke(SR.ink.opacity(0.08), style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    .rotationEffect(.degrees(135))
+                Circle()
+                    .trim(from: 0, to: 0.75 * fraction)
+                    .stroke(Self.tint(score), style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    .rotationEffect(.degrees(135))
+                VStack(spacing: 0) {
+                    Text("\(Int(score.rounded()))")
+                        .font(SR.Text.figure(side * 0.3))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text(label)
+                        .font(SR.Text.label(11))
+                        .foregroundStyle(SR.inkSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+                .padding(line * 1.6)
             }
-            let n = petals.count
-            guard n > 0 else { return }
-            let slice = 2 * Double.pi / Double(n)
-            for (index, score) in petals.enumerated() {
-                let r = roseR * CGFloat(sqrt(max(0.04, min(score, 100) / 100)))
-                let start = -Double.pi / 2 + Double(index) * slice + 0.06
-                let end = start + slice - 0.12
-                var petal = Path()
-                petal.move(to: centre)
-                petal.addArc(center: centre, radius: r, startAngle: .radians(start), endAngle: .radians(end), clockwise: false)
-                petal.closeSubpath()
-                context.fill(petal, with: .color(.white.opacity(0.45 + 0.5 * min(score, 100) / 100)))
-            }
-            // A faint guide at full score.
-            var full = Path()
-            full.addArc(center: centre, radius: roseR, startAngle: .degrees(0), endAngle: .degrees(360), clockwise: false)
-            context.stroke(full, with: .color(.white.opacity(0.25)), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            .frame(width: side, height: side)
         }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityHidden(true)
+    }
+
+    /// Readiness's own bands, as the Health tab colours them.
+    static func tint(_ score: Double) -> Color {
+        score >= 70 ? SR.good : score >= 40 ? SR.Hue.health.base : SR.warn
+    }
+}
+
+// MARK: - Health: the rings
+
+private extension ActivityRingsStore.Ring {
+    /// Move in its own hue, Exercise in Health's, Stand in Trips' blue — the
+    /// Watch's red, green and cyan, in the reader's palette.
+    var tint: Color {
+        switch key {
+        case "move": return SR.Hue.move.base
+        case "exercise": return SR.Hue.health.base
+        default: return SR.Hue.trips.base
+        }
+    }
+}
+
+/// The owner's three rings as three bars along the foot of the Health tile:
+/// "Move 412/600".
+struct HomeRingBars: View {
+    let rings: ActivityRingsStore.Rings?
+
+    var body: some View {
+        let shown = (rings?.all ?? []).compactMap { $0 }
+        if shown.isEmpty {
+            Text("Rings not read yet — they come from Apple Health on this iPhone")
+                .font(SR.Text.mono(12))
+                .foregroundStyle(SR.inkMuted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        } else {
+            HStack(spacing: 12) {
+                ForEach(shown) { ring in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Text(ring.label)
+                                .font(SR.Text.label(11))
+                                .foregroundStyle(SR.inkSecondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 2)
+                            Text("\(Int(ring.value.rounded()))/\(Int(ring.goal.rounded()))")
+                                .font(SR.Text.mono(11))
+                                .foregroundStyle(SR.ink)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(ring.tint.opacity(0.16))
+                                Capsule().fill(ring.tint)
+                                    .frame(width: max(6, geo.size.width * CGFloat(min(ring.fraction, 1))))
+                            }
+                        }
+                        .frame(height: 6)
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+/// A member's three rings, nested as on the Watch, with Move's share in the middle.
+struct HomeRingsDial: View {
+    let rings: ActivityRingsStore.Rings?
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let line = max(6, side * 0.11)
+            let list = rings?.all ?? [nil, nil, nil]
+            ZStack {
+                ForEach(Array(list.enumerated()), id: \.offset) { index, ring in
+                    let tint = ring?.tint ?? SR.ink.opacity(0.3)
+                    let inset = CGFloat(index) * (line + 2) + line / 2
+                    ZStack {
+                        Circle().stroke(tint.opacity(0.16), lineWidth: line)
+                        if let ring {
+                            Circle()
+                                .trim(from: 0, to: min(ring.fraction, 1))
+                                .stroke(tint, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                        }
+                    }
+                    .padding(inset)
+                }
+                if let move = rings?.move {
+                    Text("\(Int((move.fraction * 100).rounded()))%")
+                        .font(SR.Text.figure(side * 0.17))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                        .padding(3 * (line + 2) + 2)
+                }
+            }
+            .frame(width: side, height: side)
+        }
+        .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
     }
 }
 
-/// A Move ring as a glass of water: the level is how far round you are.
-struct MoveGlass: View {
-    let fraction: Double
+/// Beside a member's rings: each ring's figure and what is left of it.
+struct HomeRingRows: View {
+    let rings: ActivityRingsStore.Rings?
 
     var body: some View {
-        Canvas { context, size in
-            let side = min(size.width, size.height)
-            let rect = CGRect(x: (size.width - side) / 2, y: (size.height - side) / 2, width: side, height: side)
-            let circle = Path(ellipseIn: rect)
-            context.stroke(circle, with: .color(.white.opacity(0.35)), lineWidth: 3)
-            let level = rect.maxY - rect.height * CGFloat(min(max(fraction, 0), 1))
-            var water = Path()
-            water.move(to: CGPoint(x: rect.minX, y: level))
-            let waves = 2.0
-            for step in 0...40 {
-                let t = Double(step) / 40
-                let x = rect.minX + rect.width * CGFloat(t)
-                let y = level + CGFloat(sin(t * waves * 2 * .pi)) * 4
-                water.addLine(to: CGPoint(x: x, y: y))
+        let shown = (rings?.all ?? []).compactMap { $0 }
+        VStack(alignment: .leading, spacing: 8) {
+            if shown.isEmpty {
+                Text("Today's rings come from Apple Health on this iPhone")
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkMuted)
+                    .lineLimit(3)
             }
-            water.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-            water.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-            water.closeSubpath()
-            context.clip(to: circle)
-            context.fill(water, with: .color(.white.opacity(0.85)))
+            ForEach(shown) { ring in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Circle().fill(ring.tint).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text("\(Int(ring.value.rounded()))")
+                                .font(SR.Text.figure(18))
+                                .foregroundStyle(SR.ink)
+                            Text("/\(Int(ring.goal.rounded())) \(ring.unit)")
+                                .font(SR.Text.mono(12))
+                                .foregroundStyle(SR.inkSecondary)
+                        }
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        Text(ring.fraction >= 1 ? "\(ring.label) closed" : HomeBriefing.ringLeft(.init(key: ring.key, label: ring.label, value: ring.value, goal: ring.goal, unit: ring.unit)))
+                            .font(SR.Text.secondary(12))
+                            .foregroundStyle(ring.fraction >= 1 ? SR.good : SR.inkMuted)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityHidden(true)
     }
 }
@@ -254,12 +378,14 @@ struct SpineShelf: View {
     let fresh: Int
 
     var body: some View {
+        // Nine spines at most: fourteen were wider than a square tile and ran
+        // out of its right-hand side.
         HStack(alignment: .bottom, spacing: 3) {
-            ForEach(0..<min(max(count, 1), 14), id: \.self) { index in
+            ForEach(0..<min(max(count, 1), 9), id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(HierarchicalShapeStyle.primary.opacity(index < count ? (index < fresh ? 1 : 0.55) : 0.15))
-                    .frame(width: 9 + CGFloat((index * 7) % 5), height: 30 + CGFloat((index * 13) % 22))
-                    .rotationEffect(.degrees(index == min(count, 14) - 1 && count > 3 ? -8 : 0), anchor: .bottom)
+                    .frame(width: 9 + CGFloat((index * 7) % 5), height: 22 + CGFloat((index * 13) % 17))
+                    .rotationEffect(.degrees(index == min(count, 9) - 1 && count > 3 ? -8 : 0), anchor: .bottom)
             }
             Spacer(minLength: 0)
         }
@@ -344,14 +470,18 @@ struct FlowDots: View {
     let failing: Int
 
     var body: some View {
-        let total = min(working + failing, 24)
-        let grid = Array(repeating: GridItem(.fixed(12), spacing: 6), count: 8)
-        LazyVGrid(columns: grid, alignment: .leading, spacing: 6) {
+        // Two rows at most: a third pushed the figure under it out of the tile.
+        let total = min(working + failing, 16)
+        // Flexible, not fixed: eight fixed 12-point dots and their gaps are
+        // 138 points, wider than a square tile on the smaller phones.
+        let grid = Array(repeating: GridItem(.flexible(minimum: 6, maximum: 12), spacing: 5), count: 8)
+        LazyVGrid(columns: grid, alignment: .leading, spacing: 5) {
             ForEach(0..<max(total, 1), id: \.self) { index in
                 Circle()
                     .fill(index < failing ? AnyShapeStyle(SR.errorOnDark) : AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(total == 0 ? 0.2 : 0.85)))
                     .overlay(Circle().strokeBorder(.white.opacity(index < failing ? 0.9 : 0), lineWidth: 2))
-                    .frame(width: 12, height: 12)
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: 12)
             }
         }
         .accessibilityHidden(true)

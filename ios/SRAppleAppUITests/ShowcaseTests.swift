@@ -27,11 +27,38 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Home")
 
         // Home is long: every tile, a screen at a time.
-        for index in 1...4 {
+        for index in 1...5 {
             app.swipeUp()
             settle(app)
             attach(app, "Showcase — Home, scrolled \(index)")
         }
+    }
+
+    /// Home at a larger text size, short of the accessibility sizes (those
+    /// fold to one column): every figure and caption should still sit inside
+    /// its tile, shrunk or cut with an ellipsis, never spilling.
+    @MainActor func testShowcaseTodayLargeText() {
+        let app = launch(["-SRDemoClock", "10:40", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXL"])
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        settle(app, on: byId(app, "home-briefing"), seconds: 2.5)
+        attach(app, "Showcase — Home, larger text")
+        for index in 1...6 {
+            app.swipeUp()
+            settle(app)
+            attach(app, "Showcase — Home, larger text, scrolled \(index)")
+        }
+    }
+
+    /// A figure on Home's Health tile, tapped: its own chart.
+    @MainActor func testShowcaseHomeFigure() {
+        let app = launch(["-SRDemoClock", "10:40"])
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        let row = byId(app, "home-vital-hrv")
+        settle(app, on: row, seconds: 2)
+        guard scroll(app, to: row) else { return soft(false, "no HRV row on the Health tile") }
+        row.tap()
+        settle(app, seconds: 2)
+        attach(app, "Showcase — Home → HRV chart")
     }
 
     /// Home in light, as CI otherwise boots it dark.

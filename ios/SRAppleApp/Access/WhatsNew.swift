@@ -34,6 +34,17 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-27-home-pulse", when: "October 2026", title: "A Home that tells you things", items: [
+            WhatsNewItem(icon: "sparkle", title: "Worth knowing",
+                         detail: "The top of Home picks the three things that matter right now — who is leaving soon, a task that is late, how far you are behind on steps and how long a walk would close it. Tap one to go straight there."),
+            WhatsNewItem(icon: "chart.bar.xaxis", title: "Charts, not buttons",
+                         detail: "Steps is a race with everyone's count on it, Health shows today's rings, and News lists the top stories. The numbers fit their boxes now."),
+            WhatsNewItem(icon: "waveform.path.ecg", title: "Your figures against your week",
+                         detail: "Readiness on a dial, and each figure with how it compares to your last seven days. Tap one for its chart.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "paintpalette", title: "More colours",
+                         detail: "Eight new palettes in Colours, each with its own app icon."),
+        ]),
         WhatsNewRelease(id: "2026-10-26-chess-valley", when: "October 2026", title: "Blue against red", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess in colour",
                          detail: "Pieces are blue and red now, the board edge shows whose turn it is, and a Captured card counts what each side has taken."),

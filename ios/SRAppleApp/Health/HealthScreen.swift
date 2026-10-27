@@ -93,6 +93,7 @@ struct HealthScreen: View {
             }
         }
         .navigationDestination(for: HealthFigure.self) { FigureDetail(figure: $0) }
+        .navigationDestination(for: HealthFigureRef.self) { HealthFigureByKey(ref: $0, store: store) }
         // Every trails screen is pushed by value onto THIS stack, so an activity
         // can open a segment that opens another activity, and each is one swipe
         // back. Registered once, here, at the root.
@@ -357,6 +358,24 @@ struct FigureTile: View {
 }
 
 /// One figure, thirty days of it.
+/// A figure opened from Home by its key. Today's copy is the fallback: the
+/// summary's has the fourteen days behind it, and is what is drawn once it
+/// is in.
+struct HealthFigureRef: Hashable {
+    let today: HealthFigure
+}
+
+struct HealthFigureByKey: View {
+    let ref: HealthFigureRef
+    @ObservedObject var store: HealthStore
+
+    var body: some View {
+        let full = store.summary?.figures.first { $0.key == ref.today.key }
+        FigureDetail(figure: full ?? ref.today)
+            .task { if store.summary == nil { await store.load() } }
+    }
+}
+
 struct FigureDetail: View {
     let figure: HealthFigure
 

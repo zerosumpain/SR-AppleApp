@@ -121,11 +121,12 @@ final class TodayStore: ObservableObject {
 
 /// Home (the `today` tab).
 ///
-/// The first screen is the whole app at a glance: a greeting, then one tile
-/// per feature this person may use — the family's Orbit first, because where
-/// everyone is is what the app is opened for — each with its own live
-/// picture. Which tiles, and in what order, is the reader's: Settings → Home,
-/// or a long press on any tile. See `HomeLayout`.
+/// The first screen is the whole app at a glance: a greeting, the briefing —
+/// the three things worth knowing, ranked across everything — then one tile
+/// per feature this person may use, the family's Orbit first, each a chart
+/// with its numbers on it and a tap into the detail. Which tiles, and in what
+/// order, is the reader's: Settings → Home, or a long press on any tile. See
+/// `HomeLayout`.
 ///
 /// Prism (2026-10-18) replaced the First Light sky here. What it kept: the
 /// urgent alert pinned under the bar, the bell, one request for the owner's
@@ -143,8 +144,8 @@ struct TodayScreen: View {
     @ObservedObject var site: SitePairingModel
     @ObservedObject var family: FamilyStore
     @StateObject private var store = TodayStore()
-    /// Today's Move ring, live from Apple Health on this phone.
-    @StateObject private var move = MoveRingStore()
+    /// Today's Move, Exercise and Stand, live from Apple Health on this phone.
+    @StateObject private var rings = ActivityRingsStore()
     @ObservedObject private var noticed = NoticedFeedback.shared
     private var daydream: DaydreamStore { DaydreamStore.shared }
     /// What this person may use. The owner's cards (the site's figures,
@@ -216,7 +217,7 @@ struct TodayScreen: View {
         // above for why the page does not need one.
         .navigationBarTitleDisplayMode(.inline)
         .srRefreshable {
-            move.start()
+            rings.start()
             await family.load()
             await loadFamilyBoards()
             await store.load(fresh: true)
@@ -243,7 +244,7 @@ struct TodayScreen: View {
             // The Watch's health figures and Today's first alerts come from
             // this store's payload — no second request.
             WatchBridge.shared.attach(today: store)
-            move.start()
+            rings.start()
             // Not awaited before Today's own request: the family is a glance, and
             // the first paint must not wait on a second server.
             Task { await family.load() }
@@ -258,7 +259,7 @@ struct TodayScreen: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.refreshInterval)
                 guard !Task.isCancelled else { break }
-                move.start()
+                rings.start()
                 await store.load()
                 daydream.seed(store.payload?.daydream)
                     await family.load()
@@ -271,7 +272,7 @@ struct TodayScreen: View {
             guard phase == .active else { return }
             // A planner job left running in the background: pick it up.
             TripJobs.shared.resume()
-            move.start()
+            rings.start()
             Task {
                 await store.load()
                     await family.load()
@@ -358,15 +359,17 @@ struct TodayScreen: View {
     }
 
     /// The boards behind whichever tiles are on. Nothing is read for a tile
-    /// that is off.
+    /// that is off — except what the briefing ranks, which reads the same
+    /// boards whether or not their tiles are shown.
     private func loadFamilyBoards() async {
         let shown = Set(visibleTiles)
-        if shown.contains(.flows) { await flowAttention.load() }
+        let briefing = shown.contains(.briefing)
+        if shown.contains(.flows) || (briefing && access.current.owner) { await flowAttention.load() }
         guard access.familyBoards else { return }
-        if shown.contains(.steps) { await FamilyStepsStore.shared.load() }
-        if shown.contains(.tasks) { await FamilyTasksStore.shared.load() }
+        if shown.contains(.steps) || briefing { await FamilyStepsStore.shared.load() }
+        if shown.contains(.tasks) || briefing { await FamilyTasksStore.shared.load() }
         if shown.contains(.backlog) { await FamilyBacklogStore.shared.load() }
-        if shown.contains(.messages) { await FamilyMessagesStore.shared.load() }
+        if shown.contains(.messages) || briefing { await FamilyMessagesStore.shared.load() }
         // No card, but still read: every read reschedules this phone's
         // leave-by reminders.
         await FamilyForecastStore.shared.load()
@@ -438,6 +441,10 @@ struct TodayScreen: View {
         let hide = { withAnimation(.snappy) { var next = HomeLayout.decode(homeLayout); next.set(kind, shown: false); homeLayout = next.raw } }
         let arrange = { router.today.append(HomeCustomizeRef()) }
         switch kind {
+        case .briefing:
+            HomeBriefingTile(health: store.payload?.health, rings: rings.rings, news: store.payload?.news,
+                             household: access.current.family ? family.view : nil, flows: flowAttention,
+                             open: openInsight, hide: hide, customise: arrange)
         case .family:
             HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange, keepsChildren: true) {
                 HomeFamilyTile(store: family, watch: family.view?.watch, live: onScreen && scenePhase == .active)
@@ -447,8 +454,13 @@ struct TodayScreen: View {
                 HomeFamilyDayTile(store: family, watch: family.view?.watch)
             }
         case .health:
-            HomeTileButton(kind: kind, id: "today-health", action: { router.show(.health) }, hide: hide, customise: arrange) {
-                HomeHealthTile(health: store.payload?.health, move: move.reading, showsReadiness: access.current.owner && site.paired)
+            // The owner's figures are each a button into their own chart, so
+            // the tile keeps its children; a member's is one button.
+            let figures = access.current.owner && site.paired
+            let openFigure: ((HealthFigure) -> Void)? = figures ? { router.openHealthFigure($0) } : nil
+            HomeTileButton(kind: kind, id: "today-health", action: { router.show(.health) }, hide: hide, customise: arrange,
+                           keepsChildren: figures) {
+                HomeHealthTile(health: store.payload?.health, rings: rings.rings, showsReadiness: figures, openFigure: openFigure)
             }
         case .steps:
             HomeTileButton(kind: kind, id: "today-steps", action: { router.openFamilyPage(.steps) }, hide: hide, customise: arrange) {
@@ -486,7 +498,7 @@ struct TodayScreen: View {
             }
         case .chat:
             HomeTileButton(kind: kind, id: "today-ask", action: { router.show(.chat) }, hide: hide, customise: arrange) {
-                HomeChatTile(lastThread: store.payload?.lastThread)
+                HomeShortcutTile(kind: kind, line: store.payload?.lastThread?.title.map { "Last: \($0)" } ?? "Ask anything, any time")
             }
         case .news:
             HomeTileButton(kind: kind, id: "home-news", action: { router.show(.news) }, hide: hide, customise: arrange) {
@@ -502,8 +514,37 @@ struct TodayScreen: View {
             }
         case .wildmind:
             HomeTileButton(kind: kind, id: "home-wildmind", action: { router.openWildmind() }, hide: hide, customise: arrange) {
-                HomeWildmindTile()
+                HomeShortcutTile(kind: kind, line: "The world it is building")
             }
+        }
+    }
+
+    /// A briefing line tapped: the place it came from, as near the figure as
+    /// the app goes — a health figure opens its own chart.
+    private func openInsight(_ line: HomeInsight) {
+        switch line.source {
+        case .watch, .moves, .diary: router.show(.family)
+        case .trip:
+            if let running = TripStore.shared.running() {
+                router.openTrips(day: TripDayRef(tripId: running.bundle.trip.id, date: running.date))
+            } else {
+                router.openTrips()
+            }
+        case .tasks: router.openFamilyPage(.tasks)
+        case .steps: router.openFamilyPage(.steps)
+        case .messages: router.openFamilyPage(.messages)
+        case .vitals:
+            if let key = line.figureKey, let figure = store.payload?.health?.figures.first(where: { $0.key == key }) {
+                router.openHealthFigure(figure)
+            } else {
+                router.show(.health)
+            }
+        case .readiness, .rings: router.show(.health)
+        case .flows: router.show(.flows)
+        case .games: router.show(.games)
+        case .daydream: router.openDaydream()
+        case .news: router.show(.news)
+        case .calm: break
         }
     }
 }

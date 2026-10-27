@@ -54,14 +54,19 @@ struct HomeTileFrame<Content: View>: View {
             Text(kind.title)
                 .font(SR.Text.title(15))
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Spacer(minLength: 4)
             if let badge {
+                // The badge keeps its words; the title gives way first.
                 Text(badge)
                     .font(SR.Text.label(12))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(vivid ? kind.hue.onFill.opacity(0.22) : kind.hue.wash))
-                    .foregroundStyle(vivid ? kind.hue.onFill : kind.hue.base)
+                    .foregroundStyle(vivid ? kind.hue.onFill : SR.ink)
+                    .layoutPriority(1)
             }
         }
     }
@@ -87,11 +92,16 @@ struct HomeTileFrame<Content: View>: View {
 }
 
 /// The figure at the foot of a tile: big number, small words.
+///
+/// Everything here gives way rather than spilling: the figure shrinks to half
+/// before it is cut, the unit keeps its size beside it, and the caption is
+/// cut with an ellipsis at its line limit.
 struct HomeFigure: View {
     let value: String
     var unit: String? = nil
     var caption: String? = nil
     var size: CGFloat = 30
+    var captionLines = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -99,10 +109,12 @@ struct HomeFigure: View {
                 Text(value)
                     .font(SR.Text.figure(size))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.5)
                 if let unit {
                     Text(unit)
                         .font(SR.Text.label(13))
+                        .lineLimit(1)
+                        .fixedSize()
                         .opacity(0.85)
                 }
             }
@@ -110,7 +122,9 @@ struct HomeFigure: View {
                 Text(caption)
                     .font(SR.Text.secondary(13))
                     .opacity(0.9)
-                    .lineLimit(1)
+                    .lineLimit(captionLines)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: captionLines > 1)
             }
         }
     }
