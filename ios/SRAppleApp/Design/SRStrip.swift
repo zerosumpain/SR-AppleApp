@@ -111,7 +111,8 @@ struct SRHomeButton: View {
     @EnvironmentObject private var router: Router
 
     var body: some View {
-        if router.tab != .today {
+        // Anywhere but Home's own first page — More opened over Home too.
+        if router.tab != .today || !router.today.isEmpty {
             Button {
                 SRHaptic.tap()
                 router.goHome()

@@ -94,7 +94,11 @@ struct MoreScreen: View {
         .toolbar(.hidden, for: .tabBar)
         .navigationTitle("More")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
+        .toolbar {
+            // Home, from More as from every first page.
+            ToolbarItem(placement: .topBarLeading) { SRHomeButton() }
+            ToolbarItem(placement: .principal) { SRBarMark() }
+        }
         .onAppear { order = HubUsage.load().ordered(items.map(\.id), now: Date()) }
         .onReceive(companion.$busy.removeDuplicates()) { syncing = $0 }
         .onReceive(companion.$lastUpload.removeDuplicates()) { lastUpload = $0 }

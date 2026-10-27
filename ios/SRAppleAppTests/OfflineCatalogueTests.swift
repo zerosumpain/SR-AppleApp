@@ -116,7 +116,7 @@ final class OfflineCatalogueTests: XCTestCase {
         checkTheList(OfflineCatalogue.entries)
         XCTAssertEqual(OfflineCatalogue.games(in: .card).count, 7)
         XCTAssertEqual(OfflineCatalogue.games(in: .reaction).count, 7)
-        XCTAssertEqual(OfflineCatalogue.games(in: .skill).count, 7)
+        XCTAssertEqual(OfflineCatalogue.games(in: .skill).count, 8)
         for id in Self.expectedIds {
             XCTAssertEqual(OfflineCatalogue.item(id)?.id, id)
         }
