@@ -50,11 +50,18 @@ final class ShowcaseTests: XCTestCase {
     }
 
     /// msg family's tools: the "New" line, a poll, a mention, the quick
-    /// messages over the box and the "@" suggestions.
+    /// messages over the box and the "@" suggestions. Reached from the Chat
+    /// page's Family side, with the big bat phone and the quick list on it.
     @MainActor func testShowcaseMsgFamily() {
         let app = launch(["-SRDemoClock", "10:40"])
         soft(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20), "no Chat tab")
         app.tabBars.buttons["Chat"].tap()
+        attach(app, "Showcase — Chat, jkai side")
+        let side = byId(app, "threads-side-family")
+        settle(app, on: side)
+        side.tap()
+        settle(app, on: byId(app, "bat-phone-large"))
+        attach(app, "Showcase — Chat, family side")
         let open = byId(app, "thread-msg-family")
         settle(app, on: open)
         open.tap()
@@ -68,6 +75,15 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — msg family, voting")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         settle(app, on: byId(app, "family-messages-screen"))
+        let now = byId(app, "family-now")
+        if now.waitForExistence(timeout: 5) {
+            now.tap()
+            settle(app, on: byId(app, "family-landing"), seconds: 2)
+            attach(app, "Showcase — msg family, family now")
+            let done = byId(app, "family-now-done")
+            if done.exists { done.tap() }
+            settle(app, on: byId(app, "family-messages-screen"))
+        }
         let box = byId(app, "family-msg-composer")
         box.tap()
         box.typeText("Can @")
