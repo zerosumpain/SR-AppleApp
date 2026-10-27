@@ -1,0 +1,31 @@
+name: diag feedback (throwaway)
+on:
+  push:
+    branches: [diag/trip-feedback-20261027]
+permissions:
+  contents: read
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    environment: testflight
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and seal
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          python3 diag/fetch.py > "$RUNNER_TEMP/out.json" 2> "$RUNNER_TEMP/err.txt" || { echo "fetch failed"; wc -c "$RUNNER_TEMP/err.txt"; }
+          cat "$RUNNER_TEMP/err.txt" >> "$RUNNER_TEMP/out.json"
+          openssl rand -out "$RUNNER_TEMP/k" 32
+          mkdir sealed
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in "$RUNNER_TEMP/out.json" -out sealed/out.enc -pass file:"$RUNNER_TEMP/k"
+          openssl pkeyutl -encrypt -pubin -inkey diag/pub.pem -in "$RUNNER_TEMP/k" -out sealed/k.enc
+          rm -f "$RUNNER_TEMP/out.json" "$RUNNER_TEMP/k" "$RUNNER_TEMP/err.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sealed
+          path: sealed
+          retention-days: 1
