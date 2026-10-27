@@ -610,9 +610,19 @@ struct HomeMessagesTile: View {
                         )
                     Spacer(minLength: 0)
                     if let at = store.lastActivity {
-                        Text(at, style: .relative)
-                            .font(SR.Text.label(12))
-                            .opacity(0.9)
+                        HStack(spacing: 6) {
+                            Text(at, style: .relative)
+                                .font(SR.Text.label(12))
+                                .opacity(0.9)
+                                .lineLimit(1)
+                            if store.unreadCount > 0 {
+                                Text("\(store.unreadCount) new")
+                                    .font(SR.Text.label(12))
+                                    .padding(.horizontal, 6)
+                                    .background(Capsule().fill(.white.opacity(0.25)))
+                                    .fixedSize()
+                            }
+                        }
                     }
                 } else {
                     Spacer(minLength: 0)
@@ -621,7 +631,7 @@ struct HomeMessagesTile: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("msg family. " + (store.latestLine ?? "No messages yet"))
+        .accessibilityLabel("msg family. " + (store.unreadCount > 0 ? "\(store.unreadCount) new. " : "") + (store.latestLine ?? "No messages yet"))
     }
 }
 

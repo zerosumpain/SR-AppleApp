@@ -19,6 +19,9 @@ extension SRDemoFixtures {
         case ("POST", 6) where parts[5] == "replies":
             guard let text = FamilyMessagesDemo.body(body) else { return nil }
             return FamilyMessagesDemo.shared.reply(text, to: parts[4], clock: clock)
+        case ("DELETE", 5):
+            FamilyMessagesDemo.shared.delete(parts[4])
+            return #"{"ok":true}"#
         default:
             return nil
         }
@@ -60,7 +63,8 @@ final class FamilyMessagesDemo: @unchecked Sendable {
                           at: clock.iso(minutesAgo: 25), pushed: 3, recipients: 3,
                           replies: [r("demo-rep-3", "robin", "Robin", "👍", 20),
                                     r("demo-rep-5", "sam", "Sam", "Plate's in the oven.", 18, mine: true),
-                                    r("demo-rep-6", "alex", "Alex", "Legend. Leaving now.", 12)]),
+                                    r("demo-rep-6", "alex", "Alex", "Legend. Leaving now.", 12),
+                                    r("demo-rep-8", "robin", "Robin", "@Sam can you grab milk on the way back?", 6)]),
             FamilyMessage(id: "demo-msg-1", fromId: "f_sam", fromName: "Sam", fromSubject: "sam", mine: true,
                           body: "Pizza tonight? Ordering at six.",
                           at: clock.iso(minutesAgo: 140), pushed: 3, recipients: 3,
@@ -69,6 +73,16 @@ final class FamilyMessagesDemo: @unchecked Sendable {
                               r("demo-rep-2", "robin", "Robin", "Pepperoni please!", 120),
                               r("demo-rep-4", "kit", "Kit", "👍", 110),
                               r("demo-rep-7", "sam", "Sam", "Pepperoni and a margherita it is.", 105, mine: true),
+                          ]),
+            // A poll, from yesterday: three votes and a word.
+            FamilyMessage(id: "demo-msg-3", fromId: "f_robin", fromName: "Robin", fromSubject: "robin", mine: false,
+                          body: FamilyPoll(question: "Film night on Friday?", options: ["Paddington", "Inside Out", "Wallace & Gromit"]).body,
+                          at: clock.iso(minutesAgo: 60 * 26), pushed: 3, recipients: 3,
+                          replies: [
+                              r("demo-rep-9", "alex", "Alex", "2️⃣", 60 * 25),
+                              r("demo-rep-10", "kit", "Kit", "1️⃣", 60 * 24),
+                              r("demo-rep-11", "robin", "Robin", "2️⃣", 60 * 23),
+                              r("demo-rep-12", "kit", "Kit", "Popcorn's on me", 60 * 22),
                           ]),
         ]
     }
@@ -99,6 +113,13 @@ final class FamilyMessagesDemo: @unchecked Sendable {
                                        reaction: FamilyMessages.reactions.contains(text), at: clock.iso(minutesAgo: 0))
         replies[id, default: []].append(reply)
         return #"{"pushed":1}"#
+    }
+
+    /// Take back something sent this session; the seeded lines stay.
+    func delete(_ id: String) {
+        lock.lock(); defer { lock.unlock() }
+        sent.removeAll { $0.id == id }
+        for key in replies.keys { replies[key]?.removeAll { $0.id == id } }
     }
 
     private func encode<T: Encodable>(_ value: T) -> String? {

@@ -49,6 +49,32 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// msg family's tools: the "New" line, a poll, a mention, the quick
+    /// messages over the box and the "@" suggestions.
+    @MainActor func testShowcaseMsgFamily() {
+        let app = launch(["-SRDemoClock", "10:40"])
+        soft(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20), "no Chat tab")
+        app.tabBars.buttons["Chat"].tap()
+        let open = byId(app, "thread-msg-family")
+        settle(app, on: open)
+        open.tap()
+        settle(app, on: byId(app, "family-messages-screen"), seconds: 2)
+        attach(app, "Showcase — msg family")
+        let poll = byId(app, "family-message-demo-msg-3")
+        guard scroll(app, to: poll) else { return soft(false, "no poll in msg family") }
+        attach(app, "Showcase — msg family, the poll")
+        poll.tap()
+        settle(app, on: byId(app, "family-thread-screen"), seconds: 2)
+        attach(app, "Showcase — msg family, voting")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        settle(app, on: byId(app, "family-messages-screen"))
+        let box = byId(app, "family-msg-composer")
+        box.tap()
+        box.typeText("Can @")
+        settle(app)
+        attach(app, "Showcase — msg family, @ suggestions")
+    }
+
     /// A figure on Home's Health tile, tapped: its own chart.
     @MainActor func testShowcaseHomeFigure() {
         let app = launch(["-SRDemoClock", "10:40"])

@@ -263,7 +263,7 @@ struct ThreadListScreen: View {
             SRHaptic.tap()
             router.chat.append(FamilyPage.messages)
         } label: {
-            FamilyThreadRow(latest: family.latestLine, at: family.lastActivityISO)
+            FamilyThreadRow(latest: family.latestLine, at: family.lastActivityISO, unread: family.unreadCount)
         }
         .buttonStyle(.plain)
         .srGlassRow()
@@ -370,6 +370,8 @@ struct ThreadRow: View {
 struct FamilyThreadRow: View {
     let latest: String?
     let at: String?
+    /// Lines from other people since msg family was last open on this phone.
+    var unread = 0
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -389,13 +391,26 @@ struct FamilyThreadRow: View {
                     if let at {
                         Text(shortAgo(at))
                             .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
+                            .foregroundStyle(unread > 0 ? SR.accentDeep : SR.inkMuted)
                     }
                 }
-                Text(latest ?? "msg family — one line to everyone's phone")
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(latest ?? "msg family — one line to everyone's phone")
+                        .font(unread > 0 ? SR.Text.bodyMedium(14) : SR.Text.secondary())
+                        .foregroundStyle(unread > 0 ? SR.ink : SR.inkMuted)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if unread > 0 {
+                        Text("\(unread)")
+                            .font(SR.Text.label(12))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: 22, minHeight: 22)
+                            .background(Capsule().fill(SR.accentDeep))
+                            .accessibilityLabel("\(unread) new")
+                            .accessibilityIdentifier("thread-family-unread")
+                    }
+                }
             }
         }
         .padding(.vertical, 6)
