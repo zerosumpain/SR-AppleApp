@@ -38,6 +38,8 @@ import UIKit
     private let outbox: Outbox
     private let motion = MotionGate()
     private var policy: MovementPolicy
+    /// The last trip-day fix put in the trail (`recordTripFixes`).
+    private var lastTripFix: CLLocation?
     private var reference: CLLocation?
     private var heartbeat: Timer?
     var onUpdate: (() -> Void)?
@@ -163,6 +165,22 @@ import UIKit
 
     func requestPermission() { manager.requestWhenInUseAuthorization() }
     func requestAlways() { manager.requestAlwaysAuthorization() }
+
+    /// A trip day's own fixes (`TripOffPlan`'s low-power session), into the
+    /// family trail too. On 27 Oct in Rome the gate slept through most of a
+    /// day's walking and the trail had a fix every quarter of an hour, so the
+    /// map and Landgrab drew straight lines across the city. One fix a
+    /// minute at most, fifty metres apart, a hundred metres accurate; nothing
+    /// while sharing is off, and `record` drops it under the owner's hold.
+    func recordTripFixes(_ fixes: [CLLocation]) {
+        guard outbox.state.sharing, !SRDemo.isOn else { return }
+        for fix in fixes where fix.horizontalAccuracy >= 0 && fix.horizontalAccuracy <= 100 {
+            if let last = lastTripFix,
+               fix.timestamp.timeIntervalSince(last.timestamp) < 60 || fix.distance(from: last) < 50 { continue }
+            lastTripFix = fix
+            record(fix, moving: fix.speed > 0.5)
+        }
+    }
 
     /// The family asked where this phone is (the Steps page's "ask
     /// everyone", by a silent push): one fresh fix, recorded now whatever

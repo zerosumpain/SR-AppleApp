@@ -84,6 +84,9 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var retimed: String?
     private var keepUpTimer: Timer?
     private var lastKeepUp: Date?
+    /// The day's fixes, handed on to the family trail (the app delegate sets
+    /// it to `LocationCollector.recordTripFixes`).
+    var relay: (([CLLocation]) -> Void)?
 
     private override init() {
         super.init()
@@ -429,6 +432,7 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
         Task { @MainActor in
             self.fixes = Array((self.fixes + good).filter { Date().timeIntervalSince($0.timestamp) < 40 * 60 }.suffix(60))
             TripTrail.shared.add(good)
+            if self.armed { self.relay?(good) }
             // A wake-up is also the Lock Screen's chance to move on.
             TripLive.shared.refresh()
             self.check()

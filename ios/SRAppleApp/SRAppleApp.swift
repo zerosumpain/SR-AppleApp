@@ -66,6 +66,10 @@ import Combine
         }
         // Off the plan: significant-change and visit wake-ups while a trip
         // day runs, so a relaunch for one must find this delegate too.
+        // Its trip-day fixes go into the family trail as well (Landgrab, the map).
+        if let location = companion?.location {
+            TripOffPlan.shared.relay = { [weak location] fixes in location?.recordTripFixes(fixes) }
+        }
         TripOffPlan.shared.start()
         // A planner job started before the app was closed: collect it.
         TripJobs.shared.resume()
