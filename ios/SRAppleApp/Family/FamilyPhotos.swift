@@ -81,6 +81,9 @@ final class FamilyPhotos: ObservableObject {
                 next[entry.id] = image
             }
         }
+        // Nothing changed (the usual answer): publish nothing, or every circle
+        // in the app redraws under whoever is tapping.
+        guard reply.photos != entries || Set(next.keys) != Set(images.keys) else { return }
         entries = reply.photos
         images = next
         Self.writeIndex(reply.photos)

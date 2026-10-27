@@ -45,6 +45,9 @@ enum WhatsNew {
                          detail: "Every door on More is the same size now, and the ones you use most come first."),
             WhatsNewItem(icon: "phone.connection.fill", title: "Bat phone on every phone",
                          detail: "msg family, with the bat phone, always stays on Home — and it's on the app icon's long-press menu too."),
+            WhatsNewItem(icon: "paperplane", title: "Release to the family",
+                         detail: "Settings → Release to the family chooses which build the family's phones are offered, or rolls them back — no need for the website.",
+                         ownerOnly: true),
         ]),
         WhatsNewRelease(id: "2026-10-27-family-extras", when: "October 2026", title: "Closer to the family", items: [
             WhatsNewItem(icon: "person.crop.circle", title: "Your photo",

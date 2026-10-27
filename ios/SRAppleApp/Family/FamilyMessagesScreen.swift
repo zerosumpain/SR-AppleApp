@@ -132,7 +132,7 @@ struct FamilyMessagesScreen: View {
                 FamilyMessageComposer(
                     draft: $draft,
                     placeholder: "Start a thread for the family",
-                    busy: store.busy == "new",
+                    busy: store.isBusy("new"),
                     error: store.thread.isEmpty ? nil : store.message,
                     identifier: "family-msg",
                     focusRequest: focusRequest
@@ -257,7 +257,7 @@ struct FamilyMessagesScreen: View {
             .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .opacity(store.busy == message.id ? 0.5 : 1)
+        .opacity(store.isBusy(message.id) ? 0.5 : 1)
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
         .contextMenu {
             FamilyMessageAnswers(message: message, store: store, deleting: $deleting) { open(message) }
@@ -398,7 +398,7 @@ struct FamilyThreadScreen: View {
                 FamilyMessageComposer(
                     draft: $draft,
                     placeholder: message.mine ? "Add to your thread" : "Reply to \(message.fromName)",
-                    busy: store.busy == message.id,
+                    busy: store.isBusy(message.id),
                     error: store.message,
                     identifier: "family-thread"
                 ) {
@@ -420,7 +420,7 @@ struct FamilyThreadScreen: View {
                 if let poll = FamilyPoll.parse(message.body) {
                     FamilyPollView(poll: poll, counts: poll.tally(FamilyMessagesStore.votes(message)),
                                    vote: { vote($0, in: message, poll: poll) },
-                                   busy: store.busy != nil)
+                                   busy: store.isBusy(message.id))
                 } else {
                     FamilyMessageText(message.body, names: store.mentionNames, me: store.myName, size: 17)
                         .fixedSize(horizontal: false, vertical: true)
@@ -522,7 +522,7 @@ struct FamilyThreadScreen: View {
             }
         }
         .padding(.horizontal, 12)
-        .disabled(store.busy != nil)
+        .disabled(store.isBusy(message.id))
         .accessibilityIdentifier("family-thread-reactions")
     }
 }

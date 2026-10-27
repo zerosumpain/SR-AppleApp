@@ -91,7 +91,7 @@ struct FamilyQuickStrip: View {
                 .overlay(Capsule().strokeBorder(onFill ? Color.clear : SR.line, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .disabled(store.busy != nil)
+        .disabled(store.isBusy("new"))
         .accessibilityHint("Sends this to everyone in the family")
         .accessibilityIdentifier(id)
     }

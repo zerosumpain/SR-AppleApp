@@ -204,8 +204,13 @@ final class FamilyMessagesStore: ObservableObject {
     @Published private(set) var feed: FamilyMessagesFeed?
     @Published private(set) var loading = false
     @Published private(set) var loaded = false
-    /// "new", or the id of the message a reply is on its way to.
-    @Published private(set) var busy: String?
+    /// What is on its way: "new", or the id of a message a reply (or a
+    /// delete) is going to. One per item, not one for the store: a single
+    /// slot meant a reaction on one thread silently did nothing while a
+    /// quick line or another thread's reply was still sending.
+    @Published private(set) var inFlight: Set<String> = []
+
+    func isBusy(_ key: String) -> Bool { inFlight.contains(key) }
     @Published var message: String?
     /// A passing confirmation — "Reminder set for 18:00".
     @Published var notice: String?
@@ -322,7 +327,7 @@ final class FamilyMessagesStore: ObservableObject {
     /// Vote for an option: take back this person's earlier votes, then reply
     /// with the option's marker. Voting for the option already held takes it back.
     func vote(_ option: Int, in message: FamilyMessage, poll: FamilyPoll) async {
-        guard busy == nil, FamilyPoll.markers.indices.contains(option) else { return }
+        guard !isBusy(message.id), FamilyPoll.markers.indices.contains(option) else { return }
         let mine = message.replies.filter { $0.mine && poll.option(of: $0.body) != nil }
         let held = mine.contains { poll.option(of: $0.body) == option }
         for reply in mine { _ = await delete(reply.id) }
@@ -348,9 +353,9 @@ final class FamilyMessagesStore: ObservableObject {
 
     /// Send to the family. True when it went.
     func send(_ text: String) async -> Bool {
-        guard busy == nil, let body = FamilyMessages.sendable(text) else { return false }
-        busy = "new"
-        defer { busy = nil }
+        guard !isBusy("new"), let body = FamilyMessages.sendable(text) else { return false }
+        inFlight.insert("new")
+        defer { inFlight.remove("new") }
         do {
             let data = try JSONEncoder().encode(["body": body])
             let _: EmptyReply = try await SiteClient.shared.send(FamilyMessages.path, method: "POST", body: data)
@@ -367,9 +372,9 @@ final class FamilyMessagesStore: ObservableObject {
 
     /// An emoji or a line of text under a message. True when it went.
     func reply(to id: String, _ text: String) async -> Bool {
-        guard busy == nil, let body = FamilyMessages.sendable(text) else { return false }
-        busy = id
-        defer { busy = nil }
+        guard !isBusy(id), let body = FamilyMessages.sendable(text) else { return false }
+        inFlight.insert(id)
+        defer { inFlight.remove(id) }
         if await Self.post(reply: body, to: id, asSelf: false) == nil {
             SRHaptic.ok()
             message = nil
@@ -397,9 +402,9 @@ final class FamilyMessagesStore: ObservableObject {
     /// Take back a message (with every reply under it) or one of this
     /// person's replies — the site refuses anyone else's. True when it went.
     func delete(_ id: String) async -> Bool {
-        guard busy == nil else { return false }
-        busy = id
-        defer { busy = nil }
+        guard !isBusy(id) else { return false }
+        inFlight.insert(id)
+        defer { inFlight.remove(id) }
         do {
             _ = try await SiteClient.shared.call(FamilyMessages.itemPath(id), method: "DELETE")
             SRHaptic.ok()

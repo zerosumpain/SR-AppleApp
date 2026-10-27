@@ -48,6 +48,17 @@ struct SettingsScreen: View {
                         link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
                     }
                     link(.connections, "Connections", connectionsSubtitle, "qrcode")
+                    // Which build the family's phones are offered, chosen here
+                    // rather than on the site's /admin/access/app.
+                    if AccessStore.ownerSite {
+                        NavigationLink {
+                            AppReleaseScreen()
+                        } label: {
+                            SRRow(title: "Release to the family", subtitle: "Choose which app build the family get", icon: "paperplane")
+                        }
+                        .srGlassRow()
+                        .accessibilityIdentifier("settings-app-release")
+                    }
                     if site.paired {
                         NavigationLink {
                             DevicePrivacyScreen()

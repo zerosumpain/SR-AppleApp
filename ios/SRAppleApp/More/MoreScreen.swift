@@ -19,8 +19,13 @@ struct MoreScreen: View {
     /// What sits in More for this person, in bar order.
     let places: [Router.Tab]
     @ObservedObject var games: GamesStore
-    /// Sync now lives here (and in Settings), off Today.
-    @ObservedObject var companion: Companion
+    /// Sync now lives here (and in Settings), off Today. Not observed: the
+    /// companion publishes on every upload, and the whole hub redrawing under
+    /// a thumb is how a tap goes missing. What the Sync door shows is
+    /// mirrored below, on a change only.
+    let companion: Companion
+    @State private var syncing = false
+    @State private var lastUpload: Date?
     @ObservedObject private var daydream = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
     @ObservedObject private var commissions = CommissionStore.shared
@@ -91,6 +96,8 @@ struct MoreScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .principal) { SRBarMark() } }
         .onAppear { order = HubUsage.load().ordered(items.map(\.id), now: Date()) }
+        .onReceive(companion.$busy.removeDuplicates()) { syncing = $0 }
+        .onReceive(companion.$lastUpload.removeDuplicates()) { lastUpload = $0 }
         .task {
             if access.familyBoards {
                 if steps.board == nil { await steps.load() }
@@ -254,8 +261,8 @@ struct MoreScreen: View {
                             status: offline.inRoom ? "In a room" : nil,
                             hint: "Games for phones in the same room, no internet needed") { router.pushFromHub(OfflineGamesRef()) }
         case .sync:
-            return HubEntry(id: item.id, icon: "arrow.triangle.2.circlepath", fill: SR.good, title: companion.busy ? "Syncing…" : "Sync now",
-                            status: companion.lastUpload.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" },
+            return HubEntry(id: item.id, icon: "arrow.triangle.2.circlepath", fill: SR.good, title: syncing ? "Syncing…" : "Sync now",
+                            status: lastUpload.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" },
                             hint: companion.message) {
                 Task { await companion.sync() }
             }
