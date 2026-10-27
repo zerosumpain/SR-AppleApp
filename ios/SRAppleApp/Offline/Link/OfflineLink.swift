@@ -2,56 +2,22 @@ import Foundation
 
 // How bytes get between phones, with no server in the middle.
 //
-// Two links, one shape, so the session never cares which is carrying it:
+// Three links, one shape, so the session never cares which is carrying it:
 //
 // - `OfflineNearbyLink`: MultipeerConnectivity. Bluetooth and peer-to-peer
-//   Wi-Fi, found automatically, no router, no settings. The default.
+//   Wi-Fi, found automatically, no router, no settings.
 // - `OfflineHotspotLink`: Network.framework TCP. Everyone on the same Wi-Fi,
-//   or on the host's Personal Hotspot; found over Bonjour, or by typing the
-//   address the host's screen shows.
+//   on the host's Personal Hotspot, or phone-to-phone Wi-Fi; found over
+//   Bonjour, or by typing the address the host's screen shows.
+// - `OfflineDualLink`: both at once — the default. The host advertises on
+//   both; a guest sees one list and joins by whichever route answers.
 //
 // A link moves opaque `Data` — one encoded `OfflineEnvelope` per send — and
 // names the other end by a string key it makes up. On a guest the one other
 // end is always `OfflineLinkPeer.host`.
 
-/// Which link the host chose.
-enum OfflineTransport: String, CaseIterable, Identifiable {
-    case nearby, hotspot
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .nearby: return "Nearby"
-        case .hotspot: return "Wi-Fi or hotspot"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .nearby: return "dot.radiowaves.left.and.right"
-        case .hotspot: return "wifi"
-        }
-    }
-
-    /// One sentence for the host/join choice.
-    var detail: String {
-        switch self {
-        case .nearby:
-            return "Bluetooth and phone-to-phone Wi-Fi. No router needed — just be within a few metres."
-        case .hotspot:
-            return "Everyone on the same Wi-Fi, or joined to the host's Personal Hotspot."
-        }
-    }
-}
-
-/// A room a guest has found.
-struct OfflineFoundHost: Identifiable, Equatable {
-    /// The link's own key for it.
-    let id: String
-    /// The room's name, as the host advertised it.
-    let name: String
-}
+// `OfflineTransport` and `OfflineFoundHost` live in Core/OfflineDiscovery.swift,
+// with the merging and health rules that are tested on Linux.
 
 /// Something that happened on a link.
 enum OfflineLinkEvent {
@@ -79,8 +45,12 @@ enum OfflineLinkPeer {
 protocol OfflineLink: AnyObject {
     var transport: OfflineTransport { get }
     var onEvent: ((OfflineLinkEvent) -> Void)? { get set }
-    /// Start a room others can find under `roomName`.
-    func host(roomName: String, playerName: String)
+    /// Which link carries the connection to the host, once there is one
+    /// (a guest), or nil. The dual link says which of its two it used.
+    var connectedVia: OfflineTransport? { get }
+    /// Start a room others can find under `roomName`, advertising `roomId`
+    /// so a guest that drops can find this same room again.
+    func host(roomName: String, roomId: String, playerName: String)
     /// Start looking for rooms.
     func browse(playerName: String)
     /// Connect to a room from the found list.
@@ -92,6 +62,11 @@ protocol OfflineLink: AnyObject {
     func send(_ data: Data, to peer: String)
     /// Hang up on one peer (the host refusing a guest). Best effort.
     func disconnect(_ peer: String)
+    /// Start advertising or browsing again, keeping every connection: after
+    /// the app comes back to the front (iOS stops both in the background),
+    /// after the Local Network prompt is answered (a browse started under
+    /// the prompt finds nothing), and when a list has stayed empty too long.
+    func refresh()
     /// Stop everything: advertising, browsing, every connection.
     func stop()
 }

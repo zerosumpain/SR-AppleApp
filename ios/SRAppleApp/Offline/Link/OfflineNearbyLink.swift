@@ -7,70 +7,93 @@ import MultipeerConnectivity
 ///
 /// The host advertises and accepts every invitation — whether a guest may
 /// stay is the room's decision, made on their `hello`. Guests browse and
-/// invite the host they pick. The session is `.required` encryption, and
-/// every send is `.reliable`, so messages arrive whole and in order.
+/// invite the host they pick. Every send is `.reliable`, so messages arrive
+/// whole and in order.
 ///
 /// The service type `sr-play` is declared in Info.plist as `_sr-play._tcp`
 /// and `_sr-play._udp` (NSBonjourServices) — without them iOS 14+ finds nothing.
+///
+/// ## What made it flaky, and what this does about it
+///
+/// - A fresh `MCPeerID` on every host and browse. MultipeerConnectivity
+///   caches peers it has seen, so a guest listed the host's OLD peer from the
+///   last room beside the new one, and inviting the ghost hung for the whole
+///   timeout. The peer id is now made once and kept (Apple's own advice), and
+///   rooms are listed by the room id the host advertises (`rid`), newest
+///   peer winning.
+/// - One invitation, then "Could not join". The first invitation often fails
+///   while the two radios are still settling; a join now invites up to three
+///   times before it gives up.
+/// - Browsing and advertising never restarted. iOS stops both when the app
+///   goes to the background, and a browse started while the Local Network
+///   prompt is up finds nothing, ever. `refresh()` restarts them; the session
+///   calls it when the app comes back and while a list stays empty.
+/// - A guest kept browsing after it connected, so its radio kept scanning
+///   while it should be carrying the game. It stops once connected.
+/// - `.required` encryption: a longer handshake that is the commonest cause
+///   of sessions stuck in "connecting" or dropping seconds after they
+///   connect, protecting game moves between phones in one room. Now `.none`.
+///   Both phones must run this version: mismatched preferences do not connect.
 @MainActor
 final class OfflineNearbyLink: NSObject, OfflineLink {
     /// 1–15 characters, lowercase letters, digits and single hyphens.
     static let serviceType = "sr-play"
+    /// How long one invitation may wait for the host to answer.
+    static let inviteTimeout: TimeInterval = 10
+    /// Invitations a join sends before it gives up.
+    static let inviteAttempts = 3
 
     let transport = OfflineTransport.nearby
     var onEvent: ((OfflineLinkEvent) -> Void)?
+    private(set) var connectedVia: OfflineTransport?
 
+    private var me: MCPeerID?
     private var session: MCSession?
     private var advertiser: MCNearbyServiceAdvertiser?
     private var browser: MCNearbyServiceBrowser?
     private var isHost = false
+    private var roomName = ""
+    private var roomId = ""
     /// Host: each guest's peer id and the key the session knows it by.
     private var keyOf: [MCPeerID: String] = [:]
     private var peerOf: [String: MCPeerID] = [:]
-    /// Guest: the rooms seen, and the one joined.
+    /// Guest: the rooms seen, by room id, and the one being joined.
     private var foundPeers: [String: (peer: MCPeerID, name: String)] = [:]
     private var hostPeer: MCPeerID?
+    private var joining: (roomId: String, attempt: Int)?
+    private var hostConnected = false
 
     // MARK: - OfflineLink
 
-    func host(roomName: String, playerName: String) {
+    func host(roomName: String, roomId: String, playerName: String) {
         stop()
         isHost = true
-        let me = MCPeerID(displayName: Self.displayName(playerName))
-        let session = MCSession(peer: me, securityIdentity: nil, encryptionPreference: .required)
-        session.delegate = self
-        // Each discovery pair is at most 255 bytes, "room=" included.
-        let advertiser = MCNearbyServiceAdvertiser(
-            peer: me,
-            discoveryInfo: ["room": OfflineName.clipped(roomName, toUTF8: 200), "v": String(OfflineEnvelope.version)],
-            serviceType: Self.serviceType
-        )
-        advertiser.delegate = self
-        self.session = session
-        self.advertiser = advertiser
-        advertiser.startAdvertisingPeer()
+        self.roomName = roomName
+        self.roomId = roomId
+        let me = Self.localPeer(named: playerName)
+        self.me = me
+        session = makeSession(me)
+        startAdvertising()
     }
 
     func browse(playerName: String) {
         stop()
         isHost = false
-        let me = MCPeerID(displayName: Self.displayName(playerName))
-        let session = MCSession(peer: me, securityIdentity: nil, encryptionPreference: .required)
-        session.delegate = self
-        let browser = MCNearbyServiceBrowser(peer: me, serviceType: Self.serviceType)
-        browser.delegate = self
-        self.session = session
-        self.browser = browser
-        browser.startBrowsingForPeers()
+        let me = Self.localPeer(named: playerName)
+        self.me = me
+        session = makeSession(me)
+        startBrowsing()
     }
 
     func join(_ host: OfflineFoundHost) {
-        guard let found = foundPeers[host.id], let browser, let session else {
+        guard let found = foundPeers[host.id], browser != nil, session != nil else {
             onEvent?(.problem("That room has gone out of reach. Try again in a moment."))
+            onEvent?(.disconnected(peer: OfflineLinkPeer.host))
             return
         }
+        joining = (host.id, 1)
         hostPeer = found.peer
-        browser.invitePeer(found.peer, to: session, withContext: nil, timeout: 20)
+        invite(found.peer)
     }
 
     func join(address: String) {
@@ -92,20 +115,93 @@ final class OfflineNearbyLink: NSObject, OfflineLink {
     /// leaves by itself when it reads `refused`.
     func disconnect(_ peer: String) {}
 
+    func refresh() {
+        if isHost {
+            guard session != nil else { return }
+            startAdvertising()
+        } else if !hostConnected, joining == nil, session != nil {
+            startBrowsing()
+        }
+    }
+
     func stop() {
-        advertiser?.stopAdvertisingPeer()
-        advertiser?.delegate = nil
-        browser?.stopBrowsingForPeers()
-        browser?.delegate = nil
+        stopAdvertising()
+        stopBrowsing()
         session?.disconnect()
         session?.delegate = nil
-        advertiser = nil
-        browser = nil
         session = nil
         keyOf = [:]
         peerOf = [:]
         foundPeers = [:]
         hostPeer = nil
+        joining = nil
+        hostConnected = false
+        connectedVia = nil
+    }
+
+    // MARK: - Starting and stopping
+
+    private func makeSession(_ me: MCPeerID) -> MCSession {
+        let session = MCSession(peer: me, securityIdentity: nil, encryptionPreference: .none)
+        session.delegate = self
+        return session
+    }
+
+    /// A new advertiser each time: one stopped by the system does not always
+    /// start again when asked.
+    private func startAdvertising() {
+        stopAdvertising()
+        guard let me else { return }
+        // Each discovery pair is at most 255 bytes, "room=" included.
+        let advertiser = MCNearbyServiceAdvertiser(
+            peer: me,
+            discoveryInfo: [
+                "room": OfflineName.clipped(roomName, toUTF8: 200),
+                "v": String(OfflineEnvelope.version),
+                "rid": roomId,
+            ],
+            serviceType: Self.serviceType
+        )
+        advertiser.delegate = self
+        self.advertiser = advertiser
+        advertiser.startAdvertisingPeer()
+    }
+
+    private func stopAdvertising() {
+        advertiser?.stopAdvertisingPeer()
+        advertiser?.delegate = nil
+        advertiser = nil
+    }
+
+    private func startBrowsing() {
+        stopBrowsing()
+        guard let me else { return }
+        let browser = MCNearbyServiceBrowser(peer: me, serviceType: Self.serviceType)
+        browser.delegate = self
+        self.browser = browser
+        browser.startBrowsingForPeers()
+    }
+
+    private func stopBrowsing() {
+        browser?.stopBrowsingForPeers()
+        browser?.delegate = nil
+        browser = nil
+    }
+
+    private func invite(_ peer: MCPeerID) {
+        guard let browser, let session else { return }
+        browser.invitePeer(peer, to: session, withContext: nil, timeout: Self.inviteTimeout)
+    }
+
+    /// The next invitation of a join, to the freshest peer for the room (the
+    /// host's phone may have come back under a new connection meanwhile).
+    private func retryInvite() {
+        guard let joining, !hostConnected else { return }
+        if browser == nil { startBrowsing() }
+        let peer = foundPeers[joining.roomId]?.peer ?? hostPeer
+        guard let peer else { return }
+        hostPeer = peer
+        invite(peer)
     }
 
     // MARK: - On the main actor
@@ -126,13 +222,38 @@ final class OfflineNearbyLink: NSObject, OfflineLink {
             default:
                 break
             }
-        } else {
-            guard peer == hostPeer else { return }
-            switch state {
-            case .connected: onEvent?(.connected(peer: OfflineLinkPeer.host))
-            case .notConnected: onEvent?(.disconnected(peer: OfflineLinkPeer.host))
-            default: break
+            return
+        }
+        guard peer == hostPeer else { return }
+        switch state {
+        case .connected:
+            hostConnected = true
+            joining = nil
+            connectedVia = .nearby
+            // The game needs the radio now; scanning for other rooms only
+            // competes with it. Browsing starts again with the next `browse`.
+            stopBrowsing()
+            onEvent?(.connected(peer: OfflineLinkPeer.host))
+        case .notConnected:
+            if hostConnected {
+                hostConnected = false
+                connectedVia = nil
+                onEvent?(.disconnected(peer: OfflineLinkPeer.host))
+                return
             }
+            guard let joining else { return }
+            if joining.attempt < Self.inviteAttempts {
+                self.joining = (joining.roomId, joining.attempt + 1)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    offlineAssumeMain { self?.retryInvite() }
+                }
+            } else {
+                self.joining = nil
+                hostPeer = nil
+                onEvent?(.disconnected(peer: OfflineLinkPeer.host))
+            }
+        default:
+            break
         }
     }
 
@@ -148,7 +269,9 @@ final class OfflineNearbyLink: NSObject, OfflineLink {
     private func found(_ peer: MCPeerID, info: [String: String]?) {
         // Only rooms speaking this version: another version could not play.
         if let version = info?["v"], version != String(OfflineEnvelope.version) { return }
-        let key = foundPeers.first { $0.value.peer == peer }?.key ?? UUID().uuidString
+        // By room id, so the same room is one row however many peers it has
+        // been seen as; a host from before room ids is keyed by its peer.
+        let key = info?["rid"].flatMap { $0.isEmpty ? nil : $0 } ?? "peer-\(peer.displayName)-\(peer.hash)"
         foundPeers[key] = (peer, info?["room"] ?? peer.displayName)
         publishFound()
     }
@@ -159,7 +282,7 @@ final class OfflineNearbyLink: NSObject, OfflineLink {
     }
 
     private func publishFound() {
-        let hosts = foundPeers.map { OfflineFoundHost(id: $0.key, name: $0.value.name) }
+        let hosts = foundPeers.map { OfflineFoundHost(id: $0.key, name: $0.value.name, via: [.nearby]) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         onEvent?(.found(hosts))
     }
@@ -169,6 +292,27 @@ final class OfflineNearbyLink: NSObject, OfflineLink {
     /// for anything else.
     static func displayName(_ name: String) -> String {
         OfflineName.peer(name)
+    }
+
+    private static let peerKey = "offline.mcPeerID"
+    private static let peerNameKey = "offline.mcPeerName"
+
+    /// This phone's peer id: made once per name and kept, so other phones
+    /// see one peer for it rather than a new stranger every room.
+    static func localPeer(named name: String) -> MCPeerID {
+        let display = displayName(name)
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: peerNameKey) == display,
+           let data = defaults.data(forKey: peerKey),
+           let peer = try? NSKeyedUnarchiver.unarchivedObject(ofClass: MCPeerID.self, from: data) {
+            return peer
+        }
+        let peer = MCPeerID(displayName: display)
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: peer, requiringSecureCoding: true) {
+            defaults.set(data, forKey: peerKey)
+            defaults.set(display, forKey: peerNameKey)
+        }
+        return peer
     }
 }
 
@@ -196,13 +340,16 @@ extension OfflineNearbyLink: MCSessionDelegate {
 }
 
 extension OfflineNearbyLink: MCNearbyServiceAdvertiserDelegate {
+    /// Every invitation is accepted at once: a family phone should never wait
+    /// on a prompt, and the room turns away anyone it must (a full room,
+    /// another version) on their hello. Only a link that has stopped hosting
+    /// declines.
     nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         offlineOnMain { [weak self] in
-            guard let self, let session = self.session else {
+            guard let self, let session = self.session, self.isHost else {
                 invitationHandler(false, nil)
                 return
             }
-            // The room is the judge: a sixth phone is told why on its hello.
             invitationHandler(true, session)
         }
     }

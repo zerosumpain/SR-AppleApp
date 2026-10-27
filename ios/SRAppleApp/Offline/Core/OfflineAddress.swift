@@ -128,3 +128,40 @@ enum OfflineName {
         return out.isEmpty ? "Player" : out
     }
 }
+
+/// A Bonjour TXT record, built by hand: each entry one length byte, then
+/// `key=value` in UTF-8. Small enough to own outright, and testable here,
+/// where Network.framework's own type cannot be compiled.
+enum OfflineTXT {
+    /// Entries sorted by key (so the same record always has the same bytes);
+    /// an entry longer than 255 bytes cannot be said and is left out.
+    static func encode(_ entries: [String: String]) -> Data {
+        var out = Data()
+        for key in entries.keys.sorted() {
+            let entry = Array("\(key)=\(entries[key] ?? "")".utf8)
+            guard !key.isEmpty, entry.count <= 255 else { continue }
+            out.append(UInt8(entry.count))
+            out.append(contentsOf: entry)
+        }
+        // An empty record is a single zero byte, never no bytes at all.
+        return out.isEmpty ? Data([0]) : out
+    }
+
+    /// The entries in a record — the inverse of `encode`, for tests.
+    static func decode(_ data: Data) -> [String: String] {
+        var out: [String: String] = [:]
+        let bytes = [UInt8](data)
+        var index = 0
+        while index < bytes.count {
+            let length = Int(bytes[index])
+            index += 1
+            guard length > 0, index + length <= bytes.count else { index += length; continue }
+            let text = String(decoding: bytes[index..<index + length], as: UTF8.self)
+            index += length
+            let parts = text.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let key = parts.first, !key.isEmpty else { continue }
+            out[String(key)] = parts.count > 1 ? String(parts[1]) : ""
+        }
+        return out
+    }
+}

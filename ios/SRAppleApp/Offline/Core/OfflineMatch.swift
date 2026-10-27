@@ -37,19 +37,27 @@ protocol OfflineMatch {
     func viewData(for playerId: String?) -> Data
     var isOver: Bool { get }
     var standings: [OfflineStanding] { get }
+    /// Let computer player `playerId` move, if it has a move now. True when
+    /// one was applied. Always false for a game with no bot.
+    mutating func botAct(_ playerId: String, now: Double) -> Bool
 }
 
 /// `OfflineMatch` for one rules type: its state and its generator.
 struct OfflineMatchOf<Rules: OfflineGameRules>: OfflineMatch {
+    /// A computer player's candidate moves, best first (`OfflineBotRules`).
+    typealias Bot = (Rules.State, String, inout OfflineRNG) -> [Rules.Action]
+
     private(set) var state: Rules.State
     private(set) var rng: OfflineRNG
     let players: [OfflinePlayer]
+    private let bot: Bot?
 
-    init(players: [OfflinePlayer], seed: UInt64, now: Double) {
+    init(players: [OfflinePlayer], seed: UInt64, now: Double, bot: Bot? = nil) {
         var rng = OfflineRNG(seed: seed)
         self.state = Rules.start(players: players, now: now, rng: &rng)
         self.rng = rng
         self.players = players
+        self.bot = bot
     }
 
     var info: OfflineGameInfo { Rules.info }
@@ -86,6 +94,27 @@ struct OfflineMatchOf<Rules: OfflineGameRules>: OfflineMatch {
     var isOver: Bool { Rules.isOver(state) }
 
     var standings: [OfflineStanding] { Rules.standings(state) }
+
+    /// Each candidate in turn, through exactly the rules a person's move goes
+    /// through, until one is accepted — so a bot can never make an illegal
+    /// move, and a bot that suggests one only wastes its own turn's thought.
+    mutating func botAct(_ playerId: String, now: Double) -> Bool {
+        guard let bot else { return false }
+        let candidates = bot(state, playerId, &rng)
+        for action in candidates {
+            var next = state
+            var nextRng = rng
+            do {
+                try Rules.apply(action, by: playerId, to: &next, now: now, rng: &nextRng)
+            } catch {
+                continue
+            }
+            state = next
+            rng = nextRng
+            return true
+        }
+        return false
+    }
 }
 
 /// A game the room can start: its card, and how to begin a match of it.
@@ -93,6 +122,8 @@ struct OfflineMatchOf<Rules: OfflineGameRules>: OfflineMatch {
 /// paired with the game's view in `OfflineCatalogue`.
 struct OfflineGameEntry {
     let info: OfflineGameInfo
+    /// The phone can fill seats with computer players (`OfflineBotRules`).
+    let hasBot: Bool
     let begin: (_ players: [OfflinePlayer], _ seed: UInt64, _ now: Double) -> any OfflineMatch
 
     // Never specialised or inlined: the catalogue builds twenty of these in
@@ -104,6 +135,30 @@ struct OfflineGameEntry {
     @_semantics("optimize.sil.specialize.generic.never")
     init<Rules: OfflineGameRules>(_ rules: Rules.Type) {
         info = Rules.info
+        hasBot = false
         begin = { players, seed, now in OfflineMatchOf<Rules>(players: players, seed: seed, now: now) }
     }
+
+    /// A game with a computer player (`OfflineBotRules`).
+    @inline(never)
+    @_semantics("optimize.sil.specialize.generic.never")
+    init<Rules: OfflineBotRules>(withBot rules: Rules.Type) {
+        info = Rules.info
+        hasBot = true
+        begin = { players, seed, now in
+            OfflineMatchOf<Rules>(players: players, seed: seed, now: now, bot: { state, playerId, rng in
+                Rules.botActions(state, for: playerId, rng: &rng)
+            })
+        }
+    }
+}
+
+/// A game the phone can play against. A bot is deliberately simple — it
+/// takes what is on offer, blocks what is obvious and otherwise plays
+/// something sensible — so a child can beat it and an adult can practise.
+protocol OfflineBotRules: OfflineGameRules {
+    /// What computer player `playerId` would do now, best first; empty when
+    /// it has nothing to do (not its turn). The match tries each through
+    /// `apply` until one is accepted, so a candidate may be wrong.
+    static func botActions(_ state: State, for playerId: String, rng: inout OfflineRNG) -> [Action]
 }

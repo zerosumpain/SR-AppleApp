@@ -13,31 +13,64 @@ import Network
 /// Every handler runs on the main queue and steps onto the main actor with
 /// `MainActor.assumeIsolated`, synchronously, so bytes are handled in the
 /// order they arrived.
+///
+/// Peer-to-peer Wi-Fi is on (`includePeerToPeer`), so two phones with no
+/// network in common still find and reach each other over the same
+/// phone-to-phone Wi-Fi AirDrop uses; a shared router or hotspot is a bonus,
+/// not a requirement. Without it this link only ever worked on one network,
+/// and nobody could tell why the room was not there.
 @MainActor
 final class OfflineHotspotLink: OfflineLink {
     /// Declared in Info.plist (NSBonjourServices).
     static let serviceType = "_srplay._tcp"
+    /// How long a guest waits for a connection to open before giving up on it.
+    static let connectTimeout: TimeInterval = 12
+    /// The sentence for a denied Local Network permission — the one Wi-Fi
+    /// problem worth showing even when the nearby link is carrying the room.
+    static let localNetworkDenied = "SR Companion is not allowed on the local network. Turn it on in Settings › Privacy & Security › Local Network, then try again."
 
     let transport = OfflineTransport.hotspot
     var onEvent: ((OfflineLinkEvent) -> Void)?
+    private(set) var connectedVia: OfflineTransport?
 
     private var listener: NWListener?
     private var browser: NWBrowser?
     private var connections: [String: OfflineStreamConnection] = [:]
     private var endpoints: [String: NWEndpoint] = [:]
     private var roomName = ""
+    private var roomId = ""
+    private var isHost = false
+
+    /// TCP as a game wants it: small messages sent at once (no Nagle delay,
+    /// which held a reaction game's tap back by up to 200 ms), a dead peer
+    /// noticed in seconds rather than minutes, a connect that gives up, and
+    /// phone-to-phone Wi-Fi allowed.
+    static func parameters() -> NWParameters {
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        tcp.enableKeepalive = true
+        tcp.keepaliveIdle = 4
+        tcp.keepaliveInterval = 2
+        tcp.keepaliveCount = 3
+        tcp.connectionTimeout = Int(connectTimeout)
+        let parameters = NWParameters(tls: nil, tcp: tcp)
+        parameters.includePeerToPeer = true
+        return parameters
+    }
 
     // MARK: - Host
 
-    func host(roomName: String, playerName: String) {
+    func host(roomName: String, roomId: String, playerName: String) {
         stop()
+        isHost = true
         self.roomName = roomName
+        self.roomId = roomId
         listen(on: OfflineAddress.preferredPort)
     }
 
     /// `port` nil: any free port the system picks.
     private func listen(on port: UInt16?) {
-        let parameters = NWParameters.tcp
+        let parameters = Self.parameters()
         let listener: NWListener
         do {
             if let port, let fixed = NWEndpoint.Port(rawValue: port) {
@@ -52,7 +85,11 @@ final class OfflineHotspotLink: OfflineLink {
         // A Bonjour service name is at most 63 bytes; a longer one is not
         // registered. Nil lets the system name it after the phone.
         let serviceName = OfflineName.clipped(roomName, toUTF8: 63)
-        listener.service = NWListener.Service(name: serviceName.isEmpty ? nil : serviceName, type: Self.serviceType)
+        // The room id and version ride in the TXT record, so a guest lists
+        // the room once whatever Bonjour renames it to ("Sam's game (2)").
+        let txt = OfflineTXT.encode(["rid": roomId, "v": String(OfflineEnvelope.version)])
+        listener.service = NWListener.Service(name: serviceName.isEmpty ? nil : serviceName, type: Self.serviceType,
+                                              domain: nil, txtRecord: txt)
         listener.stateUpdateHandler = { [weak self] state in
             offlineAssumeMain { self?.listenerChanged(state, triedPort: port) }
         }
@@ -70,7 +107,7 @@ final class OfflineHotspotLink: OfflineLink {
             let addresses = OfflineAddress.joinable(OfflineHotspotLink.interfaceAddresses()).map { OfflineAddress.display($0, port: port) }
             onEvent?(.listening(addresses: addresses))
             if addresses.isEmpty {
-                onEvent?(.problem("This phone is not on Wi-Fi and its Personal Hotspot is off. Turn one on — guests need to be on the same network."))
+                onEvent?(.problem("This phone is not on Wi-Fi and its Personal Hotspot is off, so there is no address to type. Phones nearby can still find the room by themselves."))
             }
         case .failed(let error):
             listener?.cancel()
@@ -106,7 +143,15 @@ final class OfflineHotspotLink: OfflineLink {
 
     func browse(playerName: String) {
         stop()
-        let browser = NWBrowser(for: .bonjour(type: Self.serviceType, domain: nil), using: NWParameters.tcp)
+        isHost = false
+        startBrowsing()
+    }
+
+    private func startBrowsing() {
+        browser?.browseResultsChangedHandler = nil
+        browser?.stateUpdateHandler = nil
+        browser?.cancel()
+        let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: Self.parameters())
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             offlineAssumeMain { self?.resultsChanged(results) }
         }
@@ -122,9 +167,15 @@ final class OfflineHotspotLink: OfflineLink {
         var next: [String: NWEndpoint] = [:]
         for result in results {
             guard case let .service(name, type, domain, _) = result.endpoint else { continue }
-            let key = "\(name).\(type).\(domain)"
+            var key = "\(name).\(type).\(domain)"
+            if case let .bonjour(txt) = result.metadata {
+                // Another version could not play; a room id keys the row.
+                if let version = txt["v"], version != String(OfflineEnvelope.version) { continue }
+                if let rid = txt["rid"], !rid.isEmpty { key = rid }
+            }
+            guard next[key] == nil else { continue }
             next[key] = result.endpoint
-            hosts.append(OfflineFoundHost(id: key, name: name))
+            hosts.append(OfflineFoundHost(id: key, name: name, via: [.hotspot]))
         }
         endpoints = next
         onEvent?(.found(hosts.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }))
@@ -141,7 +192,8 @@ final class OfflineHotspotLink: OfflineLink {
 
     func join(_ host: OfflineFoundHost) {
         guard let endpoint = endpoints[host.id] else {
-            onEvent?(.problem("That room has gone. Pull the list down or wait a moment for it to come back."))
+            onEvent?(.problem("That room has gone. Wait a moment for it to come back."))
+            onEvent?(.disconnected(peer: OfflineLinkPeer.host))
             return
         }
         connect(to: endpoint)
@@ -158,17 +210,33 @@ final class OfflineHotspotLink: OfflineLink {
     private func connect(to endpoint: NWEndpoint) {
         connections[OfflineLinkPeer.host]?.cancel()
         let key = OfflineLinkPeer.host
-        let stream = OfflineStreamConnection(connection: NWConnection(to: endpoint, using: .tcp))
-        stream.onReady = { [weak self] in self?.onEvent?(.connected(peer: key)) }
+        let stream = OfflineStreamConnection(connection: NWConnection(to: endpoint, using: Self.parameters()))
+        stream.onReady = { [weak self] in
+            guard let self else { return }
+            self.connectedVia = .hotspot
+            // Connected: the browser's scanning only competes with the game.
+            self.browser?.cancel()
+            self.browser = nil
+            self.onEvent?(.connected(peer: key))
+        }
         stream.onMessage = { [weak self] data in self?.onEvent?(.received(data, from: key)) }
         stream.onWaiting = { [weak self] error in self?.onEvent?(.problem(OfflineHotspotLink.sentence(for: error))) }
         stream.onClose = { [weak self, weak stream] _ in
             guard let self, let stream, self.connections[key] === stream else { return }
             self.connections[key] = nil
+            self.connectedVia = nil
             self.onEvent?(.disconnected(peer: key))
         }
         connections[key] = stream
         stream.start()
+        // A Bonjour name that never resolves sits in "waiting" for ever;
+        // give up on it so the guest can try another way.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.connectTimeout) { [weak stream] in
+            offlineAssumeMain {
+                guard let stream, !stream.isReady else { return }
+                stream.giveUp()
+            }
+        }
     }
 
     // MARK: - Both
@@ -185,7 +253,17 @@ final class OfflineHotspotLink: OfflineLink {
         }
     }
 
+    func refresh() {
+        if isHost {
+            // A listener the system tore down in the background is opened again.
+            if listener == nil, !roomId.isEmpty { listen(on: OfflineAddress.preferredPort) }
+        } else if connections[OfflineLinkPeer.host] == nil {
+            startBrowsing()
+        }
+    }
+
     func stop() {
+        connectedVia = nil
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
         listener?.cancel()
@@ -206,7 +284,7 @@ final class OfflineHotspotLink: OfflineLink {
     static func sentence(for error: NWError) -> String {
         // kDNSServiceErr_PolicyDenied: the Local Network permission is off.
         if case .dns(let code) = error, code == -65570 {
-            return "SR Companion is not allowed on the local network. Turn it on in Settings › Privacy & Security › Local Network, then try again."
+            return localNetworkDenied
         }
         if case .posix(let code) = error {
             switch code {
@@ -248,6 +326,8 @@ final class OfflineStreamConnection {
     private let connection: NWConnection
     private var buffer = Data()
     private var closed = false
+    /// The connection has opened at least once.
+    private(set) var isReady = false
 
     var onReady: (() -> Void)?
     var onMessage: ((Data) -> Void)?
@@ -285,6 +365,7 @@ final class OfflineStreamConnection {
     private func changed(_ state: NWConnection.State) {
         switch state {
         case .ready:
+            isReady = true
             onReady?()
             receive()
         case .waiting(let error):
@@ -323,6 +404,9 @@ final class OfflineStreamConnection {
             }
         }
     }
+
+    /// Abandon a connection that never opened, telling `onClose`.
+    func giveUp() { close(nil) }
 
     private func close(_ error: NWError?) {
         guard !closed else { return }

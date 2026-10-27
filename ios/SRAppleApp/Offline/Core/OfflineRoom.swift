@@ -22,8 +22,14 @@ struct OfflineRoom {
     /// eight or fewer, and five keeps a TCP hotspot room comfortable.
     static let capacity = 5
 
+    /// Computer players' names, in the order they sit down: four, so a host
+    /// alone can fill every other seat at the table.
+    static let botNames = ["Robo", "Chip", "Pixel", "Sprocket"]
+
     let hostId: String
     let roomName: String
+    /// The room's id on the air and in synced results (`OfflineLobby.roomKey`).
+    let roomKey: String
     private let games: [String: OfflineGameEntry]
 
     /// Seat order: the host first, then guests as they joined.
@@ -37,10 +43,17 @@ struct OfflineRoom {
 
     private var lobbySent: [String: OfflineLobby] = [:]
     private var viewSent: [String: OfflineViewPacket] = [:]
+    /// Host clock: when each computer player next looks for a move.
+    private var botDue: [String: Double] = [:]
+    /// The view each computer player last "saw", so a change to it (its
+    /// turn coming round) starts its thinking time afresh.
+    private var botSeen: [String: Data] = [:]
 
-    init(host: OfflinePlayer, roomName: String, games: [OfflineGameEntry]) {
+    init(host: OfflinePlayer, roomName: String, games: [OfflineGameEntry],
+         roomKey: String = OfflineDiscovery.roomKey(seed: OfflineRNG.freshSeed())) {
         self.hostId = host.id
         self.roomName = roomName
+        self.roomKey = roomKey
         var byId: [String: OfflineGameEntry] = [:]
         for entry in games { byId[entry.info.id] = entry }
         self.games = byId
@@ -51,7 +64,22 @@ struct OfflineRoom {
 
     var lobby: OfflineLobby {
         OfflineLobby(hostId: hostId, roomName: roomName, players: players, gameId: gameId,
-                     phase: phase, match: matchNumber, standings: standings)
+                     phase: phase, match: matchNumber, standings: standings, roomKey: roomKey)
+    }
+
+    /// Computer players in the room.
+    var bots: [OfflineLobbyPlayer] { players.filter(\.isBot) }
+
+    /// Whether a computer player may be added now, as a refusal sentence; nil when it may.
+    var addBotProblem: String? {
+        if phase == .playing { return "Finish this game first." }
+        guard let entry else { return "Pick a game first." }
+        guard entry.hasBot else { return "\(entry.info.title) has no computer player yet." }
+        if players.count >= min(Self.capacity, entry.info.maxPlayers) {
+            return "\(entry.info.title) has every seat filled."
+        }
+        if bots.count >= Self.botNames.count { return "That is every computer player." }
+        return nil
     }
 
     /// The chosen game's entry.
@@ -91,6 +119,10 @@ struct OfflineRoom {
             forget(player.id)
             return
         }
+        // A person beats a computer player to a seat, between matches.
+        if players.count >= Self.capacity, phase != .playing, let bot = players.lastIndex(where: \.isBot) {
+            players.remove(at: bot)
+        }
         if players.count >= Self.capacity {
             throw OfflineRefusal("The room is full — \(Self.capacity) is the most.")
         }
@@ -122,8 +154,36 @@ struct OfflineRoom {
     /// Choose the next game. Only between matches.
     mutating func choose(_ gameId: String) throws {
         guard phase != .playing else { throw OfflineRefusal("Finish this game first.") }
-        guard games[gameId] != nil else { throw OfflineRefusal("This phone does not know that game.") }
+        guard let next = games[gameId] else { throw OfflineRefusal("This phone does not know that game.") }
         self.gameId = gameId
+        // A game with no computer player cannot seat one; nor can a game
+        // with fewer seats than there are players and bots.
+        if !next.hasBot {
+            players.removeAll(where: \.isBot)
+        } else {
+            while players.count > next.info.maxPlayers, let last = players.lastIndex(where: \.isBot) {
+                players.remove(at: last)
+            }
+        }
+    }
+
+    /// Seat a computer player for the chosen game, named from `botNames`.
+    @discardableResult
+    mutating func addBot() throws -> String {
+        if let problem = addBotProblem { throw OfflineRefusal(problem) }
+        let taken = Set(players.map(\.name))
+        let name = Self.botNames.first { !taken.contains($0) } ?? "Bot \(bots.count + 1)"
+        var n = bots.count + 1
+        while players.contains(where: { $0.id == "bot-\(n)" }) { n += 1 }
+        let id = "bot-\(n)"
+        players.append(OfflineLobbyPlayer(id: id, name: name, present: true, inMatch: false, bot: true))
+        return id
+    }
+
+    /// Stand a computer player down. Only between matches.
+    mutating func removeBot(_ id: String) throws {
+        guard phase != .playing else { throw OfflineRefusal("Finish this game first.") }
+        players.removeAll { $0.id == id && $0.isBot }
     }
 
     /// Start the chosen game with everyone present. `seed` comes from
@@ -138,6 +198,8 @@ struct OfflineRoom {
         phase = .playing
         standings = nil
         viewSent = [:]
+        botDue = [:]
+        botSeen = [:]
         checkOver()
     }
 
@@ -157,6 +219,30 @@ struct OfflineRoom {
         guard phase == .playing else { return }
         match?.tick(now: now)
         checkOver()
+        moveBots(now: now)
+    }
+
+    /// How long a computer player "thinks" before a move — long enough to
+    /// see what it did, short enough not to drag.
+    static let botThink: Double = 0.9
+
+    /// Each computer player looks at the table `botThink` after it last
+    /// changed and moves if it has a move — so it never answers in the same
+    /// instant as the person before it, and goes again (a box closed, a card
+    /// drawn) after another pause.
+    private mutating func moveBots(now: Double) {
+        guard phase == .playing else { return }
+        for bot in players where bot.isBot && bot.inMatch {
+            guard let seen = match?.viewData(for: bot.id) else { return }
+            if botSeen[bot.id] != seen {
+                botSeen[bot.id] = seen
+                botDue[bot.id] = now + Self.botThink
+                continue
+            }
+            guard let due = botDue[bot.id], now >= due, phase == .playing else { continue }
+            botDue[bot.id] = nil
+            if match?.botAct(bot.id, now: now) == true { checkOver() }
+        }
     }
 
     /// The host stops the match early: standings as they stand.
@@ -193,12 +279,13 @@ struct OfflineRoom {
     mutating func outbox() -> [OfflineOutgoing] {
         var out: [OfflineOutgoing] = []
         let current = lobby
-        for player in players where player.present && lobbySent[player.id] != current {
+        // Bots are moved here, on the host; nothing is sent to them.
+        for player in players where player.present && !player.isBot && lobbySent[player.id] != current {
             out.append(OfflineOutgoing(to: player.id, message: .lobby(current)))
             lobbySent[player.id] = current
         }
         if let match, phase != .lobby, let gameId {
-            for player in players where player.present {
+            for player in players where player.present && !player.isBot {
                 let packet = OfflineViewPacket(
                     gameId: gameId, match: matchNumber,
                     data: match.viewData(for: player.inMatch ? player.id : nil),
