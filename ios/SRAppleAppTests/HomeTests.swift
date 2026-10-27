@@ -103,6 +103,15 @@ final class HomeTests: XCTestCase {
         XCTAssertEqual(layout.hidden, [.news])
     }
 
+    func testATileStoredTwiceKeepsItsFirstPlace() {
+        let layout = HomeLayout.decode(#"{"order":["health","family","health"]}"#)
+        XCTAssertEqual(layout.order, [.health, .family])
+        // Built in code rather than decoded, the repeat is still drawn once.
+        let built = HomeLayout(order: [.health, .family, .health])
+        let shown = built.visible([.family, .health])
+        XCTAssertEqual(shown, [.health, .family])
+    }
+
     func testGarbageIsTheDefaultLayout() {
         XCTAssertEqual(HomeLayout.decode("not json"), HomeLayout())
         XCTAssertEqual(HomeLayout.decode(""), HomeLayout())

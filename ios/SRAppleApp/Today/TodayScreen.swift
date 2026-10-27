@@ -342,10 +342,11 @@ struct TodayScreen: View {
     /// Each shown tile's size as drawn now: the reader's, folded to a square
     /// when an adaptive tile has nothing to show.
     private func drawnSizes(_ layout: HomeLayout, _ kinds: [HomeTileKind]) -> [HomeTileKind: HomeSize] {
-        Dictionary(uniqueKeysWithValues: kinds.map { kind in
+        // Uniquing rather than trapping: a repeated kind would crash Home.
+        Dictionary(kinds.map { kind in
             (kind, HomeSizing.resolve(chosen: layout.size(of: kind), allowed: kind.sizes,
                                       adaptive: kind.adaptive, hasContent: hasContent(kind)))
-        })
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Whether an adaptive tile has anything to show; nil while that is not

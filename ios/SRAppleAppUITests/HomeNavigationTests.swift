@@ -9,7 +9,7 @@ final class HomeNavigationTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch() -> XCUIApplication {
+    @MainActor private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()

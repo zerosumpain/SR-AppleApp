@@ -243,7 +243,8 @@ struct HomeLayout: Codable, Equatable {
         let rawOrder = (try? c.decodeIfPresent([String].self, forKey: .order)) ?? nil
         let rawHidden = (try? c.decodeIfPresent([String].self, forKey: .hidden)) ?? nil
         let rawSizes = (try? c.decodeIfPresent([String: String].self, forKey: .sizes)) ?? nil
-        order = (rawOrder ?? []).compactMap(HomeTileKind.init(rawValue:))
+        var seen: Set<HomeTileKind> = []
+        order = (rawOrder ?? []).compactMap(HomeTileKind.init(rawValue:)).filter { seen.insert($0).inserted }
         hidden = Set((rawHidden ?? []).compactMap(HomeTileKind.init(rawValue:)))
         var known: [HomeTileKind: HomeSize] = [:]
         for (tile, size) in rawSizes ?? [:] {
@@ -281,8 +282,10 @@ struct HomeLayout: Codable, Equatable {
     /// Every tile this person may have, in the reader's order — shown or not.
     /// What Settings → Home lists. PURE.
     func arranged(_ available: [HomeTileKind]) -> [HomeTileKind] {
-        let known = order.filter(available.contains)
-        var out = known
+        // A tile named twice (a hand-edited or older stored layout) keeps its
+        // first place: Home keys its tiles by kind, so a repeat must not reach it.
+        var out: [HomeTileKind] = []
+        for kind in order where available.contains(kind) && !out.contains(kind) { out.append(kind) }
         // Newcomers slot in after the tile that precedes them by default, so
         // a new feature lands near its family rather than at the bottom.
         for kind in available where !out.contains(kind) {

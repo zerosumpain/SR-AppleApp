@@ -151,7 +151,11 @@ struct SRTray: View {
     @State private var keyboard = false
 
     var body: some View {
-        Group {
+        // A ZStack, not a Group: a Group passes its modifiers on to its
+        // children, so while the keyboard has the tray hidden there would be
+        // nothing left to hear the keyboard go and the tray would never come
+        // back. The ZStack is always there, empty and sizeless when hidden.
+        ZStack {
             if !keyboard {
                 SRGlassGroup(spacing: 4) {
                     HStack(spacing: 2) {
