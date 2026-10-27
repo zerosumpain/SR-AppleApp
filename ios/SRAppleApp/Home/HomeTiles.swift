@@ -201,6 +201,7 @@ struct HomeHealthTile: View {
 struct HomeVitalRow: View {
     let figure: HealthFigure
     var open: ((HealthFigure) -> Void)?
+    @ScaledMetric(relativeTo: .caption) private var chipColumn: CGFloat = 56
 
     var body: some View {
         Button {
@@ -220,7 +221,9 @@ struct HomeVitalRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .layoutPriority(1)
+                // A column of its own, so the figures line up down the tile.
                 HomeDeltaChip(delta: figure.delta, display: figure.deltaDisplay, improving: figure.improving)
+                    .frame(width: chipColumn, alignment: .trailing)
             }
             .contentShape(Rectangle())
         }
@@ -392,7 +395,9 @@ struct HomeTasksTile: View {
     private var owed: String? {
         guard let board = store.board else { return nil }
         let pence = FamilyTasksSummary.make(board).owedPence
-        return pence > 0 ? String(format: "£%.2f", Double(pence) / 100) : nil
+        guard pence > 0 else { return nil }
+        // "£12", not "£12.00": the badge shares a narrow row with the name.
+        return pence % 100 == 0 ? "£\(pence / 100)" : HomeBriefing.money(pence)
     }
 
     private var spoken: String {
@@ -474,7 +479,7 @@ struct HomeTripsTile: View {
                 Spacer(minLength: 0)
                 HomeFigure(
                     value: next?.title ?? (stops.isEmpty ? "No plan yet" : "Day done"),
-                    caption: leaveIn.map { $0 > 0 ? "Leave in \($0) min" : "Time to go" } ?? "\(stops.count) stops today",
+                    caption: leaveIn.map { $0 > 0 ? "Leave in \(HomeBriefing.duration($0))" : "Time to go" } ?? "\(stops.count) stops today",
                     size: 22
                 )
             }
@@ -627,11 +632,15 @@ struct HomeBacklogTile: View {
 
     var body: some View {
         let line = store.board.map(FamilyBacklogRules.todayLine)
-        HomeTileFrame(kind: .backlog, badge: (line?.forYou ?? 0) > 0 ? "\(line!.forYou) FOR YOU" : nil) {
+        // What is for you is in the caption, not a badge: a badge beside
+        // "Backlog" in a square tile left no room for the name.
+        let forYou = line?.forYou ?? 0
+        let newest = line?.newest.first?.title ?? "Nothing saved yet"
+        HomeTileFrame(kind: .backlog) {
             VStack(alignment: .leading, spacing: 8) {
-                SpineShelf(count: line?.waiting ?? 0, fresh: line?.forYou ?? 0)
+                SpineShelf(count: line?.waiting ?? 0, fresh: forYou)
                 Spacer(minLength: 0)
-                HomeFigure(value: "\(line?.waiting ?? 0)", unit: "saved", caption: line?.newest.first?.title ?? "Nothing saved yet")
+                HomeFigure(value: "\(line?.waiting ?? 0)", unit: "saved", caption: forYou > 0 ? "\(forYou) for you · \(newest)" : newest)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -646,12 +655,14 @@ struct HomeGamesTile: View {
 
     var body: some View {
         let invites = games.invites.count
-        HomeTileFrame(kind: .games, badge: invites > 0 ? "\(invites) INVITE\(invites == 1 ? "" : "S")" : nil) {
+        HomeTileFrame(kind: .games) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading) {
                     Spacer(minLength: 0)
                     if let invite = games.invites.first {
-                        HomeFigure(value: GameNames.title(invite.game), caption: "\(invite.hostName) invited you", size: 20, captionLines: 2)
+                        HomeFigure(value: GameNames.title(invite.game),
+                                   caption: invites > 1 ? "\(invite.hostName) and \(invites - 1) more invited you" : "\(invite.hostName) invited you",
+                                   size: 20, captionLines: 2)
                     } else {
                         HomeFigure(value: games.rooms.isEmpty ? "Play" : "\(games.rooms.count)", unit: games.rooms.isEmpty ? nil : "in play",
                                    caption: games.rooms.isEmpty ? "Start one for the family" : "Rooms still open", size: 26, captionLines: 2)
@@ -694,7 +705,7 @@ struct HomeShortcutTile: View {
                 Text(line)
                     .font(SR.Text.secondary(12))
                     .foregroundStyle(SR.inkMuted)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.85)
             }
             Spacer(minLength: 0)
@@ -769,10 +780,10 @@ struct HomeDaydreamTile: View {
 
     var body: some View {
         let decide = store.pipeline?.decide ?? 0
-        HomeTileFrame(kind: .daydream, look: .aurora(decide > 0 ? 1 : 0.45), badge: decide > 0 ? "\(decide) TO DECIDE" : nil) {
+        HomeTileFrame(kind: .daydream, look: .aurora(decide > 0 ? 1 : 0.45)) {
             VStack(alignment: .leading) {
                 Spacer(minLength: 0)
-                HomeFigure(value: decide > 0 ? "\(decide)" : "Calm", unit: decide > 0 ? "noticed" : nil,
+                HomeFigure(value: decide > 0 ? "\(decide)" : "Calm", unit: decide > 0 ? "to decide" : nil,
                            caption: store.notes.first?.title ?? "What the loop noticed", size: 28, captionLines: 2)
             }
         }
@@ -789,7 +800,7 @@ struct HomeFlowsTile: View {
     var body: some View {
         let stats = store.stats(now: Date())
         let failing = store.all.filter(FlowStats.isFailing).map(\.title)
-        HomeTileFrame(kind: .flows, badge: stats.failing > 0 ? "\(stats.failing) FAILING" : nil) {
+        HomeTileFrame(kind: .flows) {
             VStack(alignment: .leading, spacing: 8) {
                 FlowDots(working: stats.working, failing: stats.failing)
                 Spacer(minLength: 0)

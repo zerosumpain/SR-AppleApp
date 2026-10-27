@@ -802,11 +802,14 @@ struct FamilyRibbonsView: View {
     var now: Date = Date()
     /// Row pitch. The peaks rise to 1.7 of it, into the row above.
     @ScaledMetric(relativeTo: .body) private var pitch: CGFloat = 26
+    /// Room under the rows for the hours: it grows with their type, or the
+    /// larger text sizes cut the hours off at the foot of the tile.
+    @ScaledMetric(relativeTo: .caption) private var axisRoom: CGFloat = 18
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let labelWidth: CGFloat = 30
-        let height = pitch * CGFloat(model.rows.count) + pitch * 1.4 + 18
+        let height = pitch * CGFloat(model.rows.count) + pitch * 1.4 + axisRoom
         Canvas { context, size in
             let left = labelWidth + 6
             let width = size.width - left - 4
