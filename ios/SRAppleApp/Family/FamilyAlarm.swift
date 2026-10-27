@@ -267,7 +267,13 @@ final class FamilyAlarmStore: ObservableObject {
         // The same alarm again (a poll after the push): keep ringing, and
         // keep whichever copy says more.
         if incoming?.alarmId == alarm.alarmId {
-            if alarm.lat != nil || alarm.message != nil || alarm.place != nil, incoming != alarm { incoming = alarm }
+            // A kind the push did not carry: ring the right sound from now on.
+            if let current = incoming, current.kind != alarm.kind, !current.cancelled {
+                AlarmPlayer.shared.start(FamilyAlarmKind(rawValue: alarm.kind) ?? .siren)
+            }
+            if alarm.lat != nil || alarm.message != nil || alarm.place != nil || incoming?.kind != alarm.kind, incoming != alarm {
+                incoming = alarm
+            }
             return
         }
         incoming = alarm
