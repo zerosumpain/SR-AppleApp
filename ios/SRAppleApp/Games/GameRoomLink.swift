@@ -170,6 +170,11 @@ final class GameRoomLink {
         hasRoom = true
         onRoom(room)
         if room.phase == .closed {
+            // A parent closed the lobby: said over every page (the lobby
+            // banner), since this screen is about to become "ended".
+            if let by = room.closedBy {
+                GameLobbyNews.closed(LobbyBannerPick.closedLine(by: by, game: GameNames.title(room.game)))
+            }
             end()
             return
         }

@@ -404,13 +404,20 @@ struct GamesLobby: Decodable, Equatable {
     /// The paces each game offers, for games that can be played over days
     /// (`{"homestead": ["live", "async"]}`). Empty from an older site.
     var paces: [String: [String]] = [:]
+    /// The site counts this person a parent (owner or Family Admin): they may
+    /// close any lobby not yet started. False from an older site.
+    var parent: Bool = false
+    /// Every lobby not yet started, anybody's — sent to a parent only.
+    var openLobbies: [GameOpenLobby] = []
 
-    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces }
+    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces, parent, openLobbies }
 
     init(me: GamePerson, players: [GamePerson], invites: [GameInvite], rooms: [GameRoomSummary], serverNow: Double,
-         paces: [String: [String]] = [:]) {
+         paces: [String: [String]] = [:], parent: Bool = false, openLobbies: [GameOpenLobby] = []) {
         self.me = me; self.players = players; self.invites = invites; self.rooms = rooms; self.serverNow = serverNow
         self.paces = paces
+        self.parent = parent
+        self.openLobbies = openLobbies
     }
 
     init(from decoder: Decoder) throws {
@@ -421,6 +428,8 @@ struct GamesLobby: Decodable, Equatable {
         rooms = (try? c.decodeIfPresent([GameRoomSummary].self, forKey: .rooms)) ?? []
         serverNow = (try? c.decodeIfPresent(Double.self, forKey: .serverNow)) ?? 0
         paces = (try? c.decodeIfPresent([String: [String]].self, forKey: .paces)) ?? [:]
+        parent = (try? c.decodeIfPresent(Bool.self, forKey: .parent)) ?? false
+        openLobbies = (try? c.decodeIfPresent([GameOpenLobby].self, forKey: .openLobbies)) ?? []
     }
 }
 
@@ -783,6 +792,8 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     let durable: Bool
     let pace: GamePace
     let version: Int?
+    /// A lobby a parent closed: who, so the phones in it can say why it went.
+    let closedBy: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -795,6 +806,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         case size, scoring, grid, possible
         case categoryCount, reviewMs, maxAnswer, letter, categories
         case durable, pace, version
+        case closedBy
     }
 
     init(from decoder: Decoder) throws {
@@ -879,6 +891,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
         pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
         version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? nil
+        closedBy = (try? c.decodeIfPresent(String.self, forKey: .closedBy)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }
