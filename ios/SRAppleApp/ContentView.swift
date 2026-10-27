@@ -408,6 +408,7 @@ struct ContentView: View {
             if reviewDemo.active { DemoBanner() }
             tabs
         }
+        .srGameLobbyBanner(games, router: router) // An open game lobby, above every page.
         // A family member's alarm, over whichever tab is open.
         .modifier(FamilyAlarmHost())
     }
