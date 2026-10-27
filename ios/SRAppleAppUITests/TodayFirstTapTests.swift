@@ -83,8 +83,18 @@ final class TodayFirstTapTests: XCTestCase {
         wait(for: [pause], timeout: 10)
         let after = read()
         XCTAssertEqual(after.hero, before.hero, "the hero changed height during the sunrise")
-        XCTAssertEqual(after.family, before.family, "the family card moved under the hero after it appeared")
-        XCTAssertEqual(after.steps, before.steps, "the steps card moved after it appeared")
+        Self.assertSame(after.family, before.family, "the family card moved under the hero after it appeared")
+        Self.assertSame(after.steps, before.steps, "the steps card moved after it appeared")
+    }
+
+    /// Within a point: a card the scroll transition is easing at the screen's
+    /// edge (Home's tiles scale a little as they leave) can settle by a third
+    /// of a point, which is not a card moving under a thumb — a sunrise that
+    /// pushes the page is tens of points.
+    private static func assertSame(_ a: CGRect, _ b: CGRect, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        for (x, y) in [(a.minX, b.minX), (a.minY, b.minY), (a.width, b.width), (a.height, b.height)] {
+            XCTAssertEqual(x, y, accuracy: 1, "\(message): \(a) vs \(b)", file: file, line: line)
+        }
     }
 
     /// A member's sun is their Move ring: nothing of the owner's readiness.
