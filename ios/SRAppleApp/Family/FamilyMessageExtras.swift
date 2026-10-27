@@ -159,12 +159,20 @@ struct FamilyPollView: View {
     }
 }
 
+/// A poll as the sheet opens on it: blank from the Poll chip over the box, or
+/// written out by a suggestion on msg family's landing ("Dinner tonight?").
+struct FamilyPollDraft: Identifiable {
+    let id = UUID()
+    var question = ""
+    var options: [String] = []
+}
+
 /// The sheet that writes a poll: a question and two to four answers.
 struct FamilyPollComposer: View {
     let send: (FamilyPoll) async -> Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var question = ""
-    @State private var options = [Answer(), Answer()]
+    @State private var question: String
+    @State private var options: [Answer]
     @State private var sending = false
 
     /// One answer's box. Identified, so taking one away never leaves a box
@@ -172,6 +180,15 @@ struct FamilyPollComposer: View {
     struct Answer: Identifiable {
         let id = UUID()
         var text = ""
+    }
+
+    /// Opened on `question` and `options` when a suggestion wrote them; every
+    /// word can still be changed before Send. Always two boxes at least.
+    init(question: String = "", options: [String] = [], send: @escaping (FamilyPoll) async -> Bool) {
+        self.send = send
+        let written = options.prefix(FamilyPoll.maxOptions).map { Answer(text: $0) }
+        _question = State(initialValue: question)
+        _options = State(initialValue: written + (0..<max(0, 2 - written.count)).map { _ in Answer() })
     }
 
     private var poll: FamilyPoll? { FamilyPoll.make(question: question, options: options.map(\.text)) }
