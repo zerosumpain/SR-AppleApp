@@ -32,7 +32,7 @@ final class ReviewDemoUITests: XCTestCase {
         // Return submits, as Continue does, and cannot be hidden by the keyboard.
         field.typeText("\n")
         XCTAssertTrue(app.descendants(matching: .any)["code-error"].waitForExistence(timeout: 15), "a wrong code said nothing")
-        XCTAssertFalse(app.tabBars.firstMatch.exists, "a wrong code opened the app")
+        XCTAssertFalse(app.tray.exists, "a wrong code opened the app")
 
         // The review code opens the app, in the demo.
         field.tap()
@@ -40,11 +40,12 @@ final class ReviewDemoUITests: XCTestCase {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: typed.count))
         }
         field.typeText(reviewCode + "\n")
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "the review code did not open the app")
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20), "the review code did not open the app")
         XCTAssertTrue(badge(app).waitForExistence(timeout: 10), "no Demo strip")
         // Everything, as an owner would see it.
-        for tab in ["Home", "Family", "Games", "Chat", "Health"] {
-            XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab) in the demo")
+        XCTAssertTrue(app.home.exists, "the demo did not open on Home")
+        for tab in ["Family", "Games", "Chat", "Health", "More"] {
+            XCTAssertTrue(app.trayButton(tab).exists, "missing \(tab) in the demo's tray")
         }
         attach(app, "Review demo — Today")
 
@@ -110,7 +111,7 @@ final class ReviewDemoUITests: XCTestCase {
         attach(app, "Review demo — Settings")
         leave.tap()
         XCTAssertTrue(app.buttons["welcome-google"].waitForExistence(timeout: 15), "leaving the demo did not go back to Welcome")
-        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertFalse(app.tray.exists)
         XCTAssertFalse(badge(app).exists)
     }
 
@@ -132,7 +133,7 @@ final class ReviewDemoUITests: XCTestCase {
         app.launchArguments = ["-SRStubNetwork"]
         app.launch()
         XCTAssertTrue(badge(app).waitForExistence(timeout: 20), "a relaunch dropped the demo")
-        XCTAssertTrue(app.tabBars.buttons["Home"].exists)
+        XCTAssertTrue(app.tray.exists)
 
         XCTAssertTrue(app.openSettings())
         let leave = app.buttons["settings-leave-demo"]
@@ -146,10 +147,10 @@ final class ReviewDemoUITests: XCTestCase {
     /// Back out of a pushed screen to the root of its stack.
     @MainActor private func back(_ app: XCUIApplication) {
         let back = app.navigationBars.buttons.element(boundBy: 0)
-        // On a tab's first page the bar's first button is the ⊞ hub, not a
-        // Back: tapping it would open the hub over the page we meant to leave.
-        if back.waitForExistence(timeout: 5), back.identifier != "open-hub" { back.tap() }
-        _ = app.tabBars.firstMatch.waitForExistence(timeout: 5)
+        // On a place's first page the bar's first button is the house, not a
+        // Back: tapping it would go Home rather than out of the page.
+        if back.waitForExistence(timeout: 5), !["open-hub", "open-home"].contains(back.identifier) { back.tap() }
+        _ = app.tray.waitForExistence(timeout: 5)
     }
 
     @MainActor private func badge(_ app: XCUIApplication) -> XCUIElement {

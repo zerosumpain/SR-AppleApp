@@ -174,6 +174,14 @@ struct HealthScreen: View {
             family
         }
         .listStyle(.insetGrouped)
+        // An inset-grouped list opens with a section's worth of empty margin
+        // above its first row; under the pinned strip that read as dead space
+        // between the bar and the first row (John, 2026-10-27: "the icons
+        // should start higher up"). A small top margin, and the compact gap
+        // between sections, bring the page up under the strip. Margins, not a
+        // bar: the scroll-edge band stays the bar's own height.
+        .contentMargins(.top, 4, for: .scrollContent)
+        .listSectionSpacing(.compact)
         .scrollContentBackground(.hidden)
     }
 
