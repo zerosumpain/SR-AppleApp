@@ -352,19 +352,23 @@ final class FamilyMessagesStore: ObservableObject {
     }
 
     /// Send to the family. True when it went.
-    func send(_ text: String) async -> Bool {
+    ///
+    /// `quiet` is the bat phone's: no success or failure buzz, because a phone
+    /// held by somebody who needs help must not give them away, and it goes
+    /// as this phone's own person (`asSelf`) whoever is being viewed.
+    func send(_ text: String, quiet: Bool = false) async -> Bool {
         guard !isBusy("new"), let body = FamilyMessages.sendable(text) else { return false }
         inFlight.insert("new")
         defer { inFlight.remove("new") }
         do {
             let data = try JSONEncoder().encode(["body": body])
-            let _: EmptyReply = try await SiteClient.shared.send(FamilyMessages.path, method: "POST", body: data)
-            SRHaptic.ok()
+            let _: EmptyReply = try await SiteClient.shared.send(FamilyMessages.path, method: "POST", body: data, asSelf: quiet)
+            if !quiet { SRHaptic.ok() }
             message = nil
             await load()
             return true
         } catch {
-            SRHaptic.bad()
+            if !quiet { SRHaptic.bad() }
             message = Self.sentence(for: error)
             return false
         }

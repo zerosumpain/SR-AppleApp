@@ -84,9 +84,11 @@ struct FamilyAlarm: Decodable, Equatable, Identifiable {
 enum FamilyAlarmKind: String, CaseIterable, Identifiable {
     case siren
     case morse
-    /// The bat phone (`BatPhoneButton`): nothing sounds or shows on the
-    /// sender's phone; everyone else is told urgently who, where, their
-    /// battery and how far a drive it is.
+    /// The bat phone as it was until 2026-10-27: nothing sounded or showed
+    /// on the sender's phone; everyone else was told urgently who, where,
+    /// their battery and how far a drive it is. This app now sends the bat
+    /// phone as a msg family message (`BatPhone`); the kind stays so a phone
+    /// on an older build that raises one is still answered properly here.
     case quiet
 
     var id: String { rawValue }
@@ -183,42 +185,8 @@ final class FamilyAlarmStore: ObservableObject {
         }
     }
 
-    /// The bat phone: no sound, no screen, no success buzz — a phone held
-    /// by someone in trouble must not give them away. Where they are, their
-    /// battery and the place's name go with it, each only if it comes fast.
-    /// True when it went.
-    @discardableResult
-    func raiseQuietly() async -> Bool {
-        guard !sending else { return false }
-        sending = true
-        failure = nil
-        defer { sending = false }
-        struct Reply: Decodable { let alarmId: String; let pushed: Int; let recipients: Int }
-        var body: [String: Any] = ["kind": FamilyAlarmKind.quiet.rawValue]
-        let battery = Self.batteryLevel()
-        if let battery { body["battery"] = battery }
-        let here = await OneFix.current(timeout: .seconds(4))
-        var place: String?
-        if let here {
-            body["position"] = ["lat": here.latitude, "lon": here.longitude]
-            place = await Self.placeName(here)
-            if let place { body["place"] = place }
-        }
-        do {
-            let data = try JSONSerialization.data(withJSONObject: body)
-            let reply: Reply = try await SiteClient.shared.send("api/native/family/alarm", method: "POST", body: data, asSelf: true)
-            raised = FamilyAlarm(alarmId: reply.alarmId, from: "", name: "You", kind: FamilyAlarmKind.quiet.rawValue,
-                                 message: nil, lat: here?.latitude, lon: here?.longitude,
-                                 at: timestamp(Date()), cancelledAt: nil, battery: battery, place: place)
-            raisedTo = reply.recipients
-            return true
-        } catch {
-            failure = "Not sent: \(error.localizedDescription)"
-            return false
-        }
-    }
-
-    /// 0…1, or nil where iOS will not say (a simulator).
+    /// 0…1, or nil where iOS will not say (a simulator). The bat phone's
+    /// message says it (`BatPhone`).
     static func batteryLevel() -> Double? {
         let device = UIDevice.current
         let was = device.isBatteryMonitoringEnabled

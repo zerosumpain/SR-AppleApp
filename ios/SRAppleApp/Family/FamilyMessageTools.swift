@@ -242,8 +242,40 @@ enum FamilyMessageTools {
 /// What a bat phone says about the person who pressed it — where, their
 /// battery, and the drive to them — each line only when it is known.
 ///
+/// Since 2026-10-27 (John: "it shouldn't raise the alarm, it should just
+/// message the group") the bat phone is a msg family MESSAGE, written here:
+/// the alarm's siren and full-screen take-over were too much for "come and
+/// get me". The words are the whole contract, so an older phone, the
+/// notification and the web all read it the same.
+///
 /// Foundation only, beside the message tools in the Linux harness.
 enum BatPhoneWords {
+    /// How every bat phone message starts: what `isBatPhone` looks for.
+    static let opening = "🦇 Bat phone — I need you."
+
+    /// The message: the opening, then where and the battery on one line,
+    /// then a map link to the spot. Each part only when it is known.
+    static func message(place: String?, battery: Double?, lat: Double?, lon: Double?) -> String {
+        var lines = [opening]
+        let facts = Self.facts(place: place, battery: battery, drive: nil)
+        if !facts.isEmpty { lines.append(facts.joined(separator: " · ")) }
+        if let lat, let lon, let link = mapLink(lat: lat, lon: lon) { lines.append(link) }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Apple Maps at the spot, which opens Google Maps' web page on a phone
+    /// without Maps. Nil for a position no phone reports.
+    static func mapLink(lat: Double, lon: Double) -> String? {
+        guard lat.isFinite, lon.isFinite, (-90...90).contains(lat), (-180...180).contains(lon),
+              !(lat == 0 && lon == 0) else { return nil }
+        return String(format: "https://maps.apple.com/?ll=%.5f,%.5f&q=Bat%%20phone", lat, lon)
+    }
+
+    /// Whether a message is a bat phone, to be drawn as one.
+    static func isBatPhone(_ body: String) -> Bool {
+        body.hasPrefix("🦇 Bat phone")
+    }
+
     /// "At Elton Parade, Darlington", "Battery 23%", "14 min drive from you".
     static func facts(place: String?, battery: Double?, drive: String?) -> [String] {
         var out: [String] = []
