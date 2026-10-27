@@ -10,8 +10,9 @@ import ActivityKit
 // for Control Center (iOS 18).
 //
 // The same extension carries the family's Home Screen widgets — the step
-// board and the task list (`FamilyWidgets.swift`) — so they ride on the
-// profile CI already mints for it rather than needing a target of their own.
+// board and the task list (`FamilyWidgets.swift`), msg family and the bat
+// phone (`FamilyMessagesWidgets.swift`) — so they ride on the profile CI
+// already mints for it rather than needing a target of their own.
 
 @main
 struct SRLiveBundle: WidgetBundle {
@@ -20,11 +21,15 @@ struct SRLiveBundle: WidgetBundle {
         TripLiveActivity()
         FamilyStepsWidget()
         FamilyTasksWidget()
+        FamilyMessagesHomeWidget()
+        BatPhoneWidget()
         // A capture recording (`Captures/CaptureRecorder.swift` starts it).
         CaptureLiveActivity()
-        // Start or stop a capture from Control Center or the Lock Screen.
+        // Start or stop a capture from Control Center or the Lock Screen;
+        // open the bat phone's check from the same places.
         if #available(iOS 18.0, *) {
             CaptureControl()
+            BatPhoneControl()
         }
     }
 }

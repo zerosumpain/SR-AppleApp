@@ -49,7 +49,7 @@ final class Router: ObservableObject {
     @Published var whatsNew: [WhatsNewRelease] = []
     @Published var whatsNewHistory = false
 
-    enum Sheet: String, Identifiable { case settings, alerts, connections, colours, whatsNew; var id: String { rawValue } }
+    enum Sheet: String, Identifiable { case settings, alerts, connections, colours, whatsNew, batPhone; var id: String { rawValue } }
     /// Pages that live only inside More — not places with a tab of their own.
     /// Wildmind, like Daydream, is the owner's.
     enum MorePage: String, Hashable { case daydream, wildmind }
@@ -598,6 +598,11 @@ struct ContentView: View {
                 router.openFamilyPage(page)
                 return
             }
+            // sr://batphone — the bat phone widget: its check, never a send.
+            if BatPhoneURL.matches(url) {
+                BatPhoneLink.shared.open()
+                return
+            }
             // sr://trips/<id>/<date> — the trip day's Lock Screen card.
             if let trip = TripLink.from(url: url) {
                 router.openTrip(trip)
@@ -626,6 +631,10 @@ struct ContentView: View {
         // nothing else would drain what the delegate left waiting.
         .onReceive(NotificationCenter.default.publisher(for: PendingEntry.changed)) { _ in
             drainPending()
+        }
+        // The bat phone's widget, control or Shortcut (`BatPhoneLink`).
+        .onReceive(BatPhoneLink.shared.$pending) { pending in
+            if pending { router.openBatPhone() }
         }
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             guard access.allows(.chat),
@@ -668,6 +677,8 @@ struct ContentView: View {
             SRPaletteSheet()
         case .whatsNew:
             WhatsNewSheet(releases: router.whatsNew, history: router.whatsNewHistory)
+        case .batPhone:
+            BatPhoneConfirmSheet()
         }
     }
 

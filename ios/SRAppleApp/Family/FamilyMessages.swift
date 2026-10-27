@@ -341,6 +341,7 @@ final class FamilyMessagesStore: ObservableObject {
         do {
             let fetched: FamilyMessagesFeed = try await SiteClient.shared.send(FamilyMessages.path)
             feed = fetched
+            FamilyMessagesWidgetBridge.save(self)
             message = nil
         } catch is CancellationError {
             return

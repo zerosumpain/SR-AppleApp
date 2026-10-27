@@ -89,6 +89,13 @@ targets:
       # with the app that fills them.
       - path: SRAppleApp/Family/FamilyBoardModels.swift
       - path: SRAppleApp/Family/FamilyWidgetShared.swift
+      # msg family's widget and the bat phone's: the shelf's snapshot and
+      # its rules, and their faces. The bat phone's control runs the app's
+      # intent, compiled here so the extension can name it (as the capture
+      # intents are).
+      - path: SRAppleApp/Family/FamilyMessagesWidgetModel.swift
+      - path: SRAppleApp/Family/FamilyMessagesWidgetFaces.swift
+      - path: SRAppleApp/Intents/BatPhoneIntent.swift
       # The reader's palette, as the app leaves it on the shelf.
       - path: SRAppleApp/Design/SRPaletteShared.swift
       # The headline and label faces, as on the Watch.
