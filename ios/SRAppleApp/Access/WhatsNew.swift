@@ -34,6 +34,10 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-27-trip-walked", when: "October 2026", title: "Behind you", items: [
+            WhatsNewItem(icon: "map", title: "Trip maps lose what you've walked",
+                         detail: "On a trip day the route you have already walked comes off the map, the walk you are on starts where you are, and days gone by leave the trip map. Days still to come stay as planned."),
+        ]),
         WhatsNewRelease(id: "2026-10-26-chess-valley", when: "October 2026", title: "Blue against red", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess in colour",
                          detail: "Pieces are blue and red now, the board edge shows whose turn it is, and a Captured card counts what each side has taken."),

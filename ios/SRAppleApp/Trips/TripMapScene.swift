@@ -10,7 +10,10 @@ import Foundation
 ///  - a leg the router never drew is a faint DASHED guess between its two
 ///    ends, never a line that passes for a real route;
 ///  - a proposed change is drawn over the current plan, which stays as a
-///    dashed ghost, so you see what a choice does before taking it.
+///    dashed ghost, so you see what a choice does before taking it;
+///  - what is behind you is off the map: a leg to a stop you have done, or
+///    one the phone has walked (`Walked`), goes, and the leg you are on
+///    starts from where you are.
 ///
 /// Foundation only: the Linux harness compiles and tests it.
 enum TripMapScene {
@@ -119,8 +122,6 @@ enum TripMapScene {
 
     /// A leg with no routed line: where it goes, said as a guess.
     static let guess = LineStyle(pattern: .dashed, color: ink, alpha: 0.45, width: 2.5)
-    /// A leg already travelled.
-    static let travelled = LineStyle(pattern: .solid, color: ink, alpha: 0.28, width: 3)
     /// The plan as it stands, under a proposed change.
     static let ghost = LineStyle(pattern: .dashed, color: ink, alpha: 0.35, width: 3)
 
@@ -155,51 +156,79 @@ enum TripMapScene {
 
     // MARK: A day
 
-    /// One day: its legs by mode (travelled ones quiet), its stops numbered
-    /// and coloured by stage, the next one and any picked one on top.
+    /// One day: the legs still ahead by mode, its stops numbered and
+    /// coloured by stage, the next one and any picked one on top. A leg to a
+    /// done stop is not drawn; with `walked`, neither is what the phone has
+    /// walked of the rest, and a stop reached that way is faded as done.
     ///
     /// `preview`: a proposed version of the day. Its route is drawn and its
     /// pins shown, over the current plan's remaining legs as a ghost.
     static func day(
         _ day: PlannedDay, stages: [DayStage], done: Set<String>, nextId: String?, selectedId: String?,
-        preview: PlannedDay? = nil, previewStages: [DayStage] = []
+        preview: PlannedDay? = nil, previewStages: [DayStage] = [], walked: Walked? = nil
     ) -> Scene {
         var scene = Scene()
+        let ahead = self.ahead(day, done: done, nextId: nextId, walked: walked)
+        let done = done.union(ahead.reached)
         if let preview {
-            scene.lines += legs(day, done: done, nextId: nil).filter { $0.style != travelled }.map { Line(points: $0.points, style: ghost) }
+            scene.lines += self.ahead(day, done: done, nextId: nil, walked: walked).lines.map { Line(points: $0.points, style: ghost) }
             let previewNext = preview.stops.first { !done.contains($0.id) && $0.kind != .stay }?.id
-            scene.lines += legs(preview, done: done, nextId: previewNext)
+            scene.lines += self.ahead(preview, done: done, nextId: previewNext, walked: walked).lines
             scene.pins = pins(preview, stages: previewStages, done: done, nextId: previewNext, selectedId: selectedId)
             scene.frame = framePoints(preview) + framePoints(day)
             return scene
         }
-        scene.lines = legs(day, done: done, nextId: nextId)
+        scene.lines = ahead.lines
         scene.pins = pins(day, stages: stages, done: done, nextId: nextId, selectedId: selectedId)
         scene.frame = framePoints(day)
         return scene
     }
 
-    /// Every leg as a line. A leg whose end has no place (a meal not yet
-    /// given one) is bridged: the last placed stop to the next, as a guess.
-    static func legs(_ day: PlannedDay, done: Set<String>, nextId: String?) -> [Line] {
-        var out: [Line] = []
+    /// Every leg still ahead as a line. A leg whose end has no place (a meal
+    /// not yet given one) is bridged: the last placed stop to the next, as a
+    /// guess. A leg to a done stop is left out.
+    static func legs(_ day: PlannedDay, done: Set<String>, nextId: String?, walked: Walked? = nil) -> [Line] {
+        ahead(day, done: done, nextId: nextId, walked: walked).lines
+    }
+
+    /// The legs ahead, and the stops `walked` shows were walked to.
+    ///
+    /// Walked legs come off in order, as a day is walked: each leg counts
+    /// only once every one before it is behind you, and the first that is
+    /// not starts where you are. So an evening's walk home down the morning's
+    /// streets stays on the map until it is the walk you are on. The next
+    /// stop is never `reached` — you are on your way to it, or at it, and
+    /// it keeps its ring.
+    static func ahead(_ day: PlannedDay, done: Set<String>, nextId: String?, walked: Walked?) -> (lines: [Line], reached: Set<String>) {
+        var lines: [Line] = []
+        var reached: Set<String> = []
         let stops = day.stops
         var lastPlaced: Int? = stops.first?.location == nil ? nil : 0
-        guard stops.count > 1 else { return out }
+        var behind = walked.map { !$0.isEmpty } ?? false
+        guard stops.count > 1 else { return (lines, reached) }
         for i in 1..<stops.count {
             let to = stops[i]
             guard let b = to.location else { continue }
             defer { lastPlaced = i }
-            guard let from = lastPlaced, let a = stops[from].location else { continue }
-            let travelledLeg = done.contains(to.id)
+            guard let from = lastPlaced, let a = stops[from].location, !done.contains(to.id) else { continue }
             let leg = from == i - 1 ? day.leg(before: i) : nil
-            if let leg, let line = leg.line, line.count > 1 {
-                out.append(Line(points: line, style: travelledLeg ? travelled : legStyle(leg.mode, next: to.id == nextId)))
-            } else if a != b {
-                out.append(Line(points: [a, b], style: travelledLeg ? travelled : guess))
+            let routed = leg?.line.flatMap { $0.count > 1 ? $0 : nil }
+            // Nowhere to go (a meal where you already are): no line, and
+            // nothing to say about what is behind you.
+            guard routed != nil || a != b else { continue }
+            let style = routed != nil ? legStyle(leg!.mode, next: to.id == nextId) : guess
+            var points = routed ?? [a, b]
+            if behind, let walked {
+                guard let left = walked.remaining(points) else {
+                    if to.id != nextId { reached.insert(to.id) }
+                    continue
+                }
+                behind = false
+                points = left
             }
+            lines.append(Line(points: points, style: style))
         }
-        return out
+        return (lines, reached)
     }
 
     static func pins(_ day: PlannedDay, stages: [DayStage], done: Set<String>, nextId: String?, selectedId: String?) -> [Pin] {
@@ -269,6 +298,119 @@ enum TripMapScene {
         return (String(rest[..<bar]), String(rest[rest.index(after: bar)...]))
     }
 
+    // MARK: Walked
+
+    /// Where the phone has been today, for taking what is behind you off the
+    /// map. A point is walked when the trail passed within `nearM` of it —
+    /// wide enough for GPS on a city street, narrow enough that the next
+    /// street over is not.
+    struct Walked: Equatable {
+        static let nearM = 40.0
+        /// A leg this much walked is behind you.
+        static let walkedShare = 0.85
+        /// What is left shorter than this is not worth a line.
+        static let shortestM = 30.0
+        /// The line is checked every this many metres.
+        static let stepM = 15.0
+
+        /// The trail, bucketed by cells about `nearM` across.
+        private let cells: [Cell: [TripLatLng]]
+        /// The latest position: the leg you are on starts here.
+        let here: TripLatLng?
+
+        private struct Cell: Hashable { var x: Int, y: Int }
+
+        init(trail: [TripLatLng], here: TripLatLng? = nil) {
+            var cells: [Cell: [TripLatLng]] = [:]
+            for p in trail { cells[Self.cell(p), default: []].append(p) }
+            self.cells = cells
+            self.here = here ?? trail.last
+        }
+
+        var isEmpty: Bool { cells.isEmpty && here == nil }
+
+        private static func cell(_ p: TripLatLng) -> Cell {
+            // ~nearM in degrees; longitude cells are narrower away from the
+            // equator, which only means more of them are looked in.
+            let size = nearM / 111_320
+            return Cell(x: Int((p.lng / size).rounded(.down)), y: Int((p.lat / size).rounded(.down)))
+        }
+
+        /// Has the trail passed within `nearM` of this point?
+        func passed(_ p: TripLatLng) -> Bool {
+            let c = Self.cell(p)
+            let reach = Int((1 / max(cos(p.lat * .pi / 180), 0.2)).rounded(.up))
+            for dx in -reach...reach {
+                for dy in -1...1 {
+                    if let near = cells[Cell(x: c.x + dx, y: c.y + dy)],
+                       near.contains(where: { TripMapScene.distanceM($0, p) <= Self.nearM }) { return true }
+                }
+            }
+            return false
+        }
+
+        /// What is left of a leg's line to walk: nil when it is behind you;
+        /// else the line from the furthest point walked along it in an
+        /// unbroken run from its start, or from the point nearest where you
+        /// are when you are on it.
+        func remaining(_ line: [TripLatLng]) -> [TripLatLng]? {
+            guard line.count > 1 else { return line }
+            let dense = TripMapScene.densify(line, stepM: Self.stepM)
+            let covered = dense.map(passed)
+            let walkedCount = covered.filter { $0 }.count
+            if Double(walkedCount) / Double(dense.count) >= Self.walkedShare { return nil }
+            // The run walked from the start, through gaps a GPS jump makes.
+            var cut = 0
+            var gap = 0
+            for (i, c) in covered.enumerated() {
+                if c { cut = i; gap = 0 } else { gap += 1; if gap * Int(Self.stepM) > 60 { break } }
+            }
+            // On the line now: it starts where you are.
+            if let here, cut < dense.count - 1 {
+                var best = cut
+                var bestM = Double.infinity
+                for i in cut..<dense.count {
+                    let d = TripMapScene.distanceM(dense[i], here)
+                    if d < bestM { bestM = d; best = i }
+                }
+                if bestM <= Self.nearM { cut = max(cut, best) }
+            }
+            if cut == 0 { return line }
+            let left = Array(dense[cut...])
+            return TripMapScene.lengthM(left) < Self.shortestM ? nil : left
+        }
+    }
+
+    /// Metres between two points (equirectangular: ample at street scale).
+    static func distanceM(_ a: TripLatLng, _ b: TripLatLng) -> Double {
+        let x = (b.lng - a.lng) * .pi / 180 * cos((a.lat + b.lat) / 2 * .pi / 180)
+        let y = (b.lat - a.lat) * .pi / 180
+        return (x * x + y * y).squareRoot() * 6_371_000
+    }
+
+    static func lengthM(_ line: [TripLatLng]) -> Double {
+        zip(line, line.dropFirst()).reduce(0) { $0 + distanceM($1.0, $1.1) }
+    }
+
+    /// The line with a point at least every `stepM`, its own points kept.
+    static func densify(_ line: [TripLatLng], stepM: Double) -> [TripLatLng] {
+        guard var last = line.first else { return [] }
+        var out = [last]
+        for p in line.dropFirst() {
+            let d = distanceM(last, p)
+            let n = Int((d / stepM).rounded(.up))
+            if n > 1 {
+                for k in 1..<n {
+                    let t = Double(k) / Double(n)
+                    out.append(TripLatLng(lat: last.lat + (p.lat - last.lat) * t, lng: last.lng + (p.lng - last.lng) * t))
+                }
+            }
+            out.append(p)
+            last = p
+        }
+        return out
+    }
+
     static func framePoints(_ day: PlannedDay) -> [TripLatLng] {
         day.stops.compactMap(\.location) + day.legs.flatMap { $0.line ?? [] }
     }
@@ -278,11 +420,17 @@ enum TripMapScene {
     /// Every day on one map: each in its colour, its first visit wearing the
     /// day's number (tap it to open the day), the other visits as dots, and
     /// the stays. Pin ids are the days' dates.
-    static func overview(_ days: [PlannedDay], stays: [TripStay]) -> Scene {
+    ///
+    /// `today` (the trip's local date): a day before it is behind you — its
+    /// pins faded, its route off the map — and today's route loses what
+    /// `walked` has walked. The days still to come are drawn whole.
+    static func overview(_ days: [PlannedDay], stays: [TripStay], today: String? = nil, walked: Walked? = nil) -> Scene {
         var scene = Scene()
         for (d, day) in days.enumerated() {
             let color = dayColor(d)
-            for line in legs(day, done: [], nextId: nil) {
+            let past = today.map { day.date < $0 } ?? false
+            let todayWalked = day.date == today ? walked : nil
+            for line in past ? [] : legs(day, done: [], nextId: nil, walked: todayWalked) {
                 var style = line.style == guess
                     ? LineStyle(pattern: .dashed, color: color, alpha: 0.6, width: 2.5)
                     : LineStyle(pattern: .solid, color: color, alpha: 0.9, width: 3.5)
@@ -294,7 +442,7 @@ enum TripMapScene {
                 guard let at = stop.location else { continue }
                 scene.pins.append(Pin(
                     id: day.date, at: at,
-                    badge: k == 0 ? Badge(glyph: .number(d + 1), fill: color, size: 30) : Badge(glyph: .dot, fill: color, size: 12),
+                    badge: k == 0 ? Badge(glyph: .number(d + 1), fill: color, size: 30, faded: past) : Badge(glyph: .dot, fill: color, size: 12, faded: past),
                     top: k == 0,
                     label: k == 0 ? "Day \(d + 1), from \(stop.title), \(visits.count) \(visits.count == 1 ? "place" : "places")" : nil
                 ))

@@ -761,6 +761,9 @@ import UIKit
     }
 
     private func record(_ location: CLLocation, moving: Bool, notify: Bool = true) {
+        // On a trip day the map takes off what you have walked. Kept on the
+        // phone, so it runs whether or not the place is held from the family.
+        TripTrail.shared.add([location])
         // The owner's location hold: nothing real leaves the phone while the
         // site shows the family the held place (`LocationHold`). Dropped, not
         // queued — a queue would upload the hidden stretch the moment it ended.

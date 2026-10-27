@@ -44,4 +44,77 @@ final class TripCraftTests: XCTestCase {
         XCTAssertEqual(scene.pins.compactMap(\.label), ["Day 1, from Pantheon, 2 places"])
         XCTAssertEqual(scene.pins.count, 2, "the second visit is a dot with no element of its own")
     }
+
+    // MARK: - What is behind you comes off the map
+
+    /// A routed day: hotel → Pantheon → Trevi → hotel, each leg a line of
+    /// points a few metres apart, the way home down the morning's streets.
+    private func routedDay() -> PlannedDay {
+        var d = day()
+        let hotel = d.stops[0].location!, pantheon = d.stops[1].location!, trevi = d.stops[2].location!
+        func leg(_ from: Int, _ a: TripLatLng, _ b: TripLatLng) -> PlannedLeg {
+            PlannedLeg(fromStopId: d.stops[from].id, toStopId: d.stops[from + 1].id, mode: .walk, durationSec: 600,
+                       distanceM: nil, estimated: false, line: TripMapScene.densify([a, b], stepM: 20))
+        }
+        d.legs = [leg(0, hotel, pantheon), leg(1, pantheon, trevi), leg(2, trevi, hotel)]
+        return d
+    }
+
+    private func walk(_ a: TripLatLng, _ b: TripLatLng, upTo share: Double = 1) -> [TripLatLng] {
+        let line = TripMapScene.densify([a, b], stepM: 10)
+        return Array(line.prefix(Int(Double(line.count) * share)))
+    }
+
+    func testAWalkedLegComesOffAndItsStopFades() {
+        let d = routedDay()
+        let hotel = d.stops[0].location!, pantheon = d.stops[1].location!
+        let walked = TripMapScene.Walked(trail: walk(hotel, pantheon))
+        let scene = TripMapScene.day(d, stages: [.morning, .morning, .afternoon, .evening], done: [], nextId: "trevi",
+                                     selectedId: nil, walked: walked)
+        XCTAssertEqual(scene.lines.count, 2, "hotel → Pantheon is behind you")
+        XCTAssertEqual(scene.pins.first { $0.id == "pantheon" }?.badge.faded, true)
+    }
+
+    func testTheLegYouAreOnStartsWhereYouAre() {
+        let d = routedDay()
+        let pantheon = d.stops[1].location!, trevi = d.stops[2].location!
+        let hotel = d.stops[0].location!
+        let trail = walk(hotel, pantheon) + walk(pantheon, trevi, upTo: 0.5)
+        let lines = TripMapScene.legs(d, done: [], nextId: "trevi", walked: TripMapScene.Walked(trail: trail))
+        XCTAssertEqual(lines.count, 2)
+        let left = TripMapScene.lengthM(lines[0].points)
+        let whole = TripMapScene.lengthM([pantheon, trevi])
+        XCTAssertEqual(left, whole / 2, accuracy: 40, "about half the way to Trevi is left")
+        XCTAssertEqual(lines[0].points.last, trevi)
+    }
+
+    /// The walk home goes the morning's way; it stays on the map until it
+    /// is the walk you are on.
+    func testALaterLegDownTheSameStreetsStays() {
+        var d = routedDay()
+        let hotel = d.stops[0].location!, pantheon = d.stops[1].location!
+        // Trevi moved onto the morning's street, so the way home retraces it.
+        d.stops[2].location = TripLatLng(lat: (hotel.lat + pantheon.lat) / 2, lng: (hotel.lng + pantheon.lng) / 2)
+        d.legs[1].line = nil
+        d.legs[2].line = [d.stops[2].location!, hotel]
+        let walked = TripMapScene.Walked(trail: walk(hotel, pantheon, upTo: 0.3))
+        let lines = TripMapScene.legs(d, done: [], nextId: "pantheon", walked: walked)
+        XCTAssertEqual(lines.count, 3, "nothing walked to the end yet, so every leg is ahead")
+        XCTAssertEqual(lines[2].points, [d.stops[2].location!, hotel])
+    }
+
+    func testADoneStopsLegIsNotDrawnAtAll() {
+        let lines = TripMapScene.legs(routedDay(), done: ["pantheon"], nextId: "trevi")
+        XCTAssertEqual(lines.count, 2)
+    }
+
+    func testTheOverviewDropsDaysGoneBy() {
+        var yesterday = routedDay()
+        yesterday.date = "2026-10-26"
+        let today = routedDay()
+        let scene = TripMapScene.overview([yesterday, today], stays: [], today: "2026-10-27")
+        XCTAssertEqual(scene.lines.count, 3, "only today's legs")
+        XCTAssertEqual(scene.pins.filter { $0.id == "2026-10-26" }.allSatisfy(\.badge.faded), true)
+        XCTAssertEqual(TripMapScene.overview([yesterday, today], stays: []).lines.count, 6, "no date: every day whole")
+    }
 }
