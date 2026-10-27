@@ -102,6 +102,19 @@ final class Router: ObservableObject {
         openFromHub(MorePage.wildmind)
     }
 
+    /// Captures, a page in the hub — the owner's alone. `id`: one capture
+    /// above the list (a tapped "Capture ready", the Live Activity's link).
+    func openCaptures(_ link: CaptureLink = CaptureLink(captureId: nil)) {
+        guard AccessStore.ownerSite || SRDemo.isOn else { return }
+        var path = NavigationPath()
+        path.append(HubRef())
+        path.append(CapturesRef())
+        if let id = link.captureId { path.append(CaptureRef(id: id)) }
+        today = path
+        hubHost = .today
+        tab = .today
+    }
+
     /// The hub, pushed onto the tab that is open: the ⊞ in every page's bar.
     func openHub() {
         hubHost = tab
@@ -274,6 +287,15 @@ final class Router: ObservableObject {
         case .news: news.append(value)
         case .flows: flows.append(value)
         }
+    }
+
+    /// One of /health's figures on its own page — a figure tapped on Home.
+    /// Home holds Today's copy, which carries no history; the page looks the
+    /// figure up in the Health tab's summary, which does.
+    func openHealthFigure(_ figure: HealthFigure) {
+        show(.health)
+        guard AccessStore.shared.allows(.health) else { return }
+        push(HealthFigureRef(today: figure), on: .health)
     }
 
     /// Open one game room — a tapped invite notification. Lands on Games
@@ -581,6 +603,11 @@ struct ContentView: View {
                 router.openTrip(trip)
                 return
             }
+            // sr://captures[/<id>] — the capture's Live Activity, or a link.
+            if let capture = CaptureLink.from(url: url) {
+                router.openCaptures(capture)
+                return
+            }
             // sr://pair?join=…&server=… — "Open SR" on the install page: the
             // link that put the app here connects the phone as its person.
             if let payload = PairingPayload.fromLink(url.absoluteString) {
@@ -771,6 +798,12 @@ struct ContentView: View {
             .navigationDestination(for: FamilyThreadRef.self) { FamilyThreadScreen(ref: $0).id($0.id) }
             // Landgrab's map: from its own card in the hub and from Steps.
             .navigationDestination(for: LandgrabMapRef.self) { LandgrabMapScreen(week: $0.week) }
+            // Captures, the owner's: the list, one capture, someone in them,
+            // and their settings.
+            .navigationDestination(for: CapturesRef.self) { _ in CapturesScreen() }
+            .navigationDestination(for: CaptureRef.self) { CaptureDetailScreen(ref: $0).id($0.id) }
+            .navigationDestination(for: CaptureEntityRef.self) { CaptureEntityScreen(ref: $0).id($0.id) }
+            .navigationDestination(for: CaptureSettingsRef.self) { _ in CaptureSettingsScreen() }
             .placeDestinations()
     }
 

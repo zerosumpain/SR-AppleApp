@@ -213,8 +213,13 @@ final class AccessTests: XCTestCase {
     // MARK: - Quick actions and news verbs
 
     func testAskJkaiIsOnlyAQuickActionWithChat() {
-        XCTAssertEqual(AccessPolicy.quickActions(for: .everything), [.ask, .health, .sync])
+        XCTAssertEqual(AccessPolicy.quickActions(for: .everything), [.capture, .ask, .health, .sync])
         XCTAssertEqual(AccessPolicy.quickActions(for: AppAccess(family: true)), [.health, .sync])
+    }
+
+    func testNewCaptureIsTheOwnersQuickActionAlone() {
+        XCTAssertEqual(AccessPolicy.quickActions(for: AppAccess(chat: true, family: true)), [.ask, .health, .sync])
+        XCTAssertEqual(AccessPolicy.quickActions(for: AppAccess(owner: true)).first, .capture)
     }
 
     func testNewsVerbsFollowTheSitesCan() throws {

@@ -105,6 +105,20 @@ final class PaletteTests: XCTestCase {
         }
     }
 
+    func testEveryPaletteIsOffered() {
+        // The first six and the eight added on 2026-10-27. A stored choice
+        // names its preset by id, so an id that went missing would quietly
+        // send that reader back to Prism.
+        let ids = SRPalette.presets.map(\.id)
+        let expected = ["prism", "sherbet", "ocean", "sunset", "meadow", "classic",
+                        "candy", "citrus", "berry", "lavender", "arctic", "forest", "terracotta", "graphite"]
+        XCTAssertGreaterThanOrEqual(ids.count, expected.count)
+        for id in expected {
+            XCTAssertTrue(ids.contains(id), "\(id) is not offered")
+            XCTAssertEqual(SRPalette.preset(id).id, id)
+        }
+    }
+
     // MARK: - The reader's own colours
 
     func testAPickedAccentIsMadeLegibleEitherWay() {

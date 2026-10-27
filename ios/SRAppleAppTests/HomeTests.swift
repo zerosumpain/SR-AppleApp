@@ -11,8 +11,24 @@ final class HomeTests: XCTestCase {
         XCTAssertEqual(HomeTileKind.available(access: .everything, sitePaired: true), HomeTileKind.defaultOrder)
     }
 
-    func testFamilyComesFirst() {
-        XCTAssertEqual(HomeTileKind.defaultOrder.first, .family)
+    func testTheBriefingLeadsAndTheFamilyFollows() {
+        XCTAssertEqual(Array(HomeTileKind.defaultOrder.prefix(2)), [.briefing, .family])
+    }
+
+    func testTheShortcutsComeLast() {
+        XCTAssertEqual(Array(HomeTileKind.defaultOrder.suffix(2)), [.chat, .wildmind])
+        XCTAssertEqual(HomeTileKind.defaultOrder.filter { $0.size == .compact }, [.chat, .wildmind])
+    }
+
+    func testTilesThatCarryDataAreWide() {
+        for kind in [HomeTileKind.briefing, .health, .steps, .news, .moves, .trips, .familyDay] {
+            XCTAssertEqual(kind.size, .wide, "\(kind) needs a row of its own for its numbers")
+        }
+    }
+
+    func testEveryTileIsInTheDefaultOrderOnce() {
+        XCTAssertEqual(Set(HomeTileKind.defaultOrder), Set(HomeTileKind.allCases))
+        XCTAssertEqual(HomeTileKind.defaultOrder.count, HomeTileKind.allCases.count)
     }
 
     func testAMemberWithFamilyAndGamesHasNoOwnerTiles() {
@@ -28,11 +44,11 @@ final class HomeTests: XCTestCase {
 
     func testNoSiteCredentialMeansNoBoards() {
         let tiles = HomeTileKind.available(access: AppAccess(family: true), sitePaired: false)
-        XCTAssertEqual(tiles, [.family, .health, .familyDay])
+        XCTAssertEqual(tiles, [.briefing, .family, .health, .familyDay])
     }
 
     func testEveryoneHasHealth() {
-        XCTAssertEqual(HomeTileKind.available(access: .nothing, sitePaired: false), [.health])
+        XCTAssertEqual(HomeTileKind.available(access: .nothing, sitePaired: false), [.briefing, .health])
     }
 
     // MARK: - The reader's layout
@@ -88,13 +104,20 @@ final class HomeTests: XCTestCase {
     // MARK: - Rows
 
     func testSquaresPairAndALoneSquareTakesTheRow() {
-        let rows = HomeRows.pack([.family, .health, .steps, .trips, .tasks])
-        XCTAssertEqual(rows, [.full(.family), .pair(.health, .steps), .full(.trips), .full(.tasks)])
+        let rows = HomeRows.pack([.family, .tasks, .messages, .trips, .games])
+        XCTAssertEqual(rows, [.full(.family), .pair(.tasks, .messages), .full(.trips), .full(.games)])
     }
 
     func testASquareBeforeAWideTileIsNotLeftWithAHole() {
-        XCTAssertEqual(HomeRows.pack([.health, .trips, .steps, .tasks]),
-                       [.full(.health), .full(.trips), .pair(.steps, .tasks)])
+        XCTAssertEqual(HomeRows.pack([.tasks, .trips, .games, .backlog]),
+                       [.full(.tasks), .full(.trips), .pair(.games, .backlog)])
+    }
+
+    func testShortcutsPairOnlyWithShortcuts() {
+        XCTAssertEqual(HomeRows.pack([.games, .chat, .wildmind, .flows]),
+                       [.full(.games), .pair(.chat, .wildmind), .full(.flows)])
+        XCTAssertEqual(HomeRows.pack([.chat, .tasks, .wildmind]), [.full(.chat), .full(.tasks), .full(.wildmind)],
+                       "a shortcut beside a square would be two heights in one row")
     }
 
     func testAccessibilitySizesAreOneColumn() {

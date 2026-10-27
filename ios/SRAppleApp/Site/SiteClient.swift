@@ -476,6 +476,7 @@ final class SiteClient {
         FamilyTasksStore.shared.reset()
         FamilyBacklogStore.shared.reset()
         LandgrabStore.shared.reset()
+        CaptureStore.shared.reset()
         Task {
             await JourneyLive.shared.endAll()
             await retryPendingRevocations()

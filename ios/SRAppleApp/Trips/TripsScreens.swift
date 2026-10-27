@@ -346,6 +346,7 @@ struct TripScreen: View {
     /// v8: just made by the guided start — open on its shapes.
     var shapes = false
     @ObservedObject private var store = TripStore.shared
+    @ObservedObject private var trail = TripTrail.shared
     @EnvironmentObject private var router: Router
     @State private var sheet: Sheet?
     @State private var opened = false
@@ -623,7 +624,10 @@ struct TripScreen: View {
                 } else {
                     // The whole trip on one map: a colour a day, each day's
                     // number at its first stop. Tap one to open that day.
-                    TripOverviewMap(scene: TripMapScene.overview(shown, stays: bundle.stays)) { date in
+                    // Days gone by and what is walked of today are off it.
+                    TripOverviewMap(scene: TripMapScene.overview(
+                        shown, stays: bundle.stays, today: today, walked: trail.walked(tripId, today)
+                    )) { date in
                         router.today.append(TripDayRef(tripId: tripId, date: date))
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: SR.gutter, bottom: 8, trailing: SR.gutter))

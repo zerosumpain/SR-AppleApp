@@ -14,6 +14,14 @@ struct HomeGrid<Tile: View>: View {
     @ScaledMetric(relativeTo: .body) private var unit: CGFloat = 172
     @ScaledMetric(relativeTo: .body) private var hero: CGFloat = 372
     @ScaledMetric(relativeTo: .body) private var ridge: CGFloat = 226
+    /// Three of the briefing's lines, whether one came back or three.
+    @ScaledMetric(relativeTo: .body) private var briefing: CGFloat = 232
+    /// The gauge beside four figures, and the rings under them.
+    @ScaledMetric(relativeTo: .body) private var health: CGFloat = 236
+    /// The headline, four lanes and yesterday's winner.
+    @ScaledMetric(relativeTo: .body) private var steps: CGFloat = 224
+    @ScaledMetric(relativeTo: .body) private var news: CGFloat = 188
+    @ScaledMetric(relativeTo: .body) private var shortcut: CGFloat = 66
 
     static var gap: CGFloat { 14 }
 
@@ -29,7 +37,7 @@ struct HomeGrid<Tile: View>: View {
                             tile(a)
                             tile(b)
                         }
-                        .frame(height: unit)
+                        .frame(height: height(a))
                     }
                 }
                 // Tiles settle in as they scroll onto the screen and ease off
@@ -48,7 +56,11 @@ struct HomeGrid<Tile: View>: View {
         switch kind {
         case .family: return hero
         case .familyDay: return ridge
-        default: return unit
+        case .briefing: return briefing
+        case .health: return health
+        case .steps: return steps
+        case .news: return news
+        default: return kind.size == .compact ? shortcut : unit
         }
     }
 }

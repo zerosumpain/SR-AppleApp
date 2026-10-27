@@ -126,6 +126,13 @@ struct TripSceneMap: UIViewRepresentable {
             host?.speak(spec, on: mapView)
         }
 
+        /// The blue dot moving is a trip trail point: the map takes off
+        /// what you have walked while you watch it.
+        func mapView(_ mapView: MLNMapView, didUpdate userLocation: MLNUserLocation?) {
+            guard let location = userLocation?.location else { return }
+            Task { @MainActor in TripTrail.shared.add([location]) }
+        }
+
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             guard let spec = latest else { return }
             lineKeys = []
@@ -415,10 +422,14 @@ enum TripPinArt {
 /// The key the map draws a day with: the plan's stages, as the list groups
 /// them, so a pin's colour is its band's.
 extension TripMapScene {
-    static func day(_ day: PlannedDay, bundle: TripBundle, done: Set<String>, nextId: String?, selectedId: String?, preview: PlannedDay?) -> Scene {
+    static func day(
+        _ day: PlannedDay, bundle: TripBundle, done: Set<String>, nextId: String?, selectedId: String?, preview: PlannedDay?,
+        walked: Walked? = nil
+    ) -> Scene {
         Self.day(
             day, stages: TripStages.stages(day, wishes: bundle.wishes), done: done, nextId: nextId, selectedId: selectedId,
-            preview: preview, previewStages: preview.map { TripStages.stages($0, wishes: bundle.wishes) } ?? []
+            preview: preview, previewStages: preview.map { TripStages.stages($0, wishes: bundle.wishes) } ?? [],
+            walked: walked
         )
     }
 }

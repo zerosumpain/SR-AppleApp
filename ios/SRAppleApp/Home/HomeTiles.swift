@@ -114,97 +114,234 @@ struct HomeFamilyDayTile: View {
 
 // MARK: - Health
 
+/// The owner's morning in one tile: readiness on a dial, each of the site's
+/// figures against the person's own week (a tap opens that figure's chart),
+/// and today's three rings as bars along the foot. Anybody else gets the
+/// rings, which are theirs, from this phone.
+///
+/// Glass, not the hue's own fill: four numbers with arrows that are green
+/// when they are going the right way need a ground green can be read on.
 struct HomeHealthTile: View {
     let health: TodayHealth?
-    let move: MoveRingStore.Reading?
-    /// The owner's readiness is drawn; anybody else has the Move ring alone.
+    let rings: ActivityRingsStore.Rings?
+    /// The owner's readiness and figures are drawn; anybody else has the rings alone.
     let showsReadiness: Bool
+    /// A figure's row tapped: open its chart.
+    var openFigure: ((HealthFigure) -> Void)? = nil
+    @ScaledMetric(relativeTo: .body) private var dial: CGFloat = 104
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The figures the tile lists, in this order. Steps is the step race's.
+    static let figureKeys = ["recovery", "hrv", "rhr", "sleep"]
 
     var body: some View {
-        HomeTileFrame(kind: .health) {
-            HStack(alignment: .bottom, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
+        HomeTileFrame(kind: .health, look: .glass) {
+            VStack(alignment: .leading, spacing: 12) {
+                if let readiness = shownReadiness {
+                    HStack(alignment: .center, spacing: 14) {
+                        ReadinessDial(score: readiness.score, label: readiness.label)
+                            .frame(width: dial, height: dial)
+                        if figures.isEmpty {
+                            Text("Figures not in yet")
+                                .font(SR.Text.secondary(14))
+                                .foregroundStyle(SR.inkMuted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            VStack(spacing: 6) {
+                                ForEach(figures) { figure in
+                                    HomeVitalRow(figure: figure, open: openFigure)
+                                }
+                            }
+                        }
+                    }
                     Spacer(minLength: 0)
-                    if let readiness = shownReadiness {
-                        HomeFigure(value: "\(Int(readiness.score.rounded()))", caption: readiness.label)
-                    } else if let move {
-                        HomeFigure(value: "\(Int(move.value.rounded()))", unit: move.unit, caption: "of \(Int(move.goal.rounded())) Move")
-                    } else {
-                        HomeFigure(value: "—", caption: "Move ring")
+                    HomeRingBars(rings: rings)
+                } else {
+                    HStack(alignment: .center, spacing: 16) {
+                        HomeRingsDial(rings: rings)
+                            .frame(width: dial, height: dial)
+                        HomeRingRows(rings: rings)
                     }
+                    .frame(maxHeight: .infinity)
                 }
-                Spacer(minLength: 0)
-                Group {
-                    if let readiness = shownReadiness, !readiness.factors.isEmpty {
-                        ReadinessRose(petals: readiness.factors.map(\.score), move: move?.fraction)
-                    } else {
-                        MoveGlass(fraction: move?.fraction ?? 0)
-                    }
-                }
-                .frame(width: 84, height: 84)
             }
         }
-        .accessibilityElement(children: .ignore)
+        // The owner's figure rows are buttons of their own, so they stay
+        // reachable; a member's tile is one element that says it all.
+        .accessibilityElement(children: shownReadiness == nil ? .ignore : .contain)
         .accessibilityLabel(spoken)
     }
 
     private var shownReadiness: HealthReadiness? { showsReadiness ? health?.readiness : nil }
 
-    /// "Readiness 78, steady. Move 412 of 600 kcal." — a member's says Move
-    /// only, never the owner's readiness.
+    private var figures: [HealthFigure] {
+        guard showsReadiness else { return [] }
+        let all = health?.figures ?? []
+        // Three at the larger text sizes, so the rows keep their size.
+        return Array(Self.figureKeys.compactMap { key in all.first { $0.key == key && $0.measured } }
+            .prefix(typeSize >= .xxLarge ? 3 : 4))
+    }
+
+    /// "Health. Readiness 72, Primed. HRV 64 ms, +5 vs 7d. Move 412 of 600
+    /// kcal." — a member's says the rings only, never the owner's readiness.
     private var spoken: String {
         var parts: [String] = []
         if let readiness = shownReadiness { parts.append("Readiness \(Int(readiness.score.rounded())), \(readiness.label)") }
-        if let move { parts.append("Move \(Int(move.value.rounded())) of \(Int(move.goal.rounded())) \(move.unit)") } else { parts.append("Move ring not read yet") }
+        for figure in figures {
+            parts.append("\(figure.label) \(figure.displayWithUnit)" + (figure.deltaDisplay.map { ", \($0)" } ?? ""))
+        }
+        let ringWords = (rings?.all ?? []).compactMap { $0?.spoken }
+        if ringWords.isEmpty { parts.append("Move ring not read yet") } else { parts.append(contentsOf: ringWords) }
         return "Health. " + parts.joined(separator: ". ")
+    }
+}
+
+/// One of the site's figures against the person's week: "HRV  64 ms  ▲ 5".
+/// A button of its own inside the tile — the drill into that figure.
+struct HomeVitalRow: View {
+    let figure: HealthFigure
+    var open: ((HealthFigure) -> Void)?
+    @ScaledMetric(relativeTo: .caption) private var chipColumn: CGFloat = 56
+
+    var body: some View {
+        Button {
+            SRHaptic.tap()
+            open?(figure)
+        } label: {
+            HStack(spacing: 8) {
+                Text(figure.label)
+                    .font(SR.Text.secondary(13))
+                    .foregroundStyle(SR.inkSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Spacer(minLength: 4)
+                Text(figure.displayWithUnit)
+                    .font(SR.Text.figure(16))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
+                // A column of its own, so the figures line up down the tile.
+                HomeDeltaChip(delta: figure.delta, display: figure.deltaDisplay, improving: figure.improving)
+                    .frame(width: chipColumn, alignment: .trailing)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(open == nil)
+        .accessibilityLabel("\(figure.label) \(figure.displayWithUnit)" + (figure.deltaDisplay.map { ", \($0)" } ?? ""))
+        .accessibilityHint("Opens its chart")
+        .accessibilityIdentifier("home-vital-\(figure.key)")
+    }
+}
+
+/// "▲ 5" in green when it is going the right way, amber when not, grey when
+/// the direction means nothing. Sized to its words: it never squeezes them.
+struct HomeDeltaChip: View {
+    let delta: Double?
+    let display: String?
+    let improving: Bool?
+
+    var body: some View {
+        if let delta, delta != 0, let size = HomeBriefing.magnitude(display) {
+            let tone = improving == true ? SR.good : improving == false ? SR.warn : SR.inkMuted
+            HStack(spacing: 2) {
+                Image(systemName: delta > 0 ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                    .imageScale(.small)
+                    .font(SR.Text.label(9))
+                Text(size)
+                    .font(SR.Text.mono(12))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(tone)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(tone.opacity(0.12)))
+            .fixedSize()
+            .accessibilityHidden(true)
+        }
     }
 }
 
 // MARK: - Steps
 
+/// The family's step race as a bar chart: everyone's count written at the end
+/// of their bar, the caller's own row strongest, and over it the one thing
+/// the race means for you — "1,240 behind Sam".
+///
+/// A wide tile: on a square the count, the lanes and the leader's name were
+/// three things fighting for 140 points, and the count lost (John, 2026-10-27).
 struct HomeStepsTile: View {
     @ObservedObject private var store = FamilyStepsStore.shared
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HomeTileFrame(kind: .steps, badge: place) {
-            HStack(alignment: .bottom, spacing: 8) {
-                VStack(alignment: .leading) {
+        HomeTileFrame(kind: .steps, look: .glass, badge: place) {
+            if let board = store.shown, let me = board.mine {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(FamilySteps.figure(me.steps))
+                            .font(SR.Text.figure(30))
+                            .foregroundStyle(SR.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .layoutPriority(1)
+                        Text(FamilySteps.gap(board) ?? "steps today")
+                            .font(SR.Text.secondary(14))
+                            .foregroundStyle(SR.inkSecondary)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    }
+                    StepsRace(rows: Self.rows(board, lanes: typeSize >= .xxLarge ? 3 : 4))
                     Spacer(minLength: 0)
-                    if let me = store.shown?.people.first(where: \.me) {
-                        HomeFigure(value: me.steps.formatted(), caption: leaderLine)
-                    } else {
-                        HomeFigure(value: "—", caption: store.loaded ? "No board today" : "Reading the board…")
+                    if let yesterday = FamilySteps.yesterdayLine(board) {
+                        Text(yesterday)
+                            .font(SR.Text.mono(12))
+                            .foregroundStyle(SR.inkMuted)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }
-                Spacer(minLength: 0)
-                StepsLanes(lanes: lanes)
-                    .frame(width: 78, height: 78)
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "figure.walk")
+                        .font(.title.weight(.bold))
+                        .foregroundStyle(SR.Hue.steps.gradient)
+                    Text(store.loaded ? "No board today" : "Reading the board…")
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
     }
 
-    private var lanes: [StepsLanes.Lane] {
-        (store.shown?.people ?? []).sorted { $0.steps > $1.steps }.prefix(4)
-            .map { StepsLanes.Lane(id: $0.id, steps: $0.steps, me: $0.me) }
+    /// Up to `lanes` lanes: the top of the board, and you, wherever you are. PURE.
+    static func rows(_ board: FamilyStepsBoard, lanes: Int = 4) -> [StepsRace.Row] {
+        let ranked = FamilySteps.ranked(board.people)
+        var shown = Array(ranked.prefix(lanes))
+        if !shown.contains(where: \.me), let me = ranked.first(where: \.me) {
+            shown = Array(ranked.prefix(max(lanes - 1, 0))) + [me]
+        }
+        return shown.map { person in
+            StepsRace.Row(id: person.id, name: person.me ? "You" : (person.name.split(separator: " ").first.map(String.init) ?? person.name),
+                          steps: person.steps, me: person.me)
+        }
     }
 
     private var place: String? {
-        guard let board = store.shown, let me = board.people.first(where: \.me), me.rank > 0 else { return nil }
-        return "#\(me.rank)"
-    }
-
-    private var leaderLine: String {
-        guard let board = store.shown, let top = board.people.max(by: { $0.steps < $1.steps }) else { return "" }
-        return top.me ? "You lead" : "\(top.name.split(separator: " ").first.map(String.init) ?? top.name) leads"
+        guard let board = store.shown, board.people.count > 1 else { return nil }
+        return FamilySteps.place(board)?.uppercased()
     }
 
     private var spoken: String {
-        guard let board = store.shown, let me = board.people.first(where: \.me) else {
+        guard let board = store.shown, let me = board.mine else {
             return store.loaded ? "Steps. No board today" : "Steps. Reading the board"
         }
-        return "Steps. You have \(me.steps) steps, \(me.rank > 0 ? "number \(me.rank) of \(board.people.count)" : "unranked"). \(leaderLine)"
+        let gap = FamilySteps.gap(board).map { ". \($0)" } ?? ""
+        return "Steps. You have \(me.steps) steps, \(me.rank > 0 ? "number \(me.rank) of \(board.people.count)" : "unranked")\(gap)"
     }
 }
 
@@ -215,14 +352,28 @@ struct HomeTasksTile: View {
 
     var body: some View {
         HomeTileFrame(kind: .tasks, badge: owed) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 if let board = store.board {
-                    let summary = FamilyTasksSummary.make(board)
+                    let summary = FamilyTasksSummary.make(board, limit: 50)
+                    let overdue = summary.next.filter(\.overdue).count
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(summary.toDo)")
+                            .font(SR.Text.figure(30))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        Text("to do")
+                            .font(SR.Text.label(13))
+                            .lineLimit(1)
+                            .opacity(0.85)
+                    }
                     TaskWaffle(done: board.completed.count, awaiting: summary.awaiting, toDo: summary.toDo,
-                               overdue: summary.next.filter(\.overdue).count, columns: 8, limit: 16)
+                               overdue: overdue, columns: 8, limit: 16)
                     Spacer(minLength: 0)
-                    HomeFigure(value: "\(summary.toDo)", unit: "to do",
-                               caption: summary.next.first?.title ?? (summary.awaiting > 0 ? "\(summary.awaiting) to confirm" : "All done"))
+                    Text(Self.line(summary, overdue: overdue))
+                        .font(SR.Text.secondary(13))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .opacity(0.92)
                 } else {
                     Spacer(minLength: 0)
                     HomeFigure(value: "—", caption: store.loaded ? "No list yet" : "Reading the list…")
@@ -233,16 +384,26 @@ struct HomeTasksTile: View {
         .accessibilityLabel(spoken)
     }
 
+    /// "2 overdue · Bins", "1 to confirm", "Next: Bins", "All done". PURE.
+    static func line(_ summary: FamilyTasksSummary, overdue: Int) -> String {
+        if overdue > 0 { return "\(overdue) overdue" + (summary.next.first(where: \.overdue).map { " · \($0.title)" } ?? "") }
+        if summary.awaiting > 0 && summary.parent { return "\(summary.awaiting) to confirm" }
+        if let next = summary.next.first { return "Next: \(next.title)" }
+        return summary.awaiting > 0 ? "\(summary.awaiting) waiting to be checked" : "All done"
+    }
+
     private var owed: String? {
         guard let board = store.board else { return nil }
         let pence = FamilyTasksSummary.make(board).owedPence
-        return pence > 0 ? String(format: "£%.2f", Double(pence) / 100) : nil
+        guard pence > 0 else { return nil }
+        // "£12", not "£12.00": the badge shares a narrow row with the name.
+        return pence % 100 == 0 ? "£\(pence / 100)" : HomeBriefing.money(pence)
     }
 
     private var spoken: String {
         guard let board = store.board else { return "Tasks" }
-        let s = FamilyTasksSummary.make(board)
-        return "Tasks. \(s.toDo) to do, \(s.awaiting) to confirm, \(board.completed.count) done" + (s.next.first.map { ". Next: \($0.title)" } ?? "")
+        let s = FamilyTasksSummary.make(board, limit: 50)
+        return "Tasks. \(s.toDo) to do, \(s.awaiting) to confirm, \(board.completed.count) done. " + Self.line(s, overdue: s.next.filter(\.overdue).count)
     }
 }
 
@@ -318,7 +479,7 @@ struct HomeTripsTile: View {
                 Spacer(minLength: 0)
                 HomeFigure(
                     value: next?.title ?? (stops.isEmpty ? "No plan yet" : "Day done"),
-                    caption: leaveIn.map { $0 > 0 ? "Leave in \($0) min" : "Time to go" } ?? "\(stops.count) stops today",
+                    caption: leaveIn.map { $0 > 0 ? "Leave in \(HomeBriefing.duration($0))" : "Time to go" } ?? "\(stops.count) stops today",
                     size: 22
                 )
             }
@@ -449,9 +610,19 @@ struct HomeMessagesTile: View {
                         )
                     Spacer(minLength: 0)
                     if let at = store.lastActivity {
-                        Text(at, style: .relative)
-                            .font(SR.Text.label(12))
-                            .opacity(0.9)
+                        HStack(spacing: 6) {
+                            Text(at, style: .relative)
+                                .font(SR.Text.label(12))
+                                .opacity(0.9)
+                                .lineLimit(1)
+                            if store.unreadCount > 0 {
+                                Text("\(store.unreadCount) new")
+                                    .font(SR.Text.label(12))
+                                    .padding(.horizontal, 6)
+                                    .background(Capsule().fill(.white.opacity(0.25)))
+                                    .fixedSize()
+                            }
+                        }
                     }
                 } else {
                     Spacer(minLength: 0)
@@ -460,7 +631,7 @@ struct HomeMessagesTile: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("msg family. " + (store.latestLine ?? "No messages yet"))
+        .accessibilityLabel("msg family. " + (store.unreadCount > 0 ? "\(store.unreadCount) new. " : "") + (store.latestLine ?? "No messages yet"))
     }
 }
 
@@ -471,11 +642,15 @@ struct HomeBacklogTile: View {
 
     var body: some View {
         let line = store.board.map(FamilyBacklogRules.todayLine)
-        HomeTileFrame(kind: .backlog, badge: (line?.forYou ?? 0) > 0 ? "\(line!.forYou) FOR YOU" : nil) {
+        // What is for you is in the caption, not a badge: a badge beside
+        // "Backlog" in a square tile left no room for the name.
+        let forYou = line?.forYou ?? 0
+        let newest = line?.newest.first?.title ?? "Nothing saved yet"
+        HomeTileFrame(kind: .backlog) {
             VStack(alignment: .leading, spacing: 8) {
-                SpineShelf(count: line?.waiting ?? 0, fresh: line?.forYou ?? 0)
+                SpineShelf(count: line?.waiting ?? 0, fresh: forYou)
                 Spacer(minLength: 0)
-                HomeFigure(value: "\(line?.waiting ?? 0)", unit: "saved", caption: line?.newest.first?.title ?? "Nothing saved yet")
+                HomeFigure(value: "\(line?.waiting ?? 0)", unit: "saved", caption: forYou > 0 ? "\(forYou) for you · \(newest)" : newest)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -490,20 +665,22 @@ struct HomeGamesTile: View {
 
     var body: some View {
         let invites = games.invites.count
-        HomeTileFrame(kind: .games, badge: invites > 0 ? "\(invites) INVITE\(invites == 1 ? "" : "S")" : nil) {
+        HomeTileFrame(kind: .games) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading) {
                     Spacer(minLength: 0)
                     if let invite = games.invites.first {
-                        HomeFigure(value: GameNames.title(invite.game), caption: "\(invite.hostName) invited you", size: 20)
+                        HomeFigure(value: GameNames.title(invite.game),
+                                   caption: invites > 1 ? "\(invite.hostName) and \(invites - 1) more invited you" : "\(invite.hostName) invited you",
+                                   size: 20, captionLines: 2)
                     } else {
                         HomeFigure(value: games.rooms.isEmpty ? "Play" : "\(games.rooms.count)", unit: games.rooms.isEmpty ? nil : "in play",
-                                   caption: "Ten family games", size: 26)
+                                   caption: games.rooms.isEmpty ? "Start one for the family" : "Rooms still open", size: 26, captionLines: 2)
                     }
                 }
                 Spacer(minLength: 0)
                 DieFace(pips: max(1, min(invites + games.rooms.count, 6)))
-                    .frame(width: 52, height: 52)
+                    .frame(width: 44, height: 44)
                     .symbolEffect(.bounce, value: invites)
             }
         }
@@ -512,54 +689,97 @@ struct HomeGamesTile: View {
     }
 }
 
-// MARK: - Ask jkai
+// MARK: - Shortcuts: Ask jkai and Wildmind
 
-struct HomeChatTile: View {
-    let lastThread: TodayThread?
+/// A feature with nothing to chart, kept on Home as a shortcut: its mark, its
+/// name and one line, at a third of a tile's height, two to a row.
+struct HomeShortcutTile: View {
+    let kind: HomeTileKind
+    let line: String
 
     var body: some View {
-        HomeTileFrame(kind: .chat) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: -10) {
-                    ForEach(0..<3, id: \.self) { index in
-                        Circle()
-                            .fill(.white.opacity(0.95 - Double(index) * 0.25))
-                            .frame(width: 26, height: 26)
-                            .overlay(Image(systemName: ["sparkles", "text.bubble.fill", "magnifyingglass"][index])
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(SR.Hue.chat.base))
-                    }
-                }
-                Spacer(minLength: 0)
-                HomeFigure(value: "Ask", caption: lastThread?.title.map { "Last: \($0)" } ?? "Anything, any time", size: 28)
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        HStack(spacing: 10) {
+            Image(systemName: kind.symbol)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(kind.hue.onFill)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(kind.hue.gradient))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(kind.title)
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(line)
+                    .font(SR.Text.secondary(12))
+                    .foregroundStyle(SR.inkMuted)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
             }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(SR.inkGhost)
+                .accessibilityHidden(true)
         }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background { Color.clear.srGlass(.paper, in: shape) }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(.white.opacity(0.5), lineWidth: 1))
+        .shadow(color: SR.ink.opacity(0.06), radius: 10, y: 4)
+        .contentShape(shape)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("JkAi and messages")
+        .accessibilityLabel("\(kind.title). \(line)")
     }
 }
 
 // MARK: - News
 
+/// The desk's top three, each with its heat as a stripe beside it — Ed
+/// Hawkins's warming colours, cool to hot by how fast the story is moving.
 struct HomeNewsTile: View {
     let news: TodayNews?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HomeTileFrame(kind: .news, badge: (news?.unseen ?? 0) > 0 ? "\(news!.unseen) NEW" : nil) {
-            VStack(alignment: .leading, spacing: 8) {
-                let heats = (news?.stories ?? []).map { $0.heat ?? 0 }
-                if heats.count > 1 {
-                    HeatStripes(heats: heats)
-                        .frame(height: 44)
+        let stories = Array((news?.stories ?? []).prefix(typeSize >= .xxLarge ? 2 : 3))
+        let top = max(stories.compactMap(\.heat).max() ?? 1, 0.0001)
+        HomeTileFrame(kind: .news, look: .glass, badge: (news?.unseen ?? 0) > 0 ? "\(news!.unseen) NEW" : nil) {
+            if stories.isEmpty {
+                Text("The desk is quiet")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(stories) { story in
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(HeatStripes.ramp((story.heat ?? 0) / top))
+                                .frame(width: 6)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(story.title)
+                                    .font(SR.Text.title(14))
+                                    .foregroundStyle(SR.ink)
+                                    .lineLimit(1)
+                                Text(story.sourceLabel)
+                                    .font(SR.Text.mono(11))
+                                    .foregroundStyle(SR.inkMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-                Text(news?.stories.first?.title ?? "The desk is quiet")
-                    .font(SR.Text.title(15))
-                    .lineLimit(2)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("News. " + (news?.stories.first?.title ?? "Quiet"))
+        .accessibilityLabel("News. " + (stories.isEmpty ? "Quiet" : stories.map(\.title).joined(separator: ". ")))
     }
 }
 
@@ -570,11 +790,11 @@ struct HomeDaydreamTile: View {
 
     var body: some View {
         let decide = store.pipeline?.decide ?? 0
-        HomeTileFrame(kind: .daydream, look: .aurora(decide > 0 ? 1 : 0.45), badge: decide > 0 ? "\(decide) TO DECIDE" : nil) {
+        HomeTileFrame(kind: .daydream, look: .aurora(decide > 0 ? 1 : 0.45)) {
             VStack(alignment: .leading) {
                 Spacer(minLength: 0)
-                HomeFigure(value: decide > 0 ? "\(decide)" : "Calm", unit: decide > 0 ? "noticed" : nil,
-                           caption: store.notes.first?.title ?? "What the loop noticed", size: 28)
+                HomeFigure(value: decide > 0 ? "\(decide)" : "Calm", unit: decide > 0 ? "to decide" : nil,
+                           caption: store.notes.first?.title ?? "What the loop noticed", size: 28, captionLines: 2)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -589,37 +809,17 @@ struct HomeFlowsTile: View {
 
     var body: some View {
         let stats = store.stats(now: Date())
-        HomeTileFrame(kind: .flows, badge: stats.failing > 0 ? "\(stats.failing) FAILING" : nil) {
+        let failing = store.all.filter(FlowStats.isFailing).map(\.title)
+        HomeTileFrame(kind: .flows) {
             VStack(alignment: .leading, spacing: 8) {
                 FlowDots(working: stats.working, failing: stats.failing)
                 Spacer(minLength: 0)
                 HomeFigure(value: store.loaded ? "\(stats.working)" : "—", unit: "working",
-                           caption: stats.next.map { "Next \($0.at.formatted(date: .omitted, time: .shortened))" } ?? "Nothing scheduled")
+                           caption: failing.first.map { "Failing: \($0)" }
+                               ?? stats.next.map { "Next \(FlowStats.when($0.at, now: Date()))" } ?? "Nothing scheduled")
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Flows. \(stats.working) working, \(stats.failing) failing")
-    }
-}
-
-// MARK: - Wildmind
-
-struct HomeWildmindTile: View {
-    var body: some View {
-        HomeTileFrame(kind: .wildmind) {
-            VStack(alignment: .leading) {
-                HStack(spacing: 3) {
-                    ForEach(0..<7, id: \.self) { index in
-                        Image(systemName: index % 3 == 0 ? "tree.fill" : index % 3 == 1 ? "mountain.2.fill" : "flame.fill")
-                            .font(.system(size: 12 + CGFloat(index % 2) * 6, weight: .bold))
-                            .opacity(0.5 + Double(index % 3) * 0.2)
-                    }
-                }
-                Spacer(minLength: 0)
-                HomeFigure(value: "Visit", caption: "The world it is building", size: 26)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Wildmind")
+        .accessibilityLabel("Flows. \(stats.working) working, \(stats.failing) failing" + (failing.isEmpty ? "" : ": " + failing.joined(separator: ", ")))
     }
 }

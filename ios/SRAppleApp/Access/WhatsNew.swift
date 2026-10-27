@@ -34,6 +34,49 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-27-trip-walked", when: "October 2026", title: "Behind you", items: [
+            WhatsNewItem(icon: "map", title: "Trip maps lose what you've walked",
+                         detail: "On a trip day the route you have already walked comes off the map, the walk you are on starts where you are, and days gone by leave the trip map. Days still to come stay as planned."),
+        ]),
+        WhatsNewRelease(id: "2026-10-27-msg-family", when: "October 2026", title: "More to msg family", items: [
+            WhatsNewItem(icon: "chart.bar", title: "Polls",
+                         detail: "Tap Poll over the box, ask a question with up to four answers, and everyone votes with a tap. Tap again to change your mind."),
+            WhatsNewItem(icon: "at", title: "Mentions",
+                         detail: "Type @ to pick someone. Their name stands out, and a thread that mentions you says so."),
+            WhatsNewItem(icon: "circle.badge", title: "What's new to you",
+                         detail: "A line shows what came in since you last looked, and Chat and Home count it."),
+            WhatsNewItem(icon: "text.bubble", title: "Quicker to write",
+                         detail: "One tap for \u{201C}On my way\u{201D}, \u{201C}Running late\u{201D} or where you are. What you were writing waits for you if you leave."),
+            WhatsNewItem(icon: "bell.badge", title: "Pin, search, remind, share",
+                         detail: "Hold a message to pin it to the top, be reminded about it later, or share it. Search finds any message, reply or name, and days have headings."),
+        ]),
+        WhatsNewRelease(id: "2026-10-27-home-pulse", when: "October 2026", title: "A Home that tells you things", items: [
+            WhatsNewItem(icon: "sparkle", title: "Worth knowing",
+                         detail: "The top of Home picks the three things that matter right now — who is leaving soon, a task that is late, how far you are behind on steps and how long a walk would close it. Tap one to go straight there."),
+            WhatsNewItem(icon: "chart.bar.xaxis", title: "Charts, not buttons",
+                         detail: "Steps is a race with everyone's count on it, Health shows today's rings, and News lists the top stories. The numbers fit their boxes now."),
+            WhatsNewItem(icon: "waveform.path.ecg", title: "Your figures against your week",
+                         detail: "Readiness on a dial, and each figure with how it compares to your last seven days. Tap one for its chart.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "paintpalette", title: "More colours",
+                         detail: "Eight new palettes in Colours, each with its own app icon."),
+        ]),
+        WhatsNewRelease(id: "2026-10-26-captures-quick", when: "October 2026", title: "Quicker to start", items: [
+            WhatsNewItem(icon: "app.badge", title: "New capture",
+                         detail: "Long-press the app icon, or say \u{201C}New capture in SR Companion\u{201D}. Settings → Captures lists every quick way in, and adds the screenshot Shortcut in one tap once its link is pasted there.",
+                         ownerOnly: true),
+        ]),
+        WhatsNewRelease(id: "2026-10-26-captures", when: "October 2026", title: "Say it once", items: [
+            WhatsNewItem(icon: "waveform.badge.mic", title: "Captures",
+                         detail: "In More. Record a thought or a conversation: it is written out on the phone, voices are told apart, and the site suggests follow-ups that run only when you approve them.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "button.horizontal.top.press", title: "From anywhere",
+                         detail: "Start and stop a capture with the Action Button, Back Tap or a Control Center control, with the timer on the Lock Screen. A Shortcut can add a screenshot. Set it up in Settings → Captures.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "magnifyingglass", title: "Find what was said",
+                         detail: "Search your captures by words, person, app or date, and open anyone mentioned to see every capture they are in.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-10-26-chess-valley", when: "October 2026", title: "Blue against red", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess in colour",
                          detail: "Pieces are blue and red now, the board edge shows whose turn it is, and a Captured card counts what each side has taken."),

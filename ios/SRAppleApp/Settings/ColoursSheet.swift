@@ -102,28 +102,37 @@ struct SRPaletteSheet: View {
 
     // MARK: - Presets
 
+    /// One row of cards, scrolled to the chosen one when the sheet opens.
+    /// One row, not two: two rows of cards filled the half-height sheet, and
+    /// the colour rows under them — the point of watching Home change behind
+    /// it — went out of sight.
     private func presets(selected: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(SRPalette.presets) { preset in
-                    Button {
-                        SRHaptic.select()
-                        store.update { $0.preset = preset.id }
-                    } label: {
-                        SRPaletteCard(palette: SRPalette.resolve(choiceFor(preset)), selected: preset.id == selected)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(SRPalette.presets) { preset in
+                        Button {
+                            SRHaptic.select()
+                            store.update { $0.preset = preset.id }
+                        } label: {
+                            SRPaletteCard(palette: SRPalette.resolve(choiceFor(preset)), selected: preset.id == selected)
+                        }
+                        .buttonStyle(SRPressStyle())
+                        .accessibilityLabel(preset.name)
+                        .accessibilityHint(preset.blurb)
+                        .accessibilityAddTraits(preset.id == selected ? .isSelected : [])
+                        .accessibilityIdentifier("colours-preset-\(preset.id)")
+                        .id(preset.id)
                     }
-                    .buttonStyle(SRPressStyle())
-                    .accessibilityLabel(preset.name)
-                    .accessibilityHint(preset.blurb)
-                    .accessibilityAddTraits(preset.id == selected ? .isSelected : [])
-                    .accessibilityIdentifier("colours-preset-\(preset.id)")
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .scrollClipDisabled()
+            .onAppear { proxy.scrollTo(selected, anchor: .center) }
         }
-        .scrollClipDisabled()
     }
+
 
     /// The reader's choice as it would be with `preset` picked: each card
     /// shows the palette WITH whatever the reader did to it.
@@ -218,7 +227,10 @@ struct SRPaletteSheet: View {
     /// plus Health's Move ring and, for the owner, the alerts. PURE.
     static func keys(access: AppAccess, sitePaired: Bool) -> [SR.HueKey] {
         var out: [SR.HueKey] = []
-        for kind in HomeTileKind.available(access: access, sitePaired: sitePaired) where !out.contains(kind.hueKey) {
+        // The briefing has no colour of its own to change: each of its lines
+        // wears its source's.
+        for kind in HomeTileKind.available(access: access, sitePaired: sitePaired)
+        where kind != .briefing && !out.contains(kind.hueKey) {
             out.append(kind.hueKey)
             if kind == .health { out.append(.move) }
         }

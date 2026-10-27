@@ -27,11 +27,64 @@ final class ShowcaseTests: XCTestCase {
         attach(app, "Showcase — Home")
 
         // Home is long: every tile, a screen at a time.
-        for index in 1...4 {
+        for index in 1...5 {
             app.swipeUp()
             settle(app)
             attach(app, "Showcase — Home, scrolled \(index)")
         }
+    }
+
+    /// Home at a larger text size, short of the accessibility sizes (those
+    /// fold to one column): every figure and caption should still sit inside
+    /// its tile, shrunk or cut with an ellipsis, never spilling.
+    @MainActor func testShowcaseTodayLargeText() {
+        let app = launch(["-SRDemoClock", "10:40", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXL"])
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        settle(app, on: byId(app, "home-briefing"), seconds: 2.5)
+        attach(app, "Showcase — Home, larger text")
+        for index in 1...6 {
+            app.swipeUp()
+            settle(app)
+            attach(app, "Showcase — Home, larger text, scrolled \(index)")
+        }
+    }
+
+    /// msg family's tools: the "New" line, a poll, a mention, the quick
+    /// messages over the box and the "@" suggestions.
+    @MainActor func testShowcaseMsgFamily() {
+        let app = launch(["-SRDemoClock", "10:40"])
+        soft(app.tabBars.buttons["Chat"].waitForExistence(timeout: 20), "no Chat tab")
+        app.tabBars.buttons["Chat"].tap()
+        let open = byId(app, "thread-msg-family")
+        settle(app, on: open)
+        open.tap()
+        settle(app, on: byId(app, "family-messages-screen"), seconds: 2)
+        attach(app, "Showcase — msg family")
+        let poll = byId(app, "family-message-demo-msg-3")
+        guard scroll(app, to: poll) else { return soft(false, "no poll in msg family") }
+        attach(app, "Showcase — msg family, the poll")
+        poll.tap()
+        settle(app, on: byId(app, "family-thread-screen"), seconds: 2)
+        attach(app, "Showcase — msg family, voting")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        settle(app, on: byId(app, "family-messages-screen"))
+        let box = byId(app, "family-msg-composer")
+        box.tap()
+        box.typeText("Can @")
+        settle(app)
+        attach(app, "Showcase — msg family, @ suggestions")
+    }
+
+    /// A figure on Home's Health tile, tapped: its own chart.
+    @MainActor func testShowcaseHomeFigure() {
+        let app = launch(["-SRDemoClock", "10:40"])
+        soft(app.tabBars.buttons["Home"].waitForExistence(timeout: 20), "no Home tab")
+        let row = byId(app, "home-vital-hrv")
+        settle(app, on: row, seconds: 2)
+        guard scroll(app, to: row) else { return soft(false, "no HRV row on the Health tile") }
+        row.tap()
+        settle(app, seconds: 2)
+        attach(app, "Showcase — Home → HRV chart")
     }
 
     /// Home in light, as CI otherwise boots it dark.

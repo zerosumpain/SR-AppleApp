@@ -203,6 +203,7 @@ enum AccessPolicy {
     static func quickActions(for access: AppAccess) -> [QuickActionKind] {
         QuickActionKind.allCases.filter { kind in
             switch kind {
+            case .capture: return access.owner
             case .ask: return allows(.chat, access)
             case .health, .sync: return true
             }
@@ -238,6 +239,7 @@ struct NewsCan: Decodable, Equatable {
 
 /// The Home Screen quick actions, by the type string iOS hands back.
 enum QuickActionKind: String, CaseIterable {
+    case capture = "com.strangeramblings.com.appleapp.capture"
     case ask = "com.strangeramblings.com.appleapp.ask"
     case health = "com.strangeramblings.com.appleapp.health"
     case sync = "com.strangeramblings.com.appleapp.sync"
@@ -245,6 +247,7 @@ enum QuickActionKind: String, CaseIterable {
     @MainActor var item: UIApplicationShortcutItem {
         let (title, icon): (String, String) = {
             switch self {
+            case .capture: return ("New capture", "waveform.badge.mic")
             case .ask: return ("Ask jkai", "bubble.left.and.text.bubble.right")
             case .health: return ("Health today", "heart.text.square")
             case .sync: return ("Sync now", "arrow.triangle.2.circlepath")

@@ -26,7 +26,8 @@
 <!-- Play on TV (Family/BacklogCast.swift): Chromecast discovery, Default Media Receiver CC1AD845. -->
 <!-- Play nearby (Offline/Link): MultipeerConnectivity's service type "sr-play" as _sr-play._tcp and _sr-play._udp, and the Wi-Fi/hotspot room _srplay._tcp. -->
 <key>NSBonjourServices</key><array><string>_googlecast._tcp</string><string>_CC1AD845._googlecast._tcp</string><string>_sr-play._tcp</string><string>_sr-play._udp</string><string>_srplay._tcp</string></array>
-<key>UIBackgroundModes</key><array><string>location</string><string>fetch</string><string>processing</string></array>
+<!-- audio: a capture started from the Action Button or Control Center keeps recording with the screen locked, while its Live Activity shows. Only between Start and Stop (Captures/CaptureRecorder.swift). -->
+<key>UIBackgroundModes</key><array><string>audio</string><string>location</string><string>fetch</string><string>processing</string></array>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.strangeramblings.com.appleapp.refresh</string></array>
 <key>UIAppFonts</key><array><string>InterDisplay-ExtraBold.ttf</string><string>DMSans-Regular.ttf</string><string>DMSans-Medium.ttf</string><string>DMSans-Bold.ttf</string><string>DMMono-Regular.ttf</string><string>DMMono-Medium.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string><string>JetBrainsMono-Bold.ttf</string></array>
 <!-- Trips: offer Citymapper for a transit leg when it is installed (Trips/TripDirections.swift). -->
@@ -38,8 +39,8 @@
 <key>SRSharedKeychainGroup</key><string>$(AppIdentifierPrefix)$(SR_BUNDLE_ID).shared</string>
 <!-- sr://family/steps and sr://family/tasks: widget taps and pushed links. -->
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleURLSchemes</key><array><string>sr</string></array></dict></array>
-<key>NSSpeechRecognitionUsageDescription</key><string>SR Companion turns a voice note you record in chat into text, so the assistant can read what you said, and turns speech into text for the Travel kit’s live translation while you have it listening.</string>
-<key>NSMicrophoneUsageDescription</key><string>SR Companion uses the microphone to record a voice note to send in a chat message, and to hear speech for live translation in the Travel kit. Nothing is recorded unless you hold the microphone button or tap to listen, and translation audio is never kept.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>SR Companion turns a voice note you record in chat, or a capture you record, into text, so the assistant can read what was said, and turns speech into text for the Travel kit’s live translation while you have it listening.</string>
+<key>NSMicrophoneUsageDescription</key><string>SR Companion uses the microphone to record a voice note to send in a chat message, to hear speech for live translation in the Travel kit, and to record a capture you start — from the app, the Action Button, Control Center or a Shortcut — so it can be transcribed and sent to your Strange Ramblings account. A capture records only between Start and Stop, with a timer on the Lock Screen the whole time. Nothing is recorded unless you hold the microphone button, tap to listen or start a capture, and translation audio is never kept.</string>
 <key>LSSupportsOpeningDocumentsInPlace</key><false/>
 <key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>Files for jkai</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.image</string><string>com.adobe.pdf</string><string>public.plain-text</string><string>public.comma-separated-values-text</string><string>public.json</string><string>net.daringfireball.markdown</string><string>org.openxmlformats.wordprocessingml.document</string><string>org.openxmlformats.spreadsheetml.sheet</string><string>public.rtf</string><string>public.mpeg-4-audio</string></array></dict></array>
 </dict></plist>

@@ -6,6 +6,9 @@ import ActivityKit
 // arrives in the push (`JourneyAttributes.ContentState`), and the site decides
 // what they say. See SR-Main `$lib/home/presence/live-journey`.
 //
+// It also draws a capture while it records, and carries the Capture control
+// for Control Center (iOS 18).
+//
 // The same extension carries the family's Home Screen widgets — the step
 // board and the task list (`FamilyWidgets.swift`) — so they ride on the
 // profile CI already mints for it rather than needing a target of their own.
@@ -17,6 +20,12 @@ struct SRLiveBundle: WidgetBundle {
         TripLiveActivity()
         FamilyStepsWidget()
         FamilyTasksWidget()
+        // A capture recording (`Captures/CaptureRecorder.swift` starts it).
+        CaptureLiveActivity()
+        // Start or stop a capture from Control Center or the Lock Screen.
+        if #available(iOS 18.0, *) {
+            CaptureControl()
+        }
     }
 }
 

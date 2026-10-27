@@ -5,13 +5,14 @@ import WidgetKit
 /// The reader's colours.
 ///
 /// Prism (2026-10-18) gave the app one bright palette. John liked the layout
-/// and not every colour in it, so the palette is now a CHOICE: six whole
-/// palettes, each tuned so every reading token holds WCAG AA on its grounds in
-/// both modes, and on top of whichever is chosen the reader may re-pick any
-/// feature's hue and the accent. A re-picked accent is nudged darker (light
-/// mode) or lighter (dark mode) until it reads; a re-picked hue picks its own
-/// type colour. So no choice the reader makes can produce an unreadable
-/// screen — `PaletteTests` holds every preset to the same floors.
+/// and not every colour in it, so the palette is now a CHOICE: fourteen whole
+/// palettes (six at first, eight more on 2026-10-27), each tuned so every
+/// reading token holds WCAG AA on its grounds in both modes, and on top of
+/// whichever is chosen the reader may re-pick any feature's hue and the
+/// accent. A re-picked accent is nudged darker (light mode) or lighter (dark
+/// mode) until it reads; a re-picked hue picks its own type colour. So no
+/// choice the reader makes can produce an unreadable screen — `PaletteTests`
+/// holds every preset to the same floors.
 ///
 /// How a change reaches the screen: `SR`'s tokens read `SRPaint.current`, and
 /// the store bumps `epoch`, which `ContentView` uses as the tab view's
@@ -137,7 +138,10 @@ struct SRPalette: Identifiable, Equatable {
 // MARK: - The presets
 
 extension SRPalette {
-    static let presets: [SRPalette] = [prism, sherbet, ocean, sunset, meadow, classic]
+    static let presets: [SRPalette] = [
+        prism, sherbet, ocean, sunset, meadow, classic,
+        candy, citrus, berry, lavender, arctic, forest, terracotta, graphite,
+    ]
 
     private static func hues(_ ink: UInt32, _ list: [(SR.HueKey, UInt32, UInt32)]) -> [SR.HueKey: SRHueSpec] {
         var out: [SR.HueKey: SRHueSpec] = [:]
@@ -223,7 +227,7 @@ extension SRPalette {
         icon: "AppIcon-Sunset", iconGround: [0xFDBA74, 0xFF8A65, 0xE03A8A, 0x7C3AED]
     )
 
-    /// Leaf greens and earth: the calmest of the six.
+    /// Leaf greens and earth: the calmest of the first six.
     static let meadow = SRPalette(
         id: "meadow", name: "Meadow", blurb: "Leaf greens and earth tones, calm and soft",
         paper: SRTone(0xF3F6EC, 0x0E140C), surface: SRTone(0xFFFFFF, 0x1A2416),
@@ -261,6 +265,161 @@ extension SRPalette {
         people: [0xC4570A, 0x0E5B66, 0x55663A, 0xB0892A, 0x6B4E8C, 0x3D7A8A, 0x9C3D54, 0x7A8B3A],
         icon: "AppIcon-Classic", iconGround: [0x1A1008, 0x1A1008, 0x1A1008, 0x1A1008],
         iconInk: 0xEDE4D4, iconBar: 0xE8863A
+    )
+
+    /// Sweet-shop colours, light and sugary: one for the children.
+    static let candy = SRPalette(
+        id: "candy", name: "Candy", blurb: "Bubblegum pink, sky blue, mint and lemon",
+        paper: SRTone(0xFFF4F9, 0x170F1F), surface: SRTone(0xFFFFFF, 0x261A33),
+        ink: SRTone(0x2A1235, 0xFFF4F9), inkSecondary: SRTone(0x6A3F72, 0xF0C9E8),
+        accent: SRTone(0xC4148A, 0xFF8AD0), accentDeep: SRTone(0xA8117A, 0xFF8AD0),
+        accentInk: SRTone(0x0A69AD, 0x7CCBFF), good: SRTone(0x0B7A52, 0x5EEAB0),
+        warn: SRTone(0x945800, 0xFFC94D), error: SRTone(0xC4261E, 0xFF8577),
+        hues: hues(0x2A1235, [
+            (.family, 0xFF6FAE, 0xFFBEDC), (.health, 0x2CD3A0, 0xAAF5DC), (.steps, 0xA978FF, 0xDCC8FF),
+            (.trips, 0x45B2FF, 0xB8E4FF), (.tasks, 0xFFD21F, 0xFFF4A0), (.backlog, 0xFF9466, 0xFFD3BC),
+            (.messages, 0x1FC6D6, 0xA8F2F5), (.games, 0x7A3FE8, 0xB592FF), (.chat, 0x5D6BFF, 0xAEB6FF),
+            (.news, 0xFF8A1F, 0xFFC27A), (.daydream, 0xE472E2, 0xFFC6F9), (.flows, 0x1E7FE0, 0x6CC0FF),
+            (.alerts, 0xEE2F4A, 0xFF8A80), (.wildmind, 0x7CCF35, 0xD6F69C), (.move, 0xF0306E, 0xFF7C9E),
+        ]),
+        people: [0xFF5FA2, 0x3AA0F5, 0x1FC795, 0xFFB31F, 0xA066F0, 0x16C0D0, 0xFF7A45, 0x8BD12E],
+        icon: "AppIcon-Candy", iconGround: [0xFF9CCB, 0xFFE76A, 0x8FD8FF, 0x7DF2C9],
+        iconInk: 0x2A1235, iconBar: 0xF2559A
+    )
+
+    /// Lemon, lime, orange and grapefruit on a fresh white: zesty.
+    static let citrus = SRPalette(
+        id: "citrus", name: "Citrus", blurb: "Lemon, lime, orange and grapefruit on fresh white",
+        paper: SRTone(0xFAFBF4, 0x101309), surface: SRTone(0xFFFFFF, 0x1C2113),
+        ink: SRTone(0x1D2412, 0xFAFBF4), inkSecondary: SRTone(0x4A5532, 0xD6E0BC),
+        accent: SRTone(0x5A7A00, 0xB5E655), accentDeep: SRTone(0x4C6800, 0xB5E655),
+        accentInk: SRTone(0xC23F1C, 0xFF9C7A), good: SRTone(0x157A3A, 0x6EE79A),
+        warn: SRTone(0x8F5A00, 0xFFC94D), error: SRTone(0xC52A2A, 0xFF8A80),
+        hues: hues(0x1D2412, [
+            (.family, 0xF5506A, 0xFFA494), (.health, 0x5BAA10, 0xBDEA5C), (.steps, 0xFF7A00, 0xFFB84D),
+            (.trips, 0x0FA58A, 0x7DE8C8), (.tasks, 0xF5C400, 0xFFEE6B), (.backlog, 0x9C2048, 0xDD5A7A),
+            (.messages, 0x1E9BE0, 0x8AD8FF), (.games, 0xB02A78, 0xF07AB8), (.chat, 0x3558D8, 0x8AA4FF),
+            (.news, 0x2E7D32, 0x7CC86A), (.daydream, 0x8A5BE0, 0xC9B0FF), (.flows, 0x0B7894, 0x4CC6E0),
+            (.alerts, 0xE0261E, 0xFF7058), (.wildmind, 0xB5C800, 0xEEF57A), (.move, 0xE83E8C, 0xFF9AC8),
+        ]),
+        people: [0xF5586E, 0x2D8FE0, 0x2EB060, 0xFF9500, 0x9A5BE0, 0x10B5A0, 0xE8C400, 0x86C21A],
+        icon: "AppIcon-Citrus", iconGround: [0xFFC400, 0x7CB518, 0xFF7A00, 0xE63E62]
+    )
+
+    /// Plum, raspberry, blackcurrant and blueberry: rich and deep.
+    static let berry = SRPalette(
+        id: "berry", name: "Berry", blurb: "Rich plum, raspberry, blackcurrant and blueberry",
+        paper: SRTone(0xF8F1F6, 0x140A16), surface: SRTone(0xFFFFFF, 0x241327),
+        ink: SRTone(0x2A0F2E, 0xF8F1F6), inkSecondary: SRTone(0x67406A, 0xE6C6E6),
+        accent: SRTone(0x8B2387, 0xEFA0E8), accentDeep: SRTone(0x761C73, 0xEFA0E8),
+        accentInk: SRTone(0x3346B8, 0xA6B2FF), good: SRTone(0x0F7A47, 0x5FE39A),
+        warn: SRTone(0x925600, 0xFFC24B), error: SRTone(0xC4182F, 0xFF7A8A),
+        hues: hues(0x2A0F2E, [
+            (.family, 0xD1246A, 0xFF7AA6), (.health, 0x1E7F4C, 0x5CC98A), (.steps, 0xE08A10, 0xFFC45C),
+            (.trips, 0x2F55C8, 0x7A98FF), (.tasks, 0xD9BE1A, 0xFFEC7A), (.backlog, 0x7A1A52, 0xC2508E),
+            (.messages, 0x15807A, 0x52C9BE), (.games, 0x4E1A7A, 0x8E50C8), (.chat, 0x2E2A8A, 0x6460D0),
+            (.news, 0x7A5A7E, 0xBBA0BE), (.daydream, 0xB04AC0, 0xEAA0F0), (.flows, 0x2A86B0, 0x78D2F0),
+            (.alerts, 0xD9480F, 0xFF9A5A), (.wildmind, 0x6E8A12, 0xC4D84A), (.move, 0xE8384A, 0xFF8A80),
+        ]),
+        people: [0xE0306A, 0x4058D8, 0x1E9E6A, 0xF0A020, 0x9B3FD0, 0x2A9AB0, 0xF06A3A, 0x7FA82A],
+        icon: "AppIcon-Berry", iconGround: [0xE0306A, 0x8B2387, 0x3148C8, 0x3D1550]
+    )
+
+    /// Pastels with dark type on every tile: the gentlest of them.
+    static let lavender = SRPalette(
+        id: "lavender", name: "Lavender", blurb: "Soft lilac, periwinkle, mint and blush pastels",
+        paper: SRTone(0xF7F2FA, 0x16121F), surface: SRTone(0xFFFFFF, 0x241E31),
+        ink: SRTone(0x221A38, 0xF7F2FA), inkSecondary: SRTone(0x544A73, 0xD5CBEB),
+        accent: SRTone(0x7A4AB0, 0xCDB0F5), accentDeep: SRTone(0x683D9C, 0xCDB0F5),
+        accentInk: SRTone(0x0B7566, 0x7EE6CF), good: SRTone(0x1A7A4C, 0x7FE3AE),
+        warn: SRTone(0x8F5800, 0xFFC970), error: SRTone(0xBF2A4A, 0xFF8FA3),
+        hues: hues(0x221A38, [
+            (.family, 0xF2899E, 0xFFCDD6), (.health, 0x4FC79A, 0xB8F0DA), (.steps, 0xF5A26B, 0xFFD8B8),
+            (.trips, 0x6FA8F0, 0xC2DEFF), (.tasks, 0xF2CF5B, 0xFFEDA8), (.backlog, 0x9E6A9A, 0xD8B4D4),
+            (.messages, 0x52BCC8, 0xB5ECF0), (.games, 0x9E80E6, 0xD8CAFF), (.chat, 0x5F6FD0, 0xA8B2F2),
+            (.news, 0x8FAF94, 0xD3E5D5), (.daydream, 0xD58AE6, 0xF5D0FA), (.flows, 0x9893B5, 0xD8D5E8),
+            (.alerts, 0xF07466, 0xFFBCAE), (.wildmind, 0xA6CF6A, 0xE0F2BC), (.move, 0xE0659C, 0xFFB3D3),
+        ]),
+        people: [0xF07A96, 0x6F8EEA, 0x4CC29A, 0xF2B24D, 0xB088EE, 0x5EBFD9, 0xD884C8, 0x9CC764],
+        icon: "AppIcon-Lavender", iconGround: [0xEE8FAE, 0xA98BEB, 0x7F95F0, 0x5CC9A6]
+    )
+
+    /// Ice, slate and a pale aurora: cool and calm, with a rose family to stand out.
+    static let arctic = SRPalette(
+        id: "arctic", name: "Arctic", blurb: "Icy blues, slate and a pale aurora green",
+        paper: SRTone(0xF2F5F7, 0x0B1016), surface: SRTone(0xFFFFFF, 0x161E27),
+        ink: SRTone(0x0F1E2B, 0xF2F5F7), inkSecondary: SRTone(0x3D5366, 0xBACBD9),
+        accent: SRTone(0x0B6A8C, 0x7FD4F0), accentDeep: SRTone(0x095A78, 0x7FD4F0),
+        accentInk: SRTone(0x0B7A5E, 0x6EEBC0), good: SRTone(0x167A4A, 0x6EE7A0),
+        warn: SRTone(0x8A5A00, 0xFFC857), error: SRTone(0xBE2D3C, 0xFF8A94),
+        hues: hues(0x0F1E2B, [
+            (.family, 0xC8637E, 0xEFB4C4), (.health, 0x2FAE84, 0xB0F2D6), (.steps, 0x55697E, 0xA6B6C6),
+            (.trips, 0x3E86D0, 0xB2D8F7), (.tasks, 0x86C6DC, 0xDDF2F9), (.backlog, 0x7C76B5, 0xC0BCE6),
+            (.messages, 0x15909F, 0x8CDCE6), (.games, 0x6650C0, 0xAA9CF0), (.chat, 0x2F5E96, 0x7FA8D6),
+            (.news, 0x8A97A3, 0xD2D9DF), (.daydream, 0xA06AB8, 0xDDBDEA), (.flows, 0x1E3F6E, 0x4E7DB8),
+            (.alerts, 0xC94545, 0xF09A8C), (.wildmind, 0x6C9A62, 0xBADBAA), (.move, 0xB0488C, 0xE39AC9),
+        ]),
+        people: [0xE0607F, 0x2F7FD0, 0x2EA585, 0xE0A93A, 0x7A6BC8, 0x1AA0B8, 0xE5824F, 0x8DBF6A],
+        icon: "AppIcon-Arctic", iconGround: [0x7FDDBA, 0x8EC2F0, 0x3E86D0, 0x1E3F6E]
+    )
+
+    /// Pine, moss, bark and amber: darker and woodier than Meadow.
+    static let forest = SRPalette(
+        id: "forest", name: "Forest", blurb: "Deep pine, moss, bark and amber",
+        paper: SRTone(0xE9ECE3, 0x0B120E), surface: SRTone(0xF6F7F1, 0x17211B),
+        ink: SRTone(0x16201A, 0xE9ECE3), inkSecondary: SRTone(0x44503E, 0xC6D0BE),
+        accent: SRTone(0x1F5E45, 0x7FCFA6), accentDeep: SRTone(0x1A503A, 0x7FCFA6),
+        accentInk: SRTone(0x8C4F00, 0xF0B45A), good: SRTone(0x2B6E2E, 0x86D98A),
+        warn: SRTone(0x845200, 0xF2B84B), error: SRTone(0xA8321F, 0xF2907A),
+        hues: hues(0x16201A, [
+            (.family, 0xC0432E, 0xE8866A), (.health, 0x4F7D2A, 0x95BF5A), (.steps, 0xC07A10, 0xE8B04A),
+            (.trips, 0x2F6E8C, 0x6FB0CC), (.tasks, 0xC9A227, 0xE8CD6A), (.backlog, 0x7E4F6E, 0xB88AA6),
+            (.messages, 0x1F6B5C, 0x5AA593), (.games, 0x55457E, 0x8C7DB5), (.chat, 0x5A7A8C, 0xA0BCC8),
+            (.news, 0x6B4A2F, 0xA07B57), (.daydream, 0x9E5A9C, 0xD8A0D4), (.flows, 0x2E3F66, 0x6A7EAA),
+            (.alerts, 0x9E1F2E, 0xD9505A), (.wildmind, 0x6E8F1E, 0xB7D05A), (.move, 0xB83A55, 0xE57F94),
+        ]),
+        people: [0xC0502E, 0x3A6F96, 0x4F8A3A, 0xD09A2A, 0x7A5A9E, 0x2E8A7A, 0xA8456A, 0x8A6A45],
+        icon: "AppIcon-Forest", iconGround: [0x4F7D2A, 0xC07A10, 0x1F5E45, 0x4A3424],
+        iconBar: 0xE8B04A
+    )
+
+    /// Sand, clay and terracotta with sage and dusty blue: earthy and warm.
+    static let terracotta = SRPalette(
+        id: "terracotta", name: "Terracotta", blurb: "Sun-baked sand and clay, sage and dusty blue",
+        paper: SRTone(0xF7EFE6, 0x1A1210), surface: SRTone(0xFFFBF6, 0x2A1E19),
+        ink: SRTone(0x2B1A12, 0xF7EFE6), inkSecondary: SRTone(0x67503F, 0xE2CDBD),
+        accent: SRTone(0xA23B30, 0xF29A7A), accentDeep: SRTone(0x8C3128, 0xF29A7A),
+        accentInk: SRTone(0x3A6585, 0x9CC3E0), good: SRTone(0x3E6E3A, 0xA3CF96),
+        warn: SRTone(0x8A5600, 0xE8B65A), error: SRTone(0xB51D45, 0xFF8A9C),
+        hues: hues(0x2B1A12, [
+            (.family, 0xC2593A, 0xE89878), (.health, 0x6E8F6A, 0xAFC9A6), (.steps, 0xC98A2E, 0xE8BF72),
+            (.trips, 0x5A7FA0, 0x9DBBD4), (.tasks, 0xD9B47A, 0xF2E0C2), (.backlog, 0xB66B6E, 0xE0A7A6),
+            (.messages, 0x4C8A84, 0x93C7C0), (.games, 0x7A4F78, 0xB48CB0), (.chat, 0x45618C, 0x8296BF),
+            (.news, 0x8C5A3C, 0xC4977A), (.daydream, 0x8C7AA8, 0xC9BCDB), (.flows, 0x3F6E7A, 0x83AAB5),
+            (.alerts, 0xB03A2E, 0xE58A78), (.wildmind, 0x7A8A3A, 0xBDC77E), (.move, 0xC8506A, 0xEE9AA8),
+        ]),
+        people: [0xC8603F, 0x4F7FA6, 0x6E9A68, 0xD4A040, 0x8A6A9E, 0x3F8F88, 0xB85A6E, 0x8A9A45],
+        icon: "AppIcon-Terracotta", iconGround: [0xE8BF72, 0xC2593A, 0x8FAF8A, 0x5A7FA0]
+    )
+
+    /// Greys and slate, so the one signal orange is what you notice.
+    static let graphite = SRPalette(
+        id: "graphite", name: "Graphite", blurb: "Greys and slate, one signal orange",
+        paper: SRTone(0xF2F2F1, 0x0E0F11), surface: SRTone(0xFFFFFF, 0x1B1D21),
+        ink: SRTone(0x17191C, 0xF2F2F1), inkSecondary: SRTone(0x4A4F57, 0xC6CAD0),
+        accent: SRTone(0xC93000, 0xFF6B2C), accentDeep: SRTone(0xB02A00, 0xFF6B2C),
+        accentInk: SRTone(0x46607A, 0xA8BCD0), good: SRTone(0x2E7048, 0x7FD6A0),
+        warn: SRTone(0x845A00, 0xE8BC5A), error: SRTone(0xC0183C, 0xFF7A93),
+        hues: hues(0x17191C, [
+            (.family, 0x2F3237, 0x5A5F67), (.health, 0x5F7266, 0x9AAEA1), (.steps, 0x7A6F66, 0xB3A99F),
+            (.trips, 0x4A6585, 0x8CA5C2), (.tasks, 0xA9AEB5, 0xDADDE1), (.backlog, 0x766A7E, 0xADA3B5),
+            (.messages, 0x4F7478, 0x8FB0B3), (.games, 0x3B4252, 0x6B7488), (.chat, 0x657080, 0xA3ADBB),
+            (.news, 0x8F8A80, 0xC9C5BD), (.daydream, 0x8A87A8, 0xC4C2DA), (.flows, 0x3D5560, 0x75909C),
+            (.alerts, 0xD9480F, 0xFF8A4C), (.wildmind, 0x6B7254, 0xA8AE90), (.move, 0xF08A24, 0xFFC27A),
+        ]),
+        people: [0xE5531A, 0x4A6585, 0x5F8A6E, 0xB08D3E, 0x7D6A9E, 0x3E8A92, 0xA35D6A, 0x9AA0A8],
+        icon: "AppIcon-Graphite", iconGround: [0x4A4F57, 0x3B4048, 0x2A2D33, 0x1C1E22],
+        iconInk: 0xF2F2F1, iconBar: 0xFF5A1F
     )
 }
 

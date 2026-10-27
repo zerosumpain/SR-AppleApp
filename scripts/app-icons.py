@@ -11,12 +11,18 @@ Pure standard library (zlib + struct): the box that renders these has no
 imaging library, and a 1024-square RGB PNG needs none. No alpha channel:
 App Store Connect refuses an icon that has one.
 
-    python3 scripts/app-icons.py
+    python3 scripts/app-icons.py                 # every palette
+    python3 scripts/app-icons.py candy citrus    # only these
+
+Name only the palettes you changed: zlib's output is not promised to be the
+same byte for byte across builds, so re-rendering the rest can churn PNGs
+whose pixels did not change.
 """
 
 import json
 import math
 import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -44,6 +50,15 @@ ICONS = {
     "sunset": ("AppIcon-Sunset", (0xFDBA74, 0xFF8A65, 0xE03A8A, 0x7C3AED), 0xFFFFFF, 0xFFFFFF, 0.22),
     "meadow": ("AppIcon-Meadow", (0xB5D86B, 0xF2CC5C, 0x23887C, 0x3E6F8E), 0xFFFFFF, 0xFFFFFF, 0.22),
     "classic": ("AppIcon-Classic", (0x1A1008, 0x1A1008, 0x1A1008, 0x1A1008), 0xEDE4D4, 0xE8863A, 0.06),
+    # Candy's ground is too pale for a white mark: grape ink, a bubblegum bar.
+    "candy": ("AppIcon-Candy", (0xFF9CCB, 0xFFE76A, 0x8FD8FF, 0x7DF2C9), 0x2A1235, 0xF2559A, 0.22),
+    "citrus": ("AppIcon-Citrus", (0xFFC400, 0x7CB518, 0xFF7A00, 0xE63E62), 0xFFFFFF, 0xFFFFFF, 0.22),
+    "berry": ("AppIcon-Berry", (0xE0306A, 0x8B2387, 0x3148C8, 0x3D1550), 0xFFFFFF, 0xFFFFFF, 0.22),
+    "lavender": ("AppIcon-Lavender", (0xEE8FAE, 0xA98BEB, 0x7F95F0, 0x5CC9A6), 0xFFFFFF, 0xFFFFFF, 0.22),
+    "arctic": ("AppIcon-Arctic", (0x7FDDBA, 0x8EC2F0, 0x3E86D0, 0x1E3F6E), 0xFFFFFF, 0xFFFFFF, 0.22),
+    "forest": ("AppIcon-Forest", (0x4F7D2A, 0xC07A10, 0x1F5E45, 0x4A3424), 0xFFFFFF, 0xE8B04A, 0.16),
+    "terracotta": ("AppIcon-Terracotta", (0xE8BF72, 0xC2593A, 0x8FAF8A, 0x5A7FA0), 0xFFFFFF, 0xFFFFFF, 0.22),
+    "graphite": ("AppIcon-Graphite", (0x4A4F57, 0x3B4048, 0x2A2D33, 0x1C1E22), 0xF2F2F1, 0xFF5A1F, 0.10),
 }
 
 
@@ -132,8 +147,12 @@ def png(rows):
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b"")
 
 
-def main():
-    for name, (asset, corners, ink, bar, sheen) in ICONS.items():
+def main(names):
+    unknown = [name for name in names if name not in ICONS]
+    if unknown:
+        sys.exit(f"no such palette: {', '.join(unknown)} (have {', '.join(ICONS)})")
+    for name in names or ICONS:
+        asset, corners, ink, bar, sheen = ICONS[name]
         folder = ASSETS / f"{asset}.appiconset"
         folder.mkdir(exist_ok=True)
         image = png(render(corners, ink, bar, sheen))
@@ -149,4 +168,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

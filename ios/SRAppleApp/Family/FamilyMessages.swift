@@ -207,6 +207,17 @@ final class FamilyMessagesStore: ObservableObject {
     /// "new", or the id of the message a reply is on its way to.
     @Published private(set) var busy: String?
     @Published var message: String?
+    /// A passing confirmation — "Reminder set for 18:00".
+    @Published var notice: String?
+    /// When this phone last had msg family in front of somebody. Lines from
+    /// other people newer than this are unread.
+    @Published private(set) var readAt: Date? = UserDefaults.standard.object(forKey: FamilyMessagesStore.readKey) as? Date
+    /// Threads pinned to the top of msg family, on this phone only.
+    @Published private(set) var pinned: Set<String> = Set(UserDefaults.standard.stringArray(forKey: FamilyMessagesStore.pinnedKey) ?? [])
+
+    static let readKey = "familyMessages.readAt"
+    static let pinnedKey = "familyMessages.pinned"
+    static let draftsKey = "familyMessages.drafts"
 
     /// The threads, the one that moved last at the foot — the way a
     /// conversation reads, and where the box to write in is.
@@ -232,6 +243,91 @@ final class FamilyMessagesStore: ObservableObject {
     var lastActivity: Date? { newest.flatMap { parseTimestamp($0.at) } }
     var latestLine: String? { newest.map { "\($0.who): \($0.body)" } }
     var reactions: [String] { feed?.reactions ?? FamilyMessages.reactions }
+
+    // MARK: - Unread
+
+    /// Every line in a thread — the message and its replies — as when and whose.
+    static func lines(_ message: FamilyMessage) -> [(at: Date?, mine: Bool)] {
+        [(parseTimestamp(message.at), message.mine)] + message.replies.map { (parseTimestamp($0.at), $0.mine) }
+    }
+
+    /// Lines from other people since msg family was last open here.
+    var unreadCount: Int {
+        FamilyMessageTools.unread((feed?.messages ?? []).flatMap(Self.lines), since: readAt)
+    }
+
+    /// Whether a thread has a line from somebody else newer than `since`.
+    func isUnread(_ message: FamilyMessage, since: Date?) -> Bool {
+        FamilyMessageTools.unread(Self.lines(message), since: since) > 0
+    }
+
+    /// Everything here has now been seen.
+    func markRead() {
+        let at = max(lastActivity ?? .distantPast, Date())
+        readAt = at
+        UserDefaults.standard.set(at, forKey: Self.readKey)
+    }
+
+    // MARK: - Pins and drafts (this phone only)
+
+    func togglePin(_ id: String) {
+        if pinned.contains(id) { pinned.remove(id) } else { pinned.insert(id) }
+        UserDefaults.standard.set(Array(pinned).sorted(), forKey: Self.pinnedKey)
+        SRHaptic.select()
+    }
+
+    /// What was being written in a box ("new", or a thread's id) when it was left.
+    static func draft(_ key: String) -> String {
+        (UserDefaults.standard.dictionary(forKey: draftsKey) as? [String: String])?[key] ?? ""
+    }
+
+    static func saveDraft(_ text: String, for key: String) {
+        var all = (UserDefaults.standard.dictionary(forKey: draftsKey) as? [String: String]) ?? [:]
+        all[key] = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        UserDefaults.standard.set(all, forKey: draftsKey)
+    }
+
+    // MARK: - Names
+
+    /// This phone's own person's first name, for "@" mentions of them.
+    var myName: String? {
+        if let me = FamilyStore.current?.view?.people.first(where: \.isSelf) { return Self.first(me.name) }
+        return (feed?.messages ?? []).first(where: \.mine).map { Self.first($0.fromName) }
+    }
+
+    /// Everyone else an "@" could name: the household, then anyone who has
+    /// written here.
+    var mentionNames: [String] {
+        let household = (FamilyStore.current?.view?.people ?? []).filter { !$0.isSelf }.map { Self.first($0.name) }
+        let writers = (feed?.messages ?? []).flatMap { m in [(m.fromName, m.mine)] + m.replies.map { ($0.fromName, $0.mine) } }
+            .filter { !$0.1 }.map { Self.first($0.0) }
+        return FamilyMessageTools.mentionCandidates("", names: household + writers)
+    }
+
+    /// `nonisolated`: pure, and the reminder scheduler calls it off the main actor.
+    nonisolated static func first(_ name: String) -> String {
+        name.split(separator: " ").first.map(String.init) ?? name
+    }
+
+    // MARK: - Polls
+
+    /// The votes under a poll, as the tally reads them.
+    static func votes(_ message: FamilyMessage) -> [FamilyPoll.Vote] {
+        message.replies.map {
+            FamilyPoll.Vote(voter: $0.fromId.isEmpty ? $0.fromName : $0.fromId, name: $0.mine ? "You" : first($0.fromName),
+                            body: $0.body, at: parseTimestamp($0.at), mine: $0.mine)
+        }
+    }
+
+    /// Vote for an option: take back this person's earlier votes, then reply
+    /// with the option's marker. Voting for the option already held takes it back.
+    func vote(_ option: Int, in message: FamilyMessage, poll: FamilyPoll) async {
+        guard busy == nil, FamilyPoll.markers.indices.contains(option) else { return }
+        let mine = message.replies.filter { $0.mine && poll.option(of: $0.body) != nil }
+        let held = mine.contains { poll.option(of: $0.body) == option }
+        for reply in mine { _ = await delete(reply.id) }
+        if !held { _ = await reply(to: message.id, FamilyPoll.markers[option]) }
+    }
 
     func load() async {
         guard SiteClient.shared.isPaired, !loading else { return }
