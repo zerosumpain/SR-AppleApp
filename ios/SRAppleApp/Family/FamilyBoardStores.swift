@@ -132,37 +132,47 @@ final class FamilyTasksStore: ObservableObject {
     @Published private(set) var board: FamilyTasksBoard?
     @Published private(set) var loading = false
     @Published private(set) var loaded = false
-    /// The task id an action is waiting on, or "new".
-    @Published private(set) var busy: String?
+    /// The task ids with an action on its way, and "new" while one is being
+    /// added. One per task, not one for the list: ticking off two in a row
+    /// dropped the second tap (or full swipe) without a word while the first
+    /// was still saving.
+    @Published private(set) var busy: Set<String> = []
     @Published var message: String?
+    /// Asked to read while a read was running: that one goes round again, so
+    /// an action that lands during another's reload is still shown.
+    private var loadAgain = false
 
     var summary: FamilyTasksSummary? { board.map { FamilyTasksSummary.make($0) } }
 
     func load() async {
-        guard SiteClient.shared.isPaired, !loading else { return }
+        guard SiteClient.shared.isPaired else { return }
+        guard !loading else { loadAgain = true; return }
         loading = true
         defer { loading = false; loaded = true }
-        do {
-            let fetched: FamilyTasksBoard = try await SiteClient.shared.send("api/native/family/tasks")
-            board = fetched
-            message = nil
-            FamilyWidgetBridge.save(tasks: fetched)
-        } catch is CancellationError {
-            return
-        } catch {
-            if (error as? URLError)?.code == .cancelled { return }
-            if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 {
-                board = nil; FamilyWidgetBridge.clear()
+        repeat {
+            loadAgain = false
+            do {
+                let fetched: FamilyTasksBoard = try await SiteClient.shared.send("api/native/family/tasks")
+                board = fetched
+                message = nil
+                FamilyWidgetBridge.save(tasks: fetched)
+            } catch is CancellationError {
+                return
+            } catch {
+                if (error as? URLError)?.code == .cancelled { return }
+                if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 {
+                    board = nil; FamilyWidgetBridge.clear()
+                }
+                message = board == nil ? Self.sentence(for: error) : nil
             }
-            message = board == nil ? Self.sentence(for: error) : nil
-        }
+        } while loadAgain
     }
 
     /// Add a task. Nil when it went; otherwise the sentence for the sheet.
     func create(_ body: FamilyTaskCreateBody) async -> String? {
-        guard busy == nil else { return "Saving already…" }
-        busy = "new"
-        defer { busy = nil }
+        guard !busy.contains("new") else { return "Saving already…" }
+        busy.insert("new")
+        defer { busy.remove("new") }
         do {
             try await SiteClient.shared.post("api/native/family/tasks", body: try JSONEncoder().encode(body))
             SRHaptic.ok()
@@ -177,9 +187,9 @@ final class FamilyTasksStore: ObservableObject {
     /// reason is in `message`.
     @discardableResult
     func act(_ action: FamilyTaskAction, on task: FamilyTask, note: String? = nil) async -> Bool {
-        guard busy == nil else { return false }
-        busy = task.id
-        defer { busy = nil }
+        guard !busy.contains(task.id) else { return false }
+        busy.insert(task.id)
+        defer { busy.remove(task.id) }
         do {
             let body = FamilyTaskActionBody(action: action.rawValue, note: note, expectedUpdatedAt: task.updatedAt)
             try await SiteClient.shared.call("api/native/family/tasks/\(task.id)", method: "PATCH", body: try JSONEncoder().encode(body))
