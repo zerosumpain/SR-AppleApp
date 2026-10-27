@@ -140,6 +140,10 @@ final class FamilyAlarmStore: ObservableObject {
     @Published private(set) var sending = false
     @Published var failure: String?
 
+    /// The ringing alarm Silence was pressed on. A poll that then learns its
+    /// kind must not start it ringing again under the thumb that silenced it.
+    private var silenced: String?
+
     /// Alarms already dismissed here, so a poll does not ring them twice.
     private var seen: Set<String> {
         get { Set(UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? []) }
@@ -268,7 +272,7 @@ final class FamilyAlarmStore: ObservableObject {
         // keep whichever copy says more.
         if incoming?.alarmId == alarm.alarmId {
             // A kind the push did not carry: ring the right sound from now on.
-            if let current = incoming, current.kind != alarm.kind, !current.cancelled {
+            if let current = incoming, current.kind != alarm.kind, !current.cancelled, silenced != alarm.alarmId {
                 AlarmPlayer.shared.start(FamilyAlarmKind(rawValue: alarm.kind) ?? .siren)
             }
             if alarm.lat != nil || alarm.message != nil || alarm.place != nil || incoming?.kind != alarm.kind, incoming != alarm {
@@ -314,7 +318,10 @@ final class FamilyAlarmStore: ObservableObject {
         }
     }
 
-    func silence() { AlarmPlayer.shared.stop() }
+    func silence() {
+        silenced = incoming?.alarmId
+        AlarmPlayer.shared.stop()
+    }
 
     func dismiss() {
         AlarmPlayer.shared.stop()
