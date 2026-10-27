@@ -34,6 +34,18 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-27-trips-keep-up", when: "October 2026", title: "A plan that keeps up", items: [
+            WhatsNewItem(icon: "clock.arrow.circlepath", title: "Keeping to the plan",
+                         detail: "On a trip day the app checks every ten minutes where you are against the plan. Running a little behind, it quietly moves the rest of the day later. When the plan can't bend any further, it offers things to do near you — or to stop prompting for the day."),
+            WhatsNewItem(icon: "location.north.line.fill", title: "Which way you're facing",
+                         detail: "The trip map shows the way your phone points. Tap the location button twice and the map turns with you."),
+            WhatsNewItem(icon: "magnifyingglass", title: "Find a place",
+                         detail: "Search the trip map for anywhere, see what's near, and show the route — walk it with the app or open it in Maps."),
+            WhatsNewItem(icon: "square.grid.3x3", title: "A tidier More",
+                         detail: "Every door on More is the same size now, and the ones you use most come first."),
+            WhatsNewItem(icon: "phone.connection.fill", title: "Bat phone on every phone",
+                         detail: "msg family, with the bat phone, always stays on Home — and it's on the app icon's long-press menu too."),
+        ]),
         WhatsNewRelease(id: "2026-10-27-family-extras", when: "October 2026", title: "Closer to the family", items: [
             WhatsNewItem(icon: "person.crop.circle", title: "Your photo",
                          detail: "Settings → Your photo puts a picture of you in place of your initials — on the map, in msg family and on the step board."),

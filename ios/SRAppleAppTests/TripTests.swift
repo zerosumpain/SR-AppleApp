@@ -279,6 +279,61 @@ final class TripTests: XCTestCase {
         XCTAssertEqual(TripProgress.toTell(day: day, marks: marks, nowMin: 636, clock: clock).phase, .heading(2))
     }
 
+    // MARK: Keeping up
+
+    /// At the stop, inside its time: no slip. Still there past its leave:
+    /// late by the overrun.
+    func testSlipAtAStopIsTheOverrun() throws {
+        let clock = TripClock("Europe/Rome")
+        let day = Self.day()
+        let marks = [
+            "stay:2026-10-27:start": TripStopMark(leftAt: clock.date("2026-10-27", minutes: 548)),
+            "pantheon": TripStopMark(arrivedAt: clock.date("2026-10-27", minutes: 562)),
+        ]
+        let at = TripLatLng(lat: 41.8986, lng: 12.4769)
+        let early = TripProgress.of(day: day, marks: marks, nowMin: 590, clock: clock)
+        XCTAssertEqual(try XCTUnwrap(TripKeepUp.slip(day: day, progress: early, position: at, nowMin: 590)), 0)
+        let late = TripProgress.of(day: day, marks: marks, nowMin: 630, clock: clock)
+        XCTAssertEqual(try XCTUnwrap(TripKeepUp.slip(day: day, progress: late, position: at, nowMin: 630)), 25)
+    }
+
+    /// Away from the stop the plan has you making for: when you would reach
+    /// it from here, against when the plan has you there.
+    func testSlipOnTheWayIsTheETA() throws {
+        let clock = TripClock("Europe/Rome")
+        let day = Self.day()
+        let marks = ["stay:2026-10-27:start": TripStopMark(leftAt: clock.date("2026-10-27", minutes: 548))]
+        let progress = TripProgress.of(day: day, marks: marks, nowMin: 590, clock: clock)
+        let far = TripLatLng(lat: 41.91, lng: 12.50)
+        let slip = try XCTUnwrap(TripKeepUp.slip(day: day, progress: progress, position: far, nowMin: 590))
+        let walk = TripReplan.estimateLeg(far, TripLatLng(lat: 41.8986, lng: 12.4769), .walk).seconds / 60
+        XCTAssertEqual(slip, 590 + walk - 560, accuracy: 0.01)
+    }
+
+    /// Re-timing keeps the plan while nothing is dropped, moved or warned
+    /// about; then it is the person's call.
+    func testOnlyACleanRetimeIsUsedWithoutAsking() {
+        let day = Self.day()
+        var later = day
+        for i in 1..<later.stops.count { later.stops[i].arriveMin += 20; later.stops[i].departMin += 20 }
+        let clean = ReplanOption(id: "shift", label: "Push everything back 20 min", kind: .shift, day: later, dropped: [], endsLaterMin: 20)
+        XCTAssertTrue(TripKeepUp.keepsThePlan(clean, day: day, done: []))
+        var warned = clean
+        warned.day.warnings = ["Missed your 09:20 Pantheon slot"]
+        XCTAssertFalse(TripKeepUp.keepsThePlan(warned, day: day, done: []))
+        var dropped = clean
+        dropped.dropped = ["pantheon"]
+        XCTAssertFalse(TripKeepUp.keepsThePlan(dropped, day: day, done: []))
+        var reordered = clean
+        reordered.day.stops.swapAt(1, 2)
+        XCTAssertFalse(TripKeepUp.keepsThePlan(reordered, day: day, done: []))
+
+        XCTAssertEqual(TripKeepUp.verdict(day: day, slip: 6, done: []) { [clean] }, .onPlan, "under ten minutes is keeping to it")
+        XCTAssertEqual(TripKeepUp.verdict(day: day, slip: 20, done: []) { [clean] }, .retime(clean, slipMin: 20))
+        XCTAssertEqual(TripKeepUp.verdict(day: day, slip: 20, done: []) { [warned] }, .cannotKeep(slipMin: 20))
+        XCTAssertEqual(TripKeepUp.retimedLine(clean), "Plan moved 20 min later so you can keep to it")
+    }
+
     /// An off-plan alert about a stop now done or past, or another day, is
     /// withdrawn; one about a place (an unplanned stop) stands.
     func testStaleOffPlanAlerts() {

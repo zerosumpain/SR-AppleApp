@@ -26,7 +26,9 @@ final class TripLive {
               // A slot whose time has gone is not "next", ticked or not.
               let progress = store.progressToTell(running.bundle.trip.id, running.date, now: now),
               let state = Self.state(day: day, progress: progress, clock: clock),
-              Self.isOn(day: day, clock: clock, now: now) else {
+              Self.isOn(day: day, clock: clock, now: now),
+              // "Stop prompting the plan today" takes the card away too.
+              !TripOffPlan.shared.isPaused(running.bundle.trip.id, running.date) else {
             Task { await self.endAll() }
             return
         }

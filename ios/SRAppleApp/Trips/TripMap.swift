@@ -55,7 +55,15 @@ struct TripSceneMap: UIViewRepresentable {
     var focus: TripLatLng? = nil
     /// Bumped to follow the phone's position.
     var followToken = 0
+    /// Following with the map turned to the way the phone faces (the
+    /// compass), rather than north up.
+    var followHeading = false
+    /// A place found by search (`TripPlaceSearch`), and the route to it.
+    var found: TripLatLng? = nil
+    var foundRoute: [TripLatLng] = []
     var interactive = true
+    /// The reader panned away: the map stopped following.
+    var onFollowEnded: (() -> Void)? = nil
     var onTap: ((TripMapScene.Pin?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -70,6 +78,9 @@ struct TripSceneMap: UIViewRepresentable {
         map.isZoomEnabled = interactive
         map.isRotateEnabled = interactive
         map.showsUserLocation = showsUser && !SRDemo.isOn
+        // The way the phone faces, as a cone on the blue dot (John,
+        // 2026-10-27: "show the direction of the user").
+        map.showsUserHeadingIndicator = showsUser && !SRDemo.isOn
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         // A double tap still zooms: the single tap waits for it to fail.
         for other in map.gestureRecognizers ?? [] {
@@ -86,6 +97,7 @@ struct TripSceneMap: UIViewRepresentable {
         let map = host.map
         let wantsUser = showsUser && !SRDemo.isOn
         if map.showsUserLocation != wantsUser { map.showsUserLocation = wantsUser }
+        if map.showsUserHeadingIndicator != wantsUser { map.showsUserHeadingIndicator = wantsUser }
         context.coordinator.apply(self, to: map)
     }
 
@@ -93,12 +105,16 @@ struct TripSceneMap: UIViewRepresentable {
         static let pinsLayer = "sr-trip-pins"
         static let topPinsLayer = "sr-trip-pins-top"
         static let markerLayer = "sr-trip-marker"
+        static let foundLayer = "sr-trip-found"
+        static let foundRouteLayer = "sr-trip-found-route"
 
         private var latest: TripSceneMap?
         /// Where the pins' VoiceOver elements live.
         weak var host: TripMapHost?
         private var drawn: TripMapScene.Scene?
         private var drawnMarker: CLLocationCoordinate2D?
+        private var drawnFound: TripLatLng?
+        private var drawnRoute: [TripLatLng] = []
         private var framedToken: Int?
         private var focused: TripLatLng?
         /// The drawer's height when the focus was framed: re-framed once it settles.
@@ -115,6 +131,9 @@ struct TripSceneMap: UIViewRepresentable {
                 draw(spec, on: style)
                 drawn = spec.scene
                 drawnMarker = spec.marker
+            }
+            if drawnFound != spec.found || drawnRoute != spec.foundRoute {
+                found(spec, on: style)
             }
             place(spec, map)
             host?.speak(spec, on: map)
@@ -139,7 +158,13 @@ struct TripSceneMap: UIViewRepresentable {
             draw(spec, on: style)
             drawn = spec.scene
             drawnMarker = spec.marker
+            found(spec, on: style)
             place(spec, mapView)
+        }
+
+        /// A pan or a pinch ends following; the button's state follows suit.
+        func mapView(_ mapView: MLNMapView, didChange mode: MLNUserTrackingMode, animated: Bool) {
+            if mode == .none { latest?.onFollowEnded?() }
         }
 
         private func sameMarker(_ m: CLLocationCoordinate2D?) -> Bool {
@@ -171,7 +196,9 @@ struct TripSceneMap: UIViewRepresentable {
             }
             if spec.followToken != followed {
                 followed = spec.followToken
-                if map.showsUserLocation { map.setUserTrackingMode(.follow, animated: true, completionHandler: nil) }
+                if map.showsUserLocation {
+                    map.setUserTrackingMode(spec.followHeading ? .followWithHeading : .follow, animated: true, completionHandler: nil)
+                }
             }
         }
 
@@ -286,6 +313,46 @@ struct TripSceneMap: UIViewRepresentable {
             layer.iconIgnoresPlacement = NSExpression(forConstantValue: true)
             if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
             return layer
+        }
+
+        /// The searched-for place, as a red dot with a white edge, and the
+        /// route to it, solid, over the day's lines.
+        private func found(_ spec: TripSceneMap, on style: MLNStyle) {
+            drawnFound = spec.found
+            drawnRoute = spec.foundRoute
+            var coords = spec.foundRoute.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+            let route = MLNShapeCollection(shapes: coords.count > 1 ? [MLNPolylineFeature(coordinates: &coords, count: UInt(coords.count))] : [])
+            if let source = style.source(withIdentifier: Self.foundRouteLayer) as? MLNShapeSource {
+                source.shape = route
+            } else {
+                let source = MLNShapeSource(identifier: Self.foundRouteLayer, shape: route, options: nil)
+                style.addSource(source)
+                let layer = MLNLineStyleLayer(identifier: Self.foundRouteLayer, source: source)
+                layer.lineColor = NSExpression(forConstantValue: UIColor.systemIndigo)
+                layer.lineWidth = NSExpression(forConstantValue: 5)
+                layer.lineOpacity = NSExpression(forConstantValue: 0.85)
+                layer.lineCap = NSExpression(forConstantValue: "round")
+                layer.lineJoin = NSExpression(forConstantValue: "round")
+                style.addLayer(layer)
+            }
+            let points: [MLNShape] = spec.found.map { at in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: at.lat, longitude: at.lng)
+                return [f]
+            } ?? []
+            let collection = MLNShapeCollection(shapes: points)
+            if let source = style.source(withIdentifier: Self.foundLayer) as? MLNShapeSource {
+                source.shape = collection
+            } else {
+                let source = MLNShapeSource(identifier: Self.foundLayer, shape: collection, options: nil)
+                style.addSource(source)
+                let layer = MLNCircleStyleLayer(identifier: Self.foundLayer, source: source)
+                layer.circleColor = NSExpression(forConstantValue: UIColor.systemRed)
+                layer.circleRadius = NSExpression(forConstantValue: 9)
+                layer.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+                layer.circleStrokeWidth = NSExpression(forConstantValue: 3)
+                style.addLayer(layer)
+            }
         }
 
         private func marker(_ at: CLLocationCoordinate2D?, on style: MLNStyle) {
