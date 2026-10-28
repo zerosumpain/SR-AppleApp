@@ -23,6 +23,7 @@ final class OfflineCatalogueTests: XCTestCase {
         OfflineGameEntry(OldMaidRules.self),
         OfflineGameEntry(KnockoutWhistRules.self),
         OfflineGameEntry(HigherLowerRules.self),
+        OfflineGameEntry(withBot: OfflineFireworksRules.self),
         OfflineGameEntry(QuickDrawRules.self),
         OfflineGameEntry(SnapRules.self),
         OfflineGameEntry(ColourClashRules.self),
@@ -38,20 +39,22 @@ final class OfflineCatalogueTests: XCTestCase {
         OfflineGameEntry(SteadyHandRules.self),
         OfflineGameEntry(SeaBattleRules.self),
         OfflineGameEntry(CarRaceNearbyRules.self),
+        OfflineGameEntry(withBot: OfflineChessRules.self),
+        OfflineGameEntry(withBot: OfflineLiarsDiceRules.self),
     ]
 
     private static let expectedIds = [
-        "crazy-eights", "go-fish", "blackjack", "cheat", "old-maid", "knockout-whist", "higher-lower",
+        "crazy-eights", "go-fish", "blackjack", "cheat", "old-maid", "knockout-whist", "higher-lower", "fireworks",
         "quick-draw", "snap", "colour-clash", "whack-a-mole", "hot-potato", "swipe-says", "reflex-grid",
         "maths-sprint", "dots-and-boxes", "memory-pairs", "four-in-a-row", "code-breaker", "steady-hand", "sea-battle",
-        "car-race",
+        "car-race", "chess", "liars-dice",
     ]
 
     private static let seeds: [UInt64] = [1, 7, 42, 2026, 0xDEAD_BEEF]
 
     // MARK: - The list
 
-    func testTheRosterIsTwentyTwoGamesInThreeSections() {
+    func testTheRosterIsTwentyFiveGamesInThreeSections() {
         checkTheList(Self.roster)
     }
 
@@ -103,20 +106,20 @@ final class OfflineCatalogueTests: XCTestCase {
 
     func testTheGamesWithABotAreTheOnesThatSayTheyHaveOne() {
         let bots = Self.roster.filter(\.hasBot).map(\.info.id)
-        XCTAssertEqual(bots, ["crazy-eights", "dots-and-boxes", "four-in-a-row"])
+        XCTAssertEqual(bots, ["crazy-eights", "fireworks", "dots-and-boxes", "four-in-a-row", "chess", "liars-dice"])
         // Alone: every one-player game, and every game with a bot.
         let solo = Self.roster.filter { OfflinePlayModes.canPlaySolo($0.info, hasBot: $0.hasBot) }.map(\.info.id)
-        XCTAssertEqual(solo, ["crazy-eights", "blackjack", "higher-lower", "reflex-grid", "maths-sprint",
-                              "dots-and-boxes", "four-in-a-row", "code-breaker", "steady-hand"])
+        XCTAssertEqual(solo, ["crazy-eights", "blackjack", "higher-lower", "fireworks", "reflex-grid", "maths-sprint",
+                              "dots-and-boxes", "four-in-a-row", "code-breaker", "steady-hand", "chess", "liars-dice"])
     }
 
     #if canImport(SwiftUI)
     func testTheCatalogueListsTheRosterInOrder() {
         XCTAssertEqual(OfflineCatalogue.items.map(\.id), Self.expectedIds)
         checkTheList(OfflineCatalogue.entries)
-        XCTAssertEqual(OfflineCatalogue.games(in: .card).count, 7)
+        XCTAssertEqual(OfflineCatalogue.games(in: .card).count, 8)
         XCTAssertEqual(OfflineCatalogue.games(in: .reaction).count, 7)
-        XCTAssertEqual(OfflineCatalogue.games(in: .skill).count, 8)
+        XCTAssertEqual(OfflineCatalogue.games(in: .skill).count, 10)
         for id in Self.expectedIds {
             XCTAssertEqual(OfflineCatalogue.item(id)?.id, id)
         }
@@ -134,7 +137,12 @@ final class OfflineCatalogueTests: XCTestCase {
         XCTAssertTrue(OfflineCatalogue.canPlayNearby("snap"))
         XCTAssertFalse(OfflineCatalogue.canPlaySolo("boggle"), "no offline Boggle yet")
         XCTAssertFalse(OfflineCatalogue.canPlayNearby("boggle"))
-        XCTAssertEqual(OfflineCatalogue.soloGames.count, 9)
+        // The online strategy games' tiles open their offline twins.
+        for kind in ["chess", "liars-dice", "fireworks"] {
+            XCTAssertTrue(OfflineCatalogue.canPlaySolo(kind), kind)
+            XCTAssertTrue(OfflineCatalogue.canPlayNearby(kind), kind)
+        }
+        XCTAssertEqual(OfflineCatalogue.soloGames.count, 12)
     }
     #endif
 
@@ -142,17 +150,17 @@ final class OfflineCatalogueTests: XCTestCase {
 
     private func checkTheList(_ entries: [OfflineGameEntry], file: StaticString = #filePath, line: UInt = #line) {
         let infos = entries.map(\.info)
-        XCTAssertEqual(infos.count, 22, file: file, line: line)
+        XCTAssertEqual(infos.count, 25, file: file, line: line)
         XCTAssertEqual(infos.map(\.id), Self.expectedIds, file: file, line: line)
         XCTAssertEqual(Set(infos.map(\.id)).count, infos.count, "ids are unique", file: file, line: line)
         XCTAssertEqual(Set(infos.map(\.title)).count, infos.count, "titles are unique", file: file, line: line)
-        XCTAssertEqual(infos.filter { $0.category == .card }.count, 7, file: file, line: line)
+        XCTAssertEqual(infos.filter { $0.category == .card }.count, 8, file: file, line: line)
         XCTAssertEqual(infos.filter { $0.category == .reaction }.count, 7, file: file, line: line)
-        XCTAssertEqual(infos.filter { $0.category == .skill }.count, 8, file: file, line: line)
+        XCTAssertEqual(infos.filter { $0.category == .skill }.count, 10, file: file, line: line)
         // Grouped by section, in the order the page shows them.
         let sections = infos.map(\.category)
-        XCTAssertEqual(sections, Array(repeating: .card, count: 7) + Array(repeating: .reaction, count: 7)
-                       + Array(repeating: .skill, count: 8), file: file, line: line)
+        XCTAssertEqual(sections, Array(repeating: .card, count: 8) + Array(repeating: .reaction, count: 7)
+                       + Array(repeating: .skill, count: 10), file: file, line: line)
         for info in infos {
             XCTAssertTrue(info.minPlayers >= 1 && info.minPlayers <= info.maxPlayers
                           && info.maxPlayers <= OfflineRoom.capacity,
@@ -244,6 +252,9 @@ final class OfflineCatalogueTests: XCTestCase {
         case "steady-hand": return OfflineRulesAudit.problems(SteadyHandRules.self)
         case "sea-battle": return OfflineRulesAudit.problems(SeaBattleRules.self)
         case "car-race": return OfflineRulesAudit.problems(CarRaceNearbyRules.self)
+        case "fireworks": return OfflineRulesAudit.problems(OfflineFireworksRules.self)
+        case "chess": return OfflineRulesAudit.problems(OfflineChessRules.self)
+        case "liars-dice": return OfflineRulesAudit.problems(OfflineLiarsDiceRules.self)
         default: return ["no rules type for '\(id)'"]
         }
     }

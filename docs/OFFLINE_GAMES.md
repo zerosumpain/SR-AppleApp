@@ -436,8 +436,23 @@ A game whose rules have a computer player conforms to `OfflineBotRules` (in its 
 candidate actions best first, and the match applies the first the rules accept — and is
 registered with `OfflineCatalogueItem(withBot: Rules.self)`. It can then be played alone
 (`OfflinePlayModes.soloBots`), and a host can add computer players to empty seats. The
-room moves bots on its tick after `OfflineRoom.botThink` and sends them nothing. Bots so
-far: Crazy Eights, Dots and Boxes, Four in a Row.
+room moves bots on its tick after `OfflineRoom.botThink` and sends them nothing; a bot
+with no move looks again every `OfflineRoom.botRetry` (0.25 s). Bots so far: Crazy Eights,
+Dots and Boxes, Four in a Row, Chess, Liar's Dice, Fireworks.
+
+- **A bot must be cheap on the main actor.** `botActions` runs inside the host's ~10 Hz
+  tick, on the main thread. A bot that needs real thought hands the work to a background
+  queue and answers `[]` ("not yet") until it is done — the room's retry picks the answer
+  up. Chess does this (`OfflineChessThinker`: a time-boxed alpha-beta search, answers kept
+  by position). Never block waiting for it.
+- **A bot plays from its own view.** Build `view(of: state, for: botId)` and decide from
+  that (Liar's Dice, Fireworks), so it cannot peek at hidden cards or dice.
+- **Solo table size.** Alone, a game seats the fewest bots it needs, or
+  `OfflineGameInfo.soloOpponents` when it plays better round a bigger table (Liar's Dice
+  seats 3, Fireworks 2), kept within `maxPlayers` and the four bot names.
+- **Online twins.** An online game with an offline version is listed in
+  `OfflinePlayModes.offlineTwin` (online id → offline id: Maths Sprint, Chess, Liar's
+  Dice, Fireworks), so `SoloGameRef(kind:)` with the online id opens the offline game.
 
 `OfflineCatalogueItem(Rules.self) { context in View }` builds both halves: the type-erased
 `OfflineGameEntry(Rules.self)` the host's `OfflineRoom` starts matches from (via
