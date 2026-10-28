@@ -39,6 +39,12 @@ final class OfflineCategoriesTests: XCTestCase {
 
     // MARK: - The audit and the deal
 
+    func testTheOnlineGamesTileOpensThisOne() {
+        XCTAssertEqual(OfflinePlayModes.offlineId(for: "categories"), Rules.info.id)
+        XCTAssertTrue(OfflinePlayModes.canPlaySolo(Rules.info, hasBot: false))
+        XCTAssertTrue(OfflinePlayModes.canPlayNearby(Rules.info))
+    }
+
     func testTheRulesPassTheAudit() {
         XCTAssertEqual(OfflineRulesAudit.problems(Rules.self), [])
         XCTAssertEqual(OfflineRulesAudit.problems(Rules.self, seed: 2026), [])

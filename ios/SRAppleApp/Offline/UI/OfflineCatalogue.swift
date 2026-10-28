@@ -40,6 +40,10 @@ enum OfflineCatalogue {
         OfflineCatalogueItem(SteadyHandRules.self) { SteadyHandView(context: $0) },
         OfflineCatalogueItem(SeaBattleRules.self) { SeaBattleView(context: $0) },
         OfflineCatalogueItem(CarRaceNearbyRules.self) { CarRaceNearbyView(context: $0) },
+        // Word games, judged by the bundled word list (Offline/Words/).
+        OfflineCatalogueItem(OfflineBoggleRules.self) { OfflineBoggleView(context: $0) },
+        OfflineCatalogueItem(OfflineAnagramRules.self) { OfflineAnagramView(context: $0) },
+        OfflineCatalogueItem(OfflineCategoriesRules.self) { OfflineCategoriesView(context: $0) },
     ]
 
     /// What the host's room can start.
