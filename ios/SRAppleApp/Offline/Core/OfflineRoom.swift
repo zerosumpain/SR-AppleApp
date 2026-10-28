@@ -253,10 +253,17 @@ struct OfflineRoom {
     /// see what it did, short enough not to drag.
     static let botThink: Double = 0.9
 
+    /// How soon a computer player with no move looks again. A bot may have
+    /// nothing yet because it is still thinking off the main thread (the
+    /// chess engine answers "not yet" until its search is done), so it must
+    /// not wait for the table to change before it looks again.
+    static let botRetry: Double = 0.25
+
     /// Each computer player looks at the table `botThink` after it last
     /// changed and moves if it has a move — so it never answers in the same
     /// instant as the person before it, and goes again (a box closed, a card
-    /// drawn) after another pause.
+    /// drawn) after another pause. One with nothing to do looks again every
+    /// `botRetry`.
     private mutating func moveBots(now: Double) {
         guard phase == .playing else { return }
         for bot in players where bot.isBot && bot.inMatch {
@@ -267,8 +274,12 @@ struct OfflineRoom {
                 continue
             }
             guard let due = botDue[bot.id], now >= due, phase == .playing else { continue }
-            botDue[bot.id] = nil
-            if match?.botAct(bot.id, now: now) == true { checkOver() }
+            if match?.botAct(bot.id, now: now) == true {
+                botDue[bot.id] = nil
+                checkOver()
+            } else {
+                botDue[bot.id] = now + Self.botRetry
+            }
         }
     }
 
