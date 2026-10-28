@@ -2,12 +2,12 @@ import Foundation
 
 // Car Race: a top-down race round a closed track, steered by tilting the
 // phone (or by touch), alone against your own best lap's ghost, passed round
-// one phone, or phone to phone nearby.
+// one phone, two to four at once on one split screen, or phone to phone nearby.
 //
 // Everything that decides a race lives here, free of SwiftUI and Core Motion:
 // the tracks, the car's physics (speed, drag, grip and a drift when the tyres
-// let go), the walls, lap counting, the ghost a run leaves behind and the
-// pilot that drives demo mode. The screen turns tilt and touch into a
+// let go), the walls, cars knocking into each other, lap counting, the ghost a
+// run leaves behind and the pilot that drives demo mode. The screen turns tilt and touch into a
 // `CarInput`, calls `CarPhysics.step` once a frame and draws what comes back.
 //
 // Units are METRES and SECONDS. The world is screen-shaped: x runs right and
@@ -26,6 +26,12 @@ struct CarVec: Codable, Equatable {
     static func * (a: CarVec, k: Double) -> CarVec { CarVec(x: a.x * k, y: a.y * k) }
     func dot(_ b: CarVec) -> Double { x * b.x + y * b.y }
     var length: Double { (x * x + y * y).squareRoot() }
+
+    /// Turned `angle` radians clockwise on the screen (y runs down).
+    func rotated(by angle: Double) -> CarVec {
+        let c = cos(angle), s = sin(angle)
+        return CarVec(x: x * c - y * s, y: x * s + y * c)
+    }
 
     /// The unit vector at `angle` radians.
     static func heading(_ angle: Double) -> CarVec { CarVec(x: cos(angle), y: sin(angle)) }
@@ -193,6 +199,8 @@ struct CarState: Codable, Equatable {
     var speed: Double { velocity.length }
     /// Speed along the way the car points; negative when reversing.
     var forwardSpeed: Double { velocity.dot(.heading(heading)) }
+    /// The car as another car meets it.
+    var body: CarBody { CarBody(at: position, heading: heading, velocity: velocity) }
 }
 
 /// What the driver asks for this frame.
@@ -307,6 +315,183 @@ enum CarPhysics {
     }
 }
 
+// MARK: - Car against car
+
+/// Another car as this one meets it: where it is, which way it points and
+/// how fast it is going.
+struct CarBody: Equatable {
+    var at: CarVec
+    var heading: Double
+    var velocity: CarVec = .zero
+}
+
+/// Where two shapes overlap: which way to push the first one out, and how far.
+struct CarContact: Equatable {
+    /// A unit vector, from the second shape towards the first.
+    let normal: CarVec
+    /// Metres the shapes overlap.
+    let depth: Double
+}
+
+/// A knock against another car: how hard, for a haptic, and what it did.
+struct CarBump: Equatable {
+    /// Closing speed along the line of the hit, m/s.
+    let impact: Double
+    /// The change to this car's velocity.
+    let kick: CarVec
+}
+
+/// Cars that touch: their shapes, where they overlap and the bounce.
+///
+/// For a hit, MY car is its box (4.4 m by 2.2, as drawn) and the other car is
+/// two circles, nose and tail, that fill its box lengthways: box against box
+/// is a lot of maths for no difference a player could feel.
+///
+/// The bounce is an impulse along the line of the hit with some restitution,
+/// and each car takes its `share` of it: two cars of the same weight take half
+/// each. On one phone both halves are applied at once (`pair`). Phone to phone,
+/// each phone applies ITS OWN half to ITS OWN car only, against where it last
+/// heard the other car was, carried on at its speed (`CarGhost.predict`) —
+/// and the other phone does the same from its side. Nobody's phone ever moves
+/// somebody else's car, so a slow link can make a knock a moment late or a
+/// little soft, but never teleports a car the other phone has not seen hit.
+/// A short cooldown per car stops one knock bouncing twice while the other
+/// car's news catches up.
+enum CarCollision {
+    static let halfLength: Double = 2.2
+    static let halfWidth: Double = 1.1
+    /// How much of the closing speed comes back out of a hit: bumper cars,
+    /// not billiard balls.
+    static let restitution: Double = 0.4
+    /// After a bounce off a car, no second bounce off the same car for this
+    /// long, seconds.
+    static let cooldown: Double = 0.3
+    /// A nearby car is carried on from its last report at most this far,
+    /// seconds, and is solid only while that report is no older than this.
+    static let horizon: Double = 0.5
+
+    /// Circle `a` against circle `b`: the push that moves `a` out of `b`.
+    static func circles(_ a: CarVec, _ ra: Double, _ b: CarVec, _ rb: Double) -> CarContact? {
+        let d = a - b
+        let distance = d.length
+        guard distance < ra + rb else { return nil }
+        // Dead on top of each other: any way out will do.
+        let normal = distance > 1e-9 ? d * (1 / distance) : CarVec(x: 1, y: 0)
+        return CarContact(normal: normal, depth: ra + rb - distance)
+    }
+
+    /// A box (centre, heading, half its length and width) against a circle:
+    /// the push that moves the box out of the circle.
+    static func box(at centre: CarVec, heading: Double, halfLength: Double, halfWidth: Double,
+                    circle: CarVec, radius: Double) -> CarContact? {
+        let forward = CarVec.heading(heading)
+        let right = CarVec(x: -forward.y, y: forward.x)
+        let d = circle - centre
+        let lx = d.dot(forward), ly = d.dot(right)
+        // The point of the box nearest the circle's centre, in the box's own frame.
+        let qx = min(max(lx, -halfLength), halfLength)
+        let qy = min(max(ly, -halfWidth), halfWidth)
+        let gap = CarVec(x: lx - qx, y: ly - qy)
+        let distance = gap.length
+        if distance > 1e-9 {
+            guard distance < radius else { return nil }
+            // Away from the circle: the box moves opposite the way to it.
+            let local = gap * (-1 / distance)
+            return CarContact(normal: forward * local.x + right * local.y, depth: radius - distance)
+        }
+        // The circle's centre is inside the box: out by the shallowest side.
+        let overX = halfLength - abs(lx), overY = halfWidth - abs(ly)
+        if overX < overY {
+            return CarContact(normal: forward * (lx > 0 ? -1 : 1), depth: overX + radius)
+        }
+        return CarContact(normal: right * (ly > 0 ? -1 : 1), depth: overY + radius)
+    }
+
+    /// The other car's nose and tail circles.
+    static func circles(of car: CarBody) -> [CarVec] {
+        let along = CarVec.heading(car.heading) * (halfLength - halfWidth)
+        return [car.at + along, car.at - along]
+    }
+
+    /// My car's box against the other car's circles: the deepest overlap.
+    static func contact(_ me: CarBody, _ other: CarBody) -> CarContact? {
+        // Too far apart to touch: skip the maths.
+        let reach = 2 * (halfLength + halfWidth)
+        guard (me.at - other.at).dot(me.at - other.at) < reach * reach else { return nil }
+        var deepest: CarContact?
+        for c in circles(of: other) {
+            // A micron of overlap is rounding, not a touch.
+            if let hit = box(at: me.at, heading: me.heading, halfLength: halfLength, halfWidth: halfWidth,
+                             circle: c, radius: halfWidth),
+               hit.depth > max(deepest?.depth ?? 0, 1e-6) {
+                deepest = hit
+            }
+        }
+        return deepest
+    }
+
+    /// The bounce for a car moving at `mine` off one moving at `theirs`, along
+    /// `normal` (from them to me): this car's `share` of the impulse. Nil when
+    /// they are already moving apart.
+    static func bounce(_ mine: CarVec, off theirs: CarVec, normal: CarVec, share: Double = 0.5) -> CarBump? {
+        let closing = (mine - theirs).dot(normal)
+        guard closing < 0 else { return nil }
+        return CarBump(impact: -closing, kick: normal * (-(1 + restitution) * closing * share))
+    }
+
+    /// My car against the other cars as last heard of: pushed out of any it
+    /// overlaps by its share of the overlap, and bounced off one it is closing
+    /// on unless it bounced off that one within the cooldown. Only `car`
+    /// changes. Returns the hardest bounce.
+    @discardableResult
+    static func collide(_ car: inout CarState, with others: [(id: String, body: CarBody)],
+                        clock: inout CarBumpClock, at time: Double, share: Double = 0.5) -> CarBump? {
+        var hardest: CarBump?
+        for other in others {
+            guard let hit = contact(car.body, other.body) else { continue }
+            car.x += hit.normal.x * hit.depth * share
+            car.y += hit.normal.y * hit.depth * share
+            guard clock.ready(other.id, at: time),
+                  let bump = bounce(car.velocity, off: other.body.velocity, normal: hit.normal, share: share) else { continue }
+            clock.note(other.id, at: time)
+            car.vx += bump.kick.x
+            car.vy += bump.kick.y
+            if bump.impact > (hardest?.impact ?? 0) { hardest = bump }
+        }
+        return hardest
+    }
+
+    /// Two cars in the same simulation (split screen): pushed apart half each
+    /// and bounced off each other, both at once. Returns `a`'s bounce.
+    @discardableResult
+    static func pair(_ a: inout CarState, _ b: inout CarState) -> CarBump? {
+        guard let hit = contact(a.body, b.body) else { return nil }
+        let push = hit.normal * (hit.depth / 2)
+        a.x += push.x
+        a.y += push.y
+        b.x -= push.x
+        b.y -= push.y
+        guard let bump = bounce(a.velocity, off: b.velocity, normal: hit.normal) else { return nil }
+        a.vx += bump.kick.x
+        a.vy += bump.kick.y
+        b.vx -= bump.kick.x
+        b.vy -= bump.kick.y
+        return bump
+    }
+}
+
+/// When my car last bounced off each other car, for the cooldown.
+struct CarBumpClock: Equatable {
+    private(set) var last: [String: Double] = [:]
+
+    func ready(_ id: String, at time: Double) -> Bool {
+        guard let then = last[id] else { return true }
+        return time - then >= CarCollision.cooldown || time < then
+    }
+
+    mutating func note(_ id: String, at time: Double) { last[id] = time }
+}
+
 /// Counts laps by distance actually driven round the track, so driving
 /// backwards over the line, or cutting across, never counts.
 struct CarLapCounter: Codable, Equatable {
@@ -418,6 +603,38 @@ struct CarGhost: Codable, Equatable {
         if samples.count > 120 { samples.removeFirst(samples.count - 120) }
     }
 
+    /// Where a car heard of now and then (a nearby phone's) is at `t`: past
+    /// its last sample, carried on at its last speed and turn for at most
+    /// `horizon` seconds, then held there. Before the last sample it is simply
+    /// where it was. The speed and turn are read off the last two samples;
+    /// with only one, or two far apart, the car is taken to be standing still.
+    func predict(at t: Double, horizon: Double = CarCollision.horizon) -> CarBody? {
+        guard let last = samples.last else { return nil }
+        var velocity = CarVec.zero
+        var turnRate = 0.0
+        if samples.count >= 2 {
+            let before = samples[samples.count - 2]
+            let gap = last.t - before.t
+            if gap > 1e-3, gap <= 1 {
+                velocity = CarVec(x: (last.x - before.x) / gap, y: (last.y - before.y) / gap)
+                var turn = last.heading - before.heading
+                while turn > .pi { turn -= 2 * .pi }
+                while turn < -.pi { turn += 2 * .pi }
+                // No car turns faster than this; more is a glitch in the samples.
+                turnRate = min(max(turn / gap, -3), 3)
+            }
+        }
+        if t <= last.t, let pose = pose(at: t) {
+            return CarBody(at: pose.at, heading: pose.heading, velocity: velocity)
+        }
+        let ahead = min(max(0, t - last.t), max(0, horizon))
+        let swing = turnRate * ahead
+        // Along the chord of the arc: the velocity turned half way.
+        let run = velocity.rotated(by: swing / 2) * ahead
+        return CarBody(at: CarVec(x: last.x, y: last.y) + run, heading: last.heading + swing,
+                       velocity: velocity.rotated(by: swing))
+    }
+
     /// Where the ghost was `t` seconds into its run, between two samples.
     func pose(at t: Double) -> (at: CarVec, heading: Double)? {
         guard let first = samples.first, let last = samples.last else { return nil }
@@ -434,11 +651,16 @@ struct CarGhost: Codable, Equatable {
 /// The pilot that drives demo mode and the tests: aim at a point ahead on the
 /// middle line, and lift off for the bends it can see coming.
 enum CarAutopilot {
-    static func input(for car: CarState, on track: CarTrack) -> CarInput {
+    /// `lane` is metres right of the middle line to drive along (left when
+    /// negative), so several pilots on one track keep out of each other's way.
+    static func input(for car: CarState, on track: CarTrack, lane: Double = 0) -> CarInput {
         let spot = track.spot(of: car.position)
         let speed = car.forwardSpeed
-        let aim = track.point(at: spot.distance + 7 + max(0, speed) * 0.35)
-        let want = atan2(aim.at.y - car.y, aim.at.x - car.x)
+        let ahead = track.point(at: spot.distance + 7 + max(0, speed) * 0.35)
+        let room = max(0, track.width / 2 - 2.5)
+        let side = min(max(lane, -room), room)
+        let aim = ahead.at + CarVec(x: -sin(ahead.direction), y: cos(ahead.direction)) * side
+        let want = atan2(aim.y - car.y, aim.x - car.x)
         var error = want - car.heading
         while error > .pi { error -= 2 * .pi }
         while error < -.pi { error += 2 * .pi }

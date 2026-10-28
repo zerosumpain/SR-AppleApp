@@ -123,6 +123,189 @@ final class CarRaceLogicTests: XCTestCase {
         XCTAssertNil(CarPhysics.step(&free, input: CarInput(throttle: 1), track: straight, dt: 0.2))
     }
 
+    // MARK: - Car against car
+
+    func testCirclesPushTheFirstOutOfTheSecond() {
+        let hit = CarCollision.circles(CarVec(x: 1.5, y: 0), 1, CarVec(x: 0, y: 0), 1)
+        XCTAssertEqual(hit?.normal.x ?? 0, 1, accuracy: 1e-9)
+        XCTAssertEqual(hit?.depth ?? 0, 0.5, accuracy: 1e-9)
+        XCTAssertNil(CarCollision.circles(CarVec(x: 2.5, y: 0), 1, .zero, 1))
+        // Dead on top of each other: still a way out.
+        XCTAssertEqual(CarCollision.circles(.zero, 1, .zero, 1)?.depth ?? 0, 2, accuracy: 1e-9)
+    }
+
+    func testABoxIsPushedAwayFromACircleOnEverySide() {
+        // A box pointing right, 2.2 either way long and 1.1 wide.
+        func hit(_ x: Double, _ y: Double) -> CarContact? {
+            CarCollision.box(at: .zero, heading: 0, halfLength: 2.2, halfWidth: 1.1, circle: CarVec(x: x, y: y), radius: 1)
+        }
+        // Circle ahead of the nose: the box goes back.
+        let nose = hit(3, 0)
+        XCTAssertEqual(nose?.normal.x ?? 0, -1, accuracy: 1e-9)
+        XCTAssertEqual(nose?.depth ?? 0, 0.2, accuracy: 1e-9)
+        // Circle off the right-hand side (+y): the box goes left.
+        let side = hit(0, 1.8)
+        XCTAssertEqual(side?.normal.y ?? 0, -1, accuracy: 1e-9)
+        XCTAssertEqual(side?.depth ?? 0, 0.3, accuracy: 1e-9)
+        XCTAssertNil(hit(3.3, 0))
+        XCTAssertNil(hit(0, 2.2))
+        // Off a corner, the push is along the line from the corner.
+        let corner = hit(2.2 + 0.5, 1.1 + 0.5)
+        XCTAssertEqual(corner?.normal.x ?? 0, -(0.5).squareRoot(), accuracy: 1e-9)
+        XCTAssertEqual(corner?.normal.y ?? 0, -(0.5).squareRoot(), accuracy: 1e-9)
+        XCTAssertEqual(corner?.depth ?? 0, 1 - 0.5 * 2.0.squareRoot(), accuracy: 1e-9)
+        // A centre inside the box: out by the nearest side.
+        let inside = hit(0.3, 0.9)
+        XCTAssertEqual(inside?.normal.y ?? 0, -1, accuracy: 1e-9)
+        XCTAssertEqual(inside?.depth ?? 0, 0.2 + 1, accuracy: 1e-9)
+        // The box turned round: its frame turns with it.
+        let turned = CarCollision.box(at: .zero, heading: .pi / 2, halfLength: 2.2, halfWidth: 1.1,
+                                      circle: CarVec(x: 0, y: 3), radius: 1)
+        XCTAssertEqual(turned?.normal.y ?? 0, -1, accuracy: 1e-9)
+        XCTAssertEqual(turned?.depth ?? 0, 0.2, accuracy: 1e-9)
+    }
+
+    func testCarsTouchNoseToTailAndSideBySideButNotApart() {
+        let me = CarBody(at: CarVec(x: 0, y: 0), heading: 0)
+        // Nose to tail, 4 m apart (cars are 4.4 long): touching.
+        let tail = CarCollision.contact(me, CarBody(at: CarVec(x: 4, y: 0), heading: 0))
+        XCTAssertEqual(tail?.normal.x ?? 0, -1, accuracy: 1e-9)
+        XCTAssertEqual(tail?.depth ?? 0, 0.4, accuracy: 1e-9)
+        // Side by side, 2 m apart (cars are 2.2 wide).
+        let side = CarCollision.contact(me, CarBody(at: CarVec(x: 0, y: 2), heading: 0))
+        XCTAssertEqual(side?.normal.y ?? 0, -1, accuracy: 1e-9)
+        XCTAssertEqual(side?.depth ?? 0, 0.2, accuracy: 1e-9)
+        XCTAssertNil(CarCollision.contact(me, CarBody(at: CarVec(x: 4.5, y: 0), heading: 0)))
+        XCTAssertNil(CarCollision.contact(me, CarBody(at: CarVec(x: 0, y: 2.3), heading: 0)))
+        XCTAssertNil(CarCollision.contact(me, CarBody(at: CarVec(x: 40, y: 0), heading: 0)))
+        // Each car sees the other: the pushes are opposite.
+        let mine = CarCollision.contact(me, CarBody(at: CarVec(x: 3, y: 1), heading: 0.3))
+        let theirs = CarCollision.contact(CarBody(at: CarVec(x: 3, y: 1), heading: 0.3), me)
+        XCTAssertNotNil(mine)
+        XCTAssertNotNil(theirs)
+        XCTAssertLessThan(mine!.normal.dot(theirs!.normal), 0)
+    }
+
+    func testABounceOnlyComesWhileClosingAndConservesMomentum() {
+        let n = CarVec(x: -1, y: 0)   // they are ahead of me (+x): I am pushed back
+        let mine = CarVec(x: 20, y: 0), theirs = CarVec(x: 10, y: 0)
+        let bump = CarCollision.bounce(mine, off: theirs, normal: n)
+        XCTAssertEqual(bump?.impact ?? 0, 10, accuracy: 1e-9)
+        XCTAssertEqual(bump?.kick.x ?? 0, -(1 + CarCollision.restitution) * 10 / 2, accuracy: 1e-9)
+        // Their half, from their side, is the same kick the other way.
+        let back = CarCollision.bounce(theirs, off: mine, normal: n * -1)
+        XCTAssertEqual((bump!.kick + back!.kick).length, 0, accuracy: 1e-9)
+        // After both halves they are moving apart at restitution times the closing speed.
+        let after = (mine + bump!.kick) - (theirs + back!.kick)
+        XCTAssertEqual(after.x, -10 * CarCollision.restitution, accuracy: 1e-9)
+        // Already moving apart: no bounce.
+        XCTAssertNil(CarCollision.bounce(theirs, off: mine, normal: n))
+    }
+
+    func testTwoCarsOnOnePhoneArePushedApartAndBounced() {
+        var a = CarState(x: 300, y: 0, heading: 0)
+        a.vx = 25
+        var b = CarState(x: 303.5, y: 0, heading: 0)
+        b.vx = 15
+        let momentum = a.vx + b.vx
+        let bump = CarCollision.pair(&a, &b)
+        XCTAssertNotNil(bump)
+        XCTAssertEqual(a.vx + b.vx, momentum, accuracy: 1e-9)
+        XCTAssertLessThan(a.vx, b.vx, "rear-ended: the car in front comes away faster")
+        XCTAssertNil(CarCollision.contact(a.body, b.body), "pushed clear")
+        XCTAssertNil(CarCollision.pair(&a, &b))
+    }
+
+    /// Each phone takes its own half against what it knows of the other car,
+    /// and the two halves together are the one-phone answer.
+    func testEachPhoneTakesItsOwnHalfAndTheHalvesAgree() {
+        var a = CarState(x: 300, y: 0, heading: 0)
+        a.vx = 25
+        var b = CarState(x: 303.5, y: 0.4, heading: 0.1)
+        b.vx = 15
+        var together = (a, b)
+        CarCollision.pair(&together.0, &together.1)
+
+        var onA = a, onB = b
+        var clockA = CarBumpClock(), clockB = CarBumpClock()
+        XCTAssertNotNil(CarCollision.collide(&onA, with: [(id: "b", body: b.body)], clock: &clockA, at: 1))
+        XCTAssertNotNil(CarCollision.collide(&onB, with: [(id: "a", body: a.body)], clock: &clockB, at: 1))
+        XCTAssertEqual(onA.vx + onB.vx, a.vx + b.vx, accuracy: 0.6, "momentum near enough kept")
+        XCTAssertLessThan(onA.vx, a.vx)
+        XCTAssertGreaterThan(onB.vx, b.vx)
+        XCTAssertEqual(onA.vx, together.0.vx, accuracy: 0.6)
+        XCTAssertEqual(onB.vx, together.1.vx, accuracy: 0.6)
+    }
+
+    func testTheCooldownStopsASecondBounceOffTheSameCar() {
+        var me = CarState(x: 300, y: 0, heading: 0)
+        me.vx = 25
+        let other = CarBody(at: CarVec(x: 303.5, y: 0), heading: 0, velocity: CarVec(x: 10, y: 0))
+        var clock = CarBumpClock()
+        XCTAssertNotNil(CarCollision.collide(&me, with: [(id: "b", body: other)], clock: &clock, at: 2))
+        // Still overlapping a stale report and, say, still closing: pushed out, not bounced again.
+        var again = CarState(x: 300.2, y: 0, heading: 0)
+        again.vx = 25
+        XCTAssertNil(CarCollision.collide(&again, with: [(id: "b", body: other)], clock: &clock, at: 2.1))
+        XCTAssertEqual(again.vx, 25)
+        XCTAssertLessThan(again.x, 300.2, "but still pushed out of the overlap")
+        // Another car is its own cooldown; and after the cooldown, a fresh hit bounces.
+        XCTAssertTrue(clock.ready("c", at: 2.1))
+        var later = CarState(x: 300.2, y: 0, heading: 0)
+        later.vx = 25
+        XCTAssertNotNil(CarCollision.collide(&later, with: [(id: "b", body: other)], clock: &clock, at: 2.01 + CarCollision.cooldown))
+    }
+
+    /// Two phones over a laggy link, each knowing the other car only from
+    /// reports eight times a second that arrive 0.15 s late: a rear-end
+    /// still bounces both cars the right way, each once or twice, and never
+    /// leaves them stuck together or knocks one through the other.
+    func testALaggyRearEndBouncesBothPhonesFairly() {
+        var a = CarState(x: 300, y: 0, heading: 0)
+        a.vx = 30
+        var b = CarState(x: 316, y: 0, heading: 0)
+        b.vx = 12
+        var seenOnA = CarGhost(trackId: "test", laps: 1, name: "B")
+        var seenOnB = CarGhost(trackId: "test", laps: 1, name: "A")
+        var inFlight: [(arrives: Double, toA: Bool, sample: CarGhost.Sample)] = []
+        var clockA = CarBumpClock(), clockB = CarBumpClock()
+        var bouncesA = 0, bouncesB = 0
+        let dt = 1.0 / 60
+        var t = 0.0, lastSend = -1.0
+        var aSlowed = false, bSped = false
+        while t < 3 {
+            t += dt
+            CarPhysics.step(&a, input: CarInput(throttle: 1), track: straight, dt: dt)
+            CarPhysics.step(&b, input: CarInput(throttle: 1), track: straight, dt: dt)
+            if t - lastSend >= 0.125 {
+                lastSend = t
+                inFlight.append((arrives: t + 0.15, toA: false, sample: CarGhost.Sample(t: t, x: a.x, y: a.y, heading: a.heading)))
+                inFlight.append((arrives: t + 0.15, toA: true, sample: CarGhost.Sample(t: t, x: b.x, y: b.y, heading: b.heading)))
+            }
+            for message in inFlight where message.arrives <= t {
+                if message.toA { seenOnA.append(message.sample) } else { seenOnB.append(message.sample) }
+            }
+            inFlight.removeAll { $0.arrives <= t }
+            let beforeA = a.vx, beforeB = b.vx
+            if let body = seenOnA.predict(at: t), CarCollision.collide(&a, with: [(id: "b", body: body)], clock: &clockA, at: t) != nil {
+                bouncesA += 1
+                if a.vx < beforeA { aSlowed = true }
+            }
+            if let body = seenOnB.predict(at: t), CarCollision.collide(&b, with: [(id: "a", body: body)], clock: &clockB, at: t) != nil {
+                bouncesB += 1
+                if b.vx > beforeB { bSped = true }
+            }
+        }
+        XCTAssertTrue(aSlowed, "the car behind is knocked back")
+        XCTAssertTrue(bSped, "the car in front is knocked on")
+        XCTAssertGreaterThanOrEqual(bouncesA, 1)
+        XCTAssertGreaterThanOrEqual(bouncesB, 1)
+        XCTAssertLessThanOrEqual(bouncesA, 3, "no bouncing again and again off one knock")
+        XCTAssertLessThanOrEqual(bouncesB, 3)
+        XCTAssertNil(CarCollision.contact(a.body, b.body), "not left stuck together")
+        XCTAssertGreaterThan(b.x, a.x, "nobody was knocked through the other")
+    }
+
     // MARK: - Laps
 
     func testLapsCountOnlyForwardDistance() {
@@ -195,6 +378,35 @@ final class CarRaceLogicTests: XCTestCase {
         XCTAssertEqual(rival.pose(at: 1.1)?.at.x ?? 0, 11, accuracy: 1e-9)
         for i in 0..<300 { rival.append(.init(t: 2 + Double(i) * 0.1, x: 0, y: 0, heading: 0)) }
         XCTAssertEqual(rival.samples.count, 120)
+    }
+
+    func testAPredictionCarriesOnAtTheLastSpeedForAtMostTheHorizon() {
+        var heard = CarGhost(trackId: "paddock", laps: 3, name: "Bo")
+        XCTAssertNil(heard.predict(at: 0))
+        heard.append(.init(t: 1, x: 10, y: 0, heading: 0))
+        // One report: standing still where it was.
+        XCTAssertEqual(heard.predict(at: 1.3)?.at, CarVec(x: 10, y: 0))
+        XCTAssertEqual(heard.predict(at: 1.3)?.velocity, .zero)
+        heard.append(.init(t: 1.1, x: 12, y: 0, heading: 0))
+        let soon = heard.predict(at: 1.2)
+        XCTAssertEqual(soon?.at.x ?? 0, 14, accuracy: 1e-9)
+        XCTAssertEqual(soon?.velocity.x ?? 0, 20, accuracy: 1e-9)
+        // No further than the horizon, however long the silence.
+        let late = heard.predict(at: 9)
+        XCTAssertEqual(late?.at.x ?? 0, 12 + 20 * CarCollision.horizon, accuracy: 1e-9)
+        // Between reports it is simply where it was.
+        XCTAssertEqual(heard.predict(at: 1.05)?.at.x ?? 0, 11, accuracy: 1e-9)
+    }
+
+    func testAPredictionKeepsTurning() {
+        var heard = CarGhost(trackId: "paddock", laps: 3, name: "Bo")
+        heard.append(.init(t: 0, x: 0, y: 0, heading: 0))
+        heard.append(.init(t: 0.1, x: 2, y: 0, heading: 0.1))
+        let next = heard.predict(at: 0.2)
+        XCTAssertEqual(next?.heading ?? 0, 0.2, accuracy: 1e-9)
+        XCTAssertGreaterThan(next?.at.y ?? 0, 0, "turning right in a y-down world moves down the screen")
+        XCTAssertGreaterThan(next?.velocity.y ?? 0, 0)
+        XCTAssertEqual(next?.velocity.length ?? 0, 20, accuracy: 1e-9)
     }
 
     func testAGhostTurnsTheShortWayRound() {

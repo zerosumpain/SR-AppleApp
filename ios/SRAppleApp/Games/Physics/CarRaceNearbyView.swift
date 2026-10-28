@@ -3,17 +3,15 @@ import SwiftUI
 /// Car Race over "Play nearby": this phone drives its own car with the same
 /// `CarRaceDriver` as a race on one phone, and the room carries everyone's
 /// positions. The host's view arrives several times a second; each other car
-/// is drawn a third of a second behind the race clock, sliding between the
-/// last two positions heard, so a car on a slow link glides rather than jumps.
+/// is drawn where it should be NOW — carried on from the last position heard
+/// at its speed, with each fresh report's correction eased in — and is solid:
+/// this phone bounces its own car off it (`CarRaceDriver.hear`, `isSolid`).
 ///
 /// Registered in `OfflineCatalogue` as
 /// `OfflineCatalogueItem(CarRaceNearbyRules.self) { CarRaceNearbyView(context: $0) }`.
 struct CarRaceNearbyView: View {
     let context: OfflineGameContext<CarRaceNearbyRules>
     @StateObject private var driver: CarRaceDriver
-
-    /// How far behind the race clock other cars are drawn, seconds.
-    private static let delay = 0.3
 
     init(context: OfflineGameContext<CarRaceNearbyRules>) {
         self.context = context
@@ -22,7 +20,8 @@ struct CarRaceNearbyView: View {
         let me = view.racers.first { $0.id == context.me }
         _driver = StateObject(wrappedValue: CarRaceDriver(
             track: track, laps: view.laps, slot: me?.seat ?? 0, name: me?.name ?? "You",
-            useTilt: UserDefaults.standard.object(forKey: "physics.car.tilt") as? Bool ?? true,
+            // Tilt only where there is a sensor to read; without one the arrows steer.
+            useTilt: (UserDefaults.standard.object(forKey: "physics.car.tilt") as? Bool ?? true) && PhysicsTilt.isAvailable,
             startsAt: context.clock.local(fromHost: view.startsAt)))
     }
 
@@ -66,20 +65,12 @@ struct CarRaceNearbyView: View {
             guard let time = laps.finishTime else { return }
             send(.finish(time: time, bestLap: laps.bestLap))
         }
-        var rivals = driver.rivals
         for racer in view.racers where racer.id != context.me {
             let sample = CarGhost.Sample(t: racer.at, x: racer.x, y: racer.y, heading: racer.heading, raced: racer.raced)
-            if let index = rivals.firstIndex(where: { $0.id == racer.id }) {
-                rivals[index].ghost.append(sample)
-                rivals[index].finished = racer.finish != nil
-            } else {
-                var ghost = CarGhost(trackId: view.trackId, laps: view.laps, name: racer.name)
-                ghost.append(sample)
-                rivals.append(CarRival(id: racer.id, name: racer.name, seat: racer.seat, ghost: ghost,
-                                       delay: Self.delay, finished: racer.finish != nil))
-            }
+            // A car whose phone has left sends no more news: it goes stale,
+            // fades and is driven through like any car gone quiet.
+            driver.hear(sample, from: racer.id, name: racer.name, seat: racer.seat, finished: racer.finish != nil)
         }
-        if rivals != driver.rivals { driver.rivals = rivals }
     }
 
     /// Home, with the others still racing: where I came, and the clock on them.

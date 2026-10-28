@@ -6,6 +6,8 @@ enum CarRaceMode: String, CaseIterable, Identifiable {
     case timeTrial
     /// Two to four drivers take turns on one phone; each races the ghosts of those before.
     case passAndPlay
+    /// Two to four drivers at once on one phone, each with a part of the screen.
+    case splitScreen
     /// Phone to phone over "Play nearby".
     case nearby
 
@@ -15,6 +17,7 @@ enum CarRaceMode: String, CaseIterable, Identifiable {
         switch self {
         case .timeTrial: return "Time trial"
         case .passAndPlay: return "Pass the phone"
+        case .splitScreen: return "Split screen"
         case .nearby: return "Race nearby"
         }
     }
@@ -23,6 +26,7 @@ enum CarRaceMode: String, CaseIterable, Identifiable {
         switch self {
         case .timeTrial: return "Just you, against the ghost of your best run."
         case .passAndPlay: return "Two to four of you take turns on this phone, each racing the ghosts of those before."
+        case .splitScreen: return "Two to four of you at once on this phone, each with your own part of the screen. Cars bump."
         case .nearby: return "Two to four phones in the same room, over Bluetooth or a hotspot. No internet needed."
         }
     }
@@ -31,14 +35,16 @@ enum CarRaceMode: String, CaseIterable, Identifiable {
         switch self {
         case .timeTrial: return "stopwatch.fill"
         case .passAndPlay: return "person.2.fill"
+        case .splitScreen: return "rectangle.split.1x2.fill"
         case .nearby: return "dot.radiowaves.left.and.right"
         }
     }
 }
 
-/// A race on one phone: a time trial, or drivers taking turns. It hands each
-/// driver a `CarRaceDriver` with the right ghosts, keeps the results and the
-/// bests, and says what comes next.
+/// A race on one phone: a time trial, drivers taking turns, or everyone at
+/// once on a split screen. It hands each driver a `CarRaceDriver` with the
+/// right ghosts (or the split screen a `CarSplitDriver`), keeps the results
+/// and the bests, and says what comes next.
 @MainActor
 final class CarRaceSession: ObservableObject {
     enum Stage: Equatable {
@@ -56,22 +62,31 @@ final class CarRaceSession: ObservableObject {
     let laps: Int
     let names: [String]
     let useTilt: Bool
+    /// Split screen with the phone flat between players sitting opposite:
+    /// the far players' parts are turned round.
+    let facing: Bool
     @Published private(set) var stage: Stage = .ready(0)
     @Published private(set) var driver: CarRaceDriver?
+    @Published private(set) var split: CarSplitDriver?
     @Published private(set) var entries: [CarRaceEntry] = []
     @Published private(set) var book: PhysicsScoreBook
-    /// The time trial's ghost: the best run on this track, from before this session.
+    /// The time trial's ghost: the best run on this track, replaced the
+    /// moment a run here beats it.
     private(set) var best: CarGhost?
     @Published private(set) var newBest = false
-    private var ghosts: [CarGhost] = []
+    /// Pass the phone: each finished driver's run, by driver, raced as a
+    /// ghost by the drivers after. Keyed by driver so a ghost keeps its
+    /// driver's colour when someone before them retired.
+    private var ghosts: [Int: CarGhost] = [:]
     private let store = PhysicsScoreStore()
 
-    init(mode: CarRaceMode, track: CarTrack, laps: Int, names: [String], useTilt: Bool) {
+    init(mode: CarRaceMode, track: CarTrack, laps: Int, names: [String], useTilt: Bool, facing: Bool = true) {
         self.mode = mode
         self.track = track
         self.laps = laps
         self.names = names.isEmpty ? ["You"] : names
-        self.useTilt = useTilt
+        self.useTilt = useTilt && mode != .splitScreen
+        self.facing = facing
         let store = PhysicsScoreStore()
         book = store.load()
         best = store.ghost(track: track.id, laps: laps)
@@ -84,16 +99,27 @@ final class CarRaceSession: ObservableObject {
         }
     }
 
-    /// Lights out in three seconds for the driver whose turn it is.
+    /// Lights out in three seconds for the driver whose turn it is (on a
+    /// split screen, for everyone).
     func go() {
         guard case .ready(let index) = stage else { return }
+        if mode == .splitScreen {
+            let split = CarSplitDriver(track: track, laps: laps, names: names, startsAt: OfflineUptime.now() + 3)
+            split.onOver = { [weak self] race in self?.finishSplit(race) }
+            self.split = split
+            entries = []
+            newBest = false
+            stage = .racing(index)
+            split.start()
+            return
+        }
         let driver = CarRaceDriver(track: track, laps: laps, slot: 0, name: names[index], useTilt: useTilt,
                                    startsAt: OfflineUptime.now() + 3)
         var rivals: [CarRival] = []
         if mode == .timeTrial, let best {
             rivals.append(CarRival(id: "best", name: "Best", seat: 1, ghost: best))
         }
-        for (seat, ghost) in ghosts.enumerated() {
+        for (seat, ghost) in ghosts.sorted(by: { $0.key < $1.key }) {
             rivals.append(CarRival(id: "ghost-\(seat)", name: ghost.name, seat: seat, ghost: ghost))
         }
         driver.rivals = rivals
@@ -121,32 +147,73 @@ final class CarRaceSession: ObservableObject {
         } else {
             stage = mode == .timeTrial ? .ready(0) : .table
             if mode == .timeTrial {
-                // Another go: the best (perhaps just set) is the ghost now.
-                best = store.ghost(track: track.id, laps: laps)
+                // Another go, against the one best ghost (perhaps just set):
+                // never the earlier goes as well.
                 entries = []
                 newBest = false
             }
         }
     }
 
-    func stop() { driver?.stop() }
+    func stop() {
+        driver?.stop()
+        split?.stop()
+    }
+
+    /// Stop a split-screen race for everyone; it goes to the table.
+    func endSplit() { split?.end() }
+
+    /// The same drivers on a split screen again.
+    func rematch() {
+        guard mode == .splitScreen, stage == .table else { return }
+        split?.stop()
+        split = nil
+        entries = []
+        newBest = false
+        stage = .ready(0)
+    }
 
     var ranked: [CarRaceEntry] { CarRaceEntry.ranked(entries) }
 
     private func finish(_ index: Int, laps: CarLapCounter, ghost: CarGhost) {
         guard let time = laps.finishTime else { return }
         entries.append(CarRaceEntry(id: "\(index)", name: names[index], time: time, bestLap: laps.bestLap))
-        // The pass-the-phone drivers after this one race this run's ghost.
         var mine = ghost
         mine.name = names[index]
-        ghosts.append(mine)
+        // The pass-the-phone drivers after this one race this run's ghost. A
+        // time trial races only its one best (`best`), never every earlier go.
+        if mode == .passAndPlay { ghosts[index] = mine }
         var book = self.book
         let isBest = book.recordRace(track: track.id, time: time, bestLap: laps.bestLap)
         store.save(book)
-        if isBest { store.saveGhost(mine) }
+        if isBest {
+            store.saveGhost(mine)
+            if mode == .timeTrial { best = mine }
+        }
         self.book = book
         newBest = isBest
         stage = .finished(index)
+    }
+
+    /// A split-screen race is over: the table, and each finisher's time in
+    /// the book, fastest first, so the best run's ghost is the one kept.
+    private func finishSplit(_ race: CarSplitRace) {
+        entries = race.entries
+        var book = self.book
+        var isBest = false
+        for racer in race.order {
+            guard let time = racer.laps.finishTime else { continue }
+            if book.recordRace(track: track.id, time: time, bestLap: racer.laps.bestLap) {
+                isBest = true
+                var ghost = racer.ghost
+                ghost.time = time
+                store.saveGhost(ghost)
+            }
+        }
+        store.save(book)
+        self.book = book
+        newBest = isBest
+        stage = .table
     }
 }
 
@@ -164,6 +231,7 @@ struct CarRaceScreen: View {
     @State private var laps = 3
     @State private var names = [CarRaceName(), CarRaceName()]
     @AppStorage("physics.car.tilt") private var steerByTilt = true
+    @AppStorage("physics.car.facing") private var sitOpposite = true
     @State private var session: CarRaceSession?
     @State private var book = PhysicsScoreStore().load()
     private var tiltAvailable: Bool { PhysicsTilt.isAvailable }
@@ -222,15 +290,15 @@ struct CarRaceScreen: View {
                         .accessibilityIdentifier("car-race-laps")
                     }
 
-                    if mode == .passAndPlay { drivers }
+                    if mode == .passAndPlay || mode == .splitScreen { drivers }
 
-                    steering
+                    if mode == .splitScreen { seating } else { steering }
 
                     Button {
                         SRHaptic.tap()
-                        let who = mode == .passAndPlay ? cleanNames : ["You"]
+                        let who = mode == .timeTrial ? ["You"] : cleanNames
                         session = CarRaceSession(mode: mode, track: track, laps: laps, names: who,
-                                                 useTilt: steerByTilt && tiltAvailable)
+                                                 useTilt: steerByTilt && tiltAvailable, facing: sitOpposite)
                     } label: {
                         SRButtonLabel(title: "To the grid", icon: "flag.checkered", fill: true)
                     }
@@ -300,7 +368,9 @@ struct CarRaceScreen: View {
                 .srButton(.regular)
                 .accessibilityIdentifier("car-race-add-driver")
             }
-            Text("Each driver takes the phone in turn and races the ghosts of the drivers before. Fastest time wins.")
+            Text(mode == .splitScreen
+                 ? "Everyone races at once, each in their own part of the screen. Four is a squeeze on a phone."
+                 : "Each driver takes the phone in turn and races the ghosts of the drivers before. Fastest time wins.")
                 .font(SR.Text.mono())
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -331,10 +401,38 @@ struct CarRaceScreen: View {
         }
     }
 
+    /// Split screen: steering is by touch (tilt can't steer two cars), so the
+    /// only choice is how everyone sits.
+    private var seating: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Seating")
+            Toggle(isOn: $sitOpposite) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Sit opposite")
+                        .font(SR.Text.title())
+                        .foregroundStyle(SR.ink)
+                    Text(sitOpposite ? "The phone lies flat between you; the far side's screen is turned to face them." :
+                            "Everyone looks at the phone from the same side.")
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(SR.accent)
+            .padding(SR.cardPadding)
+            .srGlassCard(.paper)
+            .accessibilityIdentifier("car-race-facing")
+            Text("Hold the left or right of your part of the screen to steer, and both together to brake.")
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var nearby: some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
             SRSectionLabel(text: "Race nearby")
-            Text("One phone hosts in Play nearby and picks Car Race; everyone else joins. The track is drawn for you, three laps, and every phone drives its own car — the others appear as ghosts, so a wobbly link can't crash anyone.")
+            Text("One phone hosts in Play nearby and picks Car Race; everyone else joins. The track is drawn for you, three laps, and every phone drives its own car. Cars bump, but each phone only ever moves its own, so a wobbly link can't throw anyone off.")
                 .font(SR.Text.secondary())
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -397,7 +495,9 @@ struct CarRaceSessionView: View {
         case .ready(let index):
             card { readyCard(index) }
         case .racing(let index):
-            if let driver = session.driver {
+            if session.mode == .splitScreen, let split = session.split {
+                CarSplitView(driver: split, facing: session.facing) { session.endSplit() }
+            } else if let driver = session.driver {
                 CarRaceView(driver: driver, seat: session.mode == .passAndPlay ? index : 0,
                             gapRival: session.mode == .timeTrial ? driver.rivals.first : nil) {
                     session.retire()
@@ -424,7 +524,11 @@ struct CarRaceSessionView: View {
 
     private func readyCard(_ index: Int) -> some View {
         VStack(alignment: .leading, spacing: SR.sectionGap) {
-            if session.mode == .passAndPlay {
+            if session.mode == .splitScreen {
+                SRPageHeader(kicker: "Split screen · \(session.track.name)",
+                             title: "\(session.names.count) cars, one phone",
+                             strap: "\(session.laps) lap\(session.laps == 1 ? "" : "s"). First home wins; the rest have \(Int(CarSplitRace.finishGrace)) seconds.")
+            } else if session.mode == .passAndPlay {
                 SRPageHeader(kicker: "Driver \(index + 1) of \(session.names.count)",
                              title: "Pass the phone to \(session.names[index])",
                              strap: index == 0 ? "\(session.track.name), \(session.laps) lap\(session.laps == 1 ? "" : "s")." : "You're racing the ghosts of the drivers before you.")
@@ -433,7 +537,9 @@ struct CarRaceSessionView: View {
                              title: session.best.map { "Beat \(CarRaceFormat.time($0.time ?? 0))" } ?? "Set a time",
                              strap: session.best == nil ? "Your run becomes the ghost to beat next time." : "Your best run is on the track with you, as a ghost.")
             }
-            Text(session.useTilt ? "Tilt to steer. Hold Brake for the bends — brake hard into one to drift." :
+            Text(session.mode == .splitScreen
+                 ? "Hold the left or right of your part of the screen to steer; hold both to brake. Cars bump — and bump back."
+                 : session.useTilt ? "Tilt to steer. Hold Brake for the bends — brake hard into one to drift." :
                     "Hold the arrows to steer and Brake for the bends — brake hard into one to drift.")
                 .font(SR.Text.secondary())
                 .foregroundStyle(SR.inkSecondary)
@@ -534,12 +640,30 @@ struct CarRaceSessionView: View {
             .padding(.vertical, 6)
             .srGlassCard(.paper)
             .accessibilityIdentifier("car-race-table")
-            Button { close() } label: {
-                SRButtonLabel(title: "Done", icon: "checkmark", fill: true)
+            if session.newBest {
+                Text("A new best on \(session.track.name).")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.good)
             }
-            .srButton(.prominent)
-            .controlSize(.large)
-            .accessibilityIdentifier("car-race-done")
+            HStack(spacing: 10) {
+                if session.mode == .splitScreen {
+                    Button {
+                        SRHaptic.tap()
+                        session.rematch()
+                    } label: {
+                        SRButtonLabel(title: "Race again", icon: "arrow.clockwise", fill: true)
+                    }
+                    .srButton(.prominent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("car-race-rematch")
+                }
+                Button { close() } label: {
+                    SRButtonLabel(title: "Done", icon: "checkmark", fill: true)
+                }
+                .srButton(session.mode == .splitScreen ? .regular : .prominent)
+                .controlSize(.large)
+                .accessibilityIdentifier("car-race-done")
+            }
         }
     }
 }

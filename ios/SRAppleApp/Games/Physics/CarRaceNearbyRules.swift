@@ -8,9 +8,12 @@ import Foundation
 /// would feel like driving through treacle. The host is the referee of time
 /// and the noticeboard: it counts everyone down to the same start, takes each
 /// phone's position (about eight times a second) and hands everyone the
-/// latest of everybody's, and takes each finish time. Cars pass through each
-/// other — they are ghosts to one another — so a slow link can never cause a
-/// crash that one phone saw and another did not.
+/// latest of everybody's, and takes each finish time. Cars knock into each
+/// other, but the host never judges a knock: each phone bounces ITS OWN car
+/// off where it last heard the others were, carried on at their speed, and
+/// takes only its own half of the bounce (`CarCollision`). A slow link can
+/// make a knock late or soft, never throw a car the other phone has not seen
+/// hit; a car whose news has gone stale is faded and driven through.
 ///
 /// Every time a phone sends is RACE SECONDS: host-clock seconds since
 /// `startsAt`, worked out with the clock the room hands every guest.
@@ -39,7 +42,7 @@ enum CarRaceNearbyRules: OfflineGameRules {
             "Hold your phone like a steering wheel and tilt it to steer.",
             "The car accelerates by itself; hold Brake for the bends, and to drift.",
             "Three laps. The lap only counts going the right way round.",
-            "Cars pass through each other, so nobody can be knocked off.",
+            "Cars bump off each other. One that fades out has gone quiet on the link for a moment, and you drive straight through it.",
             "First home wins. Everyone else has \(Int(finishGrace)) seconds to finish."
         ]
     )
