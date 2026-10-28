@@ -30,6 +30,8 @@ struct ThreadListScreen: View {
     @EnvironmentObject private var router: Router
     @ObservedObject private var access = AccessStore.shared
     @ObservedObject private var family = FamilyMessagesStore.shared
+    /// The rows' dots: a turn running, waiting on you, something new.
+    @ObservedObject private var live = JkaiLive.shared
     @State private var renaming: Conversation?
     @State private var renameDraft = ""
     @State private var deleting: Conversation?
@@ -276,7 +278,7 @@ struct ThreadListScreen: View {
     @ViewBuilder
     private func row(_ conversation: Conversation) -> some View {
         NavigationLink(value: conversation) {
-            ThreadRow(conversation: conversation)
+            ThreadRow(conversation: conversation, mark: live.mark(for: conversation.id))
         }
         .srGlassRow()
         .accessibilityIdentifier("thread-\(conversation.id)")
@@ -516,6 +518,8 @@ struct JkaiHelpPanel: View {
 /// One thread. Title, a sub-line of provenance, and the last thing said.
 struct ThreadRow: View {
     let conversation: Conversation
+    /// One small dot beside the time, at most (`JkaiLive`).
+    var mark: JkaiRowMark?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -542,6 +546,13 @@ struct ThreadRow: View {
                     SRPill(text: tag, tone: SR.inkMuted)
                 }
                 Spacer(minLength: 6)
+                if let mark {
+                    Circle()
+                        .fill(mark == .running ? SR.accent : SR.accentDeep)
+                        .frame(width: 7, height: 7)
+                        .accessibilityLabel(Self.label(mark))
+                        .accessibilityIdentifier("thread-mark-\(mark.rawValue)")
+                }
                 if let updated = conversation.updatedAt {
                     Text(shortAgo(updated))
                         .font(SR.Text.mono())
@@ -563,6 +574,14 @@ struct ThreadRow: View {
         }
         .padding(.vertical, 6)
         .frame(minHeight: SR.tapTarget, alignment: .leading)
+    }
+
+    private static func label(_ mark: JkaiRowMark) -> String {
+        switch mark {
+        case .running: return "jkai is working on this"
+        case .waiting: return "Waiting on you"
+        case .reply: return "New reply"
+        }
     }
 }
 
@@ -657,6 +676,7 @@ struct ChatScreen: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var speech = SpeechOut.shared
+    @ObservedObject private var live = JkaiLive.shared
     /// The desk drawer, and the turn it opened on (nil: the one being read).
     @State private var deskOpen = false
     @State private var deskFocus: String?
@@ -787,10 +807,11 @@ struct ChatScreen: View {
                     for url in urls { attachFile(url) }
                 }
                 await store.load()
-                // A turn this phone started that was still running when the
-                // app went away: pick it up again (or, if the server has let
-                // it go, the reload above already shows what it saved).
-                store.rejoinIfRunning()
+                // A turn running on this thread — started here before the app
+                // went away, or on the web, or on another phone: join it. (If
+                // the server has let it go, the reload above already shows
+                // what it saved.)
+                await store.rejoin()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
                 // Unstructured, like a starter prompt's send: leaving the
                 // screen must not cancel the question on its way.
@@ -828,7 +849,10 @@ struct ChatScreen: View {
                         ask: { detail in askFromDesk(detail) },
                         open: { href in
                             if let url = DeskLinks.resolve(href, origin: SiteClient.shared.origin) { openURL(url) }
-                        }
+                        },
+                        // The owner's phone only; a 403 takes it away.
+                        redTeam: AccessStore.ownerSite && !live.redTeamRefused
+                            ? { id in await store.redTeam(messageId: id) } : nil
                     ))
             }
         }
@@ -890,13 +914,30 @@ struct ChatScreen: View {
         // same job up from its last sequence number on the way back.
         .onDisappear {
             store.stop()
+            store.stopPresence()
+            JkaiLive.shared.closed(store)
             speech.stop()
         }
-        .onAppear { store.resume() }
+        .onAppear {
+            store.resume()
+            JkaiLive.shared.opened(store)
+            if scenePhase == .active { store.startPresence() }
+        }
         // Back from the background: the socket did not survive the trip, and
-        // the reconnect picks up from the last frame handled.
+        // the reconnect picks up from the last frame handled — and a turn
+        // started elsewhere meanwhile is joined. Presence stops the moment the
+        // app leaves, so the server knows the phone is pocketed.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { store.resume() }
+            switch phase {
+            case .active:
+                store.resume()
+                store.startPresence()
+                Task { await store.rejoin() }
+            case .background:
+                store.stopPresence()
+            default:
+                break
+            }
         }
     }
 

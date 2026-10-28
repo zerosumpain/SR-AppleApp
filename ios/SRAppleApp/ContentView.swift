@@ -550,6 +550,8 @@ struct ContentView: View {
             }
             checkPersonal()
             syncGamesPoll()
+            // jkai's channel: foreground only, once the site says it has one.
+            JkaiLive.shared.setForeground(scenePhase == .active)
             // The widgets paint in the reader's palette, read from the shelf.
             palette.shareWithWidgets()
             await location.askForMotionIfNeeded()
@@ -571,6 +573,9 @@ struct ContentView: View {
             // The invite poll is a foreground thing: it stops the moment the
             // scene leaves, and nothing claims it runs when the app is shut.
             syncGamesPoll()
+            // jkai's channel is a foreground thing too: closed on the way out,
+            // and resumed from its last event on the way back.
+            if phase != .inactive { JkaiLive.shared.setForeground(phase == .active) }
             guard phase == .active else { return }
             // Games played with no internet go to the leaderboard now if they can.
             OfflineResultStore.shared.syncSoon()
@@ -593,6 +598,7 @@ struct ContentView: View {
             if !AccessStore.ownerSite { CommissionStore.shared.clear() }
             syncGamesPoll()
             syncFamilyWidgets()
+            JkaiLive.shared.setForeground(scenePhase == .active)
             Task {
                 await reconcileSite()
                 await connections.refresh()
@@ -612,6 +618,9 @@ struct ContentView: View {
         // "View as" changed: the family is theirs now, or yours again.
         .onChange(of: access.viewingAs) { _, _ in
             CommissionStore.shared.clear()
+            // The dots and the channel are the person being looked at's, or
+            // closed while somebody is.
+            JkaiLive.shared.reset()
             family.applyViewingAs()
             // The boards were the person before's; the site answers as the
             // new one on the next read.

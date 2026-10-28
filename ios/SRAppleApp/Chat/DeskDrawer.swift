@@ -90,6 +90,10 @@ struct DeskView: View {
     /// The reader moved the pager. From then on the desk stays put.
     @State private var paged = false
     @StateObject private var today = TodayStore()
+    @Environment(\.deskActions) private var actions
+    /// Answers being red-teamed now, by row id.
+    @State private var checking: Set<String> = []
+    @State private var footNote: String?
 
     init(turns: [DeskTurn], focus: String?, live: String? = nil, close: @escaping () -> Void) {
         self.turns = turns
@@ -111,6 +115,14 @@ struct DeskView: View {
     private var page: PanelPage {
         if let index, index < pages.count, let page = pages[index].page { return page }
         return DeskToday.page(from: today.payload)
+    }
+
+    /// The answer on show, by its server row id: what the foot acts on. A
+    /// local bubble (still streaming, or not yet re-read) has no row to act on.
+    private var shownTurn: String? {
+        guard !showingToday, let index, index < pages.count else { return nil }
+        let id = pages[index].id
+        return id.hasPrefix("local-") || id == live ? nil : id
     }
 
     private var showingToday: Bool { index == nil || (index ?? 0) >= pages.count }
@@ -141,6 +153,7 @@ struct DeskView: View {
                     if showingToday && today.loading && today.payload == nil {
                         ProgressView().tint(SR.accent).frame(maxWidth: .infinity)
                     }
+                    foot
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,6 +269,65 @@ struct DeskView: View {
         paged = true
     }
 
+    // MARK: Foot
+
+    /// What can be done with the answer on show. One quiet line: Red-team,
+    /// on the owner's phone, for an answer the server has a row for.
+    @ViewBuilder
+    private var foot: some View {
+        let target = shownTurn
+        if target != nil && actions.redTeam != nil || footNote != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                Divider().overlay(SR.line)
+                if let target, let redTeam = actions.redTeam {
+                    let busy = checking.contains(target)
+                    Button {
+                        SRHaptic.tap()
+                        Task { await check(target, redTeam) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.shield").font(.system(size: 12, weight: .semibold))
+                            Text(busy ? "Checking…" : "Red-team")
+                                .font(SR.Text.label(12))
+                                .tracking(0.8)
+                        }
+                        .foregroundStyle(busy ? SR.inkMuted : SR.accent)
+                        .frame(minHeight: SR.tapTarget)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(busy)
+                    .accessibilityLabel(busy ? "Checking this answer" : "Red-team this answer")
+                    .accessibilityHint("Asks for a second look at this answer, on the desk")
+                    .accessibilityIdentifier("desk-red-team")
+                }
+                if let footNote {
+                    Text(footNote)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func check(_ id: String, _ redTeam: (String) async -> DeskRedTeamOutcome) async {
+        checking.insert(id)
+        footNote = nil
+        let outcome = await redTeam(id)
+        checking.remove(id)
+        switch outcome {
+        case .done:
+            SRHaptic.ok()
+        case .refused:
+            footNote = "Red-team is not available on this phone."
+        case .failed:
+            footNote = "The red team could not look at this just now."
+            SRHaptic.bad()
+        }
+    }
+
     private var quietLine: some View {
         HStack(spacing: 8) {
             Image(systemName: "pause.circle").font(.system(size: 12))
@@ -365,3 +437,4 @@ struct DeskToolLine: View {
 final class DeskVisibility {
     var onScreen: Set<String> = []
 }
+

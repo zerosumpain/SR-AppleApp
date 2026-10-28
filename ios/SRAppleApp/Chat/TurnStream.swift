@@ -428,3 +428,180 @@ struct ActiveTurns {
         }
     }
 }
+
+// MARK: - A turn running anywhere
+
+/// What the server says it can do for the phone (`features` on `/chat/active`).
+/// A server that predates them sends none, which is all three off: the app
+/// then behaves exactly as it did before them.
+struct JkaiFeatures: Equatable, Codable {
+    /// `POST /chat/presence` is read: an open phone suppresses the WhatsApp
+    /// nudge at a gate, so the stream may stay open there.
+    var presence = false
+    /// `GET /api/jkai/events?scope=me` exists.
+    var events = false
+    /// Turns are recorded durably: a restart reports `interrupted`, not nothing.
+    var durable = false
+
+    static let off = JkaiFeatures()
+
+    init(presence: Bool = false, events: Bool = false, durable: Bool = false) {
+        self.presence = presence
+        self.events = events
+        self.durable = durable
+    }
+
+    /// From a decoded JSON object; anything but `true` is off.
+    init(_ json: Any?) {
+        let object = json as? [String: Any] ?? [:]
+        presence = object["presence"] as? Bool ?? false
+        events = object["events"] as? Bool ?? false
+        durable = object["durable"] as? Bool ?? false
+    }
+}
+
+/// `GET /api/workflows/orchestrator/chat/active?conversationId=<id>`: the
+/// thread's turn as the server holds it, wherever it was started.
+///
+/// Read with `JSONSerialization`, not `Decodable`, for the same reason the desk
+/// decodes tolerantly: an older server sends only `{ jobId }`, and the gate's
+/// payload is the gate's own stream frame, whatever shape that has.
+struct ActiveTurnProbe: Equatable {
+    struct Turn: Equatable {
+        let jobId: String
+        /// `running`, `gated`, `done`, `error`, `interrupted` or `cancelled`.
+        let status: String
+        let phase: String?
+        let lastSeq: Int?
+        let partialText: String
+        let error: String?
+        let surface: String?
+
+        var isLive: Bool { status == "running" || status == "gated" }
+    }
+
+    struct OpenGate: Equatable {
+        /// `plan`, `clarify`, `confirm`, `secret_request` or `approval`.
+        let kind: String
+        let id: String
+        /// The gate's original stream frame, as JSON bytes, with its `type`.
+        let payload: Data
+
+        /// The frame as the stream would have sent it. A payload missing its
+        /// `type` gets the gate's kind, so it lands on the right card.
+        var frame: [String: Any] {
+            var json = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] ?? [:]
+            if json["type"] as? String == nil { json["type"] = kind }
+            return json
+        }
+    }
+
+    /// Set only while a turn is running or waiting on a gate.
+    let jobId: String?
+    /// The latest turn on the thread, finished or not. Nil on an older server.
+    let turn: Turn?
+    /// Nil for a member, and on an older server.
+    let openGate: OpenGate?
+    let features: JkaiFeatures
+
+    static func read(_ data: Data) -> ActiveTurnProbe? {
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let jobId = (json["jobId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        var turn: Turn?
+        if let t = json["turn"] as? [String: Any], let job = t["jobId"] as? String, let status = t["status"] as? String {
+            turn = Turn(
+                jobId: job,
+                status: status,
+                phase: t["phase"] as? String,
+                lastSeq: (t["lastSeq"] as? NSNumber)?.intValue,
+                partialText: t["partialText"] as? String ?? "",
+                error: t["error"] as? String,
+                surface: t["surface"] as? String
+            )
+        }
+        var gate: OpenGate?
+        if let g = json["openGate"] as? [String: Any], let kind = g["kind"] as? String,
+           GateHold.gates.contains(kind) {
+            let payload = (g["payload"] as? [String: Any]).flatMap {
+                JSONSerialization.isValidJSONObject($0) ? try? JSONSerialization.data(withJSONObject: $0) : nil
+            } ?? Data("{}".utf8)
+            gate = OpenGate(kind: kind, id: g["id"] as? String ?? "", payload: payload)
+        }
+        return ActiveTurnProbe(jobId: jobId, turn: turn, openGate: gate, features: JkaiFeatures(json["features"]))
+    }
+
+    /// The job to attach to, if one is running. An older server's bare
+    /// `{ jobId }` counts; a `turn` that says it has ended does not, even if
+    /// the two disagree for a moment while it ends.
+    var liveJob: String? {
+        guard let jobId else { return nil }
+        if let turn, turn.jobId == jobId, !turn.isLive { return nil }
+        return jobId
+    }
+}
+
+/// `GET /api/workflows/orchestrator/chat/active` with no thread: every turn
+/// this person has running, for the thread list's dots.
+struct ActiveTurnList: Equatable {
+    /// conversationId → status.
+    let running: [String: String]
+    let features: JkaiFeatures
+
+    static func read(_ data: Data) -> ActiveTurnList? {
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        var running: [String: String] = [:]
+        for job in json["jobs"] as? [[String: Any]] ?? [] {
+            guard let conversation = job["conversationId"] as? String, !conversation.isEmpty else { continue }
+            let status = job["status"] as? String ?? "running"
+            if status == "running" || status == "gated" { running[conversation] = status }
+        }
+        return ActiveTurnList(running: running, features: JkaiFeatures(json["features"]))
+    }
+}
+
+/// What an open thread does with the server's answer about its turn.
+///
+/// The server's answer wins over the phone's own `ActiveTurns` hint: the hint
+/// knows only turns THIS phone started, and only that they were running when
+/// the app went away.
+enum TurnRejoin: Equatable {
+    case nothing
+    /// A turn is running (from the web, from another phone, from this one
+    /// before a relaunch): a fresh live bubble and a full replay from the
+    /// first frame, with `gate` shown at once if the server has one open.
+    case attach(jobId: String, gate: String?, partialText: String)
+    /// The phone is showing a gate card for this job, and the server says it
+    /// is no longer waiting on it (answered at the desk): carry on streaming
+    /// from where the phone stopped.
+    case carryOn(jobId: String)
+    /// Nothing is running, but the phone thought something was (a hint, or a
+    /// card still up): re-read the thread, which holds what the turn saved.
+    /// An interrupted turn's partial reply is a row in it — never an error.
+    case reload
+
+    /// What the phone itself has going on.
+    struct Local: Equatable {
+        /// A send or a stream in flight. Nothing is decided over one.
+        var busy = false
+        /// The job the store is holding (streaming, waiting, or at a gate).
+        var jobId: String?
+        /// A plan, question or desk card is on screen.
+        var gateShown = false
+        /// `ActiveTurns`' job for this thread, if any.
+        var hint: String?
+    }
+
+    static func decide(_ probe: ActiveTurnProbe, local: Local) -> TurnRejoin {
+        guard !local.busy else { return .nothing }
+        if let job = probe.liveJob {
+            if local.jobId == job && local.gateShown {
+                let stillWaiting = probe.openGate != nil || probe.turn?.status == "gated"
+                return stillWaiting ? .nothing : .carryOn(jobId: job)
+            }
+            let partial = probe.turn?.jobId == job ? probe.turn?.partialText ?? "" : ""
+            return .attach(jobId: job, gate: probe.openGate?.kind, partialText: partial)
+        }
+        if local.gateShown || local.hint != nil { return .reload }
+        return .nothing
+    }
+}

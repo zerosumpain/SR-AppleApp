@@ -17,6 +17,18 @@ struct DeskActions {
     var ask: (String) -> Void = { _ in }
     /// Open an `href` from a page.
     var open: (String) -> Void = { _ in }
+    /// Red-team the answer with this server row id. Nil where it is not
+    /// offered: a member's phone, or one the site has refused.
+    var redTeam: ((String) async -> DeskRedTeamOutcome)?
+}
+
+/// How a red-team request came back.
+enum DeskRedTeamOutcome: Equatable {
+    /// The section is stored on the answer; the thread has been re-read.
+    case done
+    /// Not for this phone (403).
+    case refused
+    case failed
 }
 
 private struct DeskActionsKey: EnvironmentKey {

@@ -151,10 +151,17 @@ final class SiteClient {
     private var streamSession: URLSession { SRDemo.isOn ? demoSession : liveStreamSession }
     private lazy var liveStreamSession: URLSession = Self.makeSession(demo: false, stream: true)
 
-    private static func makeSession(demo: Bool, transport: [AnyClass] = [], stream: Bool = false) -> URLSession {
+    /// The phone's jkai channel (`JkaiLive`) is quieter than a turn: nothing
+    /// but a `: keepalive` comment every thirty seconds when nothing happens.
+    /// Twenty seconds of silence would end it between every pair of them, so
+    /// it waits two and a half keepalives instead.
+    private var eventsSession: URLSession { SRDemo.isOn ? demoSession : liveEventsSession }
+    private lazy var liveEventsSession: URLSession = Self.makeSession(demo: false, stream: true, idle: 75)
+
+    private static func makeSession(demo: Bool, transport: [AnyClass] = [], stream: Bool = false, idle: TimeInterval? = nil) -> URLSession {
         let config = URLSessionConfiguration.default
         config.urlCache = nil
-        config.timeoutIntervalForRequest = stream ? TurnStreamResume.silence : 30
+        config.timeoutIntervalForRequest = idle ?? (stream ? TurnStreamResume.silence : 30)
         // A chat turn can think for a long time before its first token. The
         // stream's own idle timeout is what ends a dead connection, not this.
         config.timeoutIntervalForResource = stream ? 24 * 60 * 60 : 600
@@ -177,6 +184,7 @@ final class SiteClient {
     func useLiveTransport(_ transport: [AnyClass]) {
         liveSession = Self.makeSession(demo: false, transport: transport)
         liveStreamSession = Self.makeSession(demo: false, transport: transport, stream: true)
+        liveEventsSession = Self.makeSession(demo: false, transport: transport, stream: true, idle: 75)
     }
     #endif
 
@@ -602,6 +610,13 @@ final class SiteClient {
         try stream(path: "api/workflows/orchestrator/chat/stream?jobId=\(jobId)", after: lastEventId, session: streamSession)
     }
 
+    /// The phone's jkai channel, `GET /api/jkai/events?scope=me`, resuming
+    /// after `lastEventId`. Always as this phone's own person: the channel is
+    /// never opened while viewing as somebody (`JkaiLive`).
+    func events(after lastEventId: Int? = nil) throws -> AsyncThrowingStream<StreamFrame, Error> {
+        try stream(path: "api/jkai/events?scope=me", after: lastEventId, session: eventsSession, asSelf: true)
+    }
+
     /// Frames from any server-sent-events route on the site — a chat job, a
     /// game room (`api/native/games/<id>/stream`).
     ///
@@ -613,8 +628,8 @@ final class SiteClient {
         try stream(path: path, after: lastEventId, session: session)
     }
 
-    private func stream(path: String, after lastEventId: Int?, session: URLSession) throws -> AsyncThrowingStream<StreamFrame, Error> {
-        var req = try request(path)
+    private func stream(path: String, after lastEventId: Int?, session: URLSession, asSelf: Bool = false) throws -> AsyncThrowingStream<StreamFrame, Error> {
+        var req = try request(path, asSelf: asSelf)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         if let lastEventId { req.setValue(String(lastEventId), forHTTPHeaderField: "Last-Event-ID") }
 

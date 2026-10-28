@@ -314,4 +314,88 @@ final class TurnStreamTests: XCTestCase {
         XCTAssertEqual(TurnRef.localDay(instant, timeZone: TimeZone(identifier: "UTC")!), "2026-10-30")
         XCTAssertEqual(TurnRef.localDay(instant, timeZone: TimeZone(identifier: "Pacific/Auckland")!), "2026-10-31")
     }
+
+    // MARK: - A turn running anywhere (`/chat/active`)
+
+    private func probe(_ json: String) -> ActiveTurnProbe? { ActiveTurnProbe.read(Data(json.utf8)) }
+
+    func testAnOlderServersBareJobIdIsReadWithEverythingOff() throws {
+        let p = try XCTUnwrap(probe(#"{"jobId":"job-1"}"#))
+        XCTAssertEqual(p.liveJob, "job-1")
+        XCTAssertNil(p.turn)
+        XCTAssertNil(p.openGate)
+        XCTAssertEqual(p.features, .off)
+        XCTAssertEqual(try XCTUnwrap(probe(#"{"jobId":null}"#)).liveJob, nil)
+        XCTAssertNil(probe("not json"))
+    }
+
+    func testTheFullAnswerIsRead() throws {
+        let p = try XCTUnwrap(probe("""
+        {"jobId":"j2","turn":{"jobId":"j2","status":"gated","phase":"plan","lastSeq":41,"partialText":"So far","startedAt":"2026-10-28T09:00:00Z","endedAt":null,"error":null,"surface":"web"},
+         "openGate":{"kind":"plan","id":"plan:p1","payload":{"type":"plan","planId":"p1","steps":[]}},
+         "features":{"presence":true,"events":true,"durable":true}}
+        """))
+        XCTAssertEqual(p.liveJob, "j2")
+        XCTAssertEqual(p.turn?.lastSeq, 41)
+        XCTAssertEqual(p.turn?.partialText, "So far")
+        XCTAssertEqual(p.openGate?.kind, "plan")
+        XCTAssertEqual(p.openGate?.frame["planId"] as? String, "p1")
+        XCTAssertEqual(p.features, JkaiFeatures(presence: true, events: true, durable: true))
+    }
+
+    func testAGatePayloadWithoutItsTypeGetsTheGatesKind() throws {
+        let p = try XCTUnwrap(probe(#"{"jobId":"j","openGate":{"kind":"clarify","id":"clarify:c","payload":{"clarifyId":"c"}}}"#))
+        XCTAssertEqual(p.openGate?.frame["type"] as? String, "clarify")
+        XCTAssertNil(try XCTUnwrap(probe(#"{"jobId":"j","openGate":{"kind":"teleport","id":"x","payload":{}}}"#)).openGate,
+                     "a gate kind this build has not met is no gate")
+    }
+
+    func testAnEndedTurnIsNotJoinedEvenIfTheJobIdLingers() throws {
+        let p = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"done","partialText":"","lastSeq":9}}"#))
+        XCTAssertNil(p.liveJob)
+    }
+
+    func testARunningTurnFromAnywhereIsJoinedWithAFullReplay() throws {
+        let p = try XCTUnwrap(probe(#"{"jobId":"web-job","turn":{"jobId":"web-job","status":"running","partialText":"Half","lastSeq":3}}"#))
+        XCTAssertEqual(TurnRejoin.decide(p, local: .init()), .attach(jobId: "web-job", gate: nil, partialText: "Half"))
+        XCTAssertEqual(TurnRejoin.decide(p, local: .init(busy: true)), .nothing, "never over a send in flight")
+    }
+
+    func testTheServerWinsOverThePhonesHint() throws {
+        // The hint names a job the server has let go: re-read, never an error.
+        let interrupted = try XCTUnwrap(probe(#"{"jobId":null,"turn":{"jobId":"mine","status":"interrupted","partialText":"Got as far as","lastSeq":12}}"#))
+        XCTAssertEqual(TurnRejoin.decide(interrupted, local: .init(hint: "mine")), .reload)
+        // Nothing running and nothing expected: nothing to do.
+        XCTAssertEqual(TurnRejoin.decide(interrupted, local: .init()), .nothing)
+        // The hint says one job, the server another: the server's.
+        let other = try XCTUnwrap(probe(#"{"jobId":"theirs"}"#))
+        XCTAssertEqual(TurnRejoin.decide(other, local: .init(hint: "mine")), .attach(jobId: "theirs", gate: nil, partialText: ""))
+    }
+
+    func testAGateCardIsKeptOrMovedOnByTheServersAnswer() throws {
+        let gated = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"gated","partialText":"","lastSeq":5},"openGate":{"kind":"plan","id":"plan:p","payload":{"type":"plan"}}}"#))
+        let showing = TurnRejoin.Local(jobId: "j", gateShown: true)
+        XCTAssertEqual(TurnRejoin.decide(gated, local: showing), .nothing, "the card on screen is the right one")
+        // A member's answer carries no openGate, but the turn still says gated.
+        let memberGated = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"gated","partialText":"","lastSeq":5}}"#))
+        XCTAssertEqual(TurnRejoin.decide(memberGated, local: showing), .nothing)
+        // Answered at the desk: carry on from where the phone stopped.
+        let moving = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"running","partialText":"","lastSeq":8}}"#))
+        XCTAssertEqual(TurnRejoin.decide(moving, local: showing), .carryOn(jobId: "j"))
+        // Over, while the card was up: re-read.
+        let over = try XCTUnwrap(probe(#"{"jobId":null,"turn":{"jobId":"j","status":"cancelled","partialText":"","lastSeq":8}}"#))
+        XCTAssertEqual(TurnRejoin.decide(over, local: showing), .reload)
+        // A gate on a turn the phone is not holding is attached with its card.
+        XCTAssertEqual(TurnRejoin.decide(gated, local: .init()), .attach(jobId: "j", gate: "plan", partialText: ""))
+    }
+
+    func testTheRunningListKeepsOnlyLiveTurns() throws {
+        let list = try XCTUnwrap(ActiveTurnList.read(Data("""
+        {"jobs":[{"conversationId":"a","jobId":"1","status":"running"},{"conversationId":"b","jobId":"2","status":"gated"},
+                 {"conversationId":"c","jobId":"3","status":"done"},{"jobId":"4","status":"running"}],
+         "features":{"events":true}}
+        """.utf8)))
+        XCTAssertEqual(list.running, ["a": "running", "b": "gated"])
+        XCTAssertEqual(list.features, JkaiFeatures(events: true))
+    }
 }

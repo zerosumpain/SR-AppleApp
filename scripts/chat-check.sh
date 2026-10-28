@@ -5,11 +5,13 @@
 #
 # Like `home-check.sh`, for the chat thread: the desk's models and its live
 # reducer (`Chat/DeskModels.swift`, `Chat/PanelReducer.swift`), the send and
-# stream rules (`Chat/TurnStream.swift`), thread links (`Chat/ChatLink.swift`)
-# and read-aloud's text (`Chat/SpokenText.swift`) are Foundation-only by
+# stream rules and `/chat/active`'s answer (`Chat/TurnStream.swift`), the
+# phone channel's frames and routing (`Chat/JkaiEvents.swift`), thread links
+# (`Chat/ChatLink.swift`) and read-aloud's text (`Chat/SpokenText.swift`) are Foundation-only by
 # design, so they are compiled here as a throwaway SwiftPM module NAMED
 # `SRAppleApp` (the tests' `@testable import SRAppleApp` is untouched) with
-# `PanelReducerTests`, `TurnStreamTests` and `ChatLinkTests` as its test
+# `PanelReducerTests`, `TurnStreamTests`, `ChatLinkTests` and
+# `JkaiEventsTests` as its test
 # target, in the swift:6.0-jammy image in Swift 5 language mode, as the app
 # is. The reducer's fixtures (`SRAppleAppTests/Fixtures/PanelOps`) go beside
 # the tests, where their `#filePath` fallback finds them. Every other file
@@ -24,8 +26,8 @@ IMAGE="${CHAT_CHECK_IMAGE:-swift:6.0-jammy}"
 BASE="${CHAT_CHECK_TMP:-${TMPDIR:-/tmp}}"
 APP="$ROOT/ios/SRAppleApp"
 CHAT="$APP/Chat"
-PURE=(Chat/DeskModels.swift Chat/PanelReducer.swift Chat/TurnStream.swift Chat/ChatLink.swift Chat/SpokenText.swift)
-TESTS=(PanelReducerTests.swift TurnStreamTests.swift ChatLinkTests.swift)
+PURE=(Chat/DeskModels.swift Chat/PanelReducer.swift Chat/TurnStream.swift Chat/ChatLink.swift Chat/SpokenText.swift Chat/JkaiEvents.swift)
+TESTS=(PanelReducerTests.swift TurnStreamTests.swift ChatLinkTests.swift JkaiEventsTests.swift)
 
 command -v docker >/dev/null || { echo "chat-check: docker is not installed" >&2; exit 2; }
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null

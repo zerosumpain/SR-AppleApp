@@ -42,6 +42,8 @@ final class ThreadListStore: ObservableObject {
             // Not while viewing as somebody: Spotlight on this phone is the
             // owner's, and their threads must not land in it.
             if reset && term.isEmpty && AccessStore.shared.viewingAs == nil && !SRDemo.isOn { ThreadIndex.update(conversations) }
+            // Which of them have a turn running, for the rows' dots.
+            if reset { await JkaiLive.shared.refreshActive() }
         } catch SiteError.expired {
             message = "This iPhone needs pairing again."
         } catch {
@@ -519,15 +521,242 @@ final class ChatStore: ObservableObject {
         listen(to: job)
     }
 
+    // MARK: - A turn running anywhere
+    //
+    // The server knows every turn on a thread, wherever it was started — the
+    // web, another phone, this one before it was killed — and answers
+    // `GET /chat/active?conversationId=` with it (`ActiveTurnProbe`). That
+    // answer wins over the phone's own `ActiveTurns` hint, which is only
+    // asked when the server cannot be (an older site, no network).
+
+    /// Set while a turn attached from the server's answer is streaming: what
+    /// the server had of its reply then, for if the stream loses the job.
+    private var attachedPartial: String?
+    /// A gate card is up and its stream is still held open, because the phone
+    /// is beating presence (see the gates in `handle`).
+    private var gateOnStream = false
+
+    /// Ask the server whether this thread has a turn running, and join it.
+    ///
+    /// After the thread loads, on returning to the foreground, and when the
+    /// phone's channel says a turn started or a gate moved. Nothing happens
+    /// over a send or a stream already in flight.
+    func rejoin() async {
+        // Not in a demo: its jobs live in memory and are gone with the app.
+        guard !SRDemo.isOn, !sending, streamTask == nil else { return }
+        guard let probe = await probeActive() else {
+            // An older site, or no network: the phone's own hint is all there is.
+            rejoinIfRunning()
+            return
+        }
+        JkaiLive.shared.note(probe.features)
+        JkaiLive.shared.setRunning(conversationId, probe.liveJob != nil)
+        if presenceTask != nil && lastBeat == nil { Task { await beat() } }
+        let local = TurnRejoin.Local(
+            busy: sending || streamTask != nil,
+            jobId: jobId,
+            gateShown: plan != nil || clarify != nil || blocked != nil,
+            hint: activeTurns.entry(for: conversationId)?.jobId
+        )
+        switch TurnRejoin.decide(probe, local: local) {
+        case .nothing:
+            // Sitting on a gate with the stream let go (the screen went away
+            // for a moment): hold it again while presence says the phone is open.
+            if local.gateShown, let job = jobId, keepsStreamAtGate, streamTask == nil {
+                gateOnStream = true
+                listen(to: job)
+            }
+        case .attach(let job, _, let partial):
+            attach(job, gate: probe.openGate, turn: probe.turn, partialText: partial)
+        case .carryOn(let job):
+            continueTurn(job)
+        case .reload:
+            // Nothing is running: what the turn saved is in the thread — an
+            // interrupted turn's partial reply included, as a row of its own.
+            plan = nil
+            clarify = nil
+            blocked = nil
+            if let job = jobId ?? local.hint { activeTurns.clear(conversationId, jobId: job) }
+            jobId = nil
+            await load()
+        }
+    }
+
+    private func probeActive() async -> ActiveTurnProbe? {
+        let id = conversationId.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? conversationId
+        guard let reply = try? await client.exchange("api/workflows/orchestrator/chat/active?conversationId=\(id)", method: "GET"),
+              (200..<300).contains(reply.1.statusCode) else { return nil }
+        return ActiveTurnProbe.read(reply.0)
+    }
+
+    /// Join a turn the server says is running.
+    ///
+    /// With a gate open and the server's place in the stream known, the card
+    /// goes up at once over what the turn had said so far, and the stream
+    /// (held only with presence) picks up after the gate. Otherwise a fresh
+    /// bubble and a full replay from the first frame — safe, because the
+    /// bubble is new — with any gate in it held until the replay settles
+    /// (`GateHold`).
+    private func attach(_ job: String, gate: ActiveTurnProbe.OpenGate?, turn: ActiveTurnProbe.Turn?, partialText: String) {
+        plan = nil
+        clarify = nil
+        blocked = nil
+        message = nil
+        failedSend = nil
+        jobId = job
+        livePage = nil
+        gateOnStream = false
+        gateTimer?.cancel(); gateTimer = nil
+        heldGate = nil
+
+        if let gate, let seq = turn?.lastSeq, turn?.jobId == job {
+            if !partialText.isEmpty {
+                messages.append(ChatMessage.pending(id: "local-assistant-\(UUID().uuidString)", role: "assistant", content: partialText))
+            }
+            showGate(gate.frame)
+            sending = false
+            activity = TurnActivity()
+            liveBubbleId = nil
+            rejoining = false
+            streamResume = TurnStreamResume(lastEventId: seq)
+            streamTick &+= 1
+            if keepsStreamAtGate {
+                gateOnStream = true
+                listen(to: job)
+            }
+            return
+        }
+
+        sending = true
+        activity = TurnActivity()
+        activity.status = "Picking the turn up…"
+        let assistantId = "local-assistant-\(UUID().uuidString)"
+        messages.append(ChatMessage.pending(id: assistantId, role: "assistant", content: ""))
+        liveBubbleId = assistantId
+        attachedPartial = partialText.isEmpty ? nil : partialText
+        streamResume = TurnStreamResume()
+        rejoining = true
+        gateHold = GateHold()
+        streamTick &+= 1
+        listen(to: job)
+    }
+
+    /// The channel says a thread's turn ended. The stream that was following
+    /// it already knows; otherwise re-read the thread for what it saved.
+    func serverTurnEnded(jobId job: String) async {
+        guard !sending, streamTask == nil || gateOnStream else { return }
+        if jobId == job {
+            stop()
+            gateOnStream = false
+            plan = nil
+            clarify = nil
+            blocked = nil
+            jobId = nil
+        }
+        activeTurns.clear(conversationId, jobId: job)
+        await load()
+    }
+
+    /// The channel says something new landed in this thread.
+    func reloadFromServer() async {
+        guard !sending else { return }
+        await load()
+    }
+
+    /// The channel's analyst or red-team section for one answer: onto that
+    /// answer's page, the way the web's desk puts it there (`JkaiDeskUpdate`).
+    /// An answer not on screen under its server id — still a local bubble,
+    /// or older than the page — is re-read instead, once the turn is over:
+    /// the row holds the section already.
+    func applyDesk(_ update: JkaiDeskUpdate) {
+        guard let index = messages.firstIndex(where: { $0.id == update.messageId }) else {
+            if !sending, !update.ops(on: nil).isEmpty { Task { await load() } }
+            return
+        }
+        let next = update.applied(to: messages[index].panel)
+        guard next != messages[index].panel else { return }
+        messages[index].panel = next
+    }
+
+    /// Red-team one answer (owner only): `POST /api/jkai/conversations/<id>/red-team`.
+    /// The site stores the section on the answer's row, so a re-read shows it.
+    func redTeam(messageId: String) async -> DeskRedTeamOutcome {
+        do {
+            let body = try JSONEncoder().encode(["messageId": messageId])
+            let (_, response) = try await client.exchange(
+                "api/jkai/conversations/\(conversationId)/red-team", method: "POST", body: body, timeout: 120
+            )
+            switch response.statusCode {
+            case 200..<300:
+                await load()
+                return .done
+            case 403:
+                JkaiLive.shared.redTeamRefused = true
+                return .refused
+            default:
+                return .failed
+            }
+        } catch {
+            return .failed
+        }
+    }
+
+    // MARK: - Presence
+    //
+    // While the thread is on screen, the phone says so every fifteen seconds
+    // (`POST /chat/presence`), and stops the moment it is not. The server
+    // holds a gate's WhatsApp nudge while the beats come and sends it within
+    // about thirty seconds of them stopping. Only on a server that reads them
+    // (`features.presence`).
+
+    static let presenceEvery: TimeInterval = 15
+    private var presenceTask: Task<Void, Never>?
+    private var lastBeat: Date?
+
+    func startPresence() {
+        guard presenceTask == nil, !SRDemo.isOn else { return }
+        presenceTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.beat()
+                try? await Task.sleep(for: .seconds(ChatStore.presenceEvery))
+            }
+        }
+    }
+
+    func stopPresence() {
+        presenceTask?.cancel()
+        presenceTask = nil
+        lastBeat = nil
+        // A gate's stream was held only because the phone was open. It is not
+        // now, so let it go: the server's nudge goes out as it used to.
+        if gateOnStream {
+            gateOnStream = false
+            stop()
+        }
+    }
+
+    /// At a gate, keep the stream: the beats, not the socket, now tell the
+    /// server the phone is open.
+    private var keepsStreamAtGate: Bool { JkaiLive.shared.features.presence && presenceTask != nil }
+
+    private func beat() async {
+        guard JkaiLive.shared.features.presence, AccessStore.shared.viewingAs == nil, client.isPaired else { return }
+        guard let body = try? JSONEncoder().encode(["conversationId": conversationId, "surface": "ios"]) else { return }
+        lastBeat = Date()
+        _ = try? await client.call("api/workflows/orchestrator/chat/presence", method: "POST", body: body)
+    }
+
     /// A turn this phone started, still running when the app was killed or
-    /// the thread closed: pick it up again.
+    /// the thread closed: pick it up again. Only when the server cannot be
+    /// asked (`rejoin()`).
     ///
     /// Only when the thread ends with the question — if the answer is already
     /// there, the turn finished and there is nothing to rejoin. It is replayed
     /// from its first frame into a fresh bubble, which is safe because the
     /// bubble is new; a gate in that replay is held until the replay settles
     /// (`GateHold`), so one answered at the desk meanwhile is not shown again.
-    func rejoinIfRunning() {
+    private func rejoinIfRunning() {
         guard !sending, jobId == nil, !SRDemo.isOn, let entry = activeTurns.entry(for: conversationId) else { return }
         guard let last = messages.last, last.isUser else {
             activeTurns.clear(conversationId, jobId: entry.jobId)
@@ -577,8 +806,10 @@ final class ChatStore: ObservableObject {
             case .failed(let failure):
                 switch streamResume.next(after: failure) {
                 case .reconnect(let wait):
-                    activity.status = "Reconnecting…"
-                    streamTick &+= 1
+                    if !gateOnStream {
+                        activity.status = "Reconnecting…"
+                        streamTick &+= 1
+                    }
                     try? await Task.sleep(for: .seconds(wait))
                 case .reload:
                     await jobGone()
@@ -648,6 +879,14 @@ final class ChatStore: ObservableObject {
         guard let type = frame.json["type"] as? String else { return .more }
         if TurnStreamResume.isJobGone(type: type, message: frame.json["message"] as? String) { return .gone }
 
+        // A gate held open on the stream, answered somewhere else (the desk,
+        // another phone): the turn is moving again, so the card goes and a
+        // fresh bubble takes what follows.
+        if gateOnStream, !GateHold.gates.contains(type), type != "heartbeat", type != "connected" {
+            gateOnStream = false
+            openBubbleAfterGate()
+        }
+
         // A rejoined turn's replay: a gate waits until the replay shows
         // whether the turn moved on past it.
         if rejoining {
@@ -680,7 +919,8 @@ final class ChatStore: ObservableObject {
             activity.status = frame.json["text"] as? String
 
         case "heartbeat":
-            activity.status = frame.json["summary"] as? String
+            // Not under a card: a gate's heartbeats only say it is still waiting.
+            if !gateOnStream { activity.status = frame.json["summary"] as? String }
 
         case "tool_start":
             let tool = frame.json["tool"] as? String
@@ -709,23 +949,36 @@ final class ChatStore: ObservableObject {
             livePage = PanelReducer.apply(livePage, op)
             setLivePanel(PanelReducer.shown(livePage))
 
-        // The gates this app cannot answer. Naming them stops a turn hanging
+        // A gate: a card the phone can answer (plan, question) or one that
+        // names what the desk must answer. Naming them stops a turn hanging
         // silently with a spinner that never resolves.
         //
-        // AND THEN LET GO OF THE STREAM. This is the fix for a silent hang that
-        // was worse than the one the card was written for: the site escalates a
-        // stalled turn to WhatsApp after a fifteen-second grace period, and it
-        // skips the ping if anything still holds the job's SSE stream open. A
-        // phone sitting on this card IS that subscriber. So the one case where
-        // you most need to be told — a turn stopped, waiting on an answer only
-        // the desk can give — was the one case where nothing told you.
+        // What happens to the stream depends on the server.
         //
+        // WITHOUT PRESENCE (`features.presence` off, or an older site): LET GO
+        // OF THE STREAM. The site escalates a stalled turn to WhatsApp after a
+        // fifteen-second grace period, and it skips the ping if anything still
+        // holds the job's SSE stream open. A phone sitting on this card IS that
+        // subscriber — so the one case where you most need to be told, a turn
+        // waiting on an answer, was the one case where nothing told you.
         // Dropping the socket takes the subscriber count to zero inside the
-        // grace window, the escalation fires, and the message that arrives
-        // carries the link. The turn is unaffected; it was already waiting.
-        // (`.parked` ends the connection's loop, which drops the socket.)
+        // grace window, the escalation fires, and the message carries the
+        // link. The turn is unaffected; it was already waiting. (`.parked`
+        // ends the connection's loop, which drops the socket.)
+        //
+        // WITH PRESENCE: KEEP IT. The site now decides on the phone's presence
+        // beats, not on the socket: while this screen is open and beating, the
+        // nudge is held (you are looking at the card); once the beats stop —
+        // the screen closed, the phone pocketed — it goes out within about
+        // thirty seconds. Holding the stream means a gate answered at the desk
+        // carries straight on here (`gateOnStream` above), and `stopPresence()`
+        // lets the stream go the moment the beats stop.
         case "plan", "confirm", "clarify", "secret_request", "approval":
             openGate(frame)
+            if keepsStreamAtGate {
+                gateOnStream = true
+                return .more
+            }
             return .parked
 
         case "done":
@@ -768,15 +1021,20 @@ final class ChatStore: ObservableObject {
     /// still need the desk. A frame this app cannot read falls back to the
     /// desk card rather than to nothing.
     private func openGate(_ frame: SiteClient.StreamFrame) {
-        let type = frame.json["type"] as? String ?? ""
-        if type == "plan", let gate = PlanGate(frame.json) {
+        showGate(frame.json)
+        park()
+    }
+
+    /// The card for a gate frame — from the stream, or the server's `openGate`.
+    private func showGate(_ json: [String: Any]) {
+        let type = json["type"] as? String ?? ""
+        if type == "plan", let gate = PlanGate(json) {
             plan = gate
-        } else if type == "clarify", let gate = ClarifyGate(frame.json) {
+        } else if type == "clarify", let gate = ClarifyGate(json) {
             clarify = gate
         } else {
-            blocked = BlockedTurn(kind: type, detail: (frame.json["prompt"] as? String) ?? "")
+            blocked = BlockedTurn(kind: type, detail: (json["prompt"] as? String) ?? "")
         }
-        park()
     }
 
     /// In a rejoin, believe a held gate once the replay has been quiet for a
@@ -789,7 +1047,11 @@ final class ChatStore: ObservableObject {
             self.heldGate = nil
             self.gateTimer = nil
             self.openGate(frame)
-            self.stop()
+            if self.keepsStreamAtGate {
+                self.gateOnStream = true
+            } else {
+                self.stop()
+            }
         }
     }
 
@@ -797,6 +1059,16 @@ final class ChatStore: ObservableObject {
     /// restart. The thread has whatever it saved, so read that.
     private func jobGone() async {
         flushTokens()
+        // What the turn had said: the bubble's streamed text, or the server's
+        // partial text from when the phone attached, whichever is longer.
+        let streamed = liveBubbleId.flatMap { id in messages.first { $0.id == id }?.content } ?? ""
+        let partial = [streamed, attachedPartial ?? ""].max { $0.count < $1.count } ?? ""
+        attachedPartial = nil
+        // A card held open on the stream is moot with the job gone.
+        gateOnStream = false
+        plan = nil
+        clarify = nil
+        blocked = nil
         if let job = jobId { activeTurns.clear(conversationId, jobId: job) }
         jobId = nil
         sending = false
@@ -808,6 +1080,13 @@ final class ChatStore: ObservableObject {
         rejoining = false
         streamTick &+= 1
         await load()
+        // Lost before anything was saved (a restart on a site without the
+        // durable record, another slot): keep what it had said on screen
+        // rather than leave the question looking unanswered.
+        if !partial.isEmpty, messages.last?.isUser == true {
+            messages.append(ChatMessage.pending(id: "local-assistant-\(UUID().uuidString)", role: "assistant", content: partial))
+            streamTick &+= 1
+        }
     }
 
     /// Deltas not yet in the bubble. Each one used to publish `messages`,
@@ -875,6 +1154,8 @@ final class ChatStore: ObservableObject {
         if let job = jobId { activeTurns.clear(conversationId, jobId: job) }
         jobId = nil
         rejoining = false
+        gateOnStream = false
+        attachedPartial = nil
         gateTimer?.cancel(); gateTimer = nil
         heldGate = nil
         // The steps taken stay attached to the finished bubble; the thinking and
@@ -965,6 +1246,13 @@ final class ChatStore: ObservableObject {
         guard let job = jobId, !answering else { return }
         answering = true
         defer { answering = false }
+        // A stream held at the gate would start delivering the turn's next
+        // frames the moment the answer lands, into a second bubble. Let it go;
+        // the reconnect below resumes from the same place.
+        if gateOnStream {
+            gateOnStream = false
+            stop()
+        }
         do {
             let _: EmptyReply = try await client.send(
                 "api/workflows/orchestrator/chat?jobId=\(job)",
@@ -986,15 +1274,27 @@ final class ChatStore: ObservableObject {
             SRHaptic.bad()
             return
         }
+        continueTurn(job)
+    }
+
+    /// A gate answered (here or elsewhere): the card goes, a fresh bubble
+    /// takes what follows, and the stream reconnects from where it stopped.
+    private func continueTurn(_ job: String) {
+        gateOnStream = false
+        openBubbleAfterGate()
+        listen(to: job)
+    }
+
+    private func openBubbleAfterGate() {
         plan = nil
         clarify = nil
+        blocked = nil
         sending = true
         activity = TurnActivity()
         let assistantId = "local-assistant-\(UUID().uuidString)"
         messages.append(ChatMessage.pending(id: assistantId, role: "assistant", content: ""))
         liveBubbleId = assistantId
         streamTick &+= 1
-        listen(to: job)
     }
 
     // MARK: - Voice notes
