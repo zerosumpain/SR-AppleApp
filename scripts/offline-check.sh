@@ -98,6 +98,12 @@ for name in CarRaceLogic CarRaceNearbyRules; do
   compiled=$((compiled + 1))
 done
 
+# The word games' list. Linux has no app bundle, so the tests read it from the
+# source tree's layout (OfflineWordsTests.install walks up from the test file
+# to SRAppleApp/Offline/Words/): it goes in the package at the same place.
+mkdir -p "$WORK/SRAppleApp/Offline/Words"
+cp "$OFFLINE/Words/offline-words.txt" "$WORK/SRAppleApp/Offline/Words/"
+
 tests=0
 cp "$TESTS/CarRaceNearbyTests.swift" "$WORK/Tests/SRAppleAppTests/"
 tests=$((tests + 1))
