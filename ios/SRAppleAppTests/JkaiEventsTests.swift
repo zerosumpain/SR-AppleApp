@@ -142,4 +142,24 @@ final class JkaiEventsTests: XCTestCase {
         XCTAssertEqual(JkaiFeatures(nil), .off)
         XCTAssertEqual(JkaiFeatures(["presence": "yes", "events": true]), JkaiFeatures(events: true))
     }
+
+    // MARK: - Today's asks as starters
+
+    func testTodaysAsksAreItsAskButtonsOnceEach() throws {
+        let page = try JSONDecoder().decode(PanelPage.self, from: Data("""
+        {"version":1,"producer":"today","head":{"kicker":"Today","title":"Good morning"},"sections":[
+          {"id":"asks","label":"","blocks":[{"id":"today-asks","type":"actions","items":[
+            {"id":"waiting","label":"What's waiting on me?","kind":"ask","ask":{"label":"What's waiting on me?","detail":"What's waiting on me? List it."}},
+            {"id":"site","label":"Open","kind":"link","href":"/jkai"},
+            {"id":"post","label":"Do it","kind":"post"},
+            {"id":"again","label":"Again","kind":"ask","ask":{"label":"x","detail":"What's waiting on me? List it."}}]}]},
+          {"id":"more","label":"More","blocks":[{"id":"g","type":"group","blocks":[
+            {"id":"inner","type":"actions","items":[{"id":"brief","label":"Brief me","kind":"ask","ask":{"label":"Brief me","detail":"Brief me on today."}}]}]}]}]}
+        """.utf8))
+        XCTAssertEqual(page.asks, [
+            PanelAsk(label: "What's waiting on me?", detail: "What's waiting on me? List it."),
+            PanelAsk(label: "Brief me", detail: "Brief me on today."),
+        ])
+        XCTAssertEqual(PanelPage().asks, [])
+    }
 }

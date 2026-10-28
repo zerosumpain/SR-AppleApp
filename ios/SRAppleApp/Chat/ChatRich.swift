@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import MapKit
 
 // MARK: - What a turn made
 //
@@ -61,7 +62,10 @@ struct TableColumn: Decodable, Hashable {
 enum ChatArtifact: Decodable, Hashable {
     case chart(mark: String, x: ChartAxis, y: ChartAxis, color: String?, rows: [[String: ChatCell]], caption: String?)
     case table(columns: [TableColumn], rows: [[String: ChatCell]], totalRows: Int, caption: String?)
-    /// A chart too rich to redraw here, or a diagram.
+    /// Pins and tracks, drawn with MapKit (`ChatMap`).
+    case map(ChatMap)
+    /// A chart too rich to redraw here, a diagram, a heatmap, or a kind this
+    /// build has not met.
     case webOnly(kind: String, caption: String?)
 
     private enum Keys: String, CodingKey {
@@ -84,6 +88,14 @@ enum ChatArtifact: Decodable, Hashable {
                 rows: try c.decode([[String: ChatCell]].self, forKey: .rows),
                 caption: caption
             )
+        case "map" where simple:
+            // Read from the same object; a map with nothing usable on it is
+            // the web card, never an empty frame.
+            if let map = try? ChatMap(from: decoder), map.drawable {
+                self = .map(map)
+            } else {
+                self = .webOnly(kind: type, caption: caption)
+            }
         case "table":
             let rows = try c.decode([[String: ChatCell]].self, forKey: .rows)
             self = .table(
@@ -220,6 +232,54 @@ struct ChatChartView: View {
     }
 }
 
+// MARK: - Maps
+
+/// A turn's map: its pins and tracks on Apple's map, opened on the box the
+/// server sent. Still in the card, to be looked at; full screen, to be moved.
+struct ChatMapView: View {
+    let map: ChatMap
+    var height: CGFloat = 200
+    var interactive = false
+
+    var body: some View {
+        Map(initialPosition: position, interactionModes: interactive ? .all : []) {
+            ForEach(Array(map.tracks.enumerated()), id: \.offset) { _, track in
+                MapPolyline(coordinates: track.map(Self.coordinate))
+                    .stroke(SR.accent, lineWidth: 3)
+            }
+            ForEach(Array(map.points.enumerated()), id: \.offset) { _, pin in
+                Marker(pin.label ?? "", coordinate: Self.coordinate(pin.coordinate))
+                    .tint(SR.accent)
+            }
+        }
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var position: MapCameraPosition {
+        guard let r = map.region else { return .automatic }
+        return .region(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: r.centerLat, longitude: r.centerLon),
+            span: MKCoordinateSpan(latitudeDelta: r.latDelta, longitudeDelta: r.lonDelta)
+        ))
+    }
+
+    private static func coordinate(_ c: ChatMap.Coordinate) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon)
+    }
+
+    private var accessibilityText: String {
+        let labels = map.points.compactMap(\.label)
+        var parts: [String] = [map.caption ?? "A map"]
+        if !labels.isEmpty { parts.append(labels.prefix(5).joined(separator: ", ")) }
+        else if !map.points.isEmpty { parts.append(map.points.count == 1 ? "1 place" : "\(map.points.count) places") }
+        if !map.tracks.isEmpty { parts.append(map.tracks.count == 1 ? "1 route" : "\(map.tracks.count) routes") }
+        return parts.joined(separator: ". ")
+    }
+}
+
 // MARK: - Cards in the transcript
 
 /// A chart, a table, or a pointer to the web — one quiet card each.
@@ -266,15 +326,28 @@ struct ArtifactCard: View {
                     }
                 }
 
+            case .map(let map):
+                captionLine(map.caption)
+                ChatMapView(map: map)
+                    .contentShape(Rectangle())
+                    .onTapGesture { expanded = true }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Opens the map full screen")
+                    .sheet(isPresented: $expanded) {
+                        ArtifactSheet(title: map.caption ?? "Map") {
+                            ChatMapView(map: map, height: 460, interactive: true)
+                        }
+                    }
+
             case .webOnly(let kind, let caption):
                 HStack(spacing: 12) {
-                    Image(systemName: kind == "diagram" ? "point.3.connected.trianglepath.dotted" : "chart.xyaxis.line")
+                    Image(systemName: Self.webIcon(kind))
                         .foregroundStyle(SR.accent)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(caption ?? (kind == "diagram" ? "A diagram" : "A chart"))
+                        Text(caption ?? Self.webTitle(kind))
                             .font(SR.Text.bodyMedium(15))
                             .foregroundStyle(SR.ink)
-                        Text(kind == "diagram" ? "Diagrams draw on the web." : "Too detailed to redraw here.")
+                        Text(kind == "diagram" ? "Diagrams draw on the web." : kind == "map" ? "This map draws on the web." : "Too detailed to redraw here.")
                             .font(SR.Text.secondary())
                             .foregroundStyle(SR.inkMuted)
                     }
@@ -289,6 +362,22 @@ struct ArtifactCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+    }
+
+    private static func webIcon(_ kind: String) -> String {
+        switch kind {
+        case "diagram": return "point.3.connected.trianglepath.dotted"
+        case "map": return "map"
+        default: return "chart.xyaxis.line"
+        }
+    }
+
+    private static func webTitle(_ kind: String) -> String {
+        switch kind {
+        case "diagram": return "A diagram"
+        case "map": return "A map"
+        default: return "A chart"
+        }
     }
 
     @ViewBuilder
@@ -482,12 +571,14 @@ struct FoldedSteps: View {
 
 // MARK: - An empty thread
 
-/// Four ways in, on a thread with nothing in it — the web's starter prompts,
-/// same words, so the two surfaces teach the same things. One tap sends.
+/// Ways in, on a thread with nothing in it. The server's Today asks when it
+/// has them (`ServerToday`: the web's own starters, built from what is
+/// waiting), else the four below, the web's older fixed ones. One tap sends.
 ///
 /// Rows of text, not tiles. The web shows them as a hero because a desk has a
 /// screen to fill; a phone has the keyboard coming up under them.
 struct StarterPrompts: View {
+    var asks: [PanelAsk] = []
     let send: (String) -> Void
 
     struct Prompt: Identifiable {
@@ -504,11 +595,16 @@ struct StarterPrompts: View {
         Prompt(label: "What can you do?", icon: "sparkle", text: "What can you help me with? Give me a short tour of your capabilities."),
     ]
 
+    private var shown: [Prompt] {
+        guard !asks.isEmpty else { return Self.prompts }
+        return asks.prefix(4).map { Prompt(label: $0.label, icon: "sparkle", text: $0.detail) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             SRLabel(text: "Start with")
                 .padding(.bottom, 6)
-            ForEach(Self.prompts) { prompt in
+            ForEach(shown) { prompt in
                 Button {
                     SRHaptic.tap()
                     send(prompt.text)

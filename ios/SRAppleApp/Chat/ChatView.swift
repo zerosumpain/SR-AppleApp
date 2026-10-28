@@ -676,6 +676,8 @@ struct ChatScreen: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var speech = SpeechOut.shared
+    /// The server's Today, whose asks seed an empty thread when it has one.
+    @ObservedObject private var serverToday = ServerToday.shared
     @ObservedObject private var live = JkaiLive.shared
     /// The desk drawer, and the turn it opened on (nil: the one being read).
     @State private var deskOpen = false
@@ -744,7 +746,7 @@ struct ChatScreen: View {
                     }
 
                     if showsStarters {
-                        StarterPrompts { prompt in
+                        StarterPrompts(asks: serverToday.asks) { prompt in
                             atBottom = true
                             Task { await store.send(prompt) }
                         }
@@ -938,6 +940,10 @@ struct ChatScreen: View {
             default:
                 break
             }
+        }
+        // An empty thread's starters come from the server's Today, when it has one.
+        .task(id: showsStarters) {
+            if showsStarters { await serverToday.load() }
         }
     }
 

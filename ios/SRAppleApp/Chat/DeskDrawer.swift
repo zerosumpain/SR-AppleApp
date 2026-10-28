@@ -90,6 +90,8 @@ struct DeskView: View {
     /// The reader moved the pager. From then on the desk stays put.
     @State private var paged = false
     @StateObject private var today = TodayStore()
+    /// Today from the server, when it has one for this phone (`ServerToday`).
+    @ObservedObject private var serverToday = ServerToday.shared
     @Environment(\.deskActions) private var actions
     /// Answers being red-teamed now, by row id.
     @State private var checking: Set<String> = []
@@ -114,7 +116,7 @@ struct DeskView: View {
 
     private var page: PanelPage {
         if let index, index < pages.count, let page = pages[index].page { return page }
-        return DeskToday.page(from: today.payload)
+        return serverToday.page ?? DeskToday.page(from: today.payload)
     }
 
     /// The answer on show, by its server row id: what the foot acts on. A
@@ -150,7 +152,7 @@ struct DeskView: View {
                             }
                         }
                     }
-                    if showingToday && today.loading && today.payload == nil {
+                    if showingToday && (today.loading || serverToday.loading) && today.payload == nil && serverToday.page == nil {
                         ProgressView().tint(SR.accent).frame(maxWidth: .infinity)
                     }
                     foot
@@ -163,7 +165,11 @@ struct DeskView: View {
             .scrollIndicators(.hidden)
         }
         .task(id: showingToday) {
-            if showingToday && today.payload == nil { await today.load() }
+            guard showingToday else { return }
+            // The server's Today first; the phone builds its own only when the
+            // server has none for it (a member, or a site without the route).
+            await serverToday.load()
+            if serverToday.page == nil && today.payload == nil { await today.load() }
         }
         // The live answer's page appeared (its first block landed): show it,
         // unless the reader has paged elsewhere. A desk opened on Today or on
@@ -438,3 +444,49 @@ final class DeskVisibility {
     var onScreen: Set<String> = []
 }
 
+// MARK: - Today, from the server
+
+/// Today as the site builds it (`GET /api/jkai/today`, SR-Jkai-Core
+/// `panel/today.ts`): the same page the web's desk opens on, with the asks
+/// that seed an empty thread. Owner only. Where the server has none for this
+/// phone — a member (403), a site without the route yet (404, or 401 before
+/// the gateway passes it through) — the desk builds its own from
+/// `/api/native/today` (`DeskToday`) and an empty thread offers the app's
+/// own starters, exactly as before.
+@MainActor
+final class ServerToday: ObservableObject {
+    static let shared = ServerToday()
+
+    @Published private(set) var page: PanelPage?
+    @Published private(set) var loading = false
+
+    /// Asked again after this; a desk opened twice in a minute asks once.
+    static let freshFor: TimeInterval = 5 * 60
+    private var askedAt: Date?
+
+    /// The page's asks, for an empty thread's starters. Empty without a page.
+    var asks: [PanelAsk] { page?.asks ?? [] }
+
+    func load(force: Bool = false) async {
+        guard AccessStore.ownerSite, !SRDemo.isOn else {
+            page = nil
+            return
+        }
+        guard !loading else { return }
+        if !force, let askedAt, Date().timeIntervalSince(askedAt) < Self.freshFor { return }
+        loading = true
+        defer { loading = false }
+        askedAt = Date()
+        // `exchange`, not `send`: a refusal here is an answer ("not for this
+        // phone"), and a 401 from a route the gateway does not pass through
+        // yet must not read as the pairing being gone.
+        guard let reply = try? await SiteClient.shared.exchange("api/jkai/today", method: "GET"),
+              (200..<300).contains(reply.1.statusCode),
+              let fetched = try? JSONDecoder().decode(PanelPage.self, from: reply.0),
+              fetched.hasContent else {
+            page = nil
+            return
+        }
+        page = fetched
+    }
+}

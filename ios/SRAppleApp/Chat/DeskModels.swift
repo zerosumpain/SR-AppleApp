@@ -576,6 +576,35 @@ fileprivate extension KeyedDecodingContainer {
     }
 }
 
+// MARK: - Today's asks
+
+extension PanelPage {
+    /// The page's "ask" buttons, in order, once each: what Today offers as an
+    /// empty thread's starters (SR-Jkai-Core `panel/today.ts`). A group's
+    /// buttons count; a row's own ask does not, because it is about that row.
+    var asks: [PanelAsk] {
+        var out: [PanelAsk] = []
+        func take(_ block: PanelBlock) {
+            switch block.content {
+            case .actions(let items):
+                for item in items where item.kind == "ask" {
+                    if let ask = item.ask, !out.contains(where: { $0.detail == ask.detail }) {
+                        // The button's own label is what the desk shows; the
+                        // ask's label is the composer's.
+                        out.append(PanelAsk(label: item.label.isEmpty ? ask.label : item.label, detail: ask.detail))
+                    }
+                }
+            case .group(let blocks):
+                blocks.forEach(take)
+            default:
+                break
+            }
+        }
+        sections.flatMap(\.blocks).forEach(take)
+        return out
+    }
+}
+
 // MARK: - Which page the desk shows
 
 /// One turn as the desk sees it: an assistant message and its page, if any.
