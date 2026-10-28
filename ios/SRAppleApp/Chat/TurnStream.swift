@@ -478,6 +478,15 @@ struct ActiveTurnProbe: Equatable {
         let surface: String?
 
         var isLive: Bool { status == "running" || status == "gated" }
+
+        /// Where a stream picks up: `lastSeq` is the id of the last frame
+        /// already sent, and the route reads `Last-Event-ID: n` as "from
+        /// n + 1", so it is sent as it is. `-1` (nothing sent yet) is nil:
+        /// a full replay, with no header.
+        var resumePoint: Int? {
+            guard let lastSeq, lastSeq >= 0 else { return nil }
+            return lastSeq
+        }
     }
 
     struct OpenGate: Equatable {

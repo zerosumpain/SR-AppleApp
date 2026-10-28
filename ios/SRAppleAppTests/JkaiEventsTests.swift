@@ -143,7 +143,14 @@ final class JkaiEventsTests: XCTestCase {
         XCTAssertEqual(JkaiFeatures(["presence": "yes", "events": true]), JkaiFeatures(events: true))
     }
 
-    // MARK: - Today's asks as starters
+    // MARK: - Asks
+
+    /// A desk button hands the composer what the web's `askAbout` does: the
+    /// question is `label`, `detail` is the context it is about.
+    func testADeskAskIsTheQuestionAfterItsContext() throws {
+        let ask = try JSONDecoder().decode(PanelAsk.self, from: Data(#"{"label":"Why is it late?","detail":"Train 2C41, 8 min late"}"#.utf8))
+        XCTAssertEqual(ask.composerText, "Use the selected context from the desk:\nTrain 2C41, 8 min late\n\nWhy is it late?")
+    }
 
     func testTodaysAsksAreItsAskButtonsOnceEach() throws {
         let page = try JSONDecoder().decode(PanelPage.self, from: Data("""

@@ -343,6 +343,21 @@ final class TurnStreamTests: XCTestCase {
         XCTAssertEqual(p.features, JkaiFeatures(presence: true, events: true, durable: true))
     }
 
+    /// `lastSeq` is the last frame already sent; `Last-Event-ID: n` resumes
+    /// from n + 1. So it is the resume point as it is, and -1 is none.
+    func testTheResumePointIsLastSeqAndMinusOneIsAFullReplay() throws {
+        let at = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"gated","partialText":"","lastSeq":41}}"#))
+        XCTAssertEqual(at.turn?.resumePoint, 41)
+        var resume = TurnStreamResume(lastEventId: at.turn?.resumePoint)
+        XCTAssertFalse(resume.accept(41), "the last frame sent is not handled twice")
+        XCTAssertTrue(resume.accept(42))
+        let none = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"running","partialText":"","lastSeq":-1}}"#))
+        XCTAssertNil(none.turn?.resumePoint, "no Last-Event-ID at all")
+        XCTAssertTrue(TurnStreamResume(lastEventId: none.turn?.resumePoint).lastEventId == nil)
+        let older = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"running","partialText":""}}"#))
+        XCTAssertNil(older.turn?.resumePoint)
+    }
+
     func testAGatePayloadWithoutItsTypeGetsTheGatesKind() throws {
         let p = try XCTUnwrap(probe(#"{"jobId":"j","openGate":{"kind":"clarify","id":"clarify:c","payload":{"clarifyId":"c"}}}"#))
         XCTAssertEqual(p.openGate?.frame["type"] as? String, "clarify")

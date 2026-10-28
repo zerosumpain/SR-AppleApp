@@ -848,7 +848,7 @@ struct ChatScreen: View {
             DeskDrawer(isOpen: $deskOpen) {
                 DeskView(turns: deskTurns, focus: deskFocus, live: store.liveMessageId) { closeDesk() }
                     .environment(\.deskActions, DeskActions(
-                        ask: { detail in askFromDesk(detail) },
+                        ask: { text in askFromDesk(text) },
                         open: { href in
                             if let url = DeskLinks.resolve(href, origin: SiteClient.shared.origin) { openURL(url) }
                         },
@@ -974,8 +974,8 @@ struct ChatScreen: View {
 
     /// A desk button's prompt goes into the composer, NOT to the model: the
     /// reader sees it, can change it, and sends it themselves.
-    private func askFromDesk(_ detail: String) {
-        draft = detail
+    private func askFromDesk(_ text: String) {
+        draft = text
         closeDesk()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { composerFocused = true }
     }

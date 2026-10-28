@@ -103,9 +103,21 @@ struct PanelSection: Decodable, Hashable, Identifiable {
 }
 
 /// A button's prompt: what the composer is handed.
+///
+/// `label` is the QUESTION and `detail` the desk context it is about — the
+/// web's `Desk.svelte` `askAbout`. The one exception is Today's starters,
+/// whose `detail` is the question itself (`PanelPage.asks`, as Core's
+/// `today.ts` builds its chips).
 struct PanelAsk: Decodable, Hashable {
     var label: String
     var detail: String
+
+    /// What a desk button puts in the composer: the web's text exactly.
+    /// (The web sends only `label` when the ask hands refs over by id; the
+    /// phone's desk asks carry none.)
+    var composerText: String {
+        "Use the selected context from the desk:\n\(detail)\n\n\(label)"
+    }
 
     init(label: String, detail: String) {
         self.label = label

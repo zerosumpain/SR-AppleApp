@@ -609,7 +609,7 @@ final class ChatStore: ObservableObject {
         gateTimer?.cancel(); gateTimer = nil
         heldGate = nil
 
-        if let gate, let seq = turn?.lastSeq, turn?.jobId == job {
+        if let gate, let seq = turn?.resumePoint, turn?.jobId == job {
             if !partialText.isEmpty {
                 messages.append(ChatMessage.pending(id: "local-assistant-\(UUID().uuidString)", role: "assistant", content: partialText))
             }
