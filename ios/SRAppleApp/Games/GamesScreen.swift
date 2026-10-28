@@ -197,7 +197,8 @@ struct GamesScreen: View {
         }
         .sheet(item: $starting) { kind in
             NewGameSheet(game: kind, players: store.players, busy: store.busy == "new",
-                         paces: store.paceChoices(for: kind)) { request in
+                         paces: store.paceChoices(for: kind),
+                         playOffline: offline(kind)) { request in
                 switch await store.create(request) {
                 case .created(let room):
                     starting = nil
@@ -207,6 +208,17 @@ struct GamesScreen: View {
                     return sentence
                 }
             }
+        }
+    }
+
+    /// The way into a game's offline version, when it has one: the sheet
+    /// closes and the game's offline page opens on Games.
+    private func offline(_ kind: GameKind) -> (() -> Void)? {
+        guard OfflineCatalogue.canPlaySolo(kind.rawValue) || OfflineCatalogue.canPlayNearby(kind.rawValue) else { return nil }
+        return {
+            starting = nil
+            store.recordPlay(kind.rawValue)
+            router.push(SoloGameRef(kind: kind.rawValue), on: .games)
         }
     }
 
@@ -704,6 +716,9 @@ struct NewGameSheet: View {
     let busy: Bool
     /// The paces this game offers (`lobby.paces`); empty = live only, no picker.
     var paces: [GamePace] = []
+    /// The game's offline version — alone, against the phone, or with
+    /// phones nearby — when it has one. Nil hides the way in.
+    var playOffline: (() -> Void)? = nil
     /// Creates the room. Nil when it did (the sheet is then closed by its
     /// owner); otherwise the server's sentence, shown above Start.
     let start: (CreateGameBody) async -> String?
@@ -757,6 +772,21 @@ struct NewGameSheet: View {
                     SRPageHeader(kicker: "New game", title: game.title, strap: game.line)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("games-game-\(game.rawValue)")
+
+                    // No signal, or nobody online: the same game on this phone.
+                    if let playOffline {
+                        Button {
+                            SRHaptic.tap()
+                            playOffline()
+                        } label: {
+                            SRRow(title: "Play offline", subtitle: "Alone, against the phone, or with phones nearby — results sync later",
+                                  icon: "wifi.slash")
+                                .padding(12)
+                                .srGlassCard(.paper)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("games-play-offline")
+                    }
 
                     // A county is always played over days: there is no pace to pick.
                     if !paces.isEmpty && game != .hometowns {
