@@ -55,6 +55,19 @@ struct CaptureDetailScreen: View {
         .srPaper()
         .navigationTitle(capture?.title ?? "Capture")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Hand this recording to jkai by id (a `capture` ref): the turn
+            // reads its summary itself, labelled as other people's words.
+            if let capture, AccessStore.shared.allows(.chat) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        SRHaptic.tap()
+                        router.ask("About “\(capture.title ?? "this recording")”: ", refs: [.capture(capture.id)])
+                    } label: { Label("Ask jkai", systemImage: "sparkle") }
+                    .accessibilityIdentifier("capture-ask-jkai")
+                }
+            }
+        }
         // Polled while the site is still reading it, and only while the page
         // is in front: every 5 s for five minutes, then not at all.
         .task(id: scenePhase == .active) {

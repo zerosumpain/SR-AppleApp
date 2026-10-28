@@ -18,11 +18,16 @@ struct DaydreamNoteCard: View {
     @ObservedObject private var actions = DaydreamActions.shared
     @ObservedObject private var shelf = DaydreamShelf.shared
     @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var router: Router
     @State private var expanded = false
     /// "Change" reopens the choices over a verdict already given.
     @State private var changing = false
     /// The ruling sheet, while open: "It's wrong" or "It was right".
     @State private var ruling: DaydreamOwnerRuling?
+
+    private func askJkai() {
+        router.ask("About this note: ", refs: [.daydreamNote(note.id)])
+    }
 
     var body: some View {
         SRCard {
@@ -59,6 +64,14 @@ struct DaydreamNoteCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("daydream-note-\(note.id)")
+        // "Ask jkai" about this note, handed over by id (a `daydream_note`
+        // ref) from a long press: the turn reads it with its sources.
+        .contextMenu {
+            if AccessStore.shared.allows(.chat) {
+                Button { askJkai() } label: { Label("Ask jkai about this note", systemImage: "sparkle") }
+            }
+        }
+        .accessibilityAction(named: "Ask jkai about this note") { askJkai() }
         .sheet(item: $ruling) { ruling in
             DaydreamRulingSheet(note: note, ruling: ruling)
         }

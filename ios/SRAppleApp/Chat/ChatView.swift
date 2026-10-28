@@ -635,6 +635,9 @@ struct ChatScreen: View {
     @StateObject private var store: ChatStore
     @EnvironmentObject private var router: Router
     @State private var draft = ""
+    /// What a seeded draft is about ("Ask jkai" on a capture, note, trip day
+    /// or health day): sent with the next message from the composer, once.
+    @State private var draftRefs: [TurnRef] = []
     @State private var atBottom = true
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
@@ -772,7 +775,9 @@ struct ChatScreen: View {
                 if let question = router.pendingQuestion {
                     // Seeded, not sent. See AskJkaiIntent for why.
                     draft = question
+                    draftRefs = router.pendingRefs
                     router.pendingQuestion = nil
+                    router.pendingRefs = []
                     composerFocused = true
                 }
                 // Files handed in from another app's Share sheet ("Open in").
@@ -1013,10 +1018,12 @@ struct ChatScreen: View {
                 Task { await store.cancel() }
             } else {
                 let text = draft
+                let refs = draftRefs
+                draftRefs = []
                 clearDraft()
                 atBottom = true
                 SRHaptic.tap()
-                Task { await store.send(text) }
+                Task { await store.send(text, refs: refs) }
             }
         } label: {
             Image(systemName: store.sending ? "stop.fill" : "arrow.up")

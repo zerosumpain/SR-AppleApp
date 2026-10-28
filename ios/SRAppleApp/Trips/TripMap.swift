@@ -515,6 +515,7 @@ struct TripDayMoreMenu: View {
     @ObservedObject private var store = TripStore.shared
     @ObservedObject private var queue = TripEventQueue.shared
     @State private var askCellular = false
+    @EnvironmentObject private var router: Router
 
     private var id: String { TripDayGeometry.packId(trip: tripId, date: day.date) }
     private var mapped: Bool { !TripDayGeometry.corridorLine(day).isEmpty }
@@ -525,6 +526,14 @@ struct TripDayMoreMenu: View {
                 if mapped { mapItem }
                 Button { allDays() } label: { Label("All days of \(tripTitle)", systemImage: "calendar") }
                     .accessibilityIdentifier("trip-all-days")
+                // This day handed to jkai by id (a `trip` ref, `<trip>:<date>`):
+                // jkai reads it with trip_get and hands changes to the planner.
+                if AccessStore.shared.allows(.chat) {
+                    Button { router.ask("About \(tripTitle), \(day.date): ", refs: [.tripDay(trip: tripId, date: day.date)]) } label: {
+                        Label("Ask jkai about this day", systemImage: "sparkle")
+                    }
+                    .accessibilityIdentifier("trip-ask-jkai")
+                }
             }
             Section {
                 Text(TripSavedLine.words(refreshedAt: store.refreshedAt, online: network.online, queued: queue.count(for: tripId)))

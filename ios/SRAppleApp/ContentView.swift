@@ -41,6 +41,8 @@ final class Router: ObservableObject {
     @Published var settingsTarget: SettingsTarget?
     /// A question handed in from outside — a Shortcut, Siri, a quick action.
     @Published var pendingQuestion: String?
+    /// What the handed-in question is about, by id — sent with it, once.
+    @Published var pendingRefs: [TurnRef] = []
     /// Files handed in from another app — "Open in SR" on a Share sheet.
     @Published var pendingFiles: [URL] = []
 
@@ -339,8 +341,9 @@ final class Router: ObservableObject {
         push(ThreadReference(id: id), on: .chat)
     }
 
-    func ask(_ question: String) {
+    func ask(_ question: String, refs: [TurnRef] = []) {
         guard AccessStore.shared.allows(.chat) else { show(.today); return }
+        pendingRefs = refs
         pendingQuestion = question
         show(.chat)
     }

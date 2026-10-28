@@ -36,7 +36,8 @@ struct TurnEnvelope: Encodable, Equatable {
     let locale: String?
     let tz: String?
     let client: Client?
-    /// What the turn is about, by id. Nothing hands one over from the phone yet.
+    /// What the turn is about, by id — a capture, a daydream note, a trip
+    /// day or a health day handed over with "Ask jkai". Nil when none.
     let refs: [TurnRef]?
     /// Client tools the phone can run now: none (the device protocol is deferred).
     let capabilities: [String]
@@ -44,6 +45,7 @@ struct TurnEnvelope: Encodable, Equatable {
     /// The iPhone app's envelope, read once per send.
     static func phone(
         surface: String = "ios",
+        refs: [TurnRef] = [],
         info: [String: Any]? = Bundle.main.infoDictionary,
         locale: Locale = .current,
         timeZone: TimeZone = .current
@@ -54,7 +56,7 @@ struct TurnEnvelope: Encodable, Equatable {
             locale: bcp47(locale.identifier),
             tz: timeZone.identifier.isEmpty ? nil : timeZone.identifier,
             client: Client(app: "SRAppleApp", build: build),
-            refs: nil,
+            refs: TurnRef.sendable(refs),
             capabilities: []
         )
     }
@@ -68,10 +70,44 @@ struct TurnEnvelope: Encodable, Equatable {
     }
 }
 
-/// A thing handed over by id (`TurnEnvelope.refs`).
+/// A thing handed over by id (`TurnEnvelope.refs`). The kinds and the id
+/// shape are SR-Jkai-Core's `TURN_REF_KINDS` and `ID_PATTERN`; the server
+/// drops anything else, so the phone does too rather than send it.
 struct TurnRef: Encodable, Equatable {
     let kind: String
     let id: String
+
+    static let kinds: Set<String> = ["daydream_note", "trip", "capture", "build", "entity", "health_day"]
+    /// Core reads at most five per turn.
+    static let maxPerTurn = 5
+
+    static func daydreamNote(_ id: String) -> TurnRef { TurnRef(kind: "daydream_note", id: id) }
+    static func capture(_ id: String) -> TurnRef { TurnRef(kind: "capture", id: id) }
+    /// One day of a trip: Core reads `<tripId>:<YYYY-MM-DD>` with `trip_get`.
+    static func tripDay(trip: String, date: String) -> TurnRef { TurnRef(kind: "trip", id: "\(trip):\(date)") }
+    static func healthDay(_ date: String) -> TurnRef { TurnRef(kind: "health_day", id: date) }
+
+    /// The phone's local date, `YYYY-MM-DD`, for a `health_day` ref.
+    static func localDay(_ date: Date = Date(), timeZone: TimeZone = .current) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    var isSendable: Bool {
+        Self.kinds.contains(kind) && id.range(of: #"^[A-Za-z0-9_.:-]{1,128}$"#, options: .regularExpression) != nil
+    }
+
+    /// The refs a send carries: valid ones, deduped, at most five; nil for none.
+    static func sendable(_ refs: [TurnRef]) -> [TurnRef]? {
+        var out: [TurnRef] = []
+        for ref in refs where ref.isSendable && !out.contains(ref) {
+            out.append(ref)
+            if out.count == maxPerTurn { break }
+        }
+        return out.isEmpty ? nil : out
+    }
 }
 
 /// One send, as the POST body — built ONCE and kept, so every retry of it is

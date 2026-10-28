@@ -354,7 +354,9 @@ final class ChatStore: ObservableObject {
 
     @Published private(set) var failedSend: FailedSend?
 
-    func send(_ text: String, extra: [ChatAttachment] = []) async {
+    /// `refs`: what an "Ask jkai" hand-over is about (a capture, a note, a
+    /// trip day, a health day), sent once with this message.
+    func send(_ text: String, extra: [ChatAttachment] = [], refs: [TurnRef] = []) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !sending, !uploading else { return }
         // Only what actually arrived. A failed chip stays behind in the strip
@@ -366,7 +368,7 @@ final class ChatStore: ObservableObject {
             conversationId: conversationId,
             attachmentIds: attached.isEmpty ? nil : attached.map(\.id),
             // Where it was sent from, read once so a retry is the same bytes.
-            envelope: .phone()
+            envelope: .phone(refs: refs)
         )
         await start(request, attachments: attached)
     }

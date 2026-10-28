@@ -287,4 +287,31 @@ final class TurnStreamTests: XCTestCase {
         turns.record("job-1", for: "c1")
         XCTAssertEqual(turns.entry(for: "c1")?.jobId, "job-1")
     }
+
+    // MARK: - Refs handed over with "Ask jkai" (slice 7a)
+
+    func testRefsAreTheServersKindsAndIdShape() {
+        XCTAssertEqual(TurnRef.capture("cap_abc"), TurnRef(kind: "capture", id: "cap_abc"))
+        XCTAssertEqual(TurnRef.daydreamNote("n1").kind, "daydream_note")
+        XCTAssertEqual(TurnRef.tripDay(trip: "11111111-1111-4111-8111-111111111111", date: "2026-11-03").id,
+                       "11111111-1111-4111-8111-111111111111:2026-11-03")
+        XCTAssertEqual(TurnRef.healthDay("2026-10-27"), TurnRef(kind: "health_day", id: "2026-10-27"))
+        XCTAssertFalse(TurnRef(kind: "note", id: "n1").isSendable, "a kind the server does not read")
+        XCTAssertFalse(TurnRef(kind: "capture", id: "capture:cap/1 x").isSendable, "an id the server would drop")
+    }
+
+    func testAnEnvelopeCarriesValidRefsOnceAndAtMostFive() {
+        XCTAssertNil(TurnEnvelope.phone(info: [:]).refs, "none handed over is no refs, not an empty list")
+        let many = (1...7).map { TurnRef.daydreamNote("n\($0)") }
+        let env = TurnEnvelope.phone(refs: [.capture("cap_abc"), .capture("cap_abc"), TurnRef(kind: "bogus", id: "x")] + many, info: [:])
+        XCTAssertEqual(env.refs?.first, .capture("cap_abc"))
+        XCTAssertEqual(env.refs?.count, TurnRef.maxPerTurn)
+        XCTAssertEqual(env.refs?.filter { $0 == .capture("cap_abc") }.count, 1)
+    }
+
+    func testTheHealthDayIsThePhonesLocalDate() {
+        let instant = Date(timeIntervalSince1970: 1_793_400_000) // late evening UTC
+        XCTAssertEqual(TurnRef.localDay(instant, timeZone: TimeZone(identifier: "UTC")!), "2026-10-30")
+        XCTAssertEqual(TurnRef.localDay(instant, timeZone: TimeZone(identifier: "Pacific/Auckland")!), "2026-10-31")
+    }
 }
