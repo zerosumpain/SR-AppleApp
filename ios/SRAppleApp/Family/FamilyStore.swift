@@ -81,6 +81,7 @@ final class FamilyStore: ObservableObject {
             applyViewingAs()
             if updated != response.updated { updated = response.updated }
             if changed {
+                FamilyNowWidgetBridge.save(response.view)
                 if let fresh = response.view {
                     FamilyViewCache.save(view: fresh, updated: response.updated)
                 } else {

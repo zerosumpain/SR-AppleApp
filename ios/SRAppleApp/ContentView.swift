@@ -633,6 +633,8 @@ struct ContentView: View {
                 router.openFamilyPage(page)
                 return
             }
+            // sr://family, sr://games[/<room>], sr://health — the glance widgets.
+            if let link = GlanceLink.from(url: url) { router.openGlance(link); return }
             // sr://batphone — the bat phone widget: its check, never a send.
             if BatPhoneURL.matches(url) {
                 BatPhoneLink.shared.open()
