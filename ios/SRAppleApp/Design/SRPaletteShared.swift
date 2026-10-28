@@ -145,6 +145,24 @@ struct SRWidgetPalette: Codable, Equatable {
     var tasks: SRHueSpec
     var family: SRHueSpec
     var trips: SRHueSpec
+    /// The glance widgets' grounds and the family's circles. Optional, so a
+    /// palette left on the shelf before they existed still reads; nil is
+    /// Prism's own (`gamesHue`, `healthHue`, `person`).
+    var games: SRHueSpec? = nil
+    var health: SRHueSpec? = nil
+    /// `SR.PersonHue`'s colours, in order: a person's slot picks theirs.
+    var people: [UInt32]? = nil
+
+    var gamesHue: SRHueSpec { games ?? Self.prism.games! }
+    var healthHue: SRHueSpec { health ?? Self.prism.health! }
+
+    /// The colour of the person in `slot`, as their pin and circle wear it.
+    func person(_ slot: Int) -> UInt32 {
+        let colours = people.flatMap { $0.isEmpty ? nil : $0 } ?? Self.prismPeople
+        return colours[((slot % colours.count) + colours.count) % colours.count]
+    }
+
+    static let prismPeople: [UInt32] = [0xFF4D6D, 0x2F80ED, 0x12B76A, 0xF79009, 0x9B51E0, 0x06AED4, 0xEE46BC, 0x84CC16]
 
     /// Prism's own, for a shelf with nothing on it.
     static let prism = SRWidgetPalette(
@@ -156,6 +174,9 @@ struct SRWidgetPalette: Codable, Equatable {
         steps: SRHueSpec(base: 0xE85D00, glow: 0xFF9E2C, onFill: 0x15123A),
         tasks: SRHueSpec(base: 0xFFB800, glow: 0xFFE14D, onFill: 0x15123A),
         family: SRHueSpec(base: 0xE62E5C, glow: 0xFF7A59, onFill: 0xFFFFFF),
-        trips: SRHueSpec(base: 0x1E63E9, glow: 0x2EC5FF, onFill: 0xFFFFFF)
+        trips: SRHueSpec(base: 0x1E63E9, glow: 0x2EC5FF, onFill: 0xFFFFFF),
+        games: SRHueSpec(base: 0x7C3AED, glow: 0xC026D3, dark: 0x15123A),
+        health: SRHueSpec(base: 0x0E9F5A, glow: 0x3DDC84, dark: 0x15123A),
+        people: prismPeople
     )
 }

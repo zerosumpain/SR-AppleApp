@@ -130,7 +130,8 @@ struct SRPalette: Identifiable, Equatable {
     var widget: SRWidgetPalette {
         SRWidgetPalette(
             paper: paper, ink: ink, accent: accent, good: good, error: error,
-            steps: hue(.steps), tasks: hue(.tasks), family: hue(.family), trips: hue(.trips)
+            steps: hue(.steps), tasks: hue(.tasks), family: hue(.family), trips: hue(.trips),
+            games: hue(.games), health: hue(.health), people: people
         )
     }
 }

@@ -222,8 +222,27 @@ final class PaletteTests: XCTestCase {
         XCTAssertEqual(widget.tasks, SRPalette.sunset.hue(.tasks))
         XCTAssertEqual(widget.family, SRPalette.sunset.hue(.family))
         XCTAssertEqual(widget.trips, SRPalette.sunset.hue(.trips))
+        XCTAssertEqual(widget.gamesHue, SRPalette.sunset.hue(.games))
+        XCTAssertEqual(widget.healthHue, SRPalette.sunset.hue(.health))
+        XCTAssertEqual(widget.people, SRPalette.sunset.people)
+        XCTAssertEqual(widget.person(1), SRPalette.sunset.people[1])
+        XCTAssertEqual(widget.person(SRPalette.sunset.people.count), SRPalette.sunset.people[0], "slots wrap round")
         // The extension's fallback is Prism's own, exactly.
         XCTAssertEqual(SRWidgetPalette.prism, SRPalette.prism.widget)
+    }
+
+    /// A palette left on the shelf before the glance widgets reads, and
+    /// paints their hues and circles in Prism's.
+    func testAWidgetPaletteFromBeforeTheGlanceWidgetsStillReads() throws {
+        var old = SRPalette.meadow.widget
+        old.games = nil
+        old.health = nil
+        old.people = nil
+        let decoded = try JSONDecoder().decode(SRWidgetPalette.self, from: JSONEncoder().encode(old))
+        XCTAssertEqual(decoded.steps, SRPalette.meadow.widget.steps)
+        XCTAssertEqual(decoded.gamesHue, SRWidgetPalette.prism.gamesHue)
+        XCTAssertEqual(decoded.healthHue, SRWidgetPalette.prism.healthHue)
+        XCTAssertEqual(decoded.person(0), SRWidgetPalette.prismPeople[0])
     }
 
     func testTheWidgetPaletteRoundTripsThroughJSON() throws {

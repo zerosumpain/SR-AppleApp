@@ -34,9 +34,17 @@ enum FamilyWidgetKind {
     /// The bat phone's button, which opens the app on a check
     /// (`BatPhoneURL`).
     static let batPhone = "FamilyBatPhone"
+    /// Who is home, out and on the move (`FamilyNowWidgetModel.swift`).
+    static let familyNow = "FamilyNow"
+    /// The next stop on a trip day, or the next trip (`TripsWidgetModel.swift`).
+    static let trips = "SRTrips"
+    /// Invites, your move, the last result (`GamesWidgetModel.swift`).
+    static let games = "SRGames"
+    /// Today's rings and steps (`HealthWidgetModel.swift`).
+    static let health = "SRHealthToday"
 
     /// Every family widget: what a new credential, or none, redraws.
-    static let all = [steps, tasks, messages, batPhone]
+    static let all = [steps, tasks, messages, batPhone, familyNow, trips, games, health]
 }
 
 /// The widgets' refresh: iOS budgets roughly this often for a widget that
@@ -73,6 +81,11 @@ enum FamilyShelf {
         case credential, steps, tasks
         /// msg family's latest threads (`FamilyMessagesSnapshot`).
         case messages
+        /// The glance widgets' snapshots: who is where (`FamilyNowSnapshot`),
+        /// the trip day (`TripsWidgetSnapshot`), the games lobby
+        /// (`GamesWidgetSnapshot`) and today's rings (`HealthWidgetSnapshot`).
+        /// Cleared with everything else on sign-out or revoke.
+        case familyNow, trips, games, health
         /// Shares the share extension could not send (FamilyBacklogShared.swift).
         case backlogQueue
         /// The reader's palette, as the widgets and Live Activities paint it

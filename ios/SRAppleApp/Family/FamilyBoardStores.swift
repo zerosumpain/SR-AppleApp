@@ -277,8 +277,10 @@ enum FamilyWidgetBridge {
     /// Signed out, or no longer family: nothing left behind for a widget.
     static func clear() {
         if SRDemo.isOn { return }
-        guard FamilyShelf.read(.credential) != nil || FamilyShelf.read(.steps) != nil || FamilyShelf.read(.tasks) != nil
-                || FamilyShelf.read(.messages) != nil else { return }
+        // Anything a widget draws, or the credential. Not the palette (kept)
+        // nor the share queue alone (it only goes with the rest, as before).
+        let held: [FamilyShelf.Account] = [.credential, .steps, .tasks, .messages, .familyNow, .trips, .games, .health]
+        guard held.contains(where: { FamilyShelf.read($0) != nil }) else { return }
         FamilyShelf.clearAll()
         for kind in FamilyWidgetKind.all { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
     }
