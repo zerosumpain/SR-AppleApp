@@ -18,6 +18,7 @@ final class TripLive {
     private init() {}
 
     func refresh(now: Date = Date()) {
+        TripsWidgetBridge.save(now: now)
         guard !SRDemo.isOn, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let store = TripStore.shared
         guard let running = store.running(now: now),

@@ -218,6 +218,7 @@ final class TripStore: ObservableObject {
             }
             prune(keeping: Set(list.map(\.id)))
             refreshedAt = now
+            TripsWidgetBridge.save(now: now)
             message = nil
             // v7: the evening-before briefings and booking nudges, on this phone.
             await TripReminders.sync(Array(bundles.values))
