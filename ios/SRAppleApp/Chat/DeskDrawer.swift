@@ -77,20 +77,33 @@ struct DeskDrawer<Content: View>: View {
 /// page's blocks — or Today, when the thread has put nothing on the desk yet.
 struct DeskView: View {
     let turns: [DeskTurn]
+    /// The answer being streamed, if any. Its page fills while the turn runs
+    /// (`PanelReducer`), and the desk follows it there — until the reader
+    /// pages somewhere themselves.
+    let live: String?
     let close: () -> Void
 
     /// Into `DeskPager.pages(of:)`; `nil` is Today.
     @State private var index: Int?
     /// The turn asked about has no page; an earlier one is on show.
     @State private var held: Bool
+    /// The reader moved the pager. From then on the desk stays put.
+    @State private var paged = false
     @StateObject private var today = TodayStore()
 
-    init(turns: [DeskTurn], focus: String?, close: @escaping () -> Void) {
+    init(turns: [DeskTurn], focus: String?, live: String? = nil, close: @escaping () -> Void) {
         self.turns = turns
+        self.live = live
         self.close = close
         let choice = DeskPager.choose(turns: turns, focus: focus)
         _index = State(initialValue: choice.index)
         _held = State(initialValue: choice.held)
+    }
+
+    /// Where the live answer's page sits in the pager, once it has one.
+    private var livePage: Int? {
+        guard let live else { return nil }
+        return pages.firstIndex { $0.id == live }
     }
 
     private var pages: [DeskTurn] { DeskPager.pages(of: turns) }
@@ -138,6 +151,16 @@ struct DeskView: View {
         }
         .task(id: showingToday) {
             if showingToday && today.payload == nil { await today.load() }
+        }
+        // The live answer's page appeared (its first block landed): show it,
+        // unless the reader has paged elsewhere. A desk opened on Today or on
+        // the held page before it is waiting for exactly this.
+        .onChange(of: livePage) { _, target in
+            guard let target, !paged, index != target else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                index = target
+                held = false
+            }
         }
     }
 
@@ -230,6 +253,7 @@ struct DeskView: View {
         SRHaptic.select()
         index = target
         held = false
+        paged = true
     }
 
     private var quietLine: some View {

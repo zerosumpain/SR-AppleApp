@@ -648,6 +648,7 @@ struct ChatScreen: View {
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     /// The desk drawer, and the turn it opened on (nil: the one being read).
     @State private var deskOpen = false
     @State private var deskFocus: String?
@@ -771,6 +772,10 @@ struct ChatScreen: View {
                     for url in urls { attachFile(url) }
                 }
                 await store.load()
+                // A turn this phone started that was still running when the
+                // app went away: pick it up again (or, if the server has let
+                // it go, the reload above already shows what it saved).
+                store.rejoinIfRunning()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
                 // Unstructured, like a starter prompt's send: leaving the
                 // screen must not cancel the question on its way.
@@ -803,7 +808,7 @@ struct ChatScreen: View {
         }
         .overlay {
             DeskDrawer(isOpen: $deskOpen) {
-                DeskView(turns: deskTurns, focus: deskFocus) { closeDesk() }
+                DeskView(turns: deskTurns, focus: deskFocus, live: store.liveMessageId) { closeDesk() }
                     .environment(\.deskActions, DeskActions(
                         ask: { detail in askFromDesk(detail) },
                         open: { href in
@@ -868,6 +873,11 @@ struct ChatScreen: View {
         // same job up from its last sequence number on the way back.
         .onDisappear { store.stop() }
         .onAppear { store.resume() }
+        // Back from the background: the socket did not survive the trip, and
+        // the reconnect picks up from the last frame handled.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { store.resume() }
+        }
     }
 
     // MARK: - The desk
@@ -931,6 +941,19 @@ struct ChatScreen: View {
             // any fixed offset is wrong for most of its range.
             if let message = store.message {
                 SRBanner(text: message, tone: SR.error)
+            }
+            // A send that did not get through. The same request again, so
+            // one that DID reach the site is answered rather than repeated.
+            if store.failedSend != nil && !store.sending {
+                Button {
+                    SRHaptic.tap()
+                    atBottom = true
+                    Task { await store.retryFailedSend() }
+                } label: {
+                    SRButtonLabel(title: "Try again", icon: "arrow.clockwise")
+                }
+                .srButton()
+                .accessibilityIdentifier("chat-retry-send")
             }
             if !store.pending.isEmpty {
                 PendingAttachmentStrip(items: store.pending) { store.removePending($0) }
