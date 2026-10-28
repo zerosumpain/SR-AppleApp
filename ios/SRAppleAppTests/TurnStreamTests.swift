@@ -157,6 +157,28 @@ final class TurnStreamTests: XCTestCase {
         XCTAssertNil(bare?["attachmentIds"], "no attachments: no key, as before")
     }
 
+    func testThePhoneSaysWhereTheTurnCameFrom() throws {
+        let envelope = TurnEnvelope.phone(
+            info: ["CFBundleVersion": "181"],
+            locale: Locale(identifier: "en_GB"),
+            timeZone: TimeZone(identifier: "Europe/Rome")!
+        )
+        let request = TurnRequest(message: "Dinner tonight?", conversationId: "c1", attachmentIds: nil, envelope: envelope)
+        let json = try JSONSerialization.jsonObject(with: try request.body()) as? [String: Any]
+        let sent = json?["envelope"] as? [String: Any]
+        XCTAssertEqual(sent?["surface"] as? String, "ios")
+        XCTAssertEqual(sent?["locale"] as? String, "en-GB")
+        XCTAssertEqual(sent?["tz"] as? String, "Europe/Rome")
+        XCTAssertEqual((sent?["client"] as? [String: Any])?["build"] as? String, "181")
+        XCTAssertEqual(sent?["capabilities"] as? [String], [])
+        XCTAssertNil(sent?["refs"], "nothing handed over: no key")
+        XCTAssertNil((sent?["client"] as? [String: Any])?["deviceId"], "the server sets the device, never the phone")
+        // Built once: a retry is the same bytes, envelope included.
+        XCTAssertEqual(try request.body(), try request.body())
+        XCTAssertEqual(TurnEnvelope.bcp47("en_GB@calendar=gregorian"), "en-GB")
+        XCTAssertNil(TurnEnvelope.bcp47(""))
+    }
+
     /// The server's receipts (`onceChatRequest`) as a stand-in: the same id
     /// and the same body answer with the first job; a different body with the
     /// same id is refused. A retry after a lost reply is one turn.

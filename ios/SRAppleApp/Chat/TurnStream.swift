@@ -21,34 +21,97 @@ import Foundation
 //   a tool or a delegation runs. Reconnecting does not extend that: a turn the
 //   server has ended is over, and the thread is reloaded to show what it saved.
 
+/// Where a turn came from — SR-Jkai-Core's `TurnEnvelope`
+/// (`site-tools/invoke-contract.ts`). The server picks jkai's length and
+/// format from `surface` and labels the rows with it; the phone's clock lets
+/// "tonight" mean where John is. Additive: a server that predates it ignores
+/// it. `deviceId` is never sent — the server takes it from the credential.
+struct TurnEnvelope: Encodable, Equatable {
+    struct Client: Encodable, Equatable {
+        let app: String
+        let build: String?
+    }
+
+    let surface: String
+    let locale: String?
+    let tz: String?
+    let client: Client?
+    /// What the turn is about, by id. Nothing hands one over from the phone yet.
+    let refs: [TurnRef]?
+    /// Client tools the phone can run now: none (the device protocol is deferred).
+    let capabilities: [String]
+
+    /// The iPhone app's envelope, read once per send.
+    static func phone(
+        surface: String = "ios",
+        info: [String: Any]? = Bundle.main.infoDictionary,
+        locale: Locale = .current,
+        timeZone: TimeZone = .current
+    ) -> TurnEnvelope {
+        let build = (info?["CFBundleVersion"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return TurnEnvelope(
+            surface: surface,
+            locale: bcp47(locale.identifier),
+            tz: timeZone.identifier.isEmpty ? nil : timeZone.identifier,
+            client: Client(app: "SRAppleApp", build: build),
+            refs: nil,
+            capabilities: []
+        )
+    }
+
+    /// `en_GB@calendar=gregorian` → `en-GB`; nil for an identifier the server
+    /// would drop anyway.
+    static func bcp47(_ identifier: String) -> String? {
+        let base = identifier.split(separator: "@").first.map(String.init) ?? ""
+        let tag = base.replacingOccurrences(of: "_", with: "-")
+        return tag.range(of: #"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$"#, options: .regularExpression) != nil ? tag : nil
+    }
+}
+
+/// A thing handed over by id (`TurnEnvelope.refs`).
+struct TurnRef: Encodable, Equatable {
+    let kind: String
+    let id: String
+}
+
 /// One send, as the POST body — built ONCE and kept, so every retry of it is
 /// byte-for-byte the same request. The server fingerprints the whole body: a
 /// retry that differed in anything (a re-ordered key, an attachment dropped)
 /// would be refused as "a different message" rather than answered as the same.
+/// The envelope is part of that body, so it too is read once, at send.
 struct TurnRequest: Equatable {
     let requestId: String
     let message: String
     let conversationId: String
     let attachmentIds: [String]?
+    let envelope: TurnEnvelope?
 
     private struct Wire: Encodable {
         let message: String
         let conversationId: String
         let attachmentIds: [String]?
         let requestId: String
+        let envelope: TurnEnvelope?
     }
 
-    init(message: String, conversationId: String, attachmentIds: [String]?, requestId: String = TurnStart.newRequestId()) {
+    init(
+        message: String,
+        conversationId: String,
+        attachmentIds: [String]?,
+        envelope: TurnEnvelope? = nil,
+        requestId: String = TurnStart.newRequestId()
+    ) {
         self.requestId = requestId
         self.message = message
         self.conversationId = conversationId
         self.attachmentIds = attachmentIds
+        self.envelope = envelope
     }
 
     func body() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(Wire(message: message, conversationId: conversationId, attachmentIds: attachmentIds, requestId: requestId))
+        return try encoder.encode(Wire(message: message, conversationId: conversationId, attachmentIds: attachmentIds, requestId: requestId, envelope: envelope))
     }
 }
 

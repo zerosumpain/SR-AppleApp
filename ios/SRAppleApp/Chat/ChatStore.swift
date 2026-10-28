@@ -364,7 +364,9 @@ final class ChatStore: ObservableObject {
         let request = TurnRequest(
             message: trimmed,
             conversationId: conversationId,
-            attachmentIds: attached.isEmpty ? nil : attached.map(\.id)
+            attachmentIds: attached.isEmpty ? nil : attached.map(\.id),
+            // Where it was sent from, read once so a retry is the same bytes.
+            envelope: .phone()
         )
         await start(request, attachments: attached)
     }

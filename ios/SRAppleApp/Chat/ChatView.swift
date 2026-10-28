@@ -538,6 +538,9 @@ struct ThreadRow: View {
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
                     .lineLimit(1)
+                if let tag = conversation.originTag {
+                    SRPill(text: tag, tone: SR.inkMuted)
+                }
                 Spacer(minLength: 6)
                 if let updated = conversation.updatedAt {
                     Text(shortAgo(updated))
