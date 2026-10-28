@@ -183,4 +183,58 @@ final class PanelReducerTests: XCTestCase {
         XCTAssertEqual(DeskPager.choose(turns: turns, focus: nil), DeskPager.Choice(index: 0, held: false))
         XCTAssertEqual(live?.head.context, ["mail"])
     }
+
+    // MARK: - The schema's caps
+
+    private func prose(_ id: String) -> PanelBlock {
+        PanelBlock(id: id, content: .prose("x", tone: nil))
+    }
+
+    /// Core's schema refuses a section of more than 24 blocks, so the 25th NEW
+    /// block into one is dropped; a block already there is still replaced.
+    func testANewBlockIntoAFullSectionIsDropped() {
+        let ops = (0..<24).map { PanelOp.upsert(section: "s", sectionLabel: nil, block: prose("b\($0)")) }
+        let full = PanelReducer.apply(nil, ops)
+        XCTAssertEqual(full?.sections.first?.blocks.count, PanelReducer.maxBlocksPerSection)
+
+        let over = PanelReducer.apply(full, .upsert(section: "s", sectionLabel: nil, block: prose("b24")))
+        XCTAssertEqual(over, full, "the 25th block goes nowhere")
+
+        let replaced = PanelReducer.apply(full, .upsert(section: "s", sectionLabel: nil, block: PanelBlock(id: "b3", content: .prose("new", tone: nil))))
+        XCTAssertEqual(replaced?.sections.first?.blocks.count, 24)
+        XCTAssertEqual(replaced?.sections.first?.blocks[3].content, .prose("new", tone: nil), "replace in place still works")
+
+        // A block moving in from another section is new to this one.
+        let other = PanelReducer.apply(full, .upsert(section: "t", sectionLabel: nil, block: prose("t0")))
+        let moved = PanelReducer.apply(other, .upsert(section: "s", sectionLabel: nil, block: prose("t0")))
+        XCTAssertEqual(moved, other)
+
+        // Another section still takes blocks.
+        XCTAssertEqual(other?.sections.map(\.id), ["s", "t"])
+    }
+
+    /// And a page of more than 12 sections: the 13th NEW section is dropped,
+    /// while a block into one of the twelve still lands.
+    func testANewSectionOnAFullPageIsDropped() {
+        let ops = (0..<12).map { PanelOp.upsert(section: "s\($0)", sectionLabel: nil, block: prose("b\($0)")) }
+        let full = PanelReducer.apply(nil, ops)
+        XCTAssertEqual(full?.sections.count, PanelReducer.maxSectionsPerPage)
+
+        let over = PanelReducer.apply(full, .upsert(section: "s12", sectionLabel: "Late", block: prose("late")))
+        XCTAssertEqual(over, full)
+
+        let into = PanelReducer.apply(full, .upsert(section: "s4", sectionLabel: nil, block: prose("more")))
+        XCTAssertEqual(into?.sections.count, 12)
+        XCTAssertEqual(into?.sections[4].blocks.map(\.id), ["b4", "more"])
+
+        let replaced = PanelReducer.apply(full, .upsert(section: "s0", sectionLabel: nil, block: PanelBlock(id: "b0", content: .prose("again", tone: nil))))
+        XCTAssertEqual(replaced?.sections[0].blocks.first?.content, .prose("again", tone: nil))
+    }
+
+    /// The page cap still holds over both: 40 blocks across sections of fewer than 24.
+    func testThePageCapStillHolds() {
+        let ops = (0..<41).map { PanelOp.upsert(section: "s\($0 / 20)", sectionLabel: nil, block: prose("b\($0)")) }
+        let page = PanelReducer.apply(nil, ops)
+        XCTAssertEqual(page?.sections.reduce(0) { $0 + $1.blocks.count }, PanelReducer.maxBlocksPerPage)
+    }
 }

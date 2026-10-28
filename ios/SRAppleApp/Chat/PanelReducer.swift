@@ -11,8 +11,9 @@ import Foundation
 //
 // - the REDUCED page, which holds every block the server sent, including ones
 //   the phone will never draw (`artifact`, a button that posts, a type this
-//   build has not met). They still count towards the 40-block cap and still
-//   own their ids, so the next op lands where it lands on the web.
+//   build has not met). They still count towards the caps (40 blocks a page,
+//   24 a section, 12 sections) and still own their ids, so the next op lands
+//   where it lands on the web.
 // - the SHOWN page (`PanelReducer.shown`), which is SR-Main's `nativePanel`
 //   keep() filter: what a reload of the same turn would have given the drawer.
 //   A live page and a reloaded page must look the same.
@@ -81,6 +82,14 @@ struct PanelFrame: Decodable {
 enum PanelReducer {
     /// Hard cap so a runaway turn cannot grow a page without bound (`MAX_BLOCKS_PER_PAGE`).
     static let maxBlocksPerPage = 40
+    /// Core's panel schema allows at most this many blocks in one section
+    /// (`MAX_BLOCKS_PER_SECTION`) and this many sections on one page
+    /// (`MAX_SECTIONS_PER_PAGE`). The page cap alone let a page be built that
+    /// the server's strict parse then refused, so a NEW block into a full
+    /// section and a NEW section on a full page are dropped here as in
+    /// `apply.ts`. Replacing a block that is already there still works.
+    static let maxBlocksPerSection = 24
+    static let maxSectionsPerPage = 12
 
     /// `DEFAULT_TURN_HEAD`: the page an op lands on when there is none yet.
     static let defaultHead = PanelHead(kicker: "This turn", context: [], title: "Working")
@@ -113,6 +122,14 @@ enum PanelReducer {
                let at = base.sections[s].blocks.firstIndex(where: { $0.id == block.id }) {
                 base.sections[s].blocks[at] = block
                 base.quiet = false
+                return base
+            }
+            // New to this section: refused when the section, or the page's
+            // run of sections, is already full. A block moving here from
+            // another section is new to this one.
+            if let s = base.sections.firstIndex(where: { $0.id == sectionId }) {
+                if base.sections[s].blocks.count >= maxBlocksPerSection { return base }
+            } else if base.sections.count >= maxSectionsPerPage {
                 return base
             }
             var cleaned = existing ? without(block.id, in: base) : base
