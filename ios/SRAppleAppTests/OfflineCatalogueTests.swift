@@ -155,7 +155,7 @@ final class OfflineCatalogueTests: XCTestCase {
             XCTAssertTrue(OfflineCatalogue.canPlaySolo(kind), kind)
             XCTAssertTrue(OfflineCatalogue.canPlayNearby(kind), kind)
         }
-        XCTAssertEqual(OfflineCatalogue.soloGames.count, 12)
+        XCTAssertEqual(OfflineCatalogue.soloGames.count, 15)
     }
     #endif
 
