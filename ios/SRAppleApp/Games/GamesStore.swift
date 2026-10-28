@@ -19,6 +19,16 @@ final class GamesStore: ObservableObject {
     /// The room id (or "new") an action is waiting on.
     @Published private(set) var busy: String?
     @Published var message: String?
+    /// How often this phone starts or joins each game, for the shelf's order
+    /// (`GameUsage`). Read once at launch, written on each start or join.
+    @Published private(set) var usage: HubUsage
+    /// Lobbies whose banner was put away, so it stays away — kept across
+    /// launches like `seen`, since a relaunch must not bring it back.
+    @Published private(set) var bannerDismissed: Set<String>
+    private static let dismissedKey = "games-banner-dismissed"
+    /// "Dad closed the Chess lobby." — shown by the banner for a few seconds,
+    /// whichever page is open, then cleared by it.
+    @Published var closedNote: String?
 
     /// Every 5 s while the Games screen is on show, a minute anywhere else.
     /// The site pushes invites, so the background poll is only a catch-up —
@@ -41,9 +51,23 @@ final class GamesStore: ObservableObject {
     private var serverOffsetMs: Double?
     /// Held for the store's life, which is the app's (`ContentView`'s @StateObject).
     private var pushObserver: NSObjectProtocol?
+    private var closedObserver: NSObjectProtocol?
 
     init() {
         seen = Set(UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? [])
+        usage = GameUsage.load()
+        bannerDismissed = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedKey) ?? [])
+        // A room screen saw its lobby closed by a parent: say so on every
+        // page, and read the lobby so the room leaves "Your games" at once.
+        closedObserver = NotificationCenter.default.addObserver(
+            forName: GameLobbyNews.closedName, object: nil, queue: .main
+        ) { [weak self] note in
+            let line = note.object as? String
+            Task { @MainActor in
+                self?.closedNote = line
+                await self?.load()
+            }
+        }
         // A game push with the app open ("Your move in Homestead"): read the
         // lobby now rather than at the next poll, so "Your games" agrees.
         pushObserver = NotificationCenter.default.addObserver(
@@ -58,6 +82,43 @@ final class GamesStore: ObservableObject {
     var players: [GamePerson] { lobby?.players ?? [] }
     /// "Your games": my move first, then the most recently changed.
     var yourGames: [GameRoomSummary] { YourGames.ordered(rooms) }
+    /// A parent (or the owner): may close any lobby not yet started.
+    var isParent: Bool { lobby?.parent ?? false }
+    /// Every lobby not yet started — a parent's list; empty for anyone else.
+    var openLobbies: [GameOpenLobby] { lobby?.openLobbies ?? [] }
+
+    // MARK: - The banner
+
+    /// The lobby the banner across every page offers, if any: an invite to
+    /// answer, else a lobby I am in that has not started. Nil once put away.
+    var bannerLobby: LobbyBannerCandidate? {
+        guard let lobby else { return nil }
+        let invites = lobby.invites.map { invite in
+            LobbyBannerCandidate(roomId: invite.roomId, game: invite.game, gameTitle: GameNames.title(invite.game),
+                                 hostName: invite.hostName, kind: .invite, expiresAt: invite.expiresAt)
+        }
+        let waiting = lobby.rooms.filter { $0.phase == .lobby }.map { room in
+            LobbyBannerCandidate(roomId: room.id, game: room.game, gameTitle: GameNames.title(room.game),
+                                 hostName: room.hostName, kind: .waiting, mine: room.hostName == lobby.me.name)
+        }
+        // A room already on screen (however it was reached — the Games tab,
+        // or the hub when Games is there) needs no banner pointing at it.
+        let hidden = bannerDismissed.union(GameRoomsOnScreen.ids)
+        return LobbyBannerPick.pick(invites + waiting, dismissed: hidden, serverNow: serverNow())
+    }
+
+    /// Put a lobby's banner away for good. Room ids are short-lived; the list
+    /// only needs the recent ones.
+    func dismissBanner(_ roomId: String) {
+        bannerDismissed.insert(roomId)
+        UserDefaults.standard.set(Array(bannerDismissed.suffix(100)), forKey: Self.dismissedKey)
+    }
+
+    /// One play, counted for the shelf's order: a room started or joined, or
+    /// a game opened on this phone (which has no room to count it by).
+    func recordPlay(_ game: String) {
+        usage = GameUsage.record(game, now: Date())
+    }
 
     /// The paces the new-game sheet may offer for a game; empty = live only.
     func paceChoices(for game: GameKind) -> [GamePace] {
@@ -87,7 +148,7 @@ final class GamesStore: ObservableObject {
             if next.serverNow > 0 { serverOffsetMs = next.serverNow - Date().timeIntervalSince1970 * 1000 }
             // Only publish a real change: `serverNow` moves on every read,
             // and each publish redrew the whole tab view.
-            if !Self.same(lobby, next) { lobby = next }
+            if !Self.same(lobby, next) { lobby = next; GamesWidgetBridge.save(next) }
             if message != nil { message = nil }
             await announce(next.invites)
         } catch is CancellationError {
@@ -105,7 +166,7 @@ final class GamesStore: ObservableObject {
     private static func same(_ a: GamesLobby?, _ b: GamesLobby) -> Bool {
         guard let a else { return false }
         return a.me == b.me && a.players == b.players && a.invites == b.invites && a.rooms == b.rooms
-            && a.paces == b.paces
+            && a.paces == b.paces && a.parent == b.parent && a.openLobbies == b.openLobbies
     }
 
     /// The Games screen came on show or went away: poll quickly only while
@@ -146,6 +207,7 @@ final class GamesStore: ObservableObject {
         defer { busy = nil }
         let outcome = await Self.createRoom(body)
         if case .created = outcome {
+            recordPlay(body.game)
             message = nil
             Task { await self.load() }
         }
@@ -166,7 +228,39 @@ final class GamesStore: ObservableObject {
 
     /// Join an invite. Returns true when the room took me.
     func join(_ invite: GameInvite) async -> Bool {
-        await act("join", on: invite.roomId)
+        let joined = await act("join", on: invite.roomId)
+        if joined { recordPlay(invite.game) }
+        return joined
+    }
+
+    /// A parent closes a lobby that has not started — anybody's, in it or
+    /// not. Everyone in it sees it close. True when it did.
+    func closeLobby(_ roomId: String) async -> Bool {
+        guard busy == nil else { return false }
+        busy = roomId
+        defer { busy = nil }
+        do {
+            let body = try JSONEncoder().encode(GameActionBody(action: "close"))
+            // The answer is the room only for a parent sitting in it; nothing
+            // here needs it, so it is not decoded.
+            try await client.post("api/native/games/\(roomId)", body: body)
+            clearNotification(roomId)
+            message = nil
+            await load()
+            return true
+        } catch SiteError.status(let code, _) where code == 404 {
+            message = "That lobby has already gone."
+            await load()
+            return false
+        } catch SiteError.status(_, let sentence) {
+            // 403 "Only a parent can close a lobby.", 409 "already started".
+            message = sentence
+            await load()
+            return false
+        } catch {
+            message = error.localizedDescription
+            return false
+        }
     }
 
     func decline(_ invite: GameInvite) async {

@@ -63,6 +63,15 @@ struct TripDayScreen: View {
     @State private var previewing: String?
     @State private var frameToken = 0
     @State private var followToken = 0
+    /// Following the blue dot, and with the map turned to the way the phone
+    /// faces (a second tap on "Show where I am").
+    @State private var followingMe = false
+    @State private var headingUp = false
+    /// Search, or what is near (from an off-plan prompt).
+    @State private var placeSheet: TripPlaceSheet?
+    /// A place found by search, over the map, and the route to it.
+    @State private var found: TripFoundPlace?
+    @State private var foundRoute: TripFoundRoute?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -133,6 +142,37 @@ struct TripDayScreen: View {
         .fullScreenCover(item: $following) { detail in
             FollowRouteScreen(detail: detail)
         }
+        .sheet(item: $placeSheet) { which in
+            TripPlaceSearchSheet(around: here, nearbyFirst: which == .nearby) { place in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                    selected = nil
+                    foundRoute = nil
+                    found = place
+                    detent = .peek
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        // "Plan moved 20 min later so you can keep to it": said once, here.
+        .overlay(alignment: .top) {
+            if let line = offPlan.retimed {
+                Label(line, systemImage: "clock.arrow.circlepath")
+                    .font(SR.Text.label(13))
+                    .foregroundStyle(SR.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .srGlass(.paper, in: Capsule())
+                    .padding(.top, 52)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .task(id: line) {
+                        try? await Task.sleep(for: .seconds(5))
+                        if offPlan.retimed == line { withAnimation { offPlan.retimed = nil } }
+                    }
+                    .accessibilityIdentifier("trip-retimed")
+            }
+        }
+        .animation(.snappy, value: offPlan.retimed)
         .task {
             if let bundle = store.bundles[tripId] { TripWeatherStore.shared.refresh(bundle) }
             TripLive.shared.refresh()
@@ -202,8 +242,12 @@ struct TripDayScreen: View {
                 marker: SRDemo.isOn ? TripDemo.here : nil,
                 bottomInset: covered,
                 frameToken: frameToken,
-                focus: picked?.location ?? pickedMeal?.option.place.location,
+                focus: picked?.location ?? pickedMeal?.option.place.location ?? found?.at,
                 followToken: followToken,
+                followHeading: headingUp,
+                found: found?.at,
+                foundRoute: foundRoute?.line ?? [],
+                onFollowEnded: { followingMe = false; headingUp = false },
                 onTap: { pin in pick(pin?.id) }
             )
             .ignoresSafeArea(edges: .bottom)
@@ -218,11 +262,27 @@ struct TripDayScreen: View {
 
             // The weather and the light: a chip on the map, not lines in the drawer.
             VStack {
-                HStack {
+                HStack(alignment: .top) {
                     TripDaySky(tripId: tripId, date: date, bundle: bundle,
                                fromMin: isToday ? nowMin : (day.stops.first?.departMin ?? 480),
                                toMin: day.stops.last?.arriveMin ?? 1320)
                     Spacer()
+                    if isToday && offPlan.isPaused(tripId, date) {
+                        Button {
+                            SRHaptic.tap()
+                            offPlan.resume(tripId: tripId, date: date)
+                        } label: {
+                            Label("Prompts paused · Resume", systemImage: "bell.slash")
+                                .font(SR.Text.label(12))
+                                .foregroundStyle(SR.ink)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .srGlass(.paper, in: Capsule(), interactive: true)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Starts checking you against the plan again")
+                        .accessibilityIdentifier("trip-resume-prompts")
+                    }
                 }
                 Spacer()
             }
@@ -288,7 +348,8 @@ struct TripDayScreen: View {
                     if let offPlanToday {
                         // Its headline is the drawer's header (unless a missed
                         // slot has that); the ways on are here.
-                        TripOffPlanCard(prompt: offPlanToday, previewing: previewing, part: missed.isEmpty ? .choices : .all) { picked in look(at: picked) }
+                        TripOffPlanCard(prompt: offPlanToday, previewing: previewing, part: missed.isEmpty ? .choices : .all,
+                                        onNearby: { placeSheet = .nearby }) { picked in look(at: picked) }
                     }
                     // Arriving today: the flight or train is the day's first stage.
                     ForEach(bundle.segments.filter { $0.arriveDate == date && $0.direction != "return" }) { segment in
@@ -341,16 +402,64 @@ struct TripDayScreen: View {
                 }
                 Spacer()
                 VStack(spacing: 8) {
+                    mapButton("magnifyingglass", label: "Find a place") { placeSheet = .search }
+                        .accessibilityIdentifier("trip-map-search")
                     if isToday {
-                        mapButton("location.fill", label: "Show where I am") { followToken += 1 }
+                        // First tap follows you, north up; the second turns the
+                        // map the way the phone faces; the third goes back.
+                        mapButton(followingMe ? (headingUp ? "location.north.line.fill" : "location.fill") : "location",
+                                  label: followingMe ? (headingUp ? "Back to north up" : "Turn the map the way I face") : "Show where I am") {
+                            if !followingMe {
+                                followingMe = true
+                                headingUp = false
+                            } else {
+                                headingUp.toggle()
+                            }
+                            followToken += 1
+                        }
+                        .accessibilityIdentifier("trip-map-follow")
                     }
                     mapButton("arrow.up.left.and.arrow.down.right", label: "Fit the day") { pick(nil); frameToken += 1 }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, covered + 12)
+            if let found {
+                TripFoundCard(
+                    place: found, from: here, route: $foundRoute,
+                    walk: { route in following = walkDetail(route, to: found) },
+                    close: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                            self.found = nil
+                            foundRoute = nil
+                        }
+                    }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .padding(.horizontal, 12)
+        .padding(.bottom, covered + 12)
         .animation(.spring(response: 0.35, dampingFraction: 0.86), value: covered)
+        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: found)
+    }
+
+    /// Where a search or a route starts: the phone's last fix, else the stop
+    /// the day has you at, else the day's first.
+    private var here: TripLatLng? {
+        if let fix = TripPosition.latest { return fix }
+        guard let day = store.day(tripId, date) else { return nil }
+        let current = store.progressToTell(tripId, date)?.currentIndex
+        return current.flatMap { $0 < day.stops.count ? day.stops[$0].location : nil } ?? day.stops.first?.location
+    }
+
+    /// A found place's walking route, as a walk the app guides.
+    private func walkDetail(_ route: TripFoundRoute, to place: TripFoundPlace) -> PlannedRouteDetail {
+        PlannedRouteDetail(
+            tripLegId: "trip:\(tripId):\(date):found:\(place.id)",
+            name: "To \(place.name)",
+            distanceM: route.metres,
+            durationS: route.seconds,
+            route: route.line.map { RoutePoint(lat: $0.lat, lng: $0.lng, ele: nil) }
+        )
     }
 
     private func mapButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
@@ -1491,6 +1600,8 @@ struct TripOffPlanCard: View {
     /// On the day, the headline and the planner's view are the drawer's
     /// header and the ways on sit under it: each said once.
     var part: Part = .all
+    /// Given: "Things to do near me" opens the Day screen's nearby list.
+    var onNearby: (() -> Void)? = nil
     /// Given: a tap shows the choice (the day map's preview) rather than
     /// using it at once.
     var onPick: ((TripOffPlan.Choice) -> Void)? = nil
@@ -1580,13 +1691,34 @@ struct TripOffPlanCard: View {
             .accessibilityHint(onPick == nil ? "Applies this to the rest of the trip" : "Shows this on the map before you use it")
             .accessibilityIdentifier("trip-offplan-\(choice.id)")
         }
+        // When the plan cannot bend any further: something else to do here,
+        // or no more prompting today (John, 2026-10-27).
+        if let onNearby {
+            Button { SRHaptic.tap(); onNearby() } label: {
+                Label("Things to do near me", systemImage: "mappin.and.ellipse")
+                    .font(SR.Text.title(15))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .srGlass(.clear, in: RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous), interactive: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("trip-offplan-nearby")
+        }
         HStack {
             if offPlan.offline && !offPlan.choices.isEmpty {
                 Text("Worked out on the phone — no signal.").font(SR.Text.mono()).foregroundStyle(SR.inkMuted)
             }
             Spacer()
+            Button("Stop prompting today") {
+                SRHaptic.select()
+                offPlan.pauseToday(tripId: prompt.tripId, date: prompt.date)
+            }
+            .font(SR.Text.label(13))
+            .accessibilityHint("No more checks or alerts about the plan for the rest of today")
+            .accessibilityIdentifier("trip-offplan-pause")
             Button("I'm fine") { SRHaptic.select(); offPlan.dismiss() }
                 .font(SR.Text.label(13))
+                .padding(.leading, 10)
                 .accessibilityIdentifier("trip-offplan-dismiss")
         }
     }

@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The top of Home: the three things worth knowing, each a figure, what it
-/// means and where it came from — and each a tap into that place.
+/// The top of Home: the three things worth knowing — six on the large size —
+/// each a figure, what it means and where it came from, and each a tap into
+/// that place.
 ///
 /// The ranking is `HomeBriefing`, pure. This view only gathers the facts from
 /// the stores the tiles already fill (it asks the site for nothing of its
@@ -24,15 +25,24 @@ struct HomeBriefingTile: View {
     @ObservedObject private var daydream = DaydreamStore.shared
     @ObservedObject private var messages = FamilyMessagesStore.shared
     @EnvironmentObject private var games: GamesStore
+    @ObservedObject private var weather = TripWeatherStore.shared
     @Environment(\.homeColours) private var colours
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.homeTileSize) private var size
+
+    /// Three lines on the wide tile, six on the large one; one fewer of
+    /// each at the larger text sizes, where a last line of big type would be
+    /// cut at the foot.
+    private var limit: Int {
+        let large = size == .hero
+        if typeSize >= .xxLarge { return large ? 4 : 2 }
+        return large ? 6 : 3
+    }
 
     var body: some View {
         // Once a minute: "leaves in 25 min" must not sit still.
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            // Two lines at the larger text sizes: the tile grows with the type,
-            // but a third line of big type would be cut at the foot.
-            let lines = HomeBriefing.rank(facts(now: context.date), limit: typeSize >= .xxLarge ? 2 : 3)
+            let lines = HomeBriefing.rank(facts(now: context.date), limit: limit)
             HomeTileFrame(kind: .briefing, look: .glass, badge: context.date.formatted(date: .omitted, time: .shortened)) {
                 VStack(spacing: 0) {
                     ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
@@ -77,6 +87,7 @@ struct HomeBriefingTile: View {
         f.steps = (steps.shown?.people ?? []).map {
             .init(name: $0.name.split(separator: " ").first.map(String.init) ?? $0.name, steps: $0.steps, me: $0.me)
         }
+        f.stepsYesterdayLeader = steps.shown?.yesterday?.leaderName
         if let board = tasks.board {
             let summary = FamilyTasksSummary.make(board, now: now, limit: 50)
             let overdue = summary.next.filter(\.overdue)
@@ -109,10 +120,50 @@ struct HomeBriefingTile: View {
         f.newsUnseen = news?.unseen ?? 0
         f.topStory = news?.stories.first?.title
         f.invites = games.invites.map { .init(host: $0.hostName, game: GameNames.title($0.game)) }
+        // "Sam is waiting" names the room's host — unless the host is you.
+        let myName = household?.people.first(where: \.isSelf)?.name
+        f.turns = games.rooms.filter(\.myTurn).map { room in
+            .init(game: GameNames.title(room.game),
+                  with: room.hostName.isEmpty || room.hostName == myName ? nil : room.hostName.split(separator: " ").first.map(String.init))
+        }
+        f.mentions = mentions()
+        f.tripWeather = tripWeather(now: now)
         if let line = messages.latestLine, let at = messages.lastActivity {
             f.message = .init(line: line, at: at, mine: line.hasPrefix("You: "))
         }
         return f
+    }
+
+    /// Lines from somebody else since msg family was last open here that
+    /// name you — the rule msg family's own "Mentions you" uses.
+    private func mentions() -> [HomeBriefing.Mention] {
+        guard let me = messages.myName else { return [] }
+        let since = messages.readAt ?? .distantPast
+        let lines: [(who: String, mine: Bool, body: String, at: String)] = (messages.feed?.messages ?? []).flatMap { message in
+            [(who: message.fromName, mine: message.mine, body: message.body, at: message.at)]
+                + message.replies.map { (who: $0.fromName, mine: $0.mine, body: $0.body, at: $0.at) }
+        }
+        return lines.compactMap { line -> HomeBriefing.Mention? in
+            guard !line.mine, let at = parseTimestamp(line.at), at > since,
+                  FamilyMessageTools.mentions(line.body, name: me) else { return nil }
+            return .init(from: line.who.split(separator: " ").first.map(String.init) ?? line.who, at: at)
+        }
+    }
+
+    /// The weather where the trip is, on its day: today while it runs, or
+    /// tomorrow on the eve of it — from the forecast the trip keeps.
+    private func tripWeather(now: Date) -> HomeBriefing.TripWeather? {
+        if let running = trips.running(now: now),
+           let day = weather.day(running.bundle.trip.id, running.date) {
+            return .init(place: HomeTripWords.place(running.bundle.trip.destination), line: TripWeatherWords.line(day),
+                         rain: TripWeatherWords.rain(day), tomorrow: false)
+        }
+        guard let next = trips.upcoming(now: now) else { return nil }
+        let clock = TripClock(next.timeZone)
+        guard clock.days(from: clock.localDate(now), to: next.startDate) == 1,
+              let day = weather.day(next.id, next.startDate) else { return nil }
+        return .init(place: HomeTripWords.place(next.destination), line: TripWeatherWords.line(day),
+                     rain: TripWeatherWords.rain(day), tomorrow: true)
     }
 
     /// The running trip's next stop, or the next trip's countdown.
@@ -120,12 +171,14 @@ struct HomeBriefingTile: View {
         if let running = trips.running(now: now) {
             let id = running.bundle.trip.id
             let stops = trips.day(id, running.date)?.stops ?? []
-            let progress = trips.progress(id, running.date, now: now)
+            let progress = trips.progressToTell(id, running.date, now: now)
             let next = progress?.next.flatMap { stops.indices.contains($0) ? stops[$0] : nil }
             let clock = TripClock(running.bundle.trip.timeZone)
             let leave = progress?.leaveMin.map { Int(($0 - clock.minutes(now)).rounded()) }
             return .init(place: HomeTripWords.place(running.bundle.trip.destination), days: nil, questions: 0,
-                         nextStop: next?.title, leaveInMinutes: leave)
+                         nextStop: next?.title, leaveInMinutes: leave,
+                         stopsDone: progress.map { done in stops.filter { done.doneStopIds.contains($0.id) }.count },
+                         stopsTotal: stops.isEmpty ? nil : stops.count)
         }
         guard let next = trips.upcoming(now: now) else { return nil }
         let clock = TripClock(next.timeZone)
@@ -206,14 +259,14 @@ struct HomeInsightRow: View {
     private var hue: SR.Hue {
         switch line.source {
         case .watch, .moves: return SR.Hue.family
-        case .diary, .trip: return SR.Hue.trips
-        case .tasks: return SR.Hue.tasks
-        case .readiness, .vitals, .calm: return SR.Hue.health
+        case .diary, .trip, .weather: return SR.Hue.trips
+        case .tasks, .rewards: return SR.Hue.tasks
+        case .readiness, .vitals, .sleep, .calm: return SR.Hue.health
         case .rings: return SR.Hue.move
-        case .steps: return SR.Hue.steps
+        case .steps, .lead: return SR.Hue.steps
         case .flows: return SR.Hue.flows
-        case .games: return SR.Hue.games
-        case .messages: return SR.Hue.messages
+        case .games, .turn: return SR.Hue.games
+        case .messages, .mentions: return SR.Hue.messages
         case .daydream: return SR.Hue.daydream
         case .news: return SR.Hue.news
         }
@@ -233,6 +286,12 @@ struct HomeInsightRow: View {
         case .flows: return "point.3.connected.trianglepath.dotted"
         case .games: return "gamecontroller.fill"
         case .messages: return "bubble.left.and.text.bubble.right.fill"
+        case .mentions: return "at"
+        case .weather: return "cloud.sun.rain.fill"
+        case .sleep: return "bed.double.fill"
+        case .turn: return "hand.point.right.fill"
+        case .lead: return "crown.fill"
+        case .rewards: return "sterlingsign.circle.fill"
         case .daydream: return "cloud.fill"
         case .news: return "newspaper.fill"
         case .calm: return "checkmark"

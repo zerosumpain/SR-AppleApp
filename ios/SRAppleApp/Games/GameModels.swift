@@ -43,6 +43,9 @@ enum GameKind: String, CaseIterable, Identifiable {
     case manhunt
     case homestead
     case hometowns
+    // Played on this phone, offline: never a room on the site (Games/Physics/).
+    case lander
+    case carRace = "car-race"
 
     var id: String { rawValue }
 
@@ -68,6 +71,8 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "Manhunt"
         case .homestead: return "Homestead"
         case .hometowns: return "Hometowns"
+        case .lander: return "Lander"
+        case .carRace: return "Car Race"
         }
     }
 
@@ -94,6 +99,8 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "Hide and seek outdoors, on the map."
         case .homestead: return "Settle an island. Trade, build, race to the points."
         case .hometowns: return "Build a town each around Kingsport. A year a day."
+        case .lander: return "Tilt to steer, hold to burn. Land softly on the pad."
+        case .carRace: return "Tilt to steer round the track. Race your ghost or the family."
         }
     }
 
@@ -140,6 +147,10 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Three to five of you settle an island. Roll for timber, clay, wool, grain and stone, trade with each other, build roads, cottages and towns, and watch out for the fox. First to the points wins. Play in one sitting or a turn a day."
         case .hometowns:
             return "Everyone builds a town of their own around Kingsport, and the county keeps going for months. Lay roads, paint homes and shops, and watch people move in. A game year passes every real day, towns grow while you're away, and the family settles up each evening. On your own is a real game too."
+        case .lander:
+            return "Bring a little craft down onto the landing pad. Tilt the phone to lean, hold a finger down to fire the engine, and touch down slowly and upright before the fuel runs out. Each landing opens a harder level. Plays offline."
+        case .carRace:
+            return "A top-down race round three circuits. Tilt to steer, brake into the bends and drift out of them. Race your own best ghost, pass the phone round for up to four, or race phone to phone nearby. Plays offline."
         }
     }
 
@@ -165,6 +176,8 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "figure.run"
         case .homestead: return "house.lodge.fill"
         case .hometowns: return "building.2.fill"
+        case .lander: return "moon.fill"
+        case .carRace: return "car.fill"
         }
     }
 }
@@ -247,6 +260,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.homestead, .hard): return "10 points wins. No hints and the shortest turns."
         // A county has no level: the host picks its rivalry instead (the sheet hides this).
         case (.hometowns, _): return "Every county plays the same rules; rivalry is set for the county."
+        // Played on this phone: a lander's levels climb, a race picks its track.
+        case (.lander, _): return "Each landing opens a harder level."
+        case (.carRace, _): return "Pick a track and how many laps."
         }
     }
 
@@ -404,13 +420,20 @@ struct GamesLobby: Decodable, Equatable {
     /// The paces each game offers, for games that can be played over days
     /// (`{"homestead": ["live", "async"]}`). Empty from an older site.
     var paces: [String: [String]] = [:]
+    /// The site counts this person a parent (owner or Family Admin): they may
+    /// close any lobby not yet started. False from an older site.
+    var parent: Bool = false
+    /// Every lobby not yet started, anybody's — sent to a parent only.
+    var openLobbies: [GameOpenLobby] = []
 
-    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces }
+    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces, parent, openLobbies }
 
     init(me: GamePerson, players: [GamePerson], invites: [GameInvite], rooms: [GameRoomSummary], serverNow: Double,
-         paces: [String: [String]] = [:]) {
+         paces: [String: [String]] = [:], parent: Bool = false, openLobbies: [GameOpenLobby] = []) {
         self.me = me; self.players = players; self.invites = invites; self.rooms = rooms; self.serverNow = serverNow
         self.paces = paces
+        self.parent = parent
+        self.openLobbies = openLobbies
     }
 
     init(from decoder: Decoder) throws {
@@ -421,6 +444,8 @@ struct GamesLobby: Decodable, Equatable {
         rooms = (try? c.decodeIfPresent([GameRoomSummary].self, forKey: .rooms)) ?? []
         serverNow = (try? c.decodeIfPresent(Double.self, forKey: .serverNow)) ?? 0
         paces = (try? c.decodeIfPresent([String: [String]].self, forKey: .paces)) ?? [:]
+        parent = (try? c.decodeIfPresent(Bool.self, forKey: .parent)) ?? false
+        openLobbies = (try? c.decodeIfPresent([GameOpenLobby].self, forKey: .openLobbies)) ?? []
     }
 }
 
@@ -783,6 +808,8 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     let durable: Bool
     let pace: GamePace
     let version: Int?
+    /// A lobby a parent closed: who, so the phones in it can say why it went.
+    let closedBy: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, game, difficulty, phase, hostId, meId, rounds, players, phaseEndsAt, round, standings, winnerIds, serverNow
@@ -795,6 +822,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         case size, scoring, grid, possible
         case categoryCount, reviewMs, maxAnswer, letter, categories
         case durable, pace, version
+        case closedBy
     }
 
     init(from decoder: Decoder) throws {
@@ -879,6 +907,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
         pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
         version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? nil
+        closedBy = (try? c.decodeIfPresent(String.self, forKey: .closedBy)) ?? nil
     }
 
     var isHost: Bool { !meId.isEmpty && meId == hostId }

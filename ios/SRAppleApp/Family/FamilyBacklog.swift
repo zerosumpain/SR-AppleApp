@@ -121,34 +121,43 @@ final class FamilyBacklogStore: ObservableObject {
     @Published private(set) var board: FamilyBacklogBoard?
     @Published private(set) var loading = false
     @Published private(set) var loaded = false
-    /// The item an action is waiting on, or "new".
-    @Published private(set) var busy: String?
+    /// The items with an action on its way, and "new" while one is being
+    /// added. One per item, not one for the list: a second item's swipe or
+    /// reaction was dropped without a word while the first was still saving.
+    @Published private(set) var busy: Set<String> = []
     @Published var message: String?
+    /// Asked to read while a read was running: that one goes round again, so
+    /// an action that lands during another's reload is still shown.
+    private var loadAgain = false
 
     func load() async {
-        guard SiteClient.shared.isPaired, !loading else { return }
+        guard SiteClient.shared.isPaired else { return }
+        guard !loading else { loadAgain = true; return }
         loading = true
         defer { loading = false; loaded = true }
         await drainQueue()
-        do {
-            let fetched: FamilyBacklogBoard = try await SiteClient.shared.send("api/native/family/backlog")
-            board = fetched
-            message = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            if (error as? URLError)?.code == .cancelled { return }
-            if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 { board = nil }
-            message = board == nil ? Self.sentence(for: error) : nil
-        }
+        repeat {
+            loadAgain = false
+            do {
+                let fetched: FamilyBacklogBoard = try await SiteClient.shared.send("api/native/family/backlog")
+                board = fetched
+                message = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                if (error as? URLError)?.code == .cancelled { return }
+                if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 { board = nil }
+                message = board == nil ? Self.sentence(for: error) : nil
+            }
+        } while loadAgain
     }
 
     /// Add a link or an idea from the page. Nil when it went; otherwise the
     /// sentence for the sheet.
     func add(_ share: FamilyBacklogShare) async -> String? {
-        guard busy == nil else { return "Saving already…" }
-        busy = "new"
-        defer { busy = nil }
+        guard !busy.contains("new") else { return "Saving already…" }
+        busy.insert("new")
+        defer { busy.remove("new") }
         do {
             try await SiteClient.shared.post("api/native/family/backlog", body: try JSONEncoder().encode(share))
             SRHaptic.ok()
@@ -161,9 +170,9 @@ final class FamilyBacklogStore: ObservableObject {
 
     @discardableResult
     func act(_ action: FamilyBacklogAction, on item: FamilyBacklogItem) async -> Bool {
-        guard busy == nil else { return false }
-        busy = item.id
-        defer { busy = nil }
+        guard !busy.contains(item.id) else { return false }
+        busy.insert(item.id)
+        defer { busy.remove(item.id) }
         do {
             let body = try JSONEncoder().encode(["action": action.rawValue])
             try await SiteClient.shared.call("api/native/family/backlog/\(item.id)", method: "PATCH", body: body)
@@ -183,9 +192,9 @@ final class FamilyBacklogStore: ObservableObject {
 
     /// An emoji on an item — the same one again takes it back.
     func react(_ emoji: String, on item: FamilyBacklogItem) async {
-        guard busy == nil, let board else { return }
-        busy = item.id
-        defer { busy = nil }
+        guard !busy.contains(item.id), let board else { return }
+        busy.insert(item.id)
+        defer { busy.remove(item.id) }
         let mine = FamilyBacklogRules.myReaction(item, board)
         let body: [String: String?] = ["emoji": mine == emoji ? nil : emoji]
         do {
@@ -198,15 +207,19 @@ final class FamilyBacklogStore: ObservableObject {
         }
     }
 
-    /// The evening round-up, on or off. False when the site refused.
+    /// The evening round-up, on or off. False when the site refused. Moved
+    /// at once and put back if refused, as the switch promises: set only
+    /// once the site answered, it sprang back under the thumb first.
     @discardableResult
     func setDigest(_ on: Bool) async -> Bool {
+        let was = board?.digest
+        board?.digest = on
         do {
             try await SiteClient.shared.call("api/native/family/backlog/digest", method: "PUT", body: try JSONEncoder().encode(["on": on]))
-            board?.digest = on
             message = nil
             return true
         } catch {
+            board?.digest = was ?? !on
             message = Self.sentence(for: error)
             return false
         }

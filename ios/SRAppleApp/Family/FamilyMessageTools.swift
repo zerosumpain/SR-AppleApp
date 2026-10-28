@@ -196,6 +196,10 @@ enum FamilyMessageTools {
     /// One tap puts one in the box; nothing is sent until Send.
     static let quick = ["On my way", "Running late", "Home in 10", "Dinner's ready", "Who's in tonight?", "Love you x"]
 
+    /// One tap SENDS one — Home's msg family tile and the top of Threads
+    /// (`FamilyQuickStrip`), with a few seconds to take it back.
+    static let quickSend = ["On my way", "Home in 10", "Running late", "Where is everyone?", "Call me when you can", "All good 👍"]
+
     // MARK: - The counter
 
     /// How many characters are left, once it is worth saying: within the last
@@ -232,5 +236,196 @@ enum FamilyMessageTools {
             let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
             return calendar.date(bySettingHour: 8, minute: 0, second: 0, of: tomorrow) ?? tomorrow
         }
+    }
+}
+
+/// What a bat phone says about the person who pressed it — where, their
+/// battery, and the drive to them — each line only when it is known.
+///
+/// Since 2026-10-27 (John: "it shouldn't raise the alarm, it should just
+/// message the group") the bat phone is a msg family MESSAGE, written here:
+/// the alarm's siren and full-screen take-over were too much for "come and
+/// get me". The words are the whole contract, so an older phone, the
+/// notification and the web all read it the same.
+///
+/// Foundation only, beside the message tools in the Linux harness.
+enum BatPhoneWords {
+    /// How every bat phone message starts: what `isBatPhone` looks for.
+    static let opening = "🦇 Bat phone — I need you."
+
+    /// The message: the opening, then where and the battery on one line,
+    /// then a map link to the spot. Each part only when it is known.
+    static func message(place: String?, battery: Double?, lat: Double?, lon: Double?) -> String {
+        var lines = [opening]
+        let facts = Self.facts(place: place, battery: battery, drive: nil)
+        if !facts.isEmpty { lines.append(facts.joined(separator: " · ")) }
+        if let lat, let lon, let link = mapLink(lat: lat, lon: lon) { lines.append(link) }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Apple Maps at the spot, which opens Google Maps' web page on a phone
+    /// without Maps. Nil for a position no phone reports.
+    static func mapLink(lat: Double, lon: Double) -> String? {
+        guard lat.isFinite, lon.isFinite, (-90...90).contains(lat), (-180...180).contains(lon),
+              !(lat == 0 && lon == 0) else { return nil }
+        return String(format: "https://maps.apple.com/?ll=%.5f,%.5f&q=Bat%%20phone", lat, lon)
+    }
+
+    /// Whether a message is a bat phone, to be drawn as one.
+    static func isBatPhone(_ body: String) -> Bool {
+        body.hasPrefix("🦇 Bat phone")
+    }
+
+    /// "At Elton Parade, Darlington", "Battery 23%", "14 min drive from you".
+    static func facts(place: String?, battery: Double?, drive: String?) -> [String] {
+        var out: [String] = []
+        if let place = place?.trimmingCharacters(in: .whitespacesAndNewlines), !place.isEmpty { out.append("At \(place)") }
+        if let battery, battery >= 0, battery <= 1 { out.append("Battery \(Int((battery * 100).rounded()))%") }
+        if let drive { out.append(drive) }
+        return out
+    }
+
+    /// "14 min drive from you", "1 h 35 drive from you"; nil for no answer.
+    static func drive(seconds: Double?) -> String? {
+        guard let seconds, seconds.isFinite, seconds >= 0 else { return nil }
+        let minutes = max(1, Int((seconds / 60).rounded(.up)))
+        if minutes < 90 { return "\(minutes) min drive from you" }
+        return "\(minutes / 60) h \(String(format: "%02d", minutes % 60)) drive from you"
+    }
+}
+
+// MARK: - The conversation
+
+/// msg family read as one conversation, the way WhatsApp reads (John,
+/// 2026-10-27: "organise it like WhatsApp so it's easy to distinguish replies
+/// and your own messages … showing the latest on open").
+///
+/// The site still keeps THREADS — a message and the replies under it — and
+/// that does not change. This lays them out as lines in time order instead:
+/// every message, and every reply in words under the message it answers,
+/// quoted, so a reply is plain at a glance. Emoji answers and poll votes are
+/// counted on their message rather than given a line each. Lines from one
+/// person a few minutes apart are grouped, so a name and circle are said once
+/// per run rather than on every bubble. PURE.
+enum FamilyChatStream {
+    struct Reply: Equatable {
+        let id: String
+        /// Who: their id, or their name when an older site sent no id.
+        let from: String
+        let name: String
+        let body: String
+        let at: Date?
+        let mine: Bool
+        /// An emoji or a poll vote: counted on the message, not a line.
+        let counted: Bool
+        /// Their place in the household, for their circle's colour.
+        var subject: String? = nil
+    }
+
+    struct Message: Equatable {
+        let id: String
+        let from: String
+        let name: String
+        let body: String
+        let at: Date?
+        let mine: Bool
+        let replies: [Reply]
+        var subject: String? = nil
+    }
+
+    /// The message a reply answers, quoted over it.
+    struct Quote: Equatable {
+        let name: String
+        let text: String
+        let mine: Bool
+        var subject: String? = nil
+        /// Who wrote it, as `Line.from`: their colour when they have no subject.
+        var from: String = ""
+    }
+
+    struct Line: Equatable, Identifiable {
+        /// The message's or the reply's own id.
+        let id: String
+        /// The message it belongs to: itself, or the one a reply answers.
+        let thread: String
+        let reply: Bool
+        let from: String
+        let name: String
+        let body: String
+        let at: Date?
+        let mine: Bool
+        /// Over a reply: whose message it answers, and its first line.
+        let quote: Quote?
+        var subject: String? = nil
+        /// The first of a run from one person: their name and circle go here.
+        var startsGroup = true
+        /// The last of a run: the bubble's tail and a little more room after.
+        var endsGroup = true
+        /// "Today", "Yesterday"… when this line starts a new day.
+        var day: String?
+    }
+
+    /// How far apart two lines from one person can be and still be one run.
+    static let groupGap: TimeInterval = 5 * 60
+
+    /// Every line in time order, oldest first, with its day heading and its
+    /// place in a run. Undated lines keep the order they came in, a reply
+    /// after its message.
+    static func lines(_ messages: [Message], now: Date, calendar: Calendar = .current) -> [Line] {
+        var raw: [(line: Line, at: Date, order: Int)] = []
+        for message in messages {
+            let quote = Quote(name: message.mine ? "You" : message.name, text: quoteText(message.body), mine: message.mine,
+                              subject: message.subject, from: message.from)
+            raw.append((Line(id: message.id, thread: message.id, reply: false, from: message.from, name: message.name,
+                             body: message.body, at: message.at, mine: message.mine, quote: nil, subject: message.subject),
+                        message.at ?? .distantPast, raw.count))
+            for reply in message.replies where !reply.counted {
+                raw.append((Line(id: reply.id, thread: message.id, reply: true, from: reply.from, name: reply.name,
+                                 body: reply.body, at: reply.at, mine: reply.mine, quote: quote, subject: reply.subject),
+                            reply.at ?? message.at ?? .distantPast, raw.count))
+            }
+        }
+        var out = raw.sorted { $0.at == $1.at ? $0.order < $1.order : $0.at < $1.at }.map(\.line)
+        var lastDay: String?
+        for index in out.indices {
+            if let at = out[index].at {
+                let day = FamilyMessageTools.dayTitle(at, now: now, calendar: calendar)
+                if day != lastDay { out[index].day = day }
+                lastDay = day
+            }
+            guard index > 0 else { continue }
+            let before = out[index - 1], line = out[index]
+            var together = before.from == line.from && line.day == nil
+            if together, let a = before.at, let b = line.at { together = b.timeIntervalSince(a) <= groupGap }
+            out[index].startsGroup = !together
+            out[index - 1].endsGroup = !together
+        }
+        return out
+    }
+
+    /// Where the "New" line goes: the first line from somebody else newer
+    /// than `since` (every line from somebody else when this phone has never
+    /// had msg family open). Nil when nothing is new.
+    static func firstNew(_ lines: [Line], since: Date?) -> Int? {
+        lines.firstIndex { isNew($0, since: since) }
+    }
+
+    /// How many lines from somebody else came in after `since`.
+    static func newCount(_ lines: [Line], since: Date?) -> Int {
+        lines.filter { isNew($0, since: since) }.count
+    }
+
+    private static func isNew(_ line: Line, since: Date?) -> Bool {
+        guard !line.mine, let at = line.at else { return false }
+        return since.map { at > $0 } ?? true
+    }
+
+    /// A message as a quote: a poll's question, otherwise its first line,
+    /// clipped.
+    static func quoteText(_ body: String, limit: Int = 80) -> String {
+        if let poll = FamilyPoll.parse(body) { return "\(FamilyPoll.mark) \(poll.question)" }
+        let first = body.split(separator: "\n", omittingEmptySubsequences: true).first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        return first.count > limit ? String(first.prefix(limit - 1)) + "…" : first
     }
 }

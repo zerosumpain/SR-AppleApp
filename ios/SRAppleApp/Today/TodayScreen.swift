@@ -124,9 +124,10 @@ final class TodayStore: ObservableObject {
 /// The first screen is the whole app at a glance: a greeting, the briefing —
 /// the three things worth knowing, ranked across everything — then one tile
 /// per feature this person may use, the family's Orbit first, each a chart
-/// with its numbers on it and a tap into the detail. Which tiles, and in what
-/// order, is the reader's: Settings → Home, or a long press on any tile. See
-/// `HomeLayout`.
+/// with its numbers on it and a tap into the detail. Which tiles, in what
+/// order and at what size, is the reader's: Arrange on Home itself (drag,
+/// take off, add, resize — John, 2026-10-27: "organise widgets"), Settings →
+/// Home, or a long press on any tile. See `HomeLayout` and `HomeSizing`.
 ///
 /// Prism (2026-10-18) replaced the First Light sky here. What it kept: the
 /// urgent alert pinned under the bar, the bell, one request for the owner's
@@ -168,6 +169,15 @@ struct TodayScreen: View {
     /// The workflows' three numbers, for the Flows tile. Read only while it
     /// is on Home.
     @StateObject private var flowAttention = FlowAttentionStore()
+    /// Arrange: the tiles move, come off, go on and change size in place.
+    @State private var arranging = false
+    /// What the tiles that fold when empty (`HomeTileKind.adaptive`) are
+    /// sized by. Observed here because the SIZE is the grid's decision; each
+    /// tile still observes its own store for what it draws.
+    @ObservedObject private var forecast = FamilyForecastStore.shared
+    @ObservedObject private var corrections = JourneyCorrections.shared
+    @ObservedObject private var trips = TripStore.shared
+    @EnvironmentObject private var games: GamesStore
 
     /// How often the numbers are re-read while Today is on screen. Readiness
     /// and recovery move when a sync lands on the site; five minutes is often
@@ -229,8 +239,15 @@ struct TodayScreen: View {
         }
         .srTabBar()
         .toolbar {
+            if arranging {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { finishArranging() }
+                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("home-arrange-done-bar")
+                }
+            }
             // The bell is the site's inbox, which is the owner's.
-            if access.current.owner {
+            if access.current.owner && !arranging {
                 ToolbarItem(placement: .topBarTrailing) {
                     TodayBell(unread: alerts.unread, active: onScreen && scenePhase == .active) {
                         SRHaptic.tap()
@@ -244,6 +261,7 @@ struct TodayScreen: View {
             // The Watch's health figures and Today's first alerts come from
             // this store's payload — no second request.
             WatchBridge.shared.attach(today: store)
+            HealthWidgetBridge.shared.attach(today: store, rings: rings)
             rings.start()
             // Not awaited before Today's own request: the family is a glance, and
             // the first paint must not wait on a second server.
@@ -312,14 +330,64 @@ struct TodayScreen: View {
         }
     }
 
+    /// What this person may have on Home, in the default order.
+    private var availableTiles: [HomeTileKind] {
+        HomeTileKind.available(access: access.current, sitePaired: site.paired)
+    }
+
     /// What Home draws, in order.
     private var visibleTiles: [HomeTileKind] {
-        HomeLayout.decode(homeLayout).visible(HomeTileKind.available(access: access.current, sitePaired: site.paired))
+        HomeLayout.decode(homeLayout).visible(availableTiles)
+    }
+
+    /// Each shown tile's size as drawn now: the reader's, folded to a square
+    /// when an adaptive tile has nothing to show.
+    private func drawnSizes(_ layout: HomeLayout, _ kinds: [HomeTileKind]) -> [HomeTileKind: HomeSize] {
+        // Uniquing rather than trapping: a repeated kind would crash Home.
+        Dictionary(kinds.map { kind in
+            (kind, HomeSizing.resolve(chosen: layout.size(of: kind), allowed: kind.sizes,
+                                      adaptive: kind.adaptive, hasContent: hasContent(kind)))
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Whether an adaptive tile has anything to show; nil while that is not
+    /// known yet, so a tile is never folded before its data has landed.
+    private func hasContent(_ kind: HomeTileKind) -> Bool? {
+        switch kind {
+        case .diary: return HomeDiaryTile.agenda(forecast: forecast.forecast, corrections: corrections, now: Date())?.hasContent
+        case .trips: return trips.running() != nil || trips.upcoming() != nil
+        case .moves: return HomeMovesTile.hasContent(forecast.forecast)
+        case .games: return games.lobby == nil ? nil : HomeGamesTile.hasContent(games)
+        case .flows: return HomeFlowsTile.hasContent(flowAttention)
+        default: return nil
+        }
+    }
+
+    private func updateLayout(_ change: (inout HomeLayout) -> Void) {
+        var next = HomeLayout.decode(homeLayout)
+        change(&next)
+        let raw = next.raw
+        guard raw != homeLayout else { return }
+        withAnimation(.snappy) { homeLayout = raw }
+    }
+
+    private func startArranging() {
+        SRHaptic.tap()
+        withAnimation(.snappy) { arranging = true }
+    }
+
+    private func finishArranging() {
+        SRHaptic.tap()
+        withAnimation(.snappy) { arranging = false }
+        // Tiles switched on while arranging may need their boards.
+        Task { await loadFamilyBoards() }
     }
 
     /// Everything under the greeting.
     @ViewBuilder
     private var cards: some View {
+        let layout = HomeLayout.decode(homeLayout)
+        let kinds = layout.visible(availableTiles)
         if access.current.owner && !site.paired {
             // The owner's QR. A member's phone pairs itself, and a
             // member with neither chat nor news has nothing to pair.
@@ -329,35 +397,90 @@ struct TodayScreen: View {
             // answer comes from.
             companionCard
         }
-        HomeGrid(kinds: visibleTiles) { kind in
-            tile(kind)
+        if arranging {
+            HomeArrangeBanner()
+        }
+        HomeGrid(kinds: kinds, sizes: drawnSizes(layout, kinds)) { kind, size in
+            gridTile(kind, size: size, chosen: layout.size(of: kind))
         }
         .environment(\.homeColours, { router.openColours() })
+        if arranging {
+            HomeAddTiles(kinds: layout.addable(availableTiles)) { kind in
+                SRHaptic.tap()
+                updateLayout { $0.set(kind, shown: true) }
+            }
+        }
         // Side by side, or stacked once the type is too big for two labels.
         let footer = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
         footer {
-            Button {
-                SRHaptic.tap()
-                router.today.append(HomeCustomizeRef())
-            } label: {
-                // "Arrange", not "Arrange Home": half the width in capitals
-                // cut it to "ARRANGE H…".
-                SRButtonLabel(title: "Arrange", icon: "slider.horizontal.3", fill: true)
+            if arranging {
+                Button { finishArranging() } label: {
+                    SRButtonLabel(title: "Done", icon: "checkmark", fill: true)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityIdentifier("home-arrange-done")
+                Button {
+                    SRHaptic.tap()
+                    router.today.append(HomeCustomizeRef())
+                } label: {
+                    // The list in Settings → Home: every tile, with switches.
+                    SRButtonLabel(title: "List", icon: "list.bullet", fill: true)
+                }
+                .srButton(.regular)
+                .controlSize(.large)
+                .accessibilityIdentifier("home-customise")
+            } else {
+                Button { startArranging() } label: {
+                    // "Arrange", not "Arrange Home": half the width in capitals
+                    // cut it to "ARRANGE H…".
+                    SRButtonLabel(title: "Arrange", icon: "square.grid.2x2", fill: true)
+                }
+                .srButton(.regular)
+                .controlSize(.large)
+                .accessibilityIdentifier("home-arrange")
+                Button {
+                    SRHaptic.tap()
+                    router.openColours()
+                } label: {
+                    SRButtonLabel(title: "Colours", icon: "paintpalette.fill", fill: true)
+                }
+                .srButton(.regular)
+                .controlSize(.large)
+                .accessibilityIdentifier("home-colours")
             }
-            .srButton(.regular)
-            .controlSize(.large)
-            .accessibilityIdentifier("home-customise")
-            Button {
-                SRHaptic.tap()
-                router.openColours()
-            } label: {
-                SRButtonLabel(title: "Colours", icon: "paintpalette.fill", fill: true)
-            }
-            .srButton(.regular)
-            .controlSize(.large)
-            .accessibilityIdentifier("home-colours")
         }
         .padding(.top, 4)
+    }
+
+    /// One tile at the size it is drawn — and, while arranging, inside the
+    /// arranging chrome (`HomeArrangeChrome`).
+    @ViewBuilder
+    private func gridTile(_ kind: HomeTileKind, size: HomeSize, chosen: HomeSize) -> some View {
+        if arranging {
+            let remove: (() -> Void)? = kind.alwaysShown ? nil : {
+                updateLayout { $0.set(kind, shown: false) }
+            }
+            let resize: (() -> Void)? = kind.sizes.count > 1 ? {
+                SRHaptic.select()
+                updateLayout { $0.set(kind, size: HomeSizing.next(after: chosen, allowed: kind.sizes)) }
+            } : nil
+            tile(kind)
+                .environment(\.homeTileSize, size)
+                .modifier(HomeArrangeChrome(
+                    kind: kind,
+                    size: chosen,
+                    remove: remove,
+                    resize: resize,
+                    nudge: { step in updateLayout { $0.nudge(kind, by: step, available: availableTiles) } },
+                    drop: { dragged in
+                        SRHaptic.select()
+                        updateLayout { $0.move(dragged, before: kind, available: availableTiles) }
+                    }
+                ))
+        } else {
+            tile(kind).environment(\.homeTileSize, size)
+        }
     }
 
     /// The boards behind whichever tiles are on. Nothing is read for a tile
@@ -367,11 +490,16 @@ struct TodayScreen: View {
         let shown = Set(visibleTiles)
         let briefing = shown.contains(.briefing)
         if shown.contains(.flows) || (briefing && access.current.owner) { await flowAttention.load() }
+        // The owner's widgets that read a store of their own.
+        if access.current.owner && site.paired {
+            if shown.contains(.captures) { await CaptureStore.shared.load() }
+            if shown.contains(.wildmind) { await WildmindStore.shared.load() }
+        }
         guard access.familyBoards else { return }
         if shown.contains(.steps) || briefing { await FamilyStepsStore.shared.load() }
         if shown.contains(.tasks) || briefing { await FamilyTasksStore.shared.load() }
         if shown.contains(.backlog) { await FamilyBacklogStore.shared.load() }
-        if shown.contains(.messages) || briefing { await FamilyMessagesStore.shared.load() }
+        if shown.contains(.messages) || shown.contains(.batPhone) || briefing { await FamilyMessagesStore.shared.load() }
         // No card, but still read: every read reschedules this phone's
         // leave-by reminders.
         await FamilyForecastStore.shared.load()
@@ -440,8 +568,11 @@ struct TodayScreen: View {
 
     @ViewBuilder
     private func tile(_ kind: HomeTileKind) -> some View {
-        let hide = { withAnimation(.snappy) { var next = HomeLayout.decode(homeLayout); next.set(kind, shown: false); homeLayout = next.raw } }
-        let arrange = { router.today.append(HomeCustomizeRef()) }
+        let hide: (() -> Void)? = kind.alwaysShown ? nil : { updateLayout { $0.set(kind, shown: false) } }
+        let arrange = { startArranging() }
+        // A shortcut is one button; a square or wide widget has buttons of
+        // its own inside it, which a `Button` around it would swallow.
+        let hasButtons = HomeLayout.decode(homeLayout).size(of: kind) != .compact
         switch kind {
         case .briefing:
             HomeBriefingTile(health: store.payload?.health, rings: rings.rings, news: store.payload?.news,
@@ -450,10 +581,6 @@ struct TodayScreen: View {
         case .family:
             HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange, keepsChildren: true) {
                 HomeFamilyTile(store: family, watch: family.view?.watch, live: onScreen && scenePhase == .active)
-            }
-        case .familyDay:
-            HomeTileButton(kind: kind, id: "home-family-day", action: { router.show(.family) }, hide: hide, customise: arrange) {
-                HomeFamilyDayTile(store: family, watch: family.view?.watch)
             }
         case .health:
             // The owner's figures are each a button into their own chart, so
@@ -487,8 +614,21 @@ struct TodayScreen: View {
                               initials: family.view?.initials ?? [:])
             }
         case .messages:
-            HomeTileButton(kind: kind, id: "home-messages", action: { router.openFamilyPage(.messages) }, hide: hide, customise: arrange) {
+            // The quick lines are buttons of their own.
+            HomeTileButton(kind: kind, id: "home-messages", action: { router.openFamilyPage(.messages) }, hide: hide, customise: arrange,
+                           keepsChildren: true) {
                 HomeMessagesTile()
+            }
+        case .batPhone:
+            // The bat phone is a button of its own; the rest of the tile
+            // opens msg family, where its message lands.
+            HomeTileButton(kind: kind, id: "home-bat-phone", action: { router.openFamilyPage(.messages) }, hide: nil, customise: arrange,
+                           keepsChildren: true) {
+                HomeBatPhoneTile()
+            }
+        case .diary:
+            HomeTileButton(kind: kind, id: "home-diary", action: { router.show(.family) }, hide: hide, customise: arrange) {
+                HomeDiaryTile()
             }
         case .backlog:
             HomeTileButton(kind: kind, id: "today-backlog", action: { router.openFamilyPage(.backlog) }, hide: hide, customise: arrange) {
@@ -499,8 +639,10 @@ struct TodayScreen: View {
                 HomeGamesTile()
             }
         case .chat:
-            HomeTileButton(kind: kind, id: "today-ask", action: { router.show(.chat) }, hide: hide, customise: arrange) {
-                HomeShortcutTile(kind: kind, line: store.payload?.lastThread?.title.map { "Last: \($0)" } ?? "Ask anything, any time")
+            // A square or wide tile has its own "New question" button.
+            HomeTileButton(kind: kind, id: "today-ask", action: { router.show(.chat) }, hide: hide, customise: arrange,
+                           keepsChildren: hasButtons) {
+                HomeChatTile(thread: store.payload?.lastThread) { router.show(.chat) }
             }
         case .news:
             HomeTileButton(kind: kind, id: "home-news", action: { router.show(.news) }, hide: hide, customise: arrange) {
@@ -516,7 +658,20 @@ struct TodayScreen: View {
             }
         case .wildmind:
             HomeTileButton(kind: kind, id: "home-wildmind", action: { router.openWildmind() }, hide: hide, customise: arrange) {
-                HomeShortcutTile(kind: kind, line: "The world it is building")
+                HomeWildmindTile()
+            }
+        case .travel:
+            // The four doors on a square are buttons of their own.
+            HomeTileButton(kind: kind, id: "home-travel", action: { router.push(TravelKitRef(), on: .today) }, hide: hide,
+                           customise: arrange, keepsChildren: hasButtons) {
+                HomeTravelTile { tool in
+                    if let tool { router.push(tool, on: .today) } else { router.push(TravelKitRef(), on: .today) }
+                }
+            }
+        case .captures:
+            HomeTileButton(kind: kind, id: "home-captures", action: { router.openCaptures() }, hide: hide, customise: arrange,
+                           keepsChildren: hasButtons) {
+                HomeCapturesTile()
             }
         }
     }
@@ -526,16 +681,16 @@ struct TodayScreen: View {
     private func openInsight(_ line: HomeInsight) {
         switch line.source {
         case .watch, .moves, .diary: router.show(.family)
-        case .trip:
+        case .trip, .weather:
             if let running = TripStore.shared.running() {
                 router.openTrips(day: TripDayRef(tripId: running.bundle.trip.id, date: running.date))
             } else {
                 router.openTrips()
             }
-        case .tasks: router.openFamilyPage(.tasks)
-        case .steps: router.openFamilyPage(.steps)
-        case .messages: router.openFamilyPage(.messages)
-        case .vitals:
+        case .tasks, .rewards: router.openFamilyPage(.tasks)
+        case .steps, .lead: router.openFamilyPage(.steps)
+        case .messages, .mentions: router.openFamilyPage(.messages)
+        case .vitals, .sleep:
             if let key = line.figureKey, let figure = store.payload?.health?.figures.first(where: { $0.key == key }) {
                 router.openHealthFigure(figure)
             } else {
@@ -543,7 +698,7 @@ struct TodayScreen: View {
             }
         case .readiness, .rings: router.show(.health)
         case .flows: router.show(.flows)
-        case .games: router.show(.games)
+        case .games, .turn: router.show(.games)
         case .daydream: router.openDaydream()
         case .news: router.show(.news)
         case .calm: break

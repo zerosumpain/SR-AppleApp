@@ -66,6 +66,10 @@ import Combine
         }
         // Off the plan: significant-change and visit wake-ups while a trip
         // day runs, so a relaunch for one must find this delegate too.
+        // Its trip-day fixes go into the family trail as well (Landgrab, the map).
+        if let location = companion?.location {
+            TripOffPlan.shared.relay = { [weak location] fixes in location?.recordTripFixes(fixes) }
+        }
         TripOffPlan.shared.start()
         // A planner job started before the app was closed: collect it.
         TripJobs.shared.resume()
@@ -139,6 +143,12 @@ import Combine
             return true
         }
         switch kind {
+        case .batPhone:
+            // Opens on the bat phone's check, as the widget does, and sends
+            // nothing itself: a long-press menu is brushed by accident too,
+            // and the button there keeps its own guard (`BatPhoneLink`).
+            Self.pending.tab = .today
+            BatPhoneLink.shared.open()
         case .capture:
             // Straight into recording, on the Captures page so the timer and
             // Stop are in front of you. Pressed again while recording, it stops.
@@ -163,6 +173,16 @@ import Combine
     /// No token (a simulator, no network at launch). Nothing is lost: the pull
     /// still delivers everything, and the next launch asks again.
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {}
+
+    /// A silent push. The one kind: somebody opened Steps, and the site asks
+    /// every other family phone for its steps and where it is
+    /// (`family-report`). iOS rations these and skips an app that was swiped
+    /// away, so it is a nudge, never the only way the board fills.
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard (userInfo["category"] as? String) == FamilyStepsStore.reportCategory, let companion else { return .noData }
+        await companion.reportForFamily()
+        return .newData
+    }
 
     /// An answer to a stalled chat turn, from a notification button — often on
     /// the Watch, with the app in the background. Said only when it did NOT

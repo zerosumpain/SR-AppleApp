@@ -4,14 +4,16 @@
 #   scripts/home-check.sh
 #
 # Like `offline-check.sh`, for Home and msg family: the briefing's ranking
-# (`Home/HomeBriefing.swift`) and msg family's tools
-# (`Family/FamilyMessageTools.swift`) are Foundation-only by design, so they
+# (`Home/HomeBriefing.swift`), msg family's tools
+# (`Family/FamilyMessageTools.swift`) and its landing's suggestions
+# (`Family/FamilyChatSuggestions.swift`) are Foundation-only by design, so they
 # are compiled here as a throwaway SwiftPM module NAMED `SRAppleApp` (the
 # tests' `@testable import SRAppleApp` is untouched) with their test files
-# (`HomeBriefingTests`, `FamilyMessageToolsTests`) as its test target, in the
-# swift:6.0-jammy image in Swift 5 language mode, as the app is. Every other
-# file under Home/ is put through `swiftc -parse`: no imports resolved, no
-# types checked, but the unbalanced brace is caught before CI.
+# (`HomeBriefingTests`, `FamilyMessageToolsTests`, `FamilyChatSuggestionsTests`)
+# as its test target, in the swift:6.0-jammy image in Swift 5 language mode,
+# as the app is. Every other file under Home/ is put through `swiftc -parse`:
+# no imports resolved, no types checked, but the unbalanced brace is caught
+# before CI.
 #
 # Exits non-zero on any failure.
 set -euo pipefail
@@ -21,8 +23,8 @@ IMAGE="${HOME_CHECK_IMAGE:-swift:6.0-jammy}"
 BASE="${HOME_CHECK_TMP:-${TMPDIR:-/tmp}}"
 APP="$ROOT/ios/SRAppleApp"
 HOMEDIR="$APP/Home"
-PURE=(Home/HomeBriefing.swift Family/FamilyMessageTools.swift)
-TESTS=(HomeBriefingTests.swift FamilyMessageToolsTests.swift)
+PURE=(Home/HomeBriefing.swift Family/FamilyMessageTools.swift Family/FamilyChatSuggestions.swift More/HubUsage.swift Home/HomeSizing.swift Family/FamilyMessagesWidgetModel.swift Games/GamesShelf.swift Games/Physics/LanderLogic.swift Games/Physics/CarRaceLogic.swift Games/Physics/PhysicsScores.swift Family/FamilyNowWidgetModel.swift Trips/TripsWidgetModel.swift Games/GamesWidgetModel.swift Health/HealthWidgetModel.swift Games/Physics/CarRaceSplitLogic.swift)
+TESTS=(HomeBriefingTests.swift FamilyMessageToolsTests.swift FamilyChatSuggestionsTests.swift HubUsageTests.swift HomeSizingTests.swift FamilyMessagesWidgetTests.swift GamesShelfTests.swift LanderLogicTests.swift CarRaceLogicTests.swift PhysicsScoresTests.swift FamilyNowWidgetTests.swift TripsWidgetTests.swift GamesWidgetTests.swift HealthWidgetTests.swift CarRaceSplitTests.swift)
 
 command -v docker >/dev/null || { echo "home-check: docker is not installed" >&2; exit 2; }
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null

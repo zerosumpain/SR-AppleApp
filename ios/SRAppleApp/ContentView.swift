@@ -49,7 +49,7 @@ final class Router: ObservableObject {
     @Published var whatsNew: [WhatsNewRelease] = []
     @Published var whatsNewHistory = false
 
-    enum Sheet: String, Identifiable { case settings, alerts, connections, colours, whatsNew; var id: String { rawValue } }
+    enum Sheet: String, Identifiable { case settings, alerts, connections, colours, whatsNew, batPhone; var id: String { rawValue } }
     /// Pages that live only inside More — not places with a tab of their own.
     /// Wildmind, like Daydream, is the owner's.
     enum MorePage: String, Hashable { case daydream, wildmind }
@@ -115,10 +115,32 @@ final class Router: ObservableObject {
         tab = .today
     }
 
-    /// The hub, pushed onto the tab that is open: the ⊞ in every page's bar.
+    /// The hub, pushed onto the tab that is open: More, in the tray.
     func openHub() {
         hubHost = tab
         append(HubRef(), to: tab)
+    }
+
+    /// Home, on its own first page: the house at the top left of every tab.
+    /// Home has no place in the tray (John, 2026-10-27), so this is the way
+    /// there, and it always lands on Home itself rather than on whatever
+    /// was last pushed above it.
+    func goHome() {
+        today = NavigationPath()
+        tab = .today
+    }
+
+    /// A place's first page: the tray's button for the place already showing.
+    func popToRoot(_ tab: Tab) {
+        switch tab {
+        case .today: today = NavigationPath()
+        case .chat: chat = NavigationPath()
+        case .health: health = NavigationPath()
+        case .family: family = NavigationPath()
+        case .games: games = NavigationPath()
+        case .news: news = NavigationPath()
+        case .flows: flows = NavigationPath()
+        }
     }
 
     /// Something the hub holds, opened from outside the app's screens: Home's
@@ -386,17 +408,27 @@ struct ContentView: View {
             if reviewDemo.active { DemoBanner() }
             tabs
         }
+        .srGameLobbyBanner(games, router: router) // An open game lobby, above every page.
         // A family member's alarm, over whichever tab is open.
         .modifier(FamilyAlarmHost())
     }
 
+    /// The places, each its own stack, under the app's own tray.
+    ///
+    /// Still a `TabView`: it keeps every place's stack and state while
+    /// another is showing, and tells each when it is on screen. But its bar
+    /// is hidden on every stack (`.toolbar(.hidden, for: .tabBar)`) — Home
+    /// is a place with no button in the tray, and More is a button with no
+    /// place, neither of which a system tab bar can draw. The tray is
+    /// `SRTray`, on each place's first page (`hosted`) and on More.
     private var tabs: some View {
         TabView(selection: tabBinding) {
             NavigationStack(path: $router.today) {
                 hosted(TodayScreen(companion: companion, alerts: alerts, site: site, family: family))
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
-            .tabItem { SRTabIcon.label("Home", "square.grid.2x2.fill") }
+            .toolbar(.hidden, for: .tabBar)
+            .tabItem { SRTabIcon.label("Home", "house.fill") }
             .tag(Router.Tab.today)
 
             // Only the tabs this person may open are BUILT: a feature somebody
@@ -411,6 +443,7 @@ struct ContentView: View {
                     hosted(FamilyScreen(store: family, companion: companion))
                         .srConnectionsBanner(connections) { router.openConnections() }
                 }
+                .toolbar(.hidden, for: .tabBar)
                 .tabItem { SRTabIcon.label("Family", "person.2.wave.2") }
                 .tag(Router.Tab.family)
             }
@@ -422,6 +455,7 @@ struct ContentView: View {
                 NavigationStack(path: $router.games) {
                     hosted(place(.games))
                 }
+                .toolbar(.hidden, for: .tabBar)
                 .tabItem { SRTabIcon.label("Games", "gamecontroller") }
                 .badge(games.invites.count)
                 .tag(Router.Tab.games)
@@ -432,6 +466,7 @@ struct ContentView: View {
                     hosted(paired(what: "your threads") { ThreadListScreen() })
                         .srConnectionsBanner(connections) { router.openConnections() }
                 }
+                .toolbar(.hidden, for: .tabBar)
                 .tabItem { SRTabIcon.label("Chat", "bubble.left.and.bubble.right") }
                 .tag(Router.Tab.chat)
             }
@@ -440,6 +475,7 @@ struct ContentView: View {
                 hosted(HealthScreen(companion: companion))
                     .srConnectionsBanner(connections) { router.openConnections() }
             }
+            .toolbar(.hidden, for: .tabBar)
             .tabItem { SRTabIcon.label("Health", "heart.text.square") }
             .tag(Router.Tab.health)
 
@@ -471,9 +507,6 @@ struct ContentView: View {
                 .padding(.bottom, 64)
             }
         }
-        // On iOS 26 the glass tab bar shrinks to a pill while you read and
-        // comes back when you scroll up — the content gets the screen.
-        .srTabBarMinimizes()
         .environmentObject(router)
         .environmentObject(alerts)
         .environmentObject(connections)
@@ -527,6 +560,8 @@ struct ContentView: View {
             // scene leaves, and nothing claims it runs when the app is shut.
             syncGamesPoll()
             guard phase == .active else { return }
+            // Games played with no internet go to the leaderboard now if they can.
+            OfflineResultStore.shared.syncSoon()
             // A quick action taken while the app was merely backgrounded never
             // goes through `task`, which runs once per view lifetime.
             drainPending()
@@ -598,6 +633,13 @@ struct ContentView: View {
                 router.openFamilyPage(page)
                 return
             }
+            // sr://family, sr://games[/<room>], sr://health — the glance widgets.
+            if let link = GlanceLink.from(url: url) { router.openGlance(link); return }
+            // sr://batphone — the bat phone widget: its check, never a send.
+            if BatPhoneURL.matches(url) {
+                BatPhoneLink.shared.open()
+                return
+            }
             // sr://trips/<id>/<date> — the trip day's Lock Screen card.
             if let trip = TripLink.from(url: url) {
                 router.openTrip(trip)
@@ -626,6 +668,10 @@ struct ContentView: View {
         // nothing else would drain what the delegate left waiting.
         .onReceive(NotificationCenter.default.publisher(for: PendingEntry.changed)) { _ in
             drainPending()
+        }
+        // The bat phone's widget, control or Shortcut (`BatPhoneLink`).
+        .onReceive(BatPhoneLink.shared.$pending) { pending in
+            if pending { router.openBatPhone() }
         }
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             guard access.allows(.chat),
@@ -668,6 +714,8 @@ struct ContentView: View {
             SRPaletteSheet()
         case .whatsNew:
             WhatsNewSheet(releases: router.whatsNew, history: router.whatsNewHistory)
+        case .batPhone:
+            BatPhoneConfirmSheet()
         }
     }
 
@@ -779,6 +827,11 @@ struct ContentView: View {
     /// on a root, or SwiftUI picks one of the two at random.
     private func hosted<Root: View>(_ root: Root) -> some View {
         root
+            // The first page: the tray along its foot, the system bar gone.
+            // Hidden here as well as on the stack, so the first page never
+            // shows it for a frame, whichever the OS reads.
+            .srTray(.tab(router.tab))
+            .toolbar(.hidden, for: .tabBar)
             .navigationDestination(for: HubRef.self) { _ in
                 MoreScreen(places: access.inHub, games: games, companion: companion)
             }
@@ -875,8 +928,10 @@ private extension View {
             .navigationDestination(for: GameRoomRef.self) { GameRoomScreen(ref: $0).id($0.id) }
             .navigationDestination(for: GameLeaderboardRef.self) { _ in GameLeaderboardScreen() }
             .navigationDestination(for: MarblerRef.self) { _ in MarblerScreen() }
+            .navigationDestination(for: PhysicsGameRef.self) { PhysicsGameScreen(kind: $0.kind) }
             // Play nearby: offline games, from the Games page and from More.
             .navigationDestination(for: OfflineGamesRef.self) { _ in OfflineGamesScreen() }
+            .navigationDestination(for: SoloGameRef.self) { OfflineSoloScreen(kind: $0.kind) }
             // The Travel kit and its five tools, from the hub.
             .navigationDestination(for: TravelKitRef.self) { _ in TravelKitScreen() }
             .navigationDestination(for: TravelToolRef.self) { $0.screen }
@@ -885,12 +940,4 @@ private extension View {
             .navigationDestination(for: FlowRunRef.self) { FlowRunScreen(ref: $0).id($0.runId) }
     }
 
-    @ViewBuilder
-    func srTabBarMinimizes() -> some View {
-        if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            self
-        }
-    }
 }

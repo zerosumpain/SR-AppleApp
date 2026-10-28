@@ -108,20 +108,38 @@ class Client:
         request.add_header("Authorization", "Bearer " + self.bearer)
         if data is not None:
             request.add_header("Content-Type", "application/json")
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                raw = response.read()
-                return json.loads(raw) if raw else None
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode(errors="replace")[:400]
-            if error.code in (401, 403):
-                raise Refused(
-                    f"App Store Connect refused the API key ({error.code}) for {method} {path}. "
-                    "The key needs the Admin role (or App Manager with access to Certificates, "
-                    "Identifiers & Profiles): App Store Connect → Users and Access → Integrations. "
-                    f"Apple said: {detail}"
-                ) from None
-            raise Refused(f"App Store Connect answered {error.code} for {method} {path}: {detail}") from None
+        # Apple's API times out now and then (twice on 2026-10-27), and a
+        # Watch-less archive then fails outright on the SwiftPM packages, so a
+        # read is tried three times before giving up. Only reads: a write that
+        # timed out may have landed, and a second one would make a duplicate.
+        attempts = 3 if method == "GET" else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    raw = response.read()
+                    return json.loads(raw) if raw else None
+            except urllib.error.HTTPError as error:
+                if error.code in (429, 500, 502, 503, 504) and attempt < attempts:
+                    time.sleep(5 * attempt)
+                    continue
+                self._refuse(error, method, path)
+            except (TimeoutError, urllib.error.URLError, ConnectionError) as error:
+                if attempt == attempts:
+                    raise
+                print(f"::notice::App Store Connect {method} {path} failed ({error!r}); trying again", flush=True)
+                time.sleep(5 * attempt)
+
+    @staticmethod
+    def _refuse(error: urllib.error.HTTPError, method: str, path: str):
+        detail = error.read().decode(errors="replace")[:400]
+        if error.code in (401, 403):
+            raise Refused(
+                f"App Store Connect refused the API key ({error.code}) for {method} {path}. "
+                "The key needs the Admin role (or App Manager with access to Certificates, "
+                "Identifiers & Profiles): App Store Connect → Users and Access → Integrations. "
+                f"Apple said: {detail}"
+            ) from None
+        raise Refused(f"App Store Connect answered {error.code} for {method} {path}: {detail}") from None
 
 
 # MARK: - Profiles

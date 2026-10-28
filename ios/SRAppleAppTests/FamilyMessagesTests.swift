@@ -61,21 +61,30 @@ final class FamilyMessagesTests: XCTestCase {
         XCTAssertTrue(alex.tally.contains { $0.emoji == "❤️" && $0.mine })
     }
 
-    // MARK: - One list with jkai's threads
+    // MARK: - Read as one conversation
 
-    private func thread(_ id: String, updated: String?) -> Conversation {
-        Conversation(id: id, title: id, source: "web", pinned: false, messageCount: 2, modelProvider: nil,
-                     modelId: nil, preview: nil, createdAt: updated, updatedAt: updated)
+    /// The demo's threads as msg family draws them: emoji and poll votes are
+    /// counted, not lines; a reply quotes the message it answers.
+    @MainActor
+    func testTheDemoReadsAsOneConversation() throws {
+        let raw = try XCTUnwrap(SRDemoFixtures.route(method: "GET", path: "/api/native/family/messages", query: [:], body: nil, clock: clock))
+        let feed = try JSONDecoder().decode(FamilyMessagesFeed.self, from: Data(raw.utf8))
+        let lines = FamilyChatStream.lines(feed.messages.reversed().map(FamilyMessagesStore.streamed), now: clock.now)
+        XCTAssertFalse(lines.contains { FamilyMessages.reactions.contains($0.body) }, "emoji are counted on their message")
+        XCTAssertFalse(lines.contains { $0.body == "2️⃣" }, "a vote is a bar on the poll, not a line")
+        XCTAssertEqual(lines.first?.id, "demo-msg-3", "oldest first: yesterday's poll")
+        let milk = try XCTUnwrap(lines.first { $0.id == "demo-rep-8" })
+        XCTAssertEqual(milk.thread, "demo-msg-2")
+        XCTAssertEqual(milk.quote?.name, "Alex")
+        XCTAssertEqual(milk.subject, "robin", "the circle's colour comes with the line")
+        let times = lines.compactMap(\.at)
+        XCTAssertEqual(times, times.sorted(), "in time order")
     }
 
-    func testTheFamilyChatSitsAmongThreadsByWhenItLastMoved() {
-        let threads = [thread("a", updated: "2026-10-05T12:00:00Z"), thread("b", updated: "2026-10-05T09:00:00Z")]
-        let at = ISO8601DateFormatter().date(from: "2026-10-05T10:00:00Z")
-        XCTAssertEqual(FamilyThreadPlacement.merge(threads, family: at).map(\.id), ["thread-a", "family", "thread-b"])
-        // Never moved: last. No family chat at all: not there.
-        XCTAssertEqual(FamilyThreadPlacement.merge(threads, family: .distantPast).map(\.id), ["thread-a", "thread-b", "family"])
-        XCTAssertEqual(FamilyThreadPlacement.merge(threads, family: nil).map(\.id), ["thread-a", "thread-b"])
-        XCTAssertEqual(FamilyThreadPlacement.merge([], family: .distantPast).map(\.id), ["family"])
+    /// The bat phone is a message now: it goes through msg family's own send.
+    func testTheBatPhoneMessageIsSendable() {
+        let body = BatPhoneWords.message(place: "Station Road, Anytown", battery: 0.07, lat: 51.5, lon: -0.12)
+        XCTAssertEqual(FamilyMessages.sendable(body), body)
     }
 
     func testAMessageOrReplyIsDeletedAtItsOwnAddress() {

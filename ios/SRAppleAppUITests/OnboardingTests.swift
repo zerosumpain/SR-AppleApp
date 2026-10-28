@@ -32,7 +32,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(app.buttons["welcome-apple"].exists, "no Sign in with Apple on Welcome")
         XCTAssertTrue(app.buttons["welcome-have-code"].exists, "no way in for someone already invited")
         // Nothing of the app before anybody has said yes.
-        XCTAssertFalse(app.tabBars.firstMatch.exists, "the tab bar is showing on Welcome")
+        XCTAssertFalse(app.tray.exists, "the tab bar is showing on Welcome")
         attach(app, "Welcome — ask for an account")
     }
 
@@ -45,14 +45,14 @@ final class OnboardingTests: XCTestCase {
                       "a registrant does not see the review screen")
         XCTAssertTrue(app.buttons["review-check"].exists, "no way to check again")
         XCTAssertTrue(app.buttons["review-withdraw"].exists, "no way to withdraw the request")
-        XCTAssertFalse(app.tabBars.firstMatch.exists, "a registrant can reach the app's tabs")
+        XCTAssertFalse(app.tray.exists, "a registrant can reach the app's tabs")
         attach(app, "Waiting for review")
     }
 
     @MainActor func testAPairingCodeStillOpensTheApp() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20),
                       "I have a pairing code does not open the app")
     }
 
@@ -60,17 +60,19 @@ final class OnboardingTests: XCTestCase {
         let app = XCUIApplication()
         app.launchPastWelcome()
 
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
-        // Nobody known yet: Today and Health, and nothing else exists at all.
-        for tab in ["Home", "Health"] {
-            XCTAssertTrue(app.tabBars.buttons[tab].exists, "missing tab \(tab)")
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
+        // Nobody known yet: Home (the page itself — Home has no button in
+        // the tray), Health and More, and nothing else exists at all.
+        XCTAssertTrue(app.home.exists, "the app did not open on Home")
+        for tab in ["Health", "More"] {
+            XCTAssertTrue(app.trayButton(tab).exists, "missing \(tab) in the tray")
         }
-        for tab in ["Chat", "News", "Flows", "Family", "Games", "More"] {
-            XCTAssertFalse(app.tabBars.buttons[tab].exists, "\(tab) is on the bar before anybody said this person may use it")
+        for tab in ["Chat", "News", "Flows", "Family", "Games"] {
+            XCTAssertFalse(app.trayButton(tab).exists, "\(tab) is in the tray before anybody said this person may use it")
         }
         // The old Connect tab must be gone, not merely unused.
-        XCTAssertFalse(app.tabBars.buttons["Connect"].exists, "Connect is still a tab")
-        XCTAssertFalse(app.tabBars.buttons["Companion"].exists, "Companion is still a tab")
+        XCTAssertFalse(app.trayButton("Connect").exists, "Connect is still a tab")
+        XCTAssertFalse(app.trayButton("Companion").exists, "Companion is still a tab")
 
         attach(app, "Today — the first screen")
     }
@@ -78,7 +80,7 @@ final class OnboardingTests: XCTestCase {
     @MainActor func testTodayOpensFirstAndAsksToConnect() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
 
         // Unpaired, Today must say so rather than sitting empty — and offer
         // the companion, the pairing every person needs.
@@ -92,7 +94,7 @@ final class OnboardingTests: XCTestCase {
     @MainActor func testSettingsPairsWithOneCode() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
 
         XCTAssertTrue(app.openSettings(), "no settings cog on Today")
 
@@ -111,7 +113,7 @@ final class OnboardingTests: XCTestCase {
     @MainActor func testTheManualPairingCodeCanStillBeRevealed() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
         app.buttons["settings-connections"].tap()
         XCTAssertTrue(app.buttons["pair-scan"].waitForExistence(timeout: 10))
@@ -126,7 +128,7 @@ final class OnboardingTests: XCTestCase {
     @MainActor func testNotificationRoutingIsTheOwnersAlone() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
         XCTAssertTrue(app.buttons["settings-connections"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["settings-notifications"].exists,
@@ -138,7 +140,7 @@ final class OnboardingTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-SRDemo"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
 
         let notifications = app.buttons["settings-notifications"]
@@ -158,8 +160,8 @@ final class OnboardingTests: XCTestCase {
     @MainActor func testHealthTabExplainsItselfBeforeItHasAnything() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Health"].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Health"].tap()
+        XCTAssertTrue(app.trayButton("Health").waitForExistence(timeout: 20))
+        app.trayButton("Health").tap()
 
         // A fresh install has uploaded nothing and cannot reach the site, so the
         // screen must say what would put something here.
@@ -202,7 +204,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor func testTheCogOpensSettingsAndTheInstrumentIsThreeTapsAway() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
 
         XCTAssertTrue(app.openSettings(), "no settings cog on Today")
 
@@ -252,7 +254,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor func testTheHistoryScreenOpensAndSaysWhatItIsStandingOn() {
         let app = XCUIApplication()
         app.launchPastWelcome()
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
 
         // The history is its own row now. It used to be a button buried under
@@ -281,7 +283,7 @@ final class SettingsUITests: XCTestCase {
     }
 
     @MainActor private func openLocationSettings(_ app: XCUIApplication) {
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.tray.waitForExistence(timeout: 20))
         XCTAssertTrue(app.openSettings(), "no way into Settings")
         let location = app.buttons["settings-location"]
         XCTAssertTrue(location.waitForExistence(timeout: 10))

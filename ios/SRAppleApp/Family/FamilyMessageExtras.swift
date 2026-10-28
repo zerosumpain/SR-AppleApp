@@ -9,7 +9,8 @@ import UserNotifications
 // MARK: - The words
 
 /// A message's words with every "@Name" of the family in the accent, and an
-/// "@" of this phone's own person in bold too.
+/// "@" of this phone's own person in bold too. Web addresses are links (a
+/// bat phone's map, a shared page).
 struct FamilyMessageText: View {
     let body_: String
     let names: [String]
@@ -49,6 +50,18 @@ struct FamilyMessageText: View {
                 if name.caseInsensitiveCompare(me ?? "") == .orderedSame {
                     out[a..<b].swiftUI.font = SR.Text.bodyMedium(15).bold()
                 }
+            }
+        }
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            for match in detector.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let url = match.url, let found = Range(match.range, in: text) else { continue }
+                let start = text.distance(from: text.startIndex, to: found.lowerBound)
+                let length = text.distance(from: found.lowerBound, to: found.upperBound)
+                guard start + length <= out.characters.count else { continue }
+                let a = out.index(out.startIndex, offsetByCharacters: start)
+                let b = out.index(a, offsetByCharacters: length)
+                out[a..<b].link = url
+                out[a..<b].swiftUI.underlineStyle = .single
             }
         }
         return out
@@ -159,12 +172,20 @@ struct FamilyPollView: View {
     }
 }
 
+/// A poll as the sheet opens on it: blank from the Poll chip over the box, or
+/// written out by a suggestion on msg family's landing ("Dinner tonight?").
+struct FamilyPollDraft: Identifiable {
+    let id = UUID()
+    var question = ""
+    var options: [String] = []
+}
+
 /// The sheet that writes a poll: a question and two to four answers.
 struct FamilyPollComposer: View {
     let send: (FamilyPoll) async -> Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var question = ""
-    @State private var options = [Answer(), Answer()]
+    @State private var question: String
+    @State private var options: [Answer]
     @State private var sending = false
 
     /// One answer's box. Identified, so taking one away never leaves a box
@@ -172,6 +193,15 @@ struct FamilyPollComposer: View {
     struct Answer: Identifiable {
         let id = UUID()
         var text = ""
+    }
+
+    /// Opened on `question` and `options` when a suggestion wrote them; every
+    /// word can still be changed before Send. Always two boxes at least.
+    init(question: String = "", options: [String] = [], send: @escaping (FamilyPoll) async -> Bool) {
+        self.send = send
+        let written = options.prefix(FamilyPoll.maxOptions).map { Answer(text: $0) }
+        _question = State(initialValue: question)
+        _options = State(initialValue: written + (0..<max(0, 2 - written.count)).map { _ in Answer() })
     }
 
     private var poll: FamilyPoll? { FamilyPoll.make(question: question, options: options.map(\.text)) }
@@ -324,7 +354,8 @@ struct FamilyComposerAccessories: View {
 
 // MARK: - Headings
 
-/// "Today", "Yesterday", "Mon 26 Oct" between the threads.
+/// "Today", "Yesterday", "Mon 26 Oct" between the days of the conversation:
+/// a small capsule in the middle, as WhatsApp marks them.
 struct FamilyDayHeading: View {
     let title: String
 
@@ -332,9 +363,14 @@ struct FamilyDayHeading: View {
         Text(title.uppercased())
             .font(SR.Text.label(11))
             .tracking(1)
-            .foregroundStyle(SR.inkMuted)
+            .foregroundStyle(SR.inkSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(SR.surface))
+            .overlay(Capsule().strokeBorder(SR.line, lineWidth: 1))
             .frame(maxWidth: .infinity)
-            .padding(.top, 6)
+            .padding(.top, 14)
+            .padding(.bottom, 4)
             .accessibilityAddTraits(.isHeader)
     }
 }

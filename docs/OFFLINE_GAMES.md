@@ -1,10 +1,14 @@
 # Play nearby — offline games
 
-Games for phones in the same room, with **no internet, no server and no pairing**.
-One phone hosts and *is* the server; up to four more join it. They connect either
-**Nearby** (MultipeerConnectivity: Bluetooth + peer-to-peer Wi-Fi, no router) or over
-**Wi-Fi / hotspot** (Network.framework TCP on a shared Wi-Fi, or the host's Personal
-Hotspot). Nothing here ever calls Strange Ramblings or `/api/native`.
+Games for one phone or for phones in the same room, with **no internet, no server and
+no pairing**. Alone, the phone runs the game and fills empty seats with computer players
+(§5). Together, one phone hosts and *is* the server; up to four more join it, over
+**Nearby** (MultipeerConnectivity: Bluetooth + peer-to-peer Wi-Fi, no router) and
+**Wi-Fi / hotspot** (Network.framework TCP on a shared Wi-Fi, the host's Personal Hotspot,
+or phone-to-phone Wi-Fi) *at the same time* — `OfflineDualLink`, so nobody has to pick.
+Playing never calls Strange Ramblings; afterwards each phone's results wait in
+`OfflineResultStore` and go to `POST api/native/games/offline-results` once it is online
+and paired (§9).
 
 This document is the contract. If you are adding a game, read **§3–§8** and copy the
 reference game, Quick Draw (`ios/SRAppleApp/Offline/Games/QuickDraw/`).
@@ -25,11 +29,22 @@ ios/SRAppleApp/Offline/
     OfflineWire.swift        OfflineEnvelope, OfflineMessage, OfflineLobby, OfflineViewPacket …
     OfflineRoom.swift        OfflineRoom: the host's pure room reducer
     OfflineAddress.swift     TCP framing, typed-address parsing, which local address to show,
-                             OfflineName (names cut to Bonjour/MPC byte limits)
+                             OfflineName (names cut to Bonjour/MPC byte limits), OfflineTXT
+    OfflineDiscovery.swift   OfflineTransport, OfflineFoundHost, merging two links' rooms,
+                             OfflinePeerHealth, OfflineReconnect, OfflineRoundTrip
+    OfflinePlayModes.swift   which games can be played alone / nearby, online → offline twins
+    OfflineResults.swift     OfflineResult, OfflineResultQueue: results waiting to sync
     OfflineRulesAudit.swift  generic checks every game's tests run
-  Link/        OfflineLink protocol, OfflineNearbyLink (MPC), OfflineHotspotLink (NWListener/NWBrowser)
-  Session/     OfflineSession (@MainActor ObservableObject, one shared instance)
+    OfflineWords.swift       the word games' list: OfflineWordList (packed, sorted, binary search),
+                             OfflineWords.shared (read from the bundle on first use)
+  Words/       offline-words.txt — ~71k words of 3–9 letters from SR-Main's Boggle/Anagram lists
+               (regenerate: node scripts/build-offline-words.mjs <SR-Main>); bundled as a resource
+  Link/        OfflineLink protocol, OfflineNearbyLink (MPC), OfflineHotspotLink (NWListener/NWBrowser),
+               OfflineDualLink (both at once — the default)
+  Session/     OfflineSession (@MainActor ObservableObject, one shared instance),
+               OfflineResultStore (the queue on disk, and the sync)
   UI/          OfflineGamesScreen (the page), OfflineRoomScreen (the cover: join/lobby/game/results),
+               OfflineSoloScreen (one game from the Games page, `SoloGameRef`),
                OfflineCatalogue (the list of games), OfflineGameKit (cards, hand, countdown,
                standings, OfflineStimulus for reaction games)
   Games/<GameName>/
@@ -77,10 +92,14 @@ or not, games access or not.
 - Up to **5 players including the host** (`OfflineRoom.capacity`). A sixth `hello` is
   refused with a sentence. A player who joins mid-match **watches** (spectator view,
   `view(of:for: nil)`) and plays the next one.
-- A guest who drops **mid-match keeps their seat** (marked away); `Rules.playerLeft` is
-  called; if fewer than `info.minPlayers` remain the match ends with
-  `Rules.standings` as it stands. The same player id reconnecting retakes the seat and is
-  re-sent the lobby and their view. In the lobby a dropped guest is simply removed.
+- A guest who drops **mid-match keeps their seat** (marked away) and the seat is **held
+  for `OfflineRoom.seatHeld`** (the guest's reconnect patience plus 10 s): the game is not
+  told, so a two-player match survives a radio blip. The same player id reconnecting in
+  that time retakes the seat and is re-sent the lobby and their view. Once the hold runs
+  out (or at once, for a guest who pressed Leave and sent `bye`), `Rules.playerLeft` is
+  called, and if fewer than `info.minPlayers` remain, with no other seat still held, the
+  match ends with `Rules.standings` as it stands. In the lobby a dropped guest is simply
+  removed.
 - **Host leaving ends the room** for everyone.
 - After a match the lobby's phase is `.finished` with the standings; the host chooses
   *Play again* or *Pick another game*.
@@ -416,6 +435,40 @@ static let items: [OfflineCatalogueItem] = [
 ]
 ```
 
+A game whose rules have a computer player conforms to `OfflineBotRules` (in its own
+`<GameName>BotLogic.swift`, Foundation only) — `botActions(state, for:, rng:)` returns
+candidate actions best first, and the match applies the first the rules accept — and is
+registered with `OfflineCatalogueItem(withBot: Rules.self)`. It can then be played alone
+(`OfflinePlayModes.soloBots`), and a host can add computer players to empty seats. The
+room moves bots on its tick after `OfflineRoom.botThink` and sends them nothing; a bot
+with no move looks again every `OfflineRoom.botRetry` (0.25 s). Bots so far: Crazy Eights,
+Dots and Boxes, Four in a Row, Chess, Liar's Dice, Fireworks.
+
+- **A bot must be cheap on the main actor.** `botActions` runs inside the host's ~10 Hz
+  tick, on the main thread. A bot that needs real thought hands the work to a background
+  queue and answers `[]` ("not yet") until it is done — the room's retry picks the answer
+  up. Chess does this (`OfflineChessThinker`: a time-boxed alpha-beta search, answers kept
+  by position). Never block waiting for it.
+- **A bot plays from its own view.** Build `view(of: state, for: botId)` and decide from
+  that (Liar's Dice, Fireworks), so it cannot peek at hidden cards or dice.
+- **Solo table size.** Alone, a game seats the fewest bots it needs, or
+  `OfflineGameInfo.soloOpponents` when it plays better round a bigger table (Liar's Dice
+  seats 3, Fireworks 2), kept within `maxPlayers` and the four bot names.
+- **Online twins.** An online game with an offline version is listed in
+  `OfflinePlayModes.offlineTwin` (online id → offline id: Maths Sprint, Chess, Liar's
+  Dice, Fireworks), so `SoloGameRef(kind:)` with the online id opens the offline game.
+
+**Word games** (Boggle, Anagram Blitz, Categories) are the offline twins of the site's
+games of the same ids (`OfflinePlayModes.offlineTwin`). Boggle and Anagram Blitz judge
+words on the host with `OfflineWords.shared.list`, the site's own list cut to nine
+letters, solved at the deal so the reveal can show what nobody found; if the bundle ever
+lacks the list they accept any word that fits rather than refusing everything. Categories
+needs no list: the site's letter test, shared answers score nothing, and a review where
+half the other players' vetoes strike an answer. All three end in a reveal that stays up
+until everyone taps "See the table" (`.ready` / `.done`). Their views share
+`UI/OfflineWordKit.swift`. Tests read the list from the source tree through
+`OfflineWordsTests.install()` (the check script copies it beside the Linux package).
+
 `OfflineCatalogueItem(Rules.self) { context in View }` builds both halves: the type-erased
 `OfflineGameEntry(Rules.self)` the host's `OfflineRoom` starts matches from (via
 `OfflineMatchOf<Rules>`), and a builder that decodes a view packet's bytes into
@@ -533,23 +586,56 @@ line by line before handing it back:
 
 ## 9. Connections, permissions and limits
 
+- **Both links at once** (`OfflineDualLink`, transport `.auto`, the default): the host
+  advertises on both under one room id (`OfflineRoom.roomKey`, 8 hex digits); a guest
+  browses both and sees one row per room (`OfflineDiscovery.merge`), and joins by Wi-Fi
+  first, then Nearby if that does not connect. Host peer keys are `nearby|…`/`hotspot|…`.
 - **Nearby**: MultipeerConnectivity, service type `sr-play` (Info.plist `NSBonjourServices`
-  lists `_sr-play._tcp` and `_sr-play._udp`), `.required` encryption, `.reliable` sends.
-  The host advertises (`discoveryInfo: room`, `v`); guests browse and invite. Works with no
-  router; phones within a few metres. MultipeerConnectivity cannot hang up on a single
-  peer, so a refused guest leaves when it reads `refused`.
+  lists `_sr-play._tcp` and `_sr-play._udp`), **`.none` encryption** (`.required` was the
+  likeliest cause of sessions stuck connecting or dropping seconds in; both phones must
+  run this version, as mismatched preferences do not connect), `.reliable` sends. The
+  host advertises `room`, `v` and `rid`; guests list rooms by `rid`. The `MCPeerID` is
+  made once and kept in UserDefaults — a fresh one per room left ghost peers in other
+  phones' lists that hung for the whole invitation timeout. A join invites up to 3 times
+  (8 s each); a connected guest stops browsing. A guest's first message reaching the host
+  before its "connected" callback registers the peer rather than being dropped. MultipeerConnectivity cannot hang up on
+  a single peer, so a refused guest leaves when it reads `refused`.
 - **Wi-Fi / hotspot**: `NWListener` on TCP port **47474** when free (else any port, shown
-  with the address), advertised as Bonjour `_srplay._tcp`; guests use `NWBrowser`, or type
-  the address the host's lobby shows (from `getifaddrs`: the hotspot bridge, usually
-  `172.20.10.1`, first, then Wi-Fi `en0`). Guests on JK's hotspot join it in Settings ›
-  Wi-Fi first.
-- Both need the **Local Network** permission (`NSLocalNetworkUsageDescription` explains it);
-  when it is off, the hotspot link reports a sentence pointing to Settings, and the join
-  screen explains an empty list after 8 s. MultipeerConnectivity does not use CoreBluetooth,
-  so no extra Bluetooth permission is involved.
-- The host must keep the app open (iOS suspends a backgrounded app's connections); the room
-  screen disables auto-lock while it is up. Guests that lose the host see "Lost touch with …".
+  with the address), advertised as Bonjour `_srplay._tcp` with a TXT record (`rid`, `v`,
+  built by `OfflineTXT`); guests use `NWBrowser` (`bonjourWithTXTRecord`), or type the
+  address the host's lobby shows. `includePeerToPeer` is on, so two phones with no
+  network in common still meet over phone-to-phone Wi-Fi. TCP: no Nagle delay,
+  keepalive after 4 s, 12 s connect timeout.
+- Both need the **Local Network** permission (`NSLocalNetworkUsageDescription` explains it).
+  A browse started under the permission prompt finds nothing, and iOS stops advertising
+  and browsing in the background: the session calls `refresh()` whenever the app comes to
+  the front, and restarts an empty browse every 10 s.
+- **Dropped guests rejoin**: a guest that loses the host mid-room looks for the same
+  room id for 60 s (`OfflineReconnect.patience`) and rejoins its own seat (same player
+  id); games with an away state take it back with `.back`. Each route of a join gets
+  `OfflineReconnect.joinTimeout` (30 s, enough for Nearby's three invitations) up to the
+  host's `welcome`: the dual link reports `.trying` when it falls back to its other route
+  and the session restarts the timer. A connected guest re-sends `hello` every 2 s until
+  welcomed, so one lost hello cannot leave it on "Joining…". A route that hung is tried
+  last on the next attempt at that room (`OfflineDiscovery.routes(for:failed:)`).
+- **Test connection** (lobby): a guest times a ping round trip; the host re-advertises and
+  says who it has heard from (guests ping every 3 s once settled; `OfflinePeerHealth`).
+- The host must keep the app open; the room screen disables auto-lock while it is up.
 - A guest pings 2×/s until 5 clock samples are in, then every 3 s.
 - Guests and host must run the same `OfflineEnvelope.version`; bump it when a message
-  changes shape. A game's `Action`/`PlayerView` changing shape needs both phones updated —
+  changes shape. New optional fields (`OfflineLobby.roomKey`, `OfflineLobbyPlayer.bot`)
+  need no bump. A game's `Action`/`PlayerView` changing shape needs both phones updated —
   an undecodable view shows "This game needs a newer app".
+- **Results sync later**: every finished match a phone played in is queued as one
+  `OfflineResult` (its own rank and score; id `<roomKey>-<match>`, the same on every phone
+  in the match) in Application Support, and sent in batches of 25 to
+  `POST api/native/games/offline-results` `{ results: [...] }` → `{ recorded: [id],
+  rejected: [id] }` when paired and online — at once, when the network returns, when the
+  app comes to the front, and on a backoff (15 s → 15 min). A 404 keeps them waiting.
+  On the wire each row's game is namespaced, `game: "offline:<id>"` with
+  `source: "offline"` (`OfflineResultUpload`), so the offline Maths Sprint (no difficulty,
+  10 a sum plus a streak bonus) can never land on the online `maths-sprint` board; the
+  phone's own tallies keep the plain id. **The SR-Main route does not exist yet**: it
+  should write one `game_results` row per caller keyed by (`offline-<id>`, user), so
+  retries are idempotent, and answer `{ recorded, rejected }`. Until it ships every
+  result stays on the phone (`.notReady`).

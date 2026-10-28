@@ -5,7 +5,8 @@ import Foundation
 struct HomeInsight: Equatable, Identifiable {
     /// Where the line came from, and so where a tap on it goes.
     enum Source: String, CaseIterable {
-        case watch, diary, trip, moves, tasks, readiness, vitals, rings, steps, flows, games, messages, daydream, news, calm
+        case watch, diary, trip, moves, mentions, weather, tasks, readiness, sleep, vitals, rings, turn, steps, lead,
+             flows, games, messages, rewards, daydream, news, calm
     }
 
     enum Tone: Equatable { case good, warn, bad, plain }
@@ -65,6 +66,15 @@ enum HomeBriefing {
         var topStory: String?
         var invites: [Invite] = []
         var message: Message?
+        /// Who led the step race yesterday, as the board says it.
+        var stepsYesterdayLeader: String?
+        /// Lines in msg family since it was last open here that name you.
+        var mentions: [Mention] = []
+        /// Games waiting on your move.
+        var turns: [Turn] = []
+        /// The weather where a trip is, on its day — today while it runs,
+        /// tomorrow on the eve of it.
+        var tripWeather: TripWeather?
 
         init(now: Date, zone: TimeZone = .current) {
             self.now = now
@@ -157,6 +167,31 @@ enum HomeBriefing {
         /// While a trip runs: the next stop, and minutes until leaving for it.
         let nextStop: String?
         let leaveInMinutes: Int?
+        /// While a trip runs: how far through the day's stops.
+        var stopsDone: Int? = nil
+        var stopsTotal: Int? = nil
+    }
+
+    struct Mention: Equatable {
+        /// First name.
+        let from: String
+        let at: Date
+    }
+
+    struct Turn: Equatable {
+        let game: String
+        /// Who else is in the room, for "Sam is waiting".
+        let with: String?
+    }
+
+    struct TripWeather: Equatable {
+        let place: String
+        /// "19° / 12° · Partly cloudy".
+        let line: String
+        /// "Rain likely 15:00–18:00", when it is.
+        let rain: String?
+        /// The trip starts tomorrow; otherwise it is on today.
+        let tomorrow: Bool
     }
 
     struct Invite: Equatable {
@@ -180,10 +215,15 @@ enum HomeBriefing {
     /// The lines worth showing, most important first. Never empty: a quiet
     /// day says so rather than leaving a hole at the top of Home. PURE.
     static func rank(_ facts: Facts, limit: Int = 3) -> [HomeInsight] {
+        let vital = vitals(facts)
         let candidates: [HomeInsight?] = [
-            watch(facts), diary(facts), trip(facts), moves(facts), tasks(facts), readiness(facts),
-            vitals(facts), rings(facts), steps(facts), flows(facts), games(facts), messages(facts),
-            daydream(facts), news(facts),
+            watch(facts), diary(facts), trip(facts), moves(facts), mentions(facts), weather(facts), tasks(facts),
+            readiness(facts),
+            // Sleep has a line of its own; the figure that moved furthest
+            // says nothing more when it is the same night.
+            vital?.figureKey == "sleep" ? nil : sleep(facts),
+            vital, rings(facts), turn(facts), steps(facts), lead(facts), flows(facts), games(facts), messages(facts),
+            rewards(facts), daydream(facts), news(facts),
         ]
         let order = HomeInsight.Source.allCases
         let ranked = candidates.compactMap { $0 }.sorted { a, b in
@@ -256,7 +296,12 @@ enum HomeBriefing {
     static func trip(_ f: Facts) -> HomeInsight? {
         guard let trip = f.trip else { return nil }
         if trip.days == nil {
-            guard let stop = trip.nextStop else { return nil }
+            guard let stop = trip.nextStop else {
+                // Every stop done: the day, said once, near the foot.
+                guard let total = trip.stopsTotal, total > 0, trip.stopsDone == total else { return nil }
+                return HomeInsight(source: .trip, figure: "\(total)", text: total == 1 ? "stop done today" : "stops done today",
+                                   detail: trip.place, tone: .good, weight: 34)
+            }
             if let leave = trip.leaveInMinutes {
                 if leave <= 0 {
                     return HomeInsight(source: .trip, figure: "Now", text: "time to go to \(stop)",
@@ -267,7 +312,8 @@ enum HomeBriefing {
                                        detail: trip.place, tone: .plain, weight: 93 - Double(leave) / 3)
                 }
             }
-            return HomeInsight(source: .trip, figure: nil, text: "Next: \(stop)", detail: trip.place, tone: .plain, weight: 50)
+            return HomeInsight(source: .trip, figure: nil, text: "Next: \(stop)",
+                               detail: progress(trip).map { "\($0) · \(trip.place)" } ?? trip.place, tone: .plain, weight: 50)
         }
         guard let days = trip.days, days >= 1, days <= 30 else { return nil }
         let asked = trip.questions > 0
@@ -275,6 +321,26 @@ enum HomeBriefing {
         let weight = 40 + (days <= 3 ? 20 : days <= 7 ? 10 : 0) + (asked == nil ? 0 : 15)
         return HomeInsight(source: .trip, figure: days == 1 ? "1 day" : "\(days) days", text: "until \(trip.place)",
                            detail: asked, tone: .plain, weight: Double(weight))
+    }
+
+
+    /// "3 of 7 stops done", while a trip day runs.
+    static func progress(_ trip: Trip) -> String? {
+        guard let total = trip.stopsTotal, total > 0, let done = trip.stopsDone else { return nil }
+        return "\(done) of \(total) stop\(total == 1 ? "" : "s") done"
+    }
+
+    /// The weather on a trip's day: rain is worth saying high up, a dry
+    /// forecast only when there is room.
+    static func weather(_ f: Facts) -> HomeInsight? {
+        guard let w = f.tripWeather else { return nil }
+        let when = w.tomorrow ? "tomorrow" : "today"
+        if let rain = w.rain {
+            return HomeInsight(source: .weather, figure: nil, text: "\(rain) in \(w.place)",
+                               detail: w.line + " · " + when, tone: .warn, weight: w.tomorrow ? 52 : 64)
+        }
+        return HomeInsight(source: .weather, figure: nil, text: "\(w.line) in \(w.place)", detail: when.capitalized,
+                           tone: .plain, weight: w.tomorrow ? 30 : 36)
     }
 
     // MARK: - The boards
@@ -345,6 +411,62 @@ enum HomeBriefing {
                            detail: "\(first.host) wants to play \(first.game)", tone: .plain, weight: 66)
     }
 
+    /// Somebody has a message for you by name since msg family was last
+    /// open: said above the newest line, which may be about anything.
+    static func mentions(_ f: Facts) -> HomeInsight? {
+        let recent = f.mentions.filter { f.now.timeIntervalSince($0.at) <= 12 * 3600 }.sorted { $0.at > $1.at }
+        guard let newest = recent.first else { return nil }
+        let minutes = max(0, Int((f.now.timeIntervalSince(newest.at) / 60).rounded()))
+        let ago = minutes < 1 ? "Just now" : "\(duration(minutes)) ago"
+        if recent.count == 1 {
+            return HomeInsight(source: .mentions, figure: nil, text: "\(newest.from) mentioned you",
+                               detail: "In msg family · " + ago.lowercasedFirst, tone: .plain, weight: 74)
+        }
+        let people = Set(recent.map(\.from)).count
+        return HomeInsight(source: .mentions, figure: "\(recent.count)", text: "mentions of you in msg family",
+                           detail: people == 1 ? "From \(newest.from) · newest \(ago.lowercasedFirst)" : "Newest from \(newest.from), \(ago.lowercasedFirst)",
+                           tone: .plain, weight: 76)
+    }
+
+    /// A game you are holding up.
+    static func turn(_ f: Facts) -> HomeInsight? {
+        guard let first = f.turns.first else { return nil }
+        if f.turns.count == 1 {
+            return HomeInsight(source: .turn, figure: nil, text: "Your move in \(first.game)",
+                               detail: first.with.map { "\($0) is waiting" }, tone: .plain, weight: 64)
+        }
+        return HomeInsight(source: .turn, figure: "\(f.turns.count)", text: "games waiting on your move",
+                           detail: f.turns.prefix(3).map(\.game).joined(separator: ", "), tone: .plain, weight: 66)
+    }
+
+    /// The race has a new leader since yesterday. Compared by first name:
+    /// the board's yesterday says a name, today's rows say people.
+    static func lead(_ f: Facts) -> HomeInsight? {
+        guard f.steps.count > 1, let yesterday = f.stepsYesterdayLeader,
+              let leader = f.steps.max(by: { $0.steps < $1.steps }), leader.steps > 0,
+              f.steps.filter({ $0.steps == leader.steps }).count == 1 else { return nil }
+        func first(_ name: String) -> String { name.split(separator: " ").first.map { $0.lowercased() } ?? name.lowercased() }
+        let was = first(yesterday)
+        let wasMe = was == "you" || f.steps.contains { $0.me && first($0.name) == was }
+        if leader.me {
+            guard !wasMe else { return nil }
+            return HomeInsight(source: .lead, figure: "1st", text: "you've taken the step lead",
+                               detail: "\(yesterday) won yesterday", tone: .good, weight: 54)
+        }
+        guard first(leader.name) != was else { return nil }
+        return HomeInsight(source: .lead, figure: nil, text: "\(leader.name) has taken the step lead",
+                           detail: wasMe ? "You won yesterday" : "\(yesterday) won yesterday", tone: .plain, weight: wasMe ? 50 : 40)
+    }
+
+    /// What a parent owes in rewards, when the task line has something else
+    /// to say (when it has nothing else, the task line says this itself).
+    static func rewards(_ f: Facts) -> HomeInsight? {
+        guard let t = f.tasks, t.parent, t.owedPence > 0 else { return nil }
+        guard t.overdue > 0 || t.awaiting > 0 || t.toDo > 0 else { return nil }
+        return HomeInsight(source: .rewards, figure: money(t.owedPence), text: "owed in rewards",
+                           detail: "Pay it from Tasks", tone: .plain, weight: 32)
+    }
+
     // MARK: - Health
 
     /// Readiness only when it says something: a low morning, or a high one.
@@ -361,6 +483,28 @@ enum HomeBriefing {
                                detail: advice, tone: .good, weight: 60, figureKey: nil)
         }
         return nil
+    }
+
+    /// Last night against the person's own week: worth a line when it is a
+    /// fifth of an hour or more either way, or under six hours outright.
+    /// Sleep's `value` is hours, as /health sends it.
+    static func sleep(_ f: Facts) -> HomeInsight? {
+        guard let night = f.vitals.first(where: { $0.key == "sleep" }), night.value > 0 else { return nil }
+        let short = night.value < 6
+        let delta = night.delta ?? 0
+        guard abs(delta) >= 0.2 || short else { return nil }
+        let size = magnitude(night.deltaDisplay) ?? hours(abs(delta))
+        if delta <= -0.2 {
+            return HomeInsight(source: .sleep, figure: night.shown, text: "sleep, \(size) under your week",
+                               detail: short ? "An early night would put it back" : "Worth an earlier night",
+                               tone: .warn, weight: short ? 66 : 56, figureKey: night.key)
+        }
+        if delta >= 0.2 {
+            return HomeInsight(source: .sleep, figure: night.shown, text: "sleep, \(size) over your week",
+                               detail: "Good night", tone: .good, weight: 40, figureKey: night.key)
+        }
+        return HomeInsight(source: .sleep, figure: night.shown, text: "sleep last night", detail: "Under six hours",
+                           tone: .warn, weight: 58, figureKey: night.key)
     }
 
     /// The figure that moved furthest from the person's own week, as a share
@@ -459,6 +603,14 @@ enum HomeBriefing {
             out.append(char)
         }
         return n < 0 ? "-" + out : out
+    }
+
+    /// 1.5 → "1h 30m", 0.4 → "24m".
+    static func hours(_ value: Double) -> String {
+        let minutes = Int((value * 60).rounded())
+        let h = minutes / 60, m = minutes % 60
+        if h == 0 { return "\(m)m" }
+        return m == 0 ? "\(h)h" : "\(h)h \(m)m"
     }
 
     /// "£2.50".

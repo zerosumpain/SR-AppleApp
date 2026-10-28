@@ -1,7 +1,7 @@
 import SwiftUI
 import PhotosUI
 
-/// The thread library.
+/// The Chat page: jkai on one side, the family's messages on the other.
 ///
 /// It used to open with the website's masthead — a lettered kicker, "PICK ONE
 /// UP, / OR START AGAIN" set in Inter Display across two hand-broken lines, and
@@ -11,8 +11,20 @@ import PhotosUI
 /// arrived from somewhere else; a phone app is opened to do one thing, and here
 /// that thing is "get me back into a conversation".
 ///
-/// So: a large title the system draws and collapses on scroll, `.searchable` in
-/// the bar, and rows from the first pixel of content.
+/// So: an inline title, `.searchable` in the bar, and rows from the first
+/// pixel of content.
+///
+/// 2026-10-27 (John: "the chat page itself is rubbish … jkai should have
+/// quick help buttons and messaging separately"): two sides, picked at the
+/// top, rather than jkai's threads and the family chat shuffled into one list
+/// with a strip of chips over them.
+/// - jkai: "Ask jkai" for a blank thread, four quick-help buttons that start
+///   a thread already asking ("What's on today", "Plan my day"…), then the
+///   threads — pinned, today, and earlier folded away.
+/// - Family (for everyone with the family boards): the family chat's newest
+///   line and "msg family", the bat phone as a big press-and-hold button, and
+///   the one-tap lines as a list down the page. The side's label carries the
+///   unread count, so new family lines are not missed from the jkai side.
 struct ThreadListScreen: View {
     @StateObject private var store = ThreadListStore()
     @EnvironmentObject private var router: Router
@@ -24,138 +36,31 @@ struct ThreadListScreen: View {
     /// Threads from before today, folded away until asked for. Not kept:
     /// the list opens on today every time.
     @State private var showEarlier = false
+    /// jkai's side or the family's. Not kept either: Chat opens on jkai,
+    /// where "Ask jkai" and the threads are.
+    @State private var side: ChatSide = .jkai
+    /// The quick-help button whose thread is being made.
+    @State private var starting: String?
+
+    private var showsFamily: Bool { access.familyBoards && side == .family && store.query.isEmpty }
 
     var body: some View {
         List {
-            // The ways in, as big as the things they start: filled buttons
-            // above everything, not a pencil in the corner of the bar. "jkai"
-            // starts a thread; "msg family" opens the family's messages, for
-            // everyone with the family boards.
-            if store.query.isEmpty {
-                HStack(spacing: 10) {
-                    Button {
-                        SRHaptic.tap()
-                        startThread()
-                    } label: {
-                        SRButtonLabel(title: "jkai", icon: "square.and.pencil", fill: true)
-                            .padding(.vertical, 8)
-                    }
-                    .srButton(.prominent)
-                    .controlSize(.large)
-                    .accessibilityLabel("New thread")
-                    .accessibilityIdentifier("thread-new")
-
-                    if access.familyBoards {
-                        Button {
-                            SRHaptic.tap()
-                            router.chat.append(FamilyPage.messages)
-                        } label: {
-                            SRButtonLabel(title: "msg family", icon: "person.2.wave.2", fill: true)
-                                .padding(.vertical, 8)
-                        }
-                        .srButton(.regular)
-                        .controlSize(.large)
-                        .accessibilityLabel("Message the family")
-                        .accessibilityIdentifier("thread-msg-family")
-                    }
-                }
-                .srBareRow()
+            if access.familyBoards && store.query.isEmpty {
+                ChatSidePicker(side: $side, unread: family.unreadCount)
+                    .srBareRow()
             }
-
-            if !store.pinned.isEmpty && store.query.isEmpty {
-                Section {
-                    ForEach(store.pinned) { row($0) }
-                } header: {
-                    SRSectionLabel(text: "Pinned")
-                }
-            }
-
-            // A search answers in relevance order, which dates would scramble:
-            // one section. Otherwise today's threads, open, and everything
-            // older folded under one row — the list is for picking today's
-            // conversation back up; the archive is a tap (or a search) away.
-            if store.query.isEmpty {
-                let groups = store.sections
-                let today = groups.first { $0.id == "today" }
-                let earlier = groups.filter { $0.id != "today" }
-                Section {
-                    // jkai's threads and the family's chat in one list, by
-                    // when each last moved (John, 2026-10-05). The family
-                    // chat is always here, even on a quiet day.
-                    let merged = FamilyThreadPlacement.merge(today?.threads ?? [], family: familyAt)
-                    if !merged.isEmpty {
-                        ForEach(merged) { item in
-                            switch item {
-                            case .thread(let conversation): listed(conversation)
-                            case .family: familyRow
-                            }
-                        }
-                    } else if !store.conversations.isEmpty {
-                        Text("Nothing yet today.")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                            .srGlassRow()
-                    }
-                } header: {
-                    SRSectionLabel(text: "Today", trailing: today.map { "\($0.threads.count)" })
-                }
-                .task {
-                    if access.familyBoards && !family.loaded { await family.load() }
-                }
-                if !earlier.isEmpty {
-                    Section {
-                        Button {
-                            SRHaptic.select()
-                            withAnimation(.snappy) { showEarlier.toggle() }
-                        } label: {
-                            HStack {
-                                Text(showEarlier ? "Hide earlier threads" : "Earlier threads")
-                                    .font(SR.Text.bodyMedium(15))
-                                    .foregroundStyle(SR.ink)
-                                Spacer()
-                                Text("\(earlier.reduce(0) { $0 + $1.threads.count })\(store.hasMore ? "+" : "")")
-                                    .font(SR.Text.mono())
-                                    .foregroundStyle(SR.inkMuted)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(SR.inkGhost)
-                                    .rotationEffect(.degrees(showEarlier ? 90 : 0))
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .srGlassRow()
-                        .accessibilityIdentifier("thread-earlier")
-                    }
-                    if showEarlier {
-                        ForEach(earlier) { group in
-                            Section {
-                                ForEach(group.threads) { conversation in listed(conversation) }
-                            } header: {
-                                SRSectionLabel(text: group.title, trailing: "\(group.threads.count)")
-                            }
-                        }
-                    }
-                }
+            if showsFamily {
+                familySide
             } else {
-                Section {
-                    ForEach(store.unpinned) { conversation in listed(conversation) }
-                } header: {
-                    if !store.unpinned.isEmpty {
-                        SRSectionLabel(text: "Results", trailing: "\(store.unpinned.count)")
-                    }
-                }
-            }
-            if store.loading && !store.conversations.isEmpty {
-                HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
-                    .srGlassRow().padding(.vertical, 12)
+                jkaiSide
             }
         }
         // Inset-grouped: on iOS 26 the sections are the rounded sheets the rest
         // of the system uses, and the atmosphere shows round their edges.
         .listStyle(.insetGrouped)
         .srGround(.quiet)
-        .navigationTitle("Threads")
+        .navigationTitle("Chat")
         // Inline, not large. A large title renders BLANK on this OS with this
         // appearance proxy — the bar lays out at full height and paints no text.
         // Verified in CI screenshots; inline titles in the same build draw in
@@ -163,25 +68,19 @@ struct ThreadListScreen: View {
         // screen, which on a phone is the thing actually being asked for.
         .navigationBarTitleDisplayMode(.inline)
         // Default placement: on iOS 26 that is the glass field the system puts
-        // where the thumb is, rather than a drawer under the bar.
-        .searchable(text: $store.query, prompt: "Search the archive")
-        .onChange(of: store.query) { _, _ in store.search() }
-        .srRefreshable { await store.load() }
-        .srTabBar()
-        .overlay {
-            if store.conversations.isEmpty && !store.loading {
-                SREmpty(
-                    title: store.query.isEmpty ? "No threads yet" : "Nothing matches that",
-                    icon: store.query.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass",
-                    message: store.query.isEmpty ? "Start one and it appears here, alongside everything that came in over WhatsApp." : nil,
-                    actionLabel: store.query.isEmpty ? "New thread" : nil,
-                    action: store.query.isEmpty ? startThread : nil
-                )
-            } else if store.loading && store.conversations.isEmpty {
-                ProgressView().tint(SR.accent)
-            }
+        // where the thumb is, rather than a drawer under the bar. A search is
+        // of jkai's archive, so it brings that side forward.
+        .searchable(text: $store.query, prompt: "Search jkai threads")
+        .onChange(of: store.query) { _, query in
+            store.search()
+            if !query.isEmpty { side = .jkai }
         }
+        .srRefreshable {
+            if showsFamily { await family.load() } else { await store.load() }
+        }
+        .srTabBar()
         .task { if store.conversations.isEmpty { await store.load() } }
+        .task { if access.familyBoards && !family.loaded { await family.load() } }
         // `.id(...)` is load-bearing: `ChatScreen` builds its `StateObject` in
         // `init`, and a `StateObject` is created once per VIEW IDENTITY. Pushing
         // a second thread onto the same destination without this keeps the
@@ -189,6 +88,7 @@ struct ThreadListScreen: View {
         // The old code was a sheet, where identity changed for free.
         .navigationDestination(for: Conversation.self) { ChatScreen(conversation: $0).id($0.id) }
         .navigationDestination(for: ThreadReference.self) { ChatScreen(conversation: .placeholder(id: $0.id)).id($0.id) }
+        .navigationDestination(for: JkaiQuickStart.self) { ChatScreen(conversation: $0.conversation, opening: $0.prompt).id($0.conversation.id) }
         // A question handed in by Siri, a Shortcut or the Home Screen's "Ask
         // jkai". It opens a NEW thread rather than the last one: a dictated
         // question has no context, and dropping it into whatever was last on
@@ -226,7 +126,107 @@ struct ThreadListScreen: View {
             Text("The whole conversation goes, on the website too. This cannot be undone.")
         }
         .overlay(alignment: .bottom) {
-            if let message = store.message { SRBanner(text: message).padding(.bottom, 4) }
+            if let message = store.message, !showsFamily { SRBanner(text: message).padding(.bottom, 4) }
+        }
+    }
+
+    // MARK: - jkai
+
+    @ViewBuilder
+    private var jkaiSide: some View {
+        if store.query.isEmpty {
+            JkaiHelpPanel(starting: starting, new: startThread, help: startHelp)
+                .srBareRow()
+        }
+
+        if !store.pinned.isEmpty && store.query.isEmpty {
+            Section {
+                ForEach(store.pinned) { row($0) }
+            } header: {
+                SRSectionLabel(text: "Pinned")
+            }
+        }
+
+        // A search answers in relevance order, which dates would scramble:
+        // one section. Otherwise today's threads, open, and everything
+        // older folded under one row — the list is for picking today's
+        // conversation back up; the archive is a tap (or a search) away.
+        if store.conversations.isEmpty {
+            if store.loading {
+                HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                    .srBareRow()
+                    .padding(.vertical, 24)
+            } else {
+                SREmpty(
+                    title: store.query.isEmpty ? "No threads yet" : "Nothing matches that",
+                    icon: store.query.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass",
+                    message: store.query.isEmpty ? "Ask jkai, or pick a quick help above. Threads appear here, alongside everything that came in over WhatsApp." : nil
+                )
+                .srBareRow()
+            }
+        } else if store.query.isEmpty {
+            let groups = store.sections
+            let today = groups.first { $0.id == "today" }
+            let earlier = groups.filter { $0.id != "today" }
+            Section {
+                if let threads = today?.threads, !threads.isEmpty {
+                    ForEach(threads) { listed($0) }
+                } else {
+                    Text("Nothing yet today.")
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkMuted)
+                        .srGlassRow()
+                }
+            } header: {
+                SRSectionLabel(text: "Today", trailing: today.map { "\($0.threads.count)" })
+            }
+            if !earlier.isEmpty {
+                Section {
+                    Button {
+                        SRHaptic.select()
+                        withAnimation(.snappy) { showEarlier.toggle() }
+                    } label: {
+                        HStack {
+                            Text(showEarlier ? "Hide earlier threads" : "Earlier threads")
+                                .font(SR.Text.bodyMedium(15))
+                                .foregroundStyle(SR.ink)
+                            Spacer()
+                            Text("\(earlier.reduce(0) { $0 + $1.threads.count })\(store.hasMore ? "+" : "")")
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.inkMuted)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(SR.inkGhost)
+                                .rotationEffect(.degrees(showEarlier ? 90 : 0))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .srGlassRow()
+                    .accessibilityIdentifier("thread-earlier")
+                }
+                if showEarlier {
+                    ForEach(earlier) { group in
+                        Section {
+                            ForEach(group.threads) { conversation in listed(conversation) }
+                        } header: {
+                            SRSectionLabel(text: group.title, trailing: "\(group.threads.count)")
+                        }
+                    }
+                }
+            }
+        } else {
+            Section {
+                ForEach(store.unpinned) { conversation in listed(conversation) }
+            } header: {
+                if !store.unpinned.isEmpty {
+                    SRSectionLabel(text: "Results", trailing: "\(store.unpinned.count)")
+                }
+            }
+        }
+        if store.loading && !store.conversations.isEmpty {
+            HStack { Spacer(); ProgressView().tint(SR.accent); Spacer() }
+                .srGlassRow().padding(.vertical, 12)
         }
     }
 
@@ -242,36 +242,32 @@ struct ThreadListScreen: View {
     /// parsing resolves no types at all — which is the honest limit of the
     /// pre-flight check and the reason the macOS job is the real gate.
     private func startThread() {
+        SRHaptic.tap()
         Task {
             if let fresh = await store.create() { router.chat.append(fresh) }
         }
     }
 
-    /// A row that pages the list on: infinite scroll rather than an "Older
-    /// threads" button. A button at the end of a list is a control you have to
-    /// find; the list simply continuing is what every other iPhone list does.
-    /// When the family chat last moved, or the distant past when it never
-    /// has; nil when this person has no family chat at all.
-    private var familyAt: Date? {
-        guard access.familyBoards else { return nil }
-        return family.lastActivity ?? .distantPast
-    }
-
-    /// The family's chat, as a thread among threads.
-    private var familyRow: some View {
-        Button {
-            SRHaptic.tap()
-            router.chat.append(FamilyPage.messages)
-        } label: {
-            FamilyThreadRow(latest: family.latestLine, at: family.lastActivityISO, unread: family.unreadCount)
+    /// A new thread that opens already asking: the quick help's question is
+    /// SENT, not left in the box like Siri's — it was chosen on screen, from
+    /// words the reader can see, so there is nothing to check first.
+    private func startHelp(_ help: JkaiQuickHelp) {
+        guard starting == nil else { return }
+        SRHaptic.tap()
+        starting = help.id
+        Task {
+            if let fresh = await store.create() {
+                router.chat.append(JkaiQuickStart(conversation: fresh, prompt: help.prompt))
+            }
+            starting = nil
         }
-        .buttonStyle(.plain)
-        .srGlassRow()
-        .accessibilityIdentifier("thread-family")
     }
 
     private func listed(_ conversation: Conversation) -> some View {
         row(conversation)
+            // Infinite scroll rather than an "Older threads" button: a button
+            // at the end of a list is a control you have to find; the list
+            // simply continuing is what every other iPhone list does.
             .onAppear {
                 if conversation.id == store.unpinned.last?.id { Task { await store.loadMore() } }
             }
@@ -312,6 +308,207 @@ struct ThreadListScreen: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+    }
+
+    // MARK: - Family
+
+    @ViewBuilder
+    private var familySide: some View {
+        // The family's chat: its newest line, and the way in.
+        VStack(spacing: 12) {
+            Button {
+                openFamily()
+            } label: {
+                FamilyThreadRow(latest: family.latestLine, at: family.lastActivityISO, unread: family.unreadCount)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("thread-family")
+
+            Button {
+                openFamily()
+            } label: {
+                SRButtonLabel(title: "msg family", icon: "person.2.wave.2", fill: true)
+                    .padding(.vertical, 8)
+            }
+            .srButton(.prominent)
+            .controlSize(.large)
+            .accessibilityLabel("Message the family")
+            .accessibilityIdentifier("thread-msg-family")
+        }
+        .padding(14)
+        .srGlassCard(.paper)
+        .srBareRow()
+
+        // Big, and guarded: a press and hold, not a tap.
+        BatPhoneButton(size: .large)
+            .srBareRow()
+
+        Section {
+            FamilyQuickList(identifier: "threads-quick")
+                .srBareRow()
+        } header: {
+            SRSectionLabel(text: "Quick messages", trailing: "One tap sends")
+        } footer: {
+            Text("Each goes to everyone in the family at once. You have five seconds to undo.")
+                .font(SR.Text.secondary(12))
+                .foregroundStyle(SR.inkMuted)
+        }
+    }
+
+    private func openFamily() {
+        SRHaptic.tap()
+        router.chat.append(FamilyPage.messages)
+    }
+}
+
+/// The two sides of the Chat page.
+enum ChatSide: String, Hashable {
+    case jkai, family
+}
+
+/// jkai | Family, at the top of the Chat page: a segmented control drawn by
+/// hand so the Family side can carry its unread count, and so each side has
+/// an identifier the UI tests can tap.
+struct ChatSidePicker: View {
+    @Binding var side: ChatSide
+    let unread: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            segment(.jkai, title: "jkai", icon: "sparkle", badge: 0)
+            segment(.family, title: "Family", icon: "person.2.wave.2", badge: unread)
+        }
+        .padding(4)
+        .srGlass(.paper, in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("threads-sides")
+    }
+
+    private func segment(_ value: ChatSide, title: String, icon: String, badge: Int) -> some View {
+        let selected = side == value
+        return Button {
+            SRHaptic.select()
+            withAnimation(.snappy) { side = value }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(SR.Text.bodyMedium(15))
+                    .lineLimit(1)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(SR.Text.label(11))
+                        .foregroundStyle(selected ? SR.accentDeep : SR.paper)
+                        .padding(.horizontal, 6)
+                        .frame(minWidth: 20, minHeight: 20)
+                        .background(Capsule().fill(selected ? SR.paper : SR.accentDeep))
+                }
+            }
+            .foregroundStyle(selected ? SR.paper : SR.ink)
+            .frame(maxWidth: .infinity, minHeight: 40)
+            .background(Capsule().fill(selected ? SR.accentDeep : Color.clear))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(badge > 0 ? "\(title), \(badge) new" : title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("threads-side-\(value.rawValue)")
+    }
+}
+
+/// A quick-help button's thread: the new conversation, and what it opens
+/// asking (`ChatScreen(opening:)`).
+struct JkaiQuickHelp: Identifiable, Hashable {
+    let id: String
+    let label: String
+    let icon: String
+    let prompt: String
+
+    /// John, 2026-10-27: "Jkai should have quick help buttons".
+    static let all: [JkaiQuickHelp] = [
+        JkaiQuickHelp(id: "today", label: "What's on today", icon: "calendar",
+                      prompt: "What's on today? Go through my calendar, anything due, and what the family has on."),
+        JkaiQuickHelp(id: "messages", label: "Summarise my messages", icon: "envelope",
+                      prompt: "Summarise my recent messages — email, WhatsApp and msg family — and tell me what needs a reply."),
+        JkaiQuickHelp(id: "plan", label: "Plan my day", icon: "list.bullet.clipboard",
+                      prompt: "Help me plan the rest of my day: what is fixed, what is due, and a sensible order for everything else."),
+        JkaiQuickHelp(id: "health", label: "Ask about health", icon: "heart",
+                      prompt: "How am I doing on health today — sleep, recovery, strain and steps — and is anything worth acting on?"),
+    ]
+}
+
+/// What a quick-help button pushes: the thread it made, and its question.
+struct JkaiQuickStart: Hashable {
+    let conversation: Conversation
+    let prompt: String
+}
+
+/// The top of jkai's side: "Ask jkai" for a blank thread, then the quick
+/// help, two to a row. A quick help is a thread already asking.
+struct JkaiHelpPanel: View {
+    /// The quick help whose thread is being made, if one is.
+    let starting: String?
+    let new: () -> Void
+    let help: (JkaiQuickHelp) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: new) {
+                SRButtonLabel(title: "Ask jkai", icon: "square.and.pencil", fill: true)
+                    .padding(.vertical, 8)
+            }
+            .srButton(.prominent)
+            .controlSize(.large)
+            .accessibilityLabel("New thread")
+            .accessibilityHint("Starts a new jkai thread")
+            .accessibilityIdentifier("thread-new")
+
+            SRSectionLabel(text: "Quick help")
+                .padding(.top, 4)
+                .padding(.horizontal, 4)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(JkaiQuickHelp.all) { item in
+                    tile(item)
+                }
+            }
+        }
+    }
+
+    private func tile(_ item: JkaiQuickHelp) -> some View {
+        Button {
+            help(item)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Group {
+                    if starting == item.id {
+                        ProgressView().tint(SR.accent)
+                    } else {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(SR.accent)
+                    }
+                }
+                .frame(height: 22)
+                .accessibilityHidden(true)
+                Text(item.label)
+                    .font(SR.Text.bodyMedium(15))
+                    .foregroundStyle(SR.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+            .srGlassCard(.paper, interactive: true)
+            .contentShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(starting != nil)
+        .accessibilityLabel(item.label)
+        .accessibilityHint("Starts a new jkai thread asking this")
+        .accessibilityIdentifier("thread-help-\(item.id)")
     }
 }
 
@@ -419,31 +616,6 @@ struct FamilyThreadRow: View {
     }
 }
 
-/// Where the family chat sits among today's jkai threads: by when each last
-/// moved, newest first. PURE.
-enum FamilyThreadPlacement {
-    enum Item: Identifiable {
-        case thread(Conversation)
-        case family
-        var id: String {
-            switch self {
-            case .thread(let c): return "thread-\(c.id)"
-            case .family: return "family"
-            }
-        }
-    }
-
-    /// `threads` newest first, as the list gives them; `family` nil when
-    /// this person has no family chat.
-    static func merge(_ threads: [Conversation], family: Date?) -> [Item] {
-        guard let family else { return threads.map(Item.thread) }
-        let at = threads.firstIndex { (($0.updatedAt).flatMap(parseTimestamp) ?? .distantPast) < family } ?? threads.count
-        var items = threads.map(Item.thread)
-        items.insert(.family, at: at)
-        return items
-    }
-}
-
 /// One conversation.
 ///
 /// Pushed, not presented as a sheet. A sheet cannot be swiped back from its
@@ -452,6 +624,10 @@ enum FamilyThreadPlacement {
 /// go. Reading a thread is a place.
 struct ChatScreen: View {
     let conversation: Conversation
+    /// A question to ask as soon as the thread is open: a quick help from the
+    /// Chat page (`JkaiQuickHelp`). Asked once, and only into an empty thread.
+    let opening: String?
+    @State private var openingAsked = false
     @StateObject private var store: ChatStore
     @EnvironmentObject private var router: Router
     @State private var draft = ""
@@ -477,8 +653,9 @@ struct ChatScreen: View {
     @State private var deskFocus: String?
     @State private var deskVisibility = DeskVisibility()
 
-    init(conversation: Conversation) {
+    init(conversation: Conversation, opening: String? = nil) {
         self.conversation = conversation
+        self.opening = opening
         _store = StateObject(wrappedValue: ChatStore(conversationId: conversation.id))
     }
 
@@ -595,6 +772,13 @@ struct ChatScreen: View {
                 }
                 await store.load()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                // Unstructured, like a starter prompt's send: leaving the
+                // screen must not cancel the question on its way.
+                if let opening, !openingAsked, store.messages.isEmpty {
+                    openingAsked = true
+                    atBottom = true
+                    Task { await store.send(opening) }
+                }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }

@@ -183,6 +183,13 @@ final class TripStore: ObservableObject {
         return TripProgress.of(day: day, marks: marks(tripId), nowMin: clock.minutes(now), clock: clock)
     }
 
+    /// `progress` for the Lock Screen, notifications and Home: past slots
+    /// dropped (`TripProgress.toTell`).
+    func progressToTell(_ tripId: String, _ date: String, now: Date = Date()) -> TripProgress? {
+        guard let day = day(tripId, date), let clock = clock(tripId) else { return nil }
+        return TripProgress.toTell(day: day, marks: marks(tripId), nowMin: clock.minutes(now), clock: clock)
+    }
+
     /// "Changed on the site while you were out — …", for a day the phone holds.
     func siteChanges(_ tripId: String) -> [String] {
         (bundles[tripId]?.plan?.changes ?? []).filter { $0.hasPrefix("Changed on the site while you were out") }
@@ -211,6 +218,7 @@ final class TripStore: ObservableObject {
             }
             prune(keeping: Set(list.map(\.id)))
             refreshedAt = now
+            TripsWidgetBridge.save(now: now)
             message = nil
             // v7: the evening-before briefings and booking nudges, on this phone.
             await TripReminders.sync(Array(bundles.values))

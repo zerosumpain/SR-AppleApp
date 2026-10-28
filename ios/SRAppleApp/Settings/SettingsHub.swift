@@ -48,6 +48,17 @@ struct SettingsScreen: View {
                         link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
                     }
                     link(.connections, "Connections", connectionsSubtitle, "qrcode")
+                    // Which build the family's phones are offered, chosen here
+                    // rather than on the site's /admin/access/app.
+                    if AccessStore.ownerSite {
+                        NavigationLink {
+                            AppReleaseScreen()
+                        } label: {
+                            SRRow(title: "Release to the family", subtitle: "Choose which app build the family get", icon: "paperplane")
+                        }
+                        .srGlassRow()
+                        .accessibilityIdentifier("settings-app-release")
+                    }
                     if site.paired {
                         NavigationLink {
                             DevicePrivacyScreen()
@@ -81,17 +92,28 @@ struct SettingsScreen: View {
                     .buttonStyle(.plain)
                     .srGlassRow()
                     .accessibilityIdentifier("settings-colours")
+                    // Your circle, as the family sees it: a picture in place
+                    // of your initials. The site keeps it, so family only.
+                    if access.familyBoards && site.paired {
+                        NavigationLink {
+                            FamilyPhotoScreen()
+                        } label: {
+                            SRRow(title: "Your photo", subtitle: "Shown to the family in place of your initials", icon: "person.crop.circle")
+                        }
+                        .srGlassRow()
+                        .accessibilityIdentifier("settings-family-photo")
+                    }
                 } header: {
                     SRSectionLabel(text: "Appearance")
                 }
 
-                // Which tiles Home shows, and in what order. Everyone has a
+                // Which tiles Home shows, in what order and at what size. Everyone has a
                 // Home, so everyone has this; it lists only what they may use.
                 Section {
                     NavigationLink {
                         HomeCustomizeScreen()
                     } label: {
-                        SRRow(title: "Home", subtitle: "Choose and arrange the tiles on Home", icon: "square.grid.2x2")
+                        SRRow(title: "Home", subtitle: "Choose, arrange and size the tiles on Home", icon: "square.grid.2x2")
                     }
                     .srGlassRow()
                     .accessibilityIdentifier("settings-home")
@@ -579,7 +601,9 @@ struct AppleHealthScreen: View {
                             .foregroundStyle(SR.ink)
                     }
                     .tint(SR.accent)
-                    .disabled(companion.busy)
+                    // Its own sheet, never a sync: a sync runs on every return
+                    // to the foreground, and these went grey under the thumb.
+                    .disabled(companion.askingHealth)
                     .srGlassRow()
                     .frame(minHeight: SR.tapTarget)
                 }
@@ -593,7 +617,7 @@ struct AppleHealthScreen: View {
                           icon: "heart.text.square")
                 }
                 .buttonStyle(.plain)
-                .disabled(companion.busy || outbox.state.healthEnabled.isEmpty)
+                .disabled(companion.askingHealth || outbox.state.healthEnabled.isEmpty)
                 .srGlassRow()
             } header: {
                 SRSectionLabel(text: "Categories")
@@ -614,7 +638,10 @@ struct AppleHealthScreen: View {
                         .foregroundStyle(SR.ink)
                 }
                 .tint(SR.accent)
-                .disabled(companion.busy || !companion.paired)
+                // Not while `me` has not answered (unpaired, or the first
+                // sync since launch still uploading): off would be a guess,
+                // and flipping a guess shows nothing.
+                .disabled(companion.savingSteps || companion.profile == nil)
                 .srGlassRow()
                 Text("Off by default. When enabled, family members can see your daily count and ranking in the app, widgets and step notifications. This is separate from private Health uploads and location sharing.")
                     .font(SR.Text.mono())
@@ -631,7 +658,7 @@ struct AppleHealthScreen: View {
                         .foregroundStyle(SR.ink)
                 }
                 .tint(SR.accent)
-                .disabled(companion.busy)
+                .disabled(companion.savingSharing)
                 .srGlassRow()
                 .frame(minHeight: SR.tapTarget)
 

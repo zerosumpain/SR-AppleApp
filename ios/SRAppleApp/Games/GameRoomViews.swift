@@ -68,6 +68,8 @@ struct GameRoomScreen: View {
                 HomesteadScreen(roomId: ref.id)
             case .hometowns?:
                 HometownsScreen(roomId: ref.id)
+            case .lander?, .carRace?:
+                PhysicsGameScreen(kind: GameKind(rawValue: game) ?? .lander)
             case nil:
                 SREmpty(
                     title: "\(GameNames.title(game)) needs a newer app",
@@ -155,6 +157,8 @@ struct GameLobby<Store: GameRoomStoring>: View {
     /// The player id an invite is being sent to.
     @State private var inviting: String?
     @State private var inviteRefusal: String?
+    /// A parent asked to close this lobby; the dialog is up.
+    @State private var confirmingClose = false
 
     var body: some View {
         ScrollView {
@@ -222,6 +226,17 @@ struct GameLobby<Store: GameRoomStoring>: View {
                             .srButton(.regular)
                             .controlSize(.large)
                     }
+                    // A parent may close somebody else's lobby for everyone in
+                    // it (the host already has Cancel game, which does that).
+                    if room.phase == .lobby && games.isParent && !room.isHost {
+                        Button { confirmingClose = true } label: {
+                            SRButtonLabel(title: "Close lobby for everyone", icon: "xmark.octagon", fill: true)
+                        }
+                        .srButton(.regular)
+                        .controlSize(.large)
+                        .disabled(store.busy || games.busy == room.id)
+                        .accessibilityIdentifier("\(prefix)-close-lobby")
+                    }
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -230,6 +245,14 @@ struct GameLobby<Store: GameRoomStoring>: View {
         }
         .srGround(.warm)
         .accessibilityIdentifier("\(prefix)-lobby")
+        .confirmationDialog("Close this lobby?", isPresented: $confirmingClose, titleVisibility: .visible) {
+            Button("Close it for everyone", role: .destructive) {
+                Task { if await games.closeLobby(room.id) { done() } }
+            }
+            Button("Keep it open", role: .cancel) {}
+        } message: {
+            Text("Everyone waiting in it is told it was closed.")
+        }
     }
 
     private func playerRow(_ player: GamePlayer) -> some View {

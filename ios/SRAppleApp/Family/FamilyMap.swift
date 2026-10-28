@@ -156,6 +156,7 @@ struct FamilyMapLookButton: View {
 struct FamilyPin: View {
     let person: FamilyPerson
     var emphasised: Bool = false
+    @ObservedObject private var photos = FamilyPhotos.shared
 
     static func tone(for person: FamilyPerson) -> Color {
         if person.isSelf { return SR.ink }
@@ -168,11 +169,17 @@ struct FamilyPin: View {
 
     var body: some View {
         let size: CGFloat = emphasised ? 38 : 30
-        Text(person.initial)
-            .font(SR.monoBold(emphasised ? 15 : 13))
-            .foregroundStyle(SR.paper)
-            .frame(width: size, height: size)
-            .background(Self.tone(for: person), in: Circle())
+        Group {
+            if let image = photos.image(id: nil, subject: person.subject) {
+                FamilyPhotoCircle(image: image, size: size)
+            } else {
+                Text(person.initial)
+                    .font(SR.monoBold(emphasised ? 15 : 13))
+                    .foregroundStyle(SR.paper)
+                    .frame(width: size, height: size)
+                    .background(Self.tone(for: person), in: Circle())
+            }
+        }
             .overlay(Circle().stroke(SR.paper, lineWidth: 2.5))
             .shadow(color: SR.ink.opacity(0.25), radius: 3, y: 1)
             .accessibilityLabel("\(person.name), \(person.line)")
@@ -191,6 +198,7 @@ struct FamilyPin: View {
 struct TodayFamilyCard: View {
     @ObservedObject var store: FamilyStore
     @ObservedObject private var places = PlaceNamer.shared
+    @ObservedObject private var photos = FamilyPhotos.shared
     let open: () -> Void
 
     /// Past this many, the stack ends in a "+N" circle.
@@ -312,7 +320,8 @@ struct TodayFamilyCard: View {
         return HStack(spacing: -12) {
             ForEach(Array(shown.enumerated()), id: \.element.id) { index, person in
                 circle(initials[person.subject] ?? person.initial, ghost: ghost,
-                       freshness: person.freshness(), low: lowBattery(person))
+                       freshness: person.freshness(), low: lowBattery(person),
+                       photo: photos.image(id: nil, subject: person.subject))
                     .zIndex(Double(shown.count - index))
             }
             if extra > 0 {
@@ -335,13 +344,19 @@ struct TodayFamilyCard: View {
         }
     }
 
-    private func circle(_ text: String, ghost: Bool, freshness: FamilyPerson.Freshness, low: Bool) -> some View {
-        Text(text)
+    private func circle(_ text: String, ghost: Bool, freshness: FamilyPerson.Freshness, low: Bool, photo: UIImage? = nil) -> some View {
+        Text(photo == nil ? text : "")
             .font(SR.Text.title(text.count > 2 ? 13 : 14))
             .tracking(-0.3)
             .foregroundStyle(ghost ? SR.inkMuted : SR.paper)
             .lineLimit(1)
             .frame(width: 42, height: 42)
+            // Their picture inside the edge, so how fresh it is still shows.
+            .overlay {
+                if let photo {
+                    FamilyPhotoCircle(image: photo, size: 36).opacity(ghost ? 0.5 : 1)
+                }
+            }
             .background {
                 if ghost {
                     Circle()

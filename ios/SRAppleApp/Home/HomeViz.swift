@@ -499,7 +499,9 @@ struct MovesAxis: View {
         let at: Date
         let colour: Color
         let initials: String
+        var subject: String? = nil
     }
+    @ObservedObject private var photos = FamilyPhotos.shared
 
     let marks: [Mark]
     let from: Date
@@ -524,12 +526,18 @@ struct MovesAxis: View {
                 ForEach(marks) { mark in
                     let t = min(max(mark.at.timeIntervalSince(from) / (hours * 3600), 0), 1)
                     VStack(spacing: 2) {
-                        Text(mark.initials)
-                            .font(SR.Text.label(10))
-                            .foregroundStyle(.white)
-                            .frame(width: 26, height: 26)
-                            .background(Circle().fill(mark.colour))
-                            .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                        Group {
+                            if let image = photos.image(id: nil, subject: mark.subject) {
+                                FamilyPhotoCircle(image: image, size: 26)
+                            } else {
+                                Text(mark.initials)
+                                    .font(SR.Text.label(10))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 26, height: 26)
+                                    .background(Circle().fill(mark.colour))
+                            }
+                        }
+                        .overlay(Circle().strokeBorder(.white, lineWidth: 2))
                         Rectangle().fill(.white).frame(width: 2, height: 10)
                     }
                     .position(x: 12 + width * CGFloat(t), y: y - 22)

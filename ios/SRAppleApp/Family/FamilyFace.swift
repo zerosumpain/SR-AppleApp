@@ -46,15 +46,23 @@ struct FamilyFace: View {
     let name: String
     var size: CGFloat = 32
     let faces: FamilyFaces
+    /// Their own picture, when they have set one (`FamilyPhotos`).
+    @ObservedObject private var photos = FamilyPhotos.shared
 
     var body: some View {
-        Text(faces.initials(subject: subject, name: name))
-            .font(SR.monoBold(size * 0.4))
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
-            .frame(width: size, height: size)
-            .background(faces.colour(subject: subject, id: id), in: Circle())
-            .overlay(Circle().stroke(SR.paper, lineWidth: size > 30 ? 2 : 1.5))
-            .accessibilityHidden(true)
+        Group {
+            if let image = photos.image(id: id, subject: subject) {
+                FamilyPhotoCircle(image: image, size: size)
+            } else {
+                Text(faces.initials(subject: subject, name: name))
+                    .font(SR.monoBold(size * 0.4))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+                    .frame(width: size, height: size)
+                    .background(faces.colour(subject: subject, id: id), in: Circle())
+            }
+        }
+        .overlay(Circle().stroke(SR.paper, lineWidth: size > 30 ? 2 : 1.5))
+        .accessibilityHidden(true)
     }
 }

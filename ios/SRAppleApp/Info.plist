@@ -27,7 +27,7 @@
 <!-- Play nearby (Offline/Link): MultipeerConnectivity's service type "sr-play" as _sr-play._tcp and _sr-play._udp, and the Wi-Fi/hotspot room _srplay._tcp. -->
 <key>NSBonjourServices</key><array><string>_googlecast._tcp</string><string>_CC1AD845._googlecast._tcp</string><string>_sr-play._tcp</string><string>_sr-play._udp</string><string>_srplay._tcp</string></array>
 <!-- audio: a capture started from the Action Button or Control Center keeps recording with the screen locked, while its Live Activity shows. Only between Start and Stop (Captures/CaptureRecorder.swift). -->
-<key>UIBackgroundModes</key><array><string>audio</string><string>location</string><string>fetch</string><string>processing</string></array>
+<key>UIBackgroundModes</key><array><string>audio</string><string>location</string><string>fetch</string><string>processing</string><string>remote-notification</string></array>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.strangeramblings.com.appleapp.refresh</string></array>
 <key>UIAppFonts</key><array><string>InterDisplay-ExtraBold.ttf</string><string>DMSans-Regular.ttf</string><string>DMSans-Medium.ttf</string><string>DMSans-Bold.ttf</string><string>DMMono-Regular.ttf</string><string>DMMono-Medium.ttf</string><string>JetBrainsMono-Regular.ttf</string><string>JetBrainsMono-Medium.ttf</string><string>JetBrainsMono-Bold.ttf</string></array>
 <!-- Trips: offer Citymapper for a transit leg when it is installed (Trips/TripDirections.swift). -->

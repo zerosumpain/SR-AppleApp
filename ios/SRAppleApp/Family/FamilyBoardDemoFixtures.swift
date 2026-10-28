@@ -166,6 +166,7 @@ extension SRDemoFixtures {
 struct FamilyWidgetGallery: View {
     @ObservedObject private var steps = FamilyStepsStore.shared
     @ObservedObject private var tasks = FamilyTasksStore.shared
+    @ObservedObject private var messages = FamilyMessagesStore.shared
 
     var body: some View {
         ScrollView {
@@ -183,6 +184,28 @@ struct FamilyWidgetGallery: View {
                     tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .rectangular, palette: palette), width: 158, height: 72, lock: true)
                 }
                 tile(FamilyTasksWidgetView(summary: tasks.summary ?? FamilyWidgetSamples.tasks, size: .medium, palette: palette), width: 338, hue: palette.tasks)
+
+                SRSectionLabel(text: "msg family")
+                HStack(alignment: .top, spacing: 16) {
+                    tile(FamilyMessagesWidgetView(snapshot: inbox, size: .small, palette: palette), width: 158, hue: palette.family)
+                    VStack(alignment: .leading, spacing: 14) {
+                        tile(FamilyMessagesWidgetView(snapshot: inbox, size: .rectangular, palette: palette), width: 158, height: 72, lock: true)
+                        tile(FamilyMessagesWidgetView(snapshot: inbox, size: .circular, palette: palette), width: 72, height: 72, lock: true)
+                    }
+                }
+                tile(FamilyMessagesWidgetView(snapshot: inbox, size: .medium, palette: palette), width: 338, hue: palette.family)
+                tile(FamilyMessagesWidgetView(snapshot: inbox, size: .large, palette: palette), width: 338, height: 354, hue: palette.family)
+
+                SRSectionLabel(text: "Bat phone")
+                HStack(alignment: .top, spacing: 16) {
+                    tile(BatPhoneWidgetView(size: .small, palette: palette), width: 158, hue: BatPhoneLook.hue(palette))
+                    VStack(alignment: .leading, spacing: 14) {
+                        tile(BatPhoneWidgetView(size: .rectangular, palette: palette), width: 158, height: 72, lock: true)
+                        tile(BatPhoneWidgetView(size: .circular, palette: palette), width: 72, height: 72, lock: true)
+                    }
+                }
+
+                GlanceWidgetGallerySections(palette: palette)
             }
             .padding(SR.gutter)
         }
@@ -193,7 +216,15 @@ struct FamilyWidgetGallery: View {
         .task {
             await steps.load()
             await tasks.load()
+            await messages.load()
         }
+    }
+
+    /// msg family as the widget will get it: the demo family's feed, read
+    /// as of an hour ago so some of it shows as unread.
+    private var inbox: FamilyMessagesSnapshot {
+        guard let feed = messages.feed else { return FamilyMessagesWidgetSamples.snapshot() }
+        return FamilyMessagesWidgetBridge.snapshot(feed, readAt: Date().addingTimeInterval(-3600))
     }
 
     /// The reader's palette, as the widgets will get it.

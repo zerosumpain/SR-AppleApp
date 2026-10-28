@@ -11,6 +11,12 @@ import WidgetKit
 @MainActor
 final class FamilyStepsStore: ObservableObject {
     static let shared = FamilyStepsStore()
+    /// The silent push's category: "send your steps and where you are".
+    nonisolated static let reportCategory = "family-report"
+
+    /// A round of "ask everyone" while its answers are coming in: how many
+    /// people the site woke. Nil when none is out.
+    @Published private(set) var asking: Int?
 
     /// As the site sent it.
     @Published private(set) var board: FamilyStepsBoard?
@@ -50,6 +56,28 @@ final class FamilyStepsStore: ObservableObject {
             message = board == nil ? Self.sentence(for: error) : nil
         }
         if AccessStore.shared.viewingAs == nil { live = await LiveSteps.today() }
+    }
+
+    /// Opening Steps asks every other family phone, by a silent push, to
+    /// send its steps and where it is now (John, 2026-10-27), then re-reads
+    /// the board and the family's places as the answers land: phones take a
+    /// few seconds to wake, and the site re-reads the counts at about 25 s
+    /// and 60 s. The site holds a round to one a minute for the family, so
+    /// opening the page twice wakes nobody twice.
+    func askEveryone() async {
+        guard SiteClient.shared.isPaired, !SRDemo.isOn, AccessStore.shared.viewingAs == nil, asking == nil else { return }
+        struct Reply: Decodable { let asked: Int; let people: Int; let throttled: Bool? }
+        guard let reply: Reply = try? await SiteClient.shared.send(
+            "api/native/family/steps/ask", method: "POST", body: Data("{}".utf8), asSelf: true
+        ), reply.throttled != true, reply.people > 0 else { return }
+        asking = reply.people
+        defer { asking = nil }
+        for wait in [12, 18, 35] {
+            try? await Task.sleep(for: .seconds(wait))
+            if Task.isCancelled { return }
+            await load()
+            await FamilyStore.current?.load()
+        }
     }
 
     /// "View as" changed: the board was somebody else's.
@@ -104,37 +132,47 @@ final class FamilyTasksStore: ObservableObject {
     @Published private(set) var board: FamilyTasksBoard?
     @Published private(set) var loading = false
     @Published private(set) var loaded = false
-    /// The task id an action is waiting on, or "new".
-    @Published private(set) var busy: String?
+    /// The task ids with an action on its way, and "new" while one is being
+    /// added. One per task, not one for the list: ticking off two in a row
+    /// dropped the second tap (or full swipe) without a word while the first
+    /// was still saving.
+    @Published private(set) var busy: Set<String> = []
     @Published var message: String?
+    /// Asked to read while a read was running: that one goes round again, so
+    /// an action that lands during another's reload is still shown.
+    private var loadAgain = false
 
     var summary: FamilyTasksSummary? { board.map { FamilyTasksSummary.make($0) } }
 
     func load() async {
-        guard SiteClient.shared.isPaired, !loading else { return }
+        guard SiteClient.shared.isPaired else { return }
+        guard !loading else { loadAgain = true; return }
         loading = true
         defer { loading = false; loaded = true }
-        do {
-            let fetched: FamilyTasksBoard = try await SiteClient.shared.send("api/native/family/tasks")
-            board = fetched
-            message = nil
-            FamilyWidgetBridge.save(tasks: fetched)
-        } catch is CancellationError {
-            return
-        } catch {
-            if (error as? URLError)?.code == .cancelled { return }
-            if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 {
-                board = nil; FamilyWidgetBridge.clear()
+        repeat {
+            loadAgain = false
+            do {
+                let fetched: FamilyTasksBoard = try await SiteClient.shared.send("api/native/family/tasks")
+                board = fetched
+                message = nil
+                FamilyWidgetBridge.save(tasks: fetched)
+            } catch is CancellationError {
+                return
+            } catch {
+                if (error as? URLError)?.code == .cancelled { return }
+                if let failure = error as? SiteError, failure.status == 401 || failure.status == 403 {
+                    board = nil; FamilyWidgetBridge.clear()
+                }
+                message = board == nil ? Self.sentence(for: error) : nil
             }
-            message = board == nil ? Self.sentence(for: error) : nil
-        }
+        } while loadAgain
     }
 
     /// Add a task. Nil when it went; otherwise the sentence for the sheet.
     func create(_ body: FamilyTaskCreateBody) async -> String? {
-        guard busy == nil else { return "Saving already…" }
-        busy = "new"
-        defer { busy = nil }
+        guard !busy.contains("new") else { return "Saving already…" }
+        busy.insert("new")
+        defer { busy.remove("new") }
         do {
             try await SiteClient.shared.post("api/native/family/tasks", body: try JSONEncoder().encode(body))
             SRHaptic.ok()
@@ -149,9 +187,9 @@ final class FamilyTasksStore: ObservableObject {
     /// reason is in `message`.
     @discardableResult
     func act(_ action: FamilyTaskAction, on task: FamilyTask, note: String? = nil) async -> Bool {
-        guard busy == nil else { return false }
-        busy = task.id
-        defer { busy = nil }
+        guard !busy.contains(task.id) else { return false }
+        busy.insert(task.id)
+        defer { busy.remove(task.id) }
         do {
             let body = FamilyTaskActionBody(action: action.rawValue, note: note, expectedUpdatedAt: task.updatedAt)
             try await SiteClient.shared.call("api/native/family/tasks/\(task.id)", method: "PATCH", body: try JSONEncoder().encode(body))
@@ -229,8 +267,7 @@ enum FamilyWidgetBridge {
         if allowed, let token = SiteClient.shared.token {
             let credential = FamilyWidgetCredential(origin: SiteClient.shared.origin.absoluteString, token: token)
             if FamilyShelf.save(credential, .credential) {
-                WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.steps)
-                WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.tasks)
+                for kind in FamilyWidgetKind.all { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
             }
         } else {
             clear()
@@ -240,9 +277,11 @@ enum FamilyWidgetBridge {
     /// Signed out, or no longer family: nothing left behind for a widget.
     static func clear() {
         if SRDemo.isOn { return }
-        guard FamilyShelf.read(.credential) != nil || FamilyShelf.read(.steps) != nil || FamilyShelf.read(.tasks) != nil else { return }
+        // Anything a widget draws, or the credential. Not the palette (kept)
+        // nor the share queue alone (it only goes with the rest, as before).
+        let held: [FamilyShelf.Account] = [.credential, .steps, .tasks, .messages, .familyNow, .trips, .games, .health]
+        guard held.contains(where: { FamilyShelf.read($0) != nil }) else { return }
         FamilyShelf.clearAll()
-        WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.steps)
-        WidgetCenter.shared.reloadTimelines(ofKind: FamilyWidgetKind.tasks)
+        for kind in FamilyWidgetKind.all { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
     }
 }

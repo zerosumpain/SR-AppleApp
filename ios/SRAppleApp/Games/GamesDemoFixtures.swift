@@ -30,6 +30,8 @@ extension SRDemoFixtures {
 
     static let demoLobbyRoom = "g_demo_lobby"
     static let demoInviteRoom = "g_demo_invite"
+    /// A lobby of Sam's that Alex is not in: what a parent's "Close" is for.
+    static let demoSamLobbyRoom = "g_demo_lobby_sam"
     static let demoWordleRoom = "g_demo_wordle"
     static let demoQuizRoom = "g_demo_quiz"
     static let demoQuizRevealRoom = "g_demo_quiz_reveal"
@@ -67,6 +69,8 @@ extension SRDemoFixtures {
     static func gamesRoute(method: String, parts: [String], body: Data?, clock: DemoClock) -> String? {
         // parts: ["api", "native", "games", ...]
         let rest = Array(parts.dropFirst(3))
+        // The family's game ideas, before `/games/<id>` takes "suggestions" for a room.
+        if rest.first == "suggestions" { return gameSuggestions(method: method, body: body, clock: clock) }
         switch (method, rest.count) {
         case ("GET", 0):
             return gamesLobby(clock)
@@ -210,8 +214,40 @@ extension SRDemoFixtures {
                    \(storeShotsSkipsWordle ? "" : homesteadLobbyRows)
                    {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
          "paces": {"homestead": ["live", "async"], "hometowns": ["async"]},
+         \(parentLobbies(now))
          "serverNow": \(ms(now))}
         """
+    }
+
+    /// Alex is a parent in the showcase: every open lobby, to close one —
+    /// Alex's own Tap Duel and a Chess lobby of Sam's that Alex is not in. Not
+    /// in the store shots (approved without it) or as the demo family member.
+    static func parentLobbies(_ now: Date) -> String {
+        guard !storeShotsSkipsWordle, !SRDemo.isMember else { return #""parent": false,"# }
+        return """
+        "parent": true,
+         "openLobbies": [{"id": \(s(demoLobbyRoom)), "game": "tap-duel", "hostName": "Alex", "players": ["Alex", "Sam"],
+                          "invited": ["Robin"], "expiresAt": \(ms(now.addingTimeInterval(140))), "mine": true},
+                         {"id": \(s(demoSamLobbyRoom)), "game": "chess", "hostName": "Sam", "players": ["Sam"],
+                          "invited": ["Robin"], "expiresAt": \(ms(now.addingTimeInterval(95))), "mine": false}],
+        """
+    }
+
+    /// The family's game ideas: three on the list, one of them Alex's. A
+    /// suggestion or a +1 answers with the list as if it took.
+    static func gameSuggestions(method: String, body: Data?, clock: DemoClock) -> String {
+        let fields = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let at = ms(clock.date(minutesAgo: 60 * 26))
+        var rows = [
+            #"{"id": "s_demo_lander", "name": "Moon lander", "note": "Tilt the phone to land gently.", "by": "Sam", "at": \#(at), "votes": 3, "voted": true, "mine": false}"#,
+            #"{"id": "s_demo_kart", "name": "Kart race", "note": "Everyone on their own phone, same track.", "by": "Robin", "at": \#(at), "votes": 2, "voted": false, "mine": false}"#,
+            #"{"id": "s_demo_snakes", "name": "Snakes and ladders", "note": "", "by": "Alex", "at": \#(at), "votes": 1, "voted": true, "mine": true}"#,
+        ]
+        if method == "POST", let name = fields["name"] as? String, !name.isEmpty {
+            let safe = name.replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "\"", with: "")
+            rows.append(#"{"id": "s_demo_new", "name": "\#(safe)", "note": "", "by": "Alex", "at": \#(ms(clock.now)), "votes": 1, "voted": true, "mine": true}"#)
+        }
+        return #"{"suggestions": [\#(rows.joined(separator: ", "))], "parent": \#(SRDemo.isMember ? "false" : "true")}"#
     }
 
     static func demoRoom(id: String, meJoined: Bool, clock: DemoClock) -> String {

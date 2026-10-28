@@ -656,6 +656,7 @@ struct OrbitPlanet: View {
     let size: CGFloat
     var live: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var photos = FamilyPhotos.shared
 
     var body: some View {
         ZStack {
@@ -664,13 +665,18 @@ struct OrbitPlanet: View {
             }
             Circle()
                 .fill(LinearGradient(colors: [colour.opacity(0.85), colour], startPoint: .top, endPoint: .bottom))
-                .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: person.isSelf ? 3 : 2))
                 .shadow(color: colour.opacity(0.45), radius: 6, y: 2)
-            Text(person.initials)
-                .font(SR.Text.title(size * 0.38))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            // Their picture, when they have set one; their initials otherwise.
+            if let image = photos.image(id: nil, subject: person.subject) {
+                FamilyPhotoCircle(image: image, size: size)
+            } else {
+                Text(person.initials)
+                    .font(SR.Text.title(size * 0.38))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            Circle().strokeBorder(.white.opacity(0.9), lineWidth: person.isSelf ? 3 : 2)
             if let battery = person.battery {
                 Circle()
                     .trim(from: 0, to: CGFloat(max(0.04, min(1, Double(battery) / 100))))

@@ -81,6 +81,7 @@ final class FamilyStore: ObservableObject {
             applyViewingAs()
             if updated != response.updated { updated = response.updated }
             if changed {
+                FamilyNowWidgetBridge.save(response.view)
                 if let fresh = response.view {
                     FamilyViewCache.save(view: fresh, updated: response.updated)
                 } else {
@@ -88,6 +89,8 @@ final class FamilyStore: ObservableObject {
                 }
             }
             if message != nil { message = nil }
+            // The family's pictures ride along, at most every five minutes.
+            Task { await FamilyPhotos.shared.load() }
         } catch {
             if Self.isRefusal(error) {
                 real = nil; view = nil; updated = nil

@@ -91,7 +91,25 @@ while IFS= read -r file; do
   cp "$file" "$WORK/parse/$rel"
 done < <(find "$OFFLINE" -name '*.swift' | sort)
 
+# Car Race's nearby rules live with the physics games and lean on their
+# track and timing logic, both Foundation-only; so does its split screen's.
+# Their tests come along below.
+for name in CarRaceLogic CarRaceNearbyRules CarRaceSplitLogic; do
+  cp "$ROOT/ios/SRAppleApp/Games/Physics/$name.swift" "$WORK/Sources/SRAppleApp/"
+  compiled=$((compiled + 1))
+done
+
+# The word games' list. Linux has no app bundle, so the tests read it from the
+# source tree's layout (OfflineWordsTests.install walks up from the test file
+# to SRAppleApp/Offline/Words/): it goes in the package at the same place.
+mkdir -p "$WORK/SRAppleApp/Offline/Words"
+cp "$OFFLINE/Words/offline-words.txt" "$WORK/SRAppleApp/Offline/Words/"
+
 tests=0
+for name in CarRaceNearbyTests CarRaceSplitTests; do
+  cp "$TESTS/$name.swift" "$WORK/Tests/SRAppleAppTests/"
+  tests=$((tests + 1))
+done
 for file in "$TESTS"/Offline*Tests.swift; do
   [ -e "$file" ] || continue
   cp "$file" "$WORK/Tests/SRAppleAppTests/"

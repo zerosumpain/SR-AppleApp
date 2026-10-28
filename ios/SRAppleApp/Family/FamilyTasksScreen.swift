@@ -213,12 +213,12 @@ struct FamilyTasksScreen: View {
                     SRHaptic.tap()
                     Task { await store.act(.paid, on: task) }
                 } label: {
-                    Text(store.busy == task.id ? "…" : "Mark paid")
+                    Text(store.busy.contains(task.id) ? "…" : "Mark paid")
                         .font(SR.Text.bodyMedium(14))
                 }
                 .buttonStyle(.bordered)
                 .tint(SR.good)
-                .disabled(store.busy != nil)
+                .disabled(store.busy.contains(task.id))
                 .accessibilityIdentifier("task-paid-\(task.id)")
             }
         }
@@ -230,7 +230,7 @@ struct FamilyTasksScreen: View {
 
     private func row(_ task: FamilyTask, _ board: FamilyTasksBoard) -> some View {
         let actions = FamilyTaskRules.actions(for: task, me: board.me)
-        return FamilyTaskRow(task: task, board: board, busy: store.busy == task.id, primary: primary(actions)) { action in
+        return FamilyTaskRow(task: task, board: board, busy: store.busy.contains(task.id), primary: primary(actions)) { action in
             perform(action, on: task)
         }
         .srGlassRow()

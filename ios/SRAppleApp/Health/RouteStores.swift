@@ -374,3 +374,52 @@ enum OneFix {
         }
     }
 }
+
+/// One fix from a plain `CLLocationManager`, for code that may be running in
+/// the background (a silent push), where `CLLocationUpdate.liveUpdates` is
+/// not promised to answer. Nil on a refusal, an error or the timeout.
+@MainActor
+final class OneShotLocation: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var continuation: CheckedContinuation<CLLocation?, Never>?
+
+    static func fix(timeout: Duration) async -> CLLocation? {
+        let shot = OneShotLocation()
+        return await withTaskGroup(of: CLLocation?.self) { group in
+            group.addTask { await shot.request() }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            shot.finish(nil)
+            return first
+        }
+    }
+
+    private func request() async -> CLLocation? {
+        let status = manager.authorizationStatus
+        guard status == .authorizedAlways || status == .authorizedWhenInUse else { return nil }
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            manager.delegate = self
+            manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+            manager.requestLocation()
+        }
+    }
+
+    private func finish(_ location: CLLocation?) {
+        continuation?.resume(returning: location)
+        continuation = nil
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        let last = locations.last
+        Task { @MainActor in self.finish(last) }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in self.finish(nil) }
+    }
+}

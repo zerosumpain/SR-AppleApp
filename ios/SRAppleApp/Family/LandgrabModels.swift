@@ -923,3 +923,499 @@ struct LandgrabMapPlan: Equatable {
         homeRegion = changes.focus.map(LandgrabRegion.around)
     }
 }
+
+// MARK: - The family's explored ground (`/api/native/family/landgrab/explored`)
+//
+// Everything the family has explored, all time, as ONE: every cell anyone has
+// captured counted once, no owner and no decay. The weekly board above is a
+// game — each hex to one person, a walk a one-hex line, the map only what
+// changed hands — and it reads as thin lines and fragments. This is the
+// answer to "how much have we covered": a total, the day's new ground, each
+// person's part, the places it spans, and a solid shape to fill.
+//
+// The shape arrives as Google encoded polylines (1e-5 degrees, `[lat, lon]`),
+// already dilated, dissolved, smoothed and thinned by the site to a vertex
+// budget. Places arrive unnamed; the phone names them (`LandgrabPlaceNames`).
+
+/// Google's encoded polyline format: `[lat, lon]` pairs at 1e-5 degrees,
+/// each a zig-zag varint delta of five-bit groups offset by 63.
+enum LandgrabPolyline {
+    /// The points, or nil for anything malformed (a truncated number, a
+    /// character outside `?`…`~`, a point off the globe) — a bad ring is
+    /// dropped whole rather than drawn wrong.
+    static func decode(_ text: String) -> [LandgrabPoint]? {
+        let bytes = Array(text.utf8)
+        var index = 0
+        func next() -> Int? {
+            var result = 0
+            var shift = 0
+            while true {
+                guard index < bytes.count, shift <= 30 else { return nil }
+                let chunk = Int(bytes[index]) - 63
+                index += 1
+                guard chunk >= 0, chunk < 64 else { return nil }
+                result |= (chunk & 0x1F) << shift
+                shift += 5
+                if chunk < 0x20 { break }
+            }
+            return (result & 1) != 0 ? ~(result >> 1) : (result >> 1)
+        }
+        var lat = 0
+        var lon = 0
+        var points: [LandgrabPoint] = []
+        while index < bytes.count {
+            guard let dLat = next(), let dLon = next() else { return nil }
+            lat += dLat
+            lon += dLon
+            let point = LandgrabPoint(lat: Double(lat) / 1e5, lon: Double(lon) / 1e5)
+            guard LandgrabPoint.valid(lat: point.lat, lon: point.lon) else { return nil }
+            points.append(point)
+        }
+        return points
+    }
+
+    /// The inverse, for the demo's made-up ground and the tests.
+    static func encode(_ points: [LandgrabPoint]) -> String {
+        var out = ""
+        var lastLat = 0
+        var lastLon = 0
+        func put(_ value: Int) {
+            var v = value < 0 ? ~(value << 1) : (value << 1)
+            while v >= 0x20 {
+                out.unicodeScalars.append(Unicode.Scalar(UInt8((0x20 | (v & 0x1F)) + 63)))
+                v >>= 5
+            }
+            out.unicodeScalars.append(Unicode.Scalar(UInt8(v + 63)))
+        }
+        for point in points {
+            let lat = Int((point.lat * 1e5).rounded())
+            let lon = Int((point.lon * 1e5).rounded())
+            put(lat - lastLat)
+            put(lon - lastLon)
+            lastLat = lat
+            lastLon = lon
+        }
+        return out
+    }
+}
+
+/// So many cells, and the ground they cover.
+struct LandgrabFigure: Decodable, Equatable, Hashable {
+    var cells: Int
+    var km2: Double
+
+    init(cells: Int = 0, km2: Double = 0) { self.cells = cells; self.km2 = km2 }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        cells = max(0, c.int("cells") ?? 0)
+        km2 = max(0, c.double("km2") ?? 0)
+    }
+}
+
+/// One person's part of the family's ground.
+struct LandgrabExploredPerson: Decodable, Equatable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    var me: Bool
+    var colour: String?
+    /// Cells they have captured themselves: these overlap, so they add up to
+    /// more than the family's total.
+    var cells: Int
+    var km2: Double
+    /// Cells they reached before anyone else: these add up to the total.
+    var firsts: Int
+    /// Of today's new ground, the cells they reached first.
+    var today: Int
+
+    init(id: String, name: String, me: Bool = false, colour: String? = nil, cells: Int = 0, km2: Double = 0,
+         firsts: Int = 0, today: Int = 0) {
+        self.id = id; self.name = name; self.me = me; self.colour = colour
+        self.cells = cells; self.km2 = km2; self.firsts = firsts; self.today = today
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        guard let id = c.text("id"), !id.isEmpty else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "no person id"))
+        }
+        self.id = id
+        name = c.text("name") ?? ""
+        me = c.bool("me") ?? false
+        colour = c.text("colour", "color")
+        cells = max(0, c.int("cells") ?? 0)
+        km2 = max(0, c.double("km2") ?? 0)
+        firsts = max(0, c.int("firsts") ?? 0)
+        today = max(0, c.int("today") ?? 0)
+    }
+}
+
+/// Somewhere the family has explored: a town's worth of ground, unnamed on
+/// the wire.
+struct LandgrabPlace: Decodable, Equatable, Hashable, Identifiable {
+    var lat: Double
+    var lon: Double
+    var cells: Int
+    var km2: Double
+    var bounds: LandgrabBounds?
+    /// London days its first and newest ground was explored.
+    var first: String
+    var last: String
+    /// Holds home.
+    var home: Bool
+
+    var id: String { String(format: "%.3f,%.3f", lat, lon) }
+
+    init(lat: Double, lon: Double, cells: Int = 0, km2: Double = 0, bounds: LandgrabBounds? = nil,
+         first: String = "", last: String = "", home: Bool = false) {
+        self.lat = lat; self.lon = lon; self.cells = cells; self.km2 = km2; self.bounds = bounds
+        self.first = first; self.last = last; self.home = home
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        guard let lat = c.double("lat"), let lon = c.double("lon"), LandgrabPoint.valid(lat: lat, lon: lon) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "no place"))
+        }
+        self.lat = lat
+        self.lon = lon
+        cells = max(0, c.int("cells") ?? 0)
+        km2 = max(0, c.double("km2") ?? 0)
+        bounds = (try? c.decodeIfPresent(LandgrabBounds.self, forKey: LandgrabKey("bounds"))) ?? nil
+        first = c.text("first") ?? ""
+        last = c.text("last") ?? ""
+        home = c.bool("home") ?? false
+    }
+}
+
+/// One piece of explored ground: its outline and any holes in it.
+struct LandgrabArea: Decodable, Equatable, Hashable {
+    var outer: [LandgrabPoint]
+    var holes: [[LandgrabPoint]]
+
+    init(outer: [LandgrabPoint], holes: [[LandgrabPoint]] = []) { self.outer = outer; self.holes = holes }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        guard let raw = c.text("outer"), let outer = LandgrabPolyline.decode(raw), outer.count >= 3 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "no outline"))
+        }
+        self.outer = outer
+        holes = c.list(String.self, "holes").compactMap(LandgrabPolyline.decode).filter { $0.count >= 3 }
+    }
+}
+
+/// The ground to fill.
+struct LandgrabShape: Decodable, Equatable {
+    var areas: [LandgrabArea]
+    /// The site had to leave the smallest ground off the drawing (never off
+    /// the figures).
+    var truncated: Bool
+
+    init(areas: [LandgrabArea] = [], truncated: Bool = false) { self.areas = areas; self.truncated = truncated }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        areas = c.list(LandgrabArea.self, "polygons")
+        truncated = c.bool("truncated") ?? false
+    }
+}
+
+/// The newest day's new ground, drawn on top: today's while it is today.
+struct LandgrabFresh: Decodable, Equatable {
+    /// "2026-10-27", London.
+    var day: String
+    var figure: LandgrabFigure
+    var shape: LandgrabShape
+
+    init(day: String, figure: LandgrabFigure, shape: LandgrabShape) {
+        self.day = day; self.figure = figure; self.shape = shape
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        guard let day = c.text("day"), Landgrab.day(day) != nil else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "no day"))
+        }
+        self.day = day
+        figure = try LandgrabFigure(from: decoder)
+        shape = ((try? c.decodeIfPresent(LandgrabShape.self, forKey: LandgrabKey("shape"))) ?? nil) ?? LandgrabShape()
+    }
+}
+
+/// `GET /api/native/family/landgrab/explored`.
+struct LandgrabExplored: Decodable, Equatable {
+    /// "The Kellys" — the site names the family; this repository does not.
+    var family: String
+    var updatedAt: String?
+    /// The London day of the family's first ground.
+    var since: String?
+    /// The London day `todayNew` counts.
+    var today: String
+    /// The London Monday `weekNew` counts from.
+    var weekStart: String
+    var total: LandgrabFigure
+    var todayNew: LandgrabFigure
+    var weekNew: LandgrabFigure
+    var people: [LandgrabExploredPerson]
+    var places: [LandgrabPlace]
+    /// Ground too small, or too many, to list as places.
+    var otherPlaces: Int
+    var shape: LandgrabShape
+    var fresh: LandgrabFresh?
+    /// Home, as the weekly map has it.
+    var focus: LandgrabFocus?
+
+    init(family: String = Landgrab.familyFallback, updatedAt: String? = nil, since: String? = nil, today: String,
+         weekStart: String = "", total: LandgrabFigure, todayNew: LandgrabFigure = LandgrabFigure(),
+         weekNew: LandgrabFigure = LandgrabFigure(), people: [LandgrabExploredPerson] = [],
+         places: [LandgrabPlace] = [], otherPlaces: Int = 0, shape: LandgrabShape = LandgrabShape(),
+         fresh: LandgrabFresh? = nil, focus: LandgrabFocus? = nil) {
+        self.family = family; self.updatedAt = updatedAt; self.since = since; self.today = today
+        self.weekStart = weekStart; self.total = total; self.todayNew = todayNew; self.weekNew = weekNew
+        self.people = people; self.places = places; self.otherPlaces = otherPlaces; self.shape = shape
+        self.fresh = fresh; self.focus = focus
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LandgrabKey.self)
+        let family = c.text("family")?.trimmingCharacters(in: .whitespaces) ?? ""
+        self.family = family.isEmpty ? Landgrab.familyFallback : family
+        updatedAt = c.text("updatedAt")
+        since = c.text("since").flatMap { Landgrab.day($0) == nil ? nil : $0 }
+        today = c.text("today") ?? ""
+        weekStart = c.text("weekStart") ?? ""
+        func figure(_ key: String) -> LandgrabFigure {
+            ((try? c.decodeIfPresent(LandgrabFigure.self, forKey: LandgrabKey(key))) ?? nil) ?? LandgrabFigure()
+        }
+        total = figure("total")
+        todayNew = figure("todayNew")
+        weekNew = figure("weekNew")
+        people = c.list(LandgrabExploredPerson.self, "people")
+        places = c.list(LandgrabPlace.self, "places")
+        if let other = try? c.nestedContainer(keyedBy: LandgrabKey.self, forKey: LandgrabKey("otherPlaces")) {
+            otherPlaces = max(0, other.int("count") ?? 0)
+        } else {
+            otherPlaces = 0
+        }
+        shape = ((try? c.decodeIfPresent(LandgrabShape.self, forKey: LandgrabKey("shape"))) ?? nil) ?? LandgrabShape()
+        fresh = (try? c.decodeIfPresent(LandgrabFresh.self, forKey: LandgrabKey("fresh"))) ?? nil
+        focus = (try? c.decodeIfPresent(LandgrabFocus.self, forKey: LandgrabKey("focus"))) ?? nil
+    }
+}
+
+// MARK: - The family view's rules
+
+/// Which Landgrab the section and the map show: the family's ground as one,
+/// or this week's game. Remembered on the phone (`key`), and the same choice
+/// on the steps page and the map, so "See the map" opens the one being read.
+enum LandgrabMode: String, CaseIterable {
+    case family
+    case week
+
+    static let key = "landgrab-mode"
+
+    var label: String { self == .family ? "Family" : "This week" }
+
+    /// The mode to show: the family view needs explored ground to show,
+    /// otherwise the week is all there is.
+    static func effective(_ raw: String, hasFamily: Bool, hasWeek: Bool) -> LandgrabMode {
+        let chosen = LandgrabMode(rawValue: raw) ?? .family
+        if !hasFamily { return .week }
+        if !hasWeek { return .family }
+        return chosen
+    }
+}
+
+extension LandgrabColour {
+    /// The family's explored ground on the map: a deep teal that sits on the
+    /// light map and the dark one alike, and on any of the app's palettes.
+    static let explored = LandgrabRGB(hex: 0x0E7C86)
+    /// The newest day's ground over it: amber, as far from teal as it gets.
+    static let fresh = LandgrabRGB(hex: 0xF5A300)
+}
+
+extension Landgrab {
+    /// When the site sends no family name.
+    static let familyFallback = "The family"
+
+    /// Whether there is any family ground to show at all.
+    static func showsExplored(_ explored: LandgrabExplored?) -> Bool {
+        (explored?.total.cells ?? 0) > 0
+    }
+
+    /// "18.4 km²", "2.31 km²", "112 km²", "0 km²".
+    static func area(_ km2: Double) -> String {
+        guard km2.isFinite, km2 > 0 else { return "0 km²" }
+        if km2 < 1 { return String(format: "%.2f km²", km2) }
+        if km2 < 100 { return String(format: "%.1f km²", km2) }
+        return "\(figure(Int(km2.rounded()))) km²"
+    }
+
+    /// "18.4 square kilometres", for VoiceOver.
+    static func spokenArea(_ km2: Double) -> String {
+        area(km2).replacingOccurrences(of: " km²", with: " square kilometres")
+    }
+
+    /// "The Kellys have explored" — the line over the big figure.
+    static func exploredLead(_ explored: LandgrabExplored) -> String {
+        "\(explored.family) have explored"
+    }
+
+    /// "The Kellys have explored 18.4 km²." / "… haven't explored anywhere yet."
+    static func exploredSentence(_ explored: LandgrabExplored, spoken: Bool = false) -> String {
+        guard explored.total.cells > 0 else { return "\(explored.family) haven't explored anywhere yet." }
+        return "\(exploredLead(explored)) \(spoken ? spokenArea(explored.total.km2) : area(explored.total.km2))."
+    }
+
+    /// The headline for VoiceOver: "The Kellys have explored 18.4 square
+    /// kilometres. 1.3 square kilometres new today, 2.0 this week."
+    static func spokenHeadline(_ explored: LandgrabExplored) -> String {
+        var text = exploredSentence(explored, spoken: true)
+        let today = explored.todayNew.cells > 0 ? "\(spokenArea(explored.todayNew.km2)) new today" : nil
+        let week = explored.weekNew.cells > explored.todayNew.cells ? "\(spokenArea(explored.weekNew.km2)) this week" : nil
+        let news = [today, week].compactMap { $0 }
+        if !news.isEmpty { text += " " + news.joined(separator: ", ").capitalisedFirst + "." }
+        return text
+    }
+
+    /// The family map, said: what is filled in and what is lit up.
+    static func familyMapSummary(_ explored: LandgrabExplored) -> String {
+        guard explored.total.cells > 0 else { return "Map. Nothing explored yet." }
+        var text = "Map. Everywhere explored, \(spokenArea(explored.total.km2)), filled in."
+        if let fresh = explored.fresh, fresh.figure.cells > 0, !fresh.shape.areas.isEmpty {
+            let when = freshLabel(fresh, today: explored.today)
+            let whose = when == "Today" || when == "Yesterday" ? "\(when)'s new ground" : "New ground from \(when)"
+            text += " \(whose), \(spokenArea(fresh.figure.km2)), is lit up."
+        }
+        if explored.shape.truncated { text += " The smallest ground is left off the map." }
+        return text
+    }
+
+    /// "Since 4 Jan 2025 · new ground today", "Since 24 Oct 2026 · newest 26 Oct".
+    static func placeDetail(_ place: LandgrabPlace, today: String) -> String? {
+        guard let first = day(place.first) else { return nil }
+        let since = "Since \(dayMonth(first)) \(calendar.component(.year, from: first))"
+        if place.last == today { return "\(since) · new ground today" }
+        guard let last = day(place.last), place.last != place.first else { return since }
+        return "\(since) · newest \(dayMonth(last))"
+    }
+
+    /// "+1.31 km² new today", "+2.0 km² this week"; nil when nothing was new.
+    static func newGround(_ figure: LandgrabFigure, _ when: String) -> String? {
+        guard figure.cells > 0 else { return nil }
+        return "+\(area(figure.km2)) \(when)"
+    }
+
+    /// "since Jan 2025", from the first day; nil without one.
+    static func sinceLabel(_ explored: LandgrabExplored) -> String? {
+        guard let since = explored.since, let date = day(since) else { return nil }
+        let parts = calendar.dateComponents([.year, .month], from: date)
+        return "since \(months[max(0, min(11, (parts.month ?? 1) - 1))]) \(parts.year ?? 0)"
+    }
+
+    /// A person's part of the family's ground, 0…1: the cells they have
+    /// captured over the family's total. Shares overlap — two people on one
+    /// walk both have it — so they add up to more than 1.
+    static func share(_ person: LandgrabExploredPerson, of total: LandgrabFigure) -> Double {
+        guard total.cells > 0 else { return 0 }
+        return min(1, Double(person.cells) / Double(total.cells))
+    }
+
+    /// "44%", "<1%", "0%", "100%".
+    static func percent(_ share: Double) -> String {
+        guard share.isFinite, share > 0 else { return "0%" }
+        if share < 0.005 { return "<1%" }
+        return "\(Int((share * 100).rounded()))%"
+    }
+
+    /// The people, biggest part first; the caller wins a tie, then the name.
+    static func rankedParts(_ people: [LandgrabExploredPerson]) -> [LandgrabExploredPerson] {
+        people.sorted { a, b in
+            if a.cells != b.cells { return a.cells > b.cells }
+            if a.me != b.me { return a.me }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+
+    /// "Katie, 8.1 square kilometres, 44% of the family's ground, 0.31 new today."
+    static func spokenPart(_ person: LandgrabExploredPerson, of explored: LandgrabExplored) -> String {
+        let who = person.me ? "You" : (person.name.isEmpty ? "Someone" : person.name)
+        var text = "\(who), \(spokenArea(person.km2)), \(percent(share(person, of: explored.total))) of the family's ground"
+        if person.today > 0, explored.todayNew.cells > 0 {
+            let km2 = explored.todayNew.km2 * Double(person.today) / Double(explored.todayNew.cells)
+            text += ", \(spokenArea(km2)) of it new today"
+        }
+        return text + "."
+    }
+
+    /// "Today", "Yesterday", or "Mon 26 Oct", for the highlighted ground.
+    static func freshLabel(_ fresh: LandgrabFresh, today: String) -> String {
+        if fresh.day == today { return "Today" }
+        if let now = day(today), let yesterday = calendar.date(byAdding: .day, value: -1, to: now), fresh.day == ymd(yesterday) {
+            return "Yesterday"
+        }
+        guard let date = day(fresh.day) else { return fresh.day }
+        return "\(weekday(date, long: false)) \(dayMonth(date))"
+    }
+
+    /// The town a geocoder answer names: the locality, else the district,
+    /// the region, the country. PURE.
+    static func townName(locality: String?, area: String?, region: String?, country: String?) -> String? {
+        [locality, area, region, country]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+    }
+
+    /// A place's label while its name is unknown: "Home", or when it was
+    /// explored — "Explored 24 Oct", "Explored 24–27 Oct".
+    static func placeFallback(_ place: LandgrabPlace) -> String {
+        if place.home { return "Home" }
+        guard let first = day(place.first) else { return "Somewhere" }
+        guard let last = day(place.last), place.last != place.first else { return "Explored \(dayMonth(first))" }
+        return "Explored \(dayMonth(first)) – \(dayMonth(last))"
+    }
+
+    /// "Darlington, Rome and 3 more places" — the named places in order,
+    /// then the count of the rest (unlisted places included).
+    static func placesLine(_ names: [String], others: Int) -> String? {
+        guard !names.isEmpty || others > 0 else { return nil }
+        guard others > 0 else { return list(names) }
+        let more = others == 1 ? "1 more place" : "\(others) more places"
+        return names.isEmpty ? more : "\(names.joined(separator: ", ")) and \(more)"
+    }
+}
+
+private extension String {
+    /// "1.3 square kilometres new today" → "1.3 …" (a figure stays a figure),
+    /// "two" → "Two".
+    var capitalisedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+/// Everything the family map draws, worked out once when the answer arrives.
+struct LandgrabExploredPlan: Equatable {
+    let areas: [LandgrabArea]
+    let fresh: [LandgrabArea]
+    /// Where the map opens: the newest ground while it is fresh (the trip
+    /// you are on), else home, else everything.
+    let opening: LandgrabRegion?
+    let everything: LandgrabRegion?
+    let freshRegion: LandgrabRegion?
+    /// Place id → the region that fits it.
+    let placeRegions: [String: LandgrabRegion]
+
+    init(_ explored: LandgrabExplored) {
+        areas = explored.shape.areas
+        fresh = explored.fresh?.shape.areas ?? []
+        everything = LandgrabRegion.fitting(areas.flatMap(\.outer), pad: 1.15, minSpan: 0.01)
+        freshRegion = LandgrabRegion.fitting(fresh.flatMap(\.outer), pad: 1.4, minSpan: 0.012)
+        var regions: [String: LandgrabRegion] = [:]
+        for place in explored.places {
+            let corners = place.bounds?.points ?? [LandgrabPoint(lat: place.lat, lon: place.lon)]
+            if let region = LandgrabRegion.fitting(corners, pad: 1.15, minSpan: 0.012) { regions[place.id] = region }
+        }
+        placeRegions = regions
+        let home = explored.places.first(where: \.home).flatMap { regions[$0.id] }
+        opening = freshRegion ?? home ?? explored.focus.map(LandgrabRegion.around) ?? everything
+    }
+}

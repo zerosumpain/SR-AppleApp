@@ -159,7 +159,7 @@ struct FamilyBacklogScreen: View {
         .buttonStyle(.plain)
         // Not disabled for an idea, which has nothing to open: a disabled row
         // loses its swipes too.
-        .opacity(store.busy == item.id ? 0.5 : 1)
+        .opacity(store.busy.contains(item.id) ? 0.5 : 1)
         .srGlassRow()
         .accessibilityIdentifier("backlog-item-\(item.id)")
         .swipeActions(edge: .leading, allowsFullSwipe: true) {

@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 
 /// The room, over the whole screen: finding one to join, the lobby, the game
-/// itself, the standings, and the page that says the room has closed.
+/// itself, the standings, getting back in after a drop, and the page that
+/// says the room has closed. A solo game is a room too, with nobody else in it.
 ///
 /// A cover rather than a pushed page: no tab bar to tap by mistake mid-game,
 /// and it stays put while the room lives. The one way out is the button at
@@ -26,7 +27,7 @@ struct OfflineRoomScreen: View {
                     }
                 }
                 .confirmationDialog(confirmTitle, isPresented: $confirmingLeave, titleVisibility: .visible) {
-                    Button(session.isHost ? "Close the room" : "Leave", role: .destructive) { session.leave() }
+                    Button(session.isSolo ? "Stop" : session.isHost ? "Close the room" : "Leave", role: .destructive) { session.leave() }
                     Button("Stay", role: .cancel) {}
                 }
         }
@@ -53,6 +54,8 @@ struct OfflineRoomScreen: View {
             OfflineJoinView(session: session)
         case .connecting(let name):
             OfflineConnectingView(name: name) { session.cancelJoin() }
+        case .reconnecting(let name):
+            OfflineReconnectingView(name: name) { session.leave() }
         case .room:
             if let lobby = session.lobby {
                 switch lobby.phase {
@@ -73,35 +76,40 @@ struct OfflineRoomScreen: View {
 
     private var title: String {
         switch session.stage {
-        case .idle, .ended: return "Play nearby"
+        case .idle, .ended: return "Play offline"
         case .browsing: return "Join a game"
         case .connecting: return "Joining"
+        case .reconnecting: return "Reconnecting"
         case .room:
             switch session.lobby?.phase {
             case .playing?: return session.chosen?.info.title ?? "Playing"
             case .finished?: return "Results"
-            default: return "Lobby"
+            default: return session.isSolo ? (session.chosen?.info.title ?? "Solo") : "Lobby"
             }
         }
     }
 
     private var leaveLabel: String {
         switch session.stage {
-        case .browsing, .connecting: return "Cancel"
+        case .browsing, .connecting, .reconnecting: return "Cancel"
         case .ended, .idle: return "Done"
-        case .room: return session.isHost ? "Close" : "Leave"
+        case .room:
+            if session.isSolo { return session.lobby?.phase == .playing ? "Stop" : "Done" }
+            return session.isHost ? "Close" : "Leave"
         }
     }
 
-    /// Ask before ending something other people are in.
+    /// Ask before ending something other people are in, or a game half played.
     private var needsConfirming: Bool {
         guard session.stage == .room, let lobby = session.lobby else { return false }
-        if session.isHost { return lobby.players.count > 1 }
+        if session.isSolo { return lobby.phase == .playing }
+        if session.isHost { return lobby.players.contains { $0.id != lobby.hostId && !$0.isBot } }
         return lobby.phase == .playing
     }
 
     private var confirmTitle: String {
-        session.isHost ? "Close the room for everyone?" : "Leave this game?"
+        if session.isSolo { return "Stop this game?" }
+        return session.isHost ? "Close the room for everyone?" : "Leave this game?"
     }
 }
 
@@ -116,24 +124,10 @@ struct OfflineJoinView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 SRPageHeader(kicker: "Join a game", title: "Find a room",
-                             strap: "The host opens a room first; pick the same kind of connection they chose.")
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Picker("Connection", selection: transport) {
-                        ForEach(OfflineTransport.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("offline-join-transport")
-                    Text(session.transport.detail)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                             strap: "Looking over Bluetooth and Wi-Fi at once. The host's room appears here as soon as their phone is in reach.")
 
                 VStack(alignment: .leading, spacing: SR.cardGap) {
-                    SRSectionLabel(text: "Rooms", trailing: session.found.isEmpty ? nil : "\(session.found.count)")
+                    SRSectionLabel(text: "Rooms nearby", trailing: session.found.isEmpty ? nil : "\(session.found.count)")
                     if session.found.isEmpty {
                         searching
                     } else {
@@ -143,27 +137,7 @@ struct OfflineJoinView: View {
                                 typing = false
                                 session.join(host)
                             } label: {
-                                SRCard(interactive: true) {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: session.transport.symbol)
-                                            .font(.system(size: 17, weight: .semibold))
-                                            .foregroundStyle(SR.accent)
-                                            .frame(width: 28)
-                                            .accessibilityHidden(true)
-                                        Text(host.name)
-                                            .font(SR.Text.title())
-                                            .foregroundStyle(SR.ink)
-                                            .lineLimit(2)
-                                        Spacer(minLength: 8)
-                                        Text("JOIN")
-                                            .font(SR.Text.label())
-                                            .tracking(1.2)
-                                            .foregroundStyle(SR.accent)
-                                    }
-                                    .frame(minHeight: SR.tapTarget)
-                                }
-                                .accessibilityElement(children: .combine)
-                                .accessibilityAddTraits(.isButton)
+                                OfflineFoundRow(host: host)
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("offline-room-\(host.name)")
@@ -171,9 +145,7 @@ struct OfflineJoinView: View {
                     }
                 }
 
-                if session.transport == .hotspot {
-                    addressCard
-                }
+                addressCard
             }
             .padding(.horizontal, SR.gutter)
             .padding(.top, 4)
@@ -181,12 +153,6 @@ struct OfflineJoinView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .srGround(.warm)
-    }
-
-    private var transport: Binding<OfflineTransport> {
-        Binding(get: { session.transport }, set: { next in
-            if next != session.transport { session.browse(via: next) }
-        })
     }
 
     /// Looking, and — after a few quiet seconds — what usually explains a
@@ -202,7 +168,7 @@ struct OfflineJoinView: View {
                 }
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     if let since = session.browsingSince, context.date.timeIntervalSince(since) > 8 {
-                        Text(quietHint)
+                        Text("Nothing yet. Check the host has tapped Host a room and is keeping the app open, that Bluetooth and Wi-Fi are on for both of you, and that Local Network is allowed for SR Companion (Settings › Privacy & Security › Local Network). The search starts again by itself every few seconds.")
                             .font(SR.Text.secondary())
                             .foregroundStyle(SR.inkMuted)
                             .fixedSize(horizontal: false, vertical: true)
@@ -212,45 +178,43 @@ struct OfflineJoinView: View {
         }
     }
 
-    private var quietHint: String {
-        switch session.transport {
-        case .nearby:
-            return "Nothing yet. Check the host chose Nearby, that Bluetooth is on for both of you, and that Local Network is allowed for SR Companion (Settings › Privacy & Security › Local Network)."
-        case .hotspot:
-            return "Nothing yet. Check you are on the host's Wi-Fi or Personal Hotspot, and that Local Network is allowed for SR Companion (Settings › Privacy & Security › Local Network). Or type the address on the host's screen below."
-        }
-    }
-
+    /// The last resort, folded away: a host on a hotspot or Wi-Fi shows its
+    /// address in its lobby.
     private var addressCard: some View {
         SRCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Or type the host's address")
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("If the room never appears, the host's lobby shows an address — on a hotspot, usually 172.20.10.1. Join their Wi-Fi or hotspot, then type it here.")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextField("172.20.10.1", text: $address)
+                        .font(SR.Text.title())
+                        .keyboardType(.numbersAndPunctuation)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.join)
+                        .focused($typing)
+                        .onSubmit(joinAddress)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .srGlassCard(.paper, radius: SR.Glass.innerRadius)
+                        .accessibilityIdentifier("offline-address")
+                    Button(action: joinAddress) {
+                        SRButtonLabel(title: "Join", icon: "arrow.right", fill: true)
+                    }
+                    .srButton(.regular)
+                    .controlSize(.large)
+                    .disabled(OfflineAddress.parse(address) == nil)
+                    .accessibilityIdentifier("offline-address-join")
+                }
+                .padding(.top, 10)
+            } label: {
+                Text("Type the host's address")
                     .font(SR.Text.title(16))
                     .foregroundStyle(SR.ink)
-                Text("It is on the host's lobby — on a hotspot, usually 172.20.10.1.")
-                    .font(SR.Text.secondary(13))
-                    .foregroundStyle(SR.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                TextField("172.20.10.1", text: $address)
-                    .font(SR.Text.title())
-                    .keyboardType(.numbersAndPunctuation)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.join)
-                    .focused($typing)
-                    .onSubmit(joinAddress)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .srGlassCard(.paper, radius: SR.Glass.innerRadius)
-                    .accessibilityIdentifier("offline-address")
-                Button(action: joinAddress) {
-                    SRButtonLabel(title: "Join", icon: "arrow.right", fill: true)
-                }
-                .srButton(.regular)
-                .controlSize(.large)
-                .disabled(OfflineAddress.parse(address) == nil)
-                .accessibilityIdentifier("offline-address-join")
             }
+            .tint(SR.accent)
         }
     }
 
@@ -259,6 +223,44 @@ struct OfflineJoinView: View {
         typing = false
         SRHaptic.tap()
         session.join(address: address)
+    }
+}
+
+/// One room in the list: its name, how it was found, and Join.
+struct OfflineFoundRow: View {
+    let host: OfflineFoundHost
+
+    var body: some View {
+        SRCard(interactive: true) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.3.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(SR.paper)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(SR.accent))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(host.name)
+                        .font(SR.Text.title())
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(2)
+                    if !host.via.isEmpty {
+                        Text(host.via.map(\.short).joined(separator: " · "))
+                            .font(SR.Text.mono())
+                            .foregroundStyle(SR.inkMuted)
+                            .accessibilityLabel("Found over \(host.via.map(\.short).joined(separator: " and "))")
+                    }
+                }
+                Spacer(minLength: 8)
+                Text("JOIN")
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.accent)
+            }
+            .frame(minHeight: SR.tapTarget)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -287,6 +289,37 @@ struct OfflineConnectingView: View {
     }
 }
 
+/// "Getting back into Sam's game…": the host dropped out of reach and this
+/// phone is looking for the same room to take its seat again.
+struct OfflineReconnectingView: View {
+    let name: String
+    let giveUp: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView().tint(SR.accent).controlSize(.large)
+            Text("Getting back into \(name)'s game…")
+                .font(SR.Text.title())
+                .foregroundStyle(SR.ink)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("The connection dropped — usually a locked phone or a few steps too far. Your seat is kept; this joins again by itself as soon as \(name)'s phone is back in reach.")
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Give up and leave", action: giveUp)
+                .font(SR.Text.bodyMedium(15))
+                .tint(SR.accent)
+                .accessibilityIdentifier("offline-reconnect-give-up")
+        }
+        .padding(SR.gutter)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .srGround(.warm)
+        .accessibilityIdentifier("offline-reconnecting")
+    }
+}
+
 // MARK: - The lobby
 
 struct OfflineLobbyView: View {
@@ -298,7 +331,7 @@ struct OfflineLobbyView: View {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 SRPageHeader(kicker: session.isHost ? "You are hosting" : "Hosted by \(session.hostName)",
                              title: lobby.roomName)
-                if session.isHost { connectionCard }
+                OfflineConnectionCard(session: session, lobby: lobby)
                 players
                 if session.isHost {
                     startCard
@@ -315,47 +348,9 @@ struct OfflineLobbyView: View {
         .accessibilityIdentifier("offline-lobby")
     }
 
-    // How others get in.
-    private var connectionCard: some View {
-        SRCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Label(session.transport.title, systemImage: session.transport.symbol)
-                    .font(SR.Text.title(16))
-                    .foregroundStyle(SR.ink)
-                switch session.transport {
-                case .nearby:
-                    Text("Others tap Find a room under Play nearby, choose Nearby and pick \(lobby.roomName). Stay within a few metres.")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                case .hotspot:
-                    Text("Others join the same Wi-Fi — or your Personal Hotspot in their Wi-Fi settings — then choose Wi-Fi or hotspot. If the room does not appear, they can type:")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if session.addresses.isEmpty {
-                        Text("Waiting for a network…")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                    } else {
-                        ForEach(session.addresses, id: \.self) { address in
-                            Text(address)
-                                .font(SR.Text.figure(24))
-                                .foregroundStyle(SR.accent)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.6)
-                                .textSelection(.enabled)
-                                .accessibilityIdentifier("offline-address-\(address)")
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     private var players: some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
-            SRSectionLabel(text: "Players", trailing: "\(lobby.players.count) of \(OfflineRoom.capacity)")
+            SRSectionLabel(text: "Who's here", trailing: "\(lobby.players.count) of \(OfflineRoom.capacity)")
             VStack(spacing: 0) {
                 ForEach(Array(lobby.players.enumerated()), id: \.element.id) { index, player in
                     if index > 0 { Divider().overlay(SR.divider) }
@@ -366,21 +361,47 @@ struct OfflineLobbyView: View {
                             .foregroundStyle(player.present ? SR.ink : SR.inkMuted)
                             .lineLimit(1)
                         Spacer(minLength: 8)
-                        if player.id == lobby.hostId {
-                            SRGlassChip(text: "Host", tone: SR.accent)
-                        } else if !player.present {
-                            SRGlassChip(text: "Away", tone: SR.error)
+                        chip(for: player)
+                        if player.isBot, session.isHost {
+                            Button {
+                                SRHaptic.select()
+                                session.removeBot(player.id)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(SR.inkGhost)
+                                    .frame(width: SR.tapTarget, height: SR.tapTarget)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(player.name)")
+                            .accessibilityIdentifier("offline-remove-\(player.id)")
                         }
                     }
                     .frame(minHeight: SR.tapTarget)
                     .padding(.vertical, 4)
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .contain)
                 }
             }
             .padding(.horizontal, SR.cardPadding)
             .padding(.vertical, 6)
             .srGlassCard(.paper)
             .accessibilityIdentifier("offline-players")
+        }
+    }
+
+    /// Host, computer player, or — on the host's phone — how each guest's
+    /// connection looks.
+    @ViewBuilder
+    private func chip(for player: OfflineLobbyPlayer) -> some View {
+        if player.id == lobby.hostId {
+            SRGlassChip(text: "Host", tone: SR.accent)
+        } else if player.isBot {
+            SRGlassChip(text: "Computer", icon: "cpu", tone: SR.inkSecondary)
+        } else if !player.present {
+            SRGlassChip(text: "Away", tone: SR.error)
+        } else if session.isHost, let health = session.health[player.id], let label = health.label {
+            SRGlassChip(text: label, icon: health.isTrouble ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                        tone: health.isTrouble ? SR.error : SR.good)
         }
     }
 
@@ -421,6 +442,17 @@ struct OfflineLobbyView: View {
                 .controlSize(.large)
                 .disabled(session.startProblem != nil)
                 .accessibilityIdentifier("offline-start")
+                if session.chosen?.entry.hasBot == true, session.addBotProblem == nil {
+                    Button {
+                        SRHaptic.tap()
+                        session.addBot()
+                    } label: {
+                        SRButtonLabel(title: "Add a computer player", icon: "cpu", fill: true)
+                    }
+                    .srButton(.regular)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("offline-add-bot")
+                }
                 if let problem = session.startProblem, session.chosen != nil {
                     Text(problem)
                         .font(SR.Text.secondary())
@@ -472,7 +504,7 @@ struct OfflineLobbyView: View {
                         .font(SR.Text.title(16))
                         .foregroundStyle(SR.ink)
                         .lineLimit(1)
-                    Text(item.info.playersLabel)
+                    Text(item.entry.hasBot ? "\(item.info.playersLabel) · bots can join" : item.info.playersLabel)
                         .font(SR.Text.mono())
                         .foregroundStyle(SR.inkMuted)
                 }
@@ -516,6 +548,89 @@ struct OfflineLobbyView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("offline-waiting")
         }
+    }
+}
+
+/// How this room is connected, in plain words, and a way to test it: the
+/// host sees how guests join and who it has heard from; a guest sees which
+/// link carries it and can time a round trip.
+struct OfflineConnectionCard: View {
+    @ObservedObject var session: OfflineSession
+    let lobby: OfflineLobby
+
+    var body: some View {
+        SRCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(headline, systemImage: symbol)
+                    .font(SR.Text.title(16))
+                    .foregroundStyle(SR.ink)
+                Text(detail)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if session.isHost, !session.addresses.isEmpty {
+                    ForEach(session.addresses, id: \.self) { address in
+                        Text(address)
+                            .font(SR.Text.figure(22))
+                            .foregroundStyle(SR.accent)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .textSelection(.enabled)
+                            .accessibilityLabel("Address \(address)")
+                            .accessibilityIdentifier("offline-address-\(address)")
+                    }
+                }
+                HStack(spacing: 10) {
+                    Button {
+                        SRHaptic.tap()
+                        session.testConnection()
+                    } label: {
+                        SRButtonLabel(title: session.testing ? "Testing…" : "Test connection", icon: "waveform.path.ecg")
+                    }
+                    .srButton(.regular)
+                    .disabled(session.testing)
+                    .accessibilityIdentifier("offline-test-connection")
+                    if session.testing { ProgressView().tint(SR.accent) }
+                }
+                if let result = session.testResult {
+                    Text(result)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("offline-test-result")
+                }
+            }
+        }
+        .accessibilityIdentifier("offline-connection")
+    }
+
+    private var guests: [OfflineLobbyPlayer] {
+        lobby.players.filter { $0.id != lobby.hostId && !$0.isBot }
+    }
+
+    private var headline: String {
+        if session.isHost {
+            switch guests.count {
+            case 0: return "Open on \(session.transport.title)"
+            case 1: return "1 phone connected"
+            default: return "\(guests.count) phones connected"
+            }
+        }
+        if let route = session.route { return "Connected over \(route.short)" }
+        return "Connected to \(session.hostName)"
+    }
+
+    private var symbol: String {
+        if session.isHost { return session.transport.symbol }
+        return (session.route ?? .auto).symbol
+    }
+
+    private var detail: String {
+        if session.isHost {
+            let how = "Others open Play offline, tap Find a room and pick \(lobby.roomName). Keep this app open while you play."
+            return session.addresses.isEmpty ? how : how + " If the room does not appear for them, they can join your Wi-Fi or hotspot and type:"
+        }
+        return "If the game feels slow or stalls, test the link. A dropped connection rejoins by itself."
     }
 }
 
@@ -586,9 +701,10 @@ struct OfflineFinishedView: View {
                         .accessibilityIdentifier("offline-again")
                         Button {
                             SRHaptic.tap()
-                            session.backToLobby()
+                            // Alone there is no lobby to go back to: the shelf is the lobby.
+                            if session.isSolo { session.leave() } else { session.backToLobby() }
                         } label: {
-                            SRButtonLabel(title: "Pick another game", fill: true)
+                            SRButtonLabel(title: session.isSolo ? "Done" : "Pick another game", fill: true)
                         }
                         .srButton(.regular)
                         .controlSize(.large)
@@ -599,6 +715,13 @@ struct OfflineFinishedView: View {
                         .font(SR.Text.mono())
                         .foregroundStyle(SR.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if standings.contains(where: { $0.playerId == session.playerId }) {
+                    Label(syncLine, systemImage: "icloud.and.arrow.up")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("offline-result-saved")
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -611,7 +734,13 @@ struct OfflineFinishedView: View {
         }
     }
 
+    /// Where this result is going.
+    private let syncLine = "Saved on this phone. It joins the family leaderboard next time you are online and paired."
+
     private var headline: String {
+        if session.isSolo, standings.count == 1, let mine = standings.first {
+            return "\(mine.score) points"
+        }
         let winners = standings.filter { $0.rank == 1 }
         let names = winners.map { $0.playerId == session.playerId ? "You" : $0.name }
         switch names.count {

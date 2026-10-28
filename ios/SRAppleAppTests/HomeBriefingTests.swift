@@ -261,6 +261,134 @@ final class HomeBriefingTests: XCTestCase {
         XCTAssertEqual(HomeBriefing.ordinal(22), "22nd")
     }
 
+    // MARK: - More to know (2026-10-27)
+
+    func testAMentionOutranksTheNewestLine() throws {
+        var f = facts()
+        f.message = .init(line: "Sam: Back at six", at: ten.addingTimeInterval(-300), mine: false)
+        f.mentions = [.init(from: "Sam", at: ten.addingTimeInterval(-1200))]
+        let line = try XCTUnwrap(HomeBriefing.mentions(f))
+        XCTAssertEqual(line.text, "Sam mentioned you")
+        XCTAssertEqual(line.detail, "In msg family · 20 min ago")
+        XCTAssertEqual(HomeBriefing.rank(f).first?.source, .mentions)
+    }
+
+    func testSeveralMentionsAreCounted() throws {
+        var f = facts()
+        f.mentions = [.init(from: "Sam", at: ten.addingTimeInterval(-60)), .init(from: "Robin", at: ten.addingTimeInterval(-600))]
+        let line = try XCTUnwrap(HomeBriefing.mentions(f))
+        XCTAssertEqual(line.figure, "2")
+        XCTAssertEqual(line.detail, "Newest from Sam, 1 min ago")
+    }
+
+    func testAnOldMentionIsLeftToMsgFamily() {
+        var f = facts()
+        f.mentions = [.init(from: "Sam", at: ten.addingTimeInterval(-13 * 3600))]
+        XCTAssertNil(HomeBriefing.mentions(f))
+    }
+
+    func testAGameWaitingOnYou() throws {
+        var f = facts()
+        f.turns = [.init(game: "Chess", with: "Sam")]
+        XCTAssertEqual(HomeBriefing.turn(f)?.text, "Your move in Chess")
+        XCTAssertEqual(HomeBriefing.turn(f)?.detail, "Sam is waiting")
+        f.turns.append(.init(game: "Liar's Dice", with: nil))
+        XCTAssertEqual(HomeBriefing.turn(f)?.figure, "2")
+        XCTAssertEqual(HomeBriefing.turn(f)?.detail, "Chess, Liar's Dice")
+    }
+
+    func testANewStepLeader() throws {
+        var f = facts()
+        f.steps = [.init(name: "Sam", steps: 6000, me: false), .init(name: "Alex", steps: 4000, me: true)]
+        f.stepsYesterdayLeader = "Robin Kelly"
+        XCTAssertEqual(HomeBriefing.lead(f)?.text, "Sam has taken the step lead")
+        XCTAssertEqual(HomeBriefing.lead(f)?.detail, "Robin Kelly won yesterday")
+        f.stepsYesterdayLeader = "Sam"
+        XCTAssertNil(HomeBriefing.lead(f), "the same leader is not news")
+        f.stepsYesterdayLeader = "Robin"
+        f.steps[1] = .init(name: "Alex", steps: 7000, me: true)
+        XCTAssertEqual(HomeBriefing.lead(f)?.text, "you've taken the step lead")
+        XCTAssertEqual(HomeBriefing.lead(f)?.tone, .good)
+        f.stepsYesterdayLeader = "Alex"
+        XCTAssertNil(HomeBriefing.lead(f), "you led yesterday too")
+    }
+
+    func testATieForTheLeadSaysNothing() {
+        var f = facts()
+        f.steps = [.init(name: "Sam", steps: 5000, me: false), .init(name: "Alex", steps: 5000, me: true)]
+        f.stepsYesterdayLeader = "Robin"
+        XCTAssertNil(HomeBriefing.lead(f))
+    }
+
+    func testAShortNightIsSaid() throws {
+        var f = facts()
+        f.vitals = [.init(key: "sleep", label: "Sleep", value: 6.5, shown: "6h 30m", delta: -0.75, deltaDisplay: "−45m vs 7d", improving: false)]
+        let line = try XCTUnwrap(HomeBriefing.sleep(f))
+        XCTAssertEqual(line.text, "sleep, 45m under your week")
+        XCTAssertEqual(line.tone, .warn)
+        XCTAssertEqual(line.figureKey, "sleep")
+        f.vitals = [.init(key: "sleep", label: "Sleep", value: 7.6, shown: "7h 36m", delta: 0.1, deltaDisplay: "+6m vs 7d", improving: true)]
+        XCTAssertNil(HomeBriefing.sleep(f), "six minutes is the same night")
+        f.vitals = [.init(key: "sleep", label: "Sleep", value: 5.6, shown: "5h 36m", delta: nil, deltaDisplay: nil, improving: nil)]
+        XCTAssertEqual(HomeBriefing.sleep(f)?.text, "sleep last night")
+    }
+
+    func testSleepIsSaidOnceWhenItIsAlsoTheBiggestMove() {
+        var f = facts()
+        f.vitals = [.init(key: "sleep", label: "Sleep", value: 5.5, shown: "5h 30m", delta: -1.5, deltaDisplay: "−1h 30m vs 7d", improving: false)]
+        let sources = HomeBriefing.rank(f, limit: 10).map(\.source)
+        XCTAssertTrue(sources.contains(.vitals))
+        XCTAssertFalse(sources.contains(.sleep))
+    }
+
+    func testRainOnATripDay() throws {
+        var f = facts()
+        f.tripWeather = .init(place: "Rome", line: "19° / 12° · Rain", rain: "Rain likely 15:00–18:00", tomorrow: false)
+        let line = try XCTUnwrap(HomeBriefing.weather(f))
+        XCTAssertEqual(line.text, "Rain likely 15:00–18:00 in Rome")
+        XCTAssertEqual(line.detail, "19° / 12° · Rain · today")
+        XCTAssertEqual(line.tone, .warn)
+        f.tripWeather = .init(place: "Rome", line: "21° / 13° · Clear", rain: nil, tomorrow: true)
+        XCTAssertEqual(HomeBriefing.weather(f)?.text, "21° / 13° · Clear in Rome")
+        XCTAssertEqual(HomeBriefing.weather(f)?.detail, "Tomorrow")
+    }
+
+    func testARunningTripSaysHowFarThroughTheDay() {
+        var f = facts()
+        f.trip = .init(place: "Rome", days: nil, questions: 0, nextStop: "Pantheon", leaveInMinutes: 200, stopsDone: 3, stopsTotal: 7)
+        XCTAssertEqual(HomeBriefing.trip(f)?.detail, "3 of 7 stops done · Rome")
+        f.trip = .init(place: "Rome", days: nil, questions: 0, nextStop: nil, leaveInMinutes: nil, stopsDone: 7, stopsTotal: 7)
+        XCTAssertEqual(HomeBriefing.trip(f)?.text, "stops done today")
+        XCTAssertEqual(HomeBriefing.trip(f)?.figure, "7")
+    }
+
+    func testRewardsOwedBesideOtherTaskNews() {
+        var f = facts()
+        f.tasks = .init(toDo: 2, overdue: 1, awaiting: 0, parent: true, owedPence: 350, overdueTitle: "Bins", nextTitle: nil, nextDue: nil)
+        XCTAssertEqual(HomeBriefing.rewards(f)?.figure, "£3.50")
+        f.tasks = .init(toDo: 0, overdue: 0, awaiting: 0, parent: true, owedPence: 350, overdueTitle: nil, nextTitle: nil, nextDue: nil)
+        XCTAssertNil(HomeBriefing.rewards(f), "the task line says it itself")
+        XCTAssertEqual(HomeBriefing.tasks(f)?.figure, "£3.50")
+        f.tasks?.parent = false
+        f.tasks?.toDo = 1
+        XCTAssertNil(HomeBriefing.rewards(f), "only a parent owes")
+    }
+
+    func testEverySourceIsOneLine() {
+        var f = facts()
+        f.mentions = [.init(from: "Sam", at: ten)]
+        f.turns = [.init(game: "Chess", with: nil)]
+        f.invites = [.init(host: "Sam", game: "Chess")]
+        let lines = HomeBriefing.rank(f, limit: 10)
+        XCTAssertEqual(Set(lines.map(\.id)).count, lines.count)
+    }
+
+    func testHours() {
+        XCTAssertEqual(HomeBriefing.hours(1.5), "1h 30m")
+        XCTAssertEqual(HomeBriefing.hours(0.4), "24m")
+        XCTAssertEqual(HomeBriefing.hours(2), "2h")
+    }
+
     func testSpokenReadsTheWholeLine() {
         let line = HomeInsight(source: .steps, figure: "1,240", text: "steps behind Sam", detail: "About 13 min of walking", tone: .plain, weight: 1)
         XCTAssertEqual(line.spoken, "1,240 steps behind Sam. About 13 min of walking")

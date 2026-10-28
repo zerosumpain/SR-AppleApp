@@ -52,6 +52,20 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     @Published var records: [HealthRecord] = []
     @Published var message = "Pair your iPhone to get started."
     @Published var busy = false
+    /// A Settings switch's write on its way, each apart from `busy`. A sync
+    /// holds `busy` for as long as its upload takes — on every return to the
+    /// foreground, and whenever a family member's Steps page asks this phone
+    /// by silent push — and these switches were disabled by it, or returned
+    /// without a word when the tap landed as one began: the switch did
+    /// nothing until it was flipped again. A sync must not hold off a tap.
+    @Published private(set) var savingSteps = false
+    @Published private(set) var savingSharing = false
+    /// The Apple Health permission sheet is up (or about to be).
+    @Published private(set) var askingHealth = false
+    /// Moved as each of those writes starts and as it lands. They run beside
+    /// a sync now, so a `me` the sync read before one landed can arrive after
+    /// it: `refresh` and `flush` must not let that older answer undo it.
+    private var writes = 0
     @Published var paired: Bool
     @Published var queueCount = 0
     @Published var lastUpload: Date?
@@ -65,8 +79,9 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     private var drainingAlerts = false
     private var lastAlertDrain: Date?
     /// The profile `flush` read on its way to uploading, for the `refresh`
-    /// straight after it in `sync`: the same `me` twice within seconds.
-    private var flushedProfile: Profile?
+    /// straight after it in `sync`: the same `me` twice within seconds. With
+    /// `writes` as it stood when that read began.
+    private var flushedProfile: (me: Profile, writes: Int)?
     /// The last `household/view` answer and when it came. At open the sync
     /// and the Family store (Today's mini-map) both read it seconds apart, and
     /// adopt the same watched places and access from it; one read serves both.
@@ -130,40 +145,53 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             health.startObservers(); updateQueue()
         } catch { message = error.localizedDescription; return }
         // A group turned on later brings types the reader was never asked
-        // for: ask now (the sheet shows only those), then read them.
+        // for: ask now (the sheet shows only those), then read them. Asked
+        // even while a sync runs: skipped then, the group was on and its
+        // types were never asked for.
         Task { [weak self] in
             guard let self else { return }
-            if enabled && !self.busy { await self.authorizeHealth() } else { await self.refreshHealthReview() }
+            if enabled && !self.askingHealth { await self.authorizeHealth() } else { await self.refreshHealthReview() }
         }
     }
+    /// Not `busy`: the sheet is the reader's, and the read and upload after
+    /// it run beside a sync like any other flush (each has its own guard).
     func authorizeHealth() async {
-        busy = true; defer { busy = false }
+        askingHealth = true
         do {
             try await health.authorize()
+            askingHealth = false
             await refreshHealthReview()
             try await health.collect(until: Date().addingTimeInterval(120)); await flush()
         } catch {
+            askingHealth = false
             message = error.localizedDescription
             await refreshHealthReview()
         }
     }
     func setStepsSharing(_ enabled: Bool) async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
+        guard !savingSteps else { return }
+        savingSteps = true; writes += 1
+        defer { savingSteps = false; writes += 1 }
+        // Shown at once and put back if refused: a switch that waits for the
+        // round trip springs back under the thumb and gets flipped again.
+        let was = profile?.stepsSharing
+        profile?.stepsSharing = enabled
         do {
             let _: API.Acknowledgement = try await api.request("steps-sharing", method: "PUT", data: JSONEncoder().encode(["enabled": enabled]))
-            profile?.stepsSharing = enabled
             FamilyStepsStore.shared.reset()
             FamilyWidgetBridge.clear()
             message = enabled ? "Your daily steps are shared with the family." : "Family steps sharing is off."
-        } catch { message = error.localizedDescription }
+        } catch {
+            profile?.stepsSharing = was
+            message = error.localizedDescription
+        }
     }
 
     /// Returns whether the server acknowledged the change.
     @discardableResult func setSharing(_ enabled: Bool) async -> Bool {
-        guard !busy else { return false }
-        busy = true; defer { busy = false }
+        guard !savingSharing else { return false }
+        savingSharing = true; writes += 1
+        defer { savingSharing = false; writes += 1 }
         do {
             // Pause locally immediately, including while offline. Retry server pause on next flush.
             try outbox.change { $0.sharing = enabled; $0.pendingSharing = enabled; if !enabled { for i in $0.batches.indices { $0.batches[i].locations = [] } } }
@@ -187,10 +215,11 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         }
         return SharingQuestion.shouldAsk(paired: paired, asked: outbox.state.sharingAsked, sharing: outbox.state.sharing)
     }
-    /// The question's answer. Unlike the Settings toggle it is never dropped
-    /// because a sync happens to be running (the question appears straight
-    /// after pairing, when one usually is): it is recorded the way an offline
-    /// toggle is, and the next flush sends it.
+    /// The question's answer, never dropped. The question appears straight
+    /// after pairing, when a sync usually is running; that no longer holds
+    /// off `setSharing`, and should the Settings switch's own write be on its
+    /// way, the answer is recorded the way an offline toggle is, and the next
+    /// flush sends it.
     ///
     /// "Not now" (and a swipe) only records that the question was answered. It
     /// never sends sharing OFF: the question's default must not be able to
@@ -203,7 +232,7 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         try? outbox.change { $0.sharingAsked = true }
         guard share else { return }
         let sent: Bool
-        if !busy {
+        if !savingSharing {
             sent = await setSharing(true)
         } else {
             do { try outbox.change { $0.sharing = true; $0.pendingSharing = true } }
@@ -238,6 +267,15 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         guard !delivered.isEmpty, let body = try? JSONEncoder().encode(["ids": delivered]) else { return }
         let _: API.Acknowledgement? = try? await api.request("alerts/ack", method: "POST", data: body, timeout: HouseholdAlerts.requestTimeout)
     }
+    /// The family asked (a silent push from someone's Steps page): where
+    /// this phone is and today's steps, up to the companion server now, in
+    /// the half-minute iOS gives a silent push.
+    func reportForFamily() async {
+        guard paired else { return }
+        await location.reportNow()
+        await sync(collectingFor: 10)
+    }
+
     /// `collectingFor`: 120 s in the foreground; a background refresh passes
     /// 15 s so the upload and the notification pass still fit its budget.
     func sync(collectingFor seconds: TimeInterval = 120) async {
@@ -254,15 +292,23 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
         catch { message = error.localizedDescription }
     }
     /// `reusing`: a profile read moments ago by the flush this follows, in
-    /// place of asking again. Everyone else reads it fresh.
-    func refresh(reusing fresh: Profile? = nil) async throws {
-        let me: Profile
-        if let fresh { me = fresh } else { me = try await api.request("me") }
+    /// place of asking again, with `writes` as that read began. Everyone else
+    /// reads it fresh.
+    func refresh(reusing fresh: (me: Profile, writes: Int)? = nil) async throws {
+        let asked = fresh?.writes ?? writes
+        var me: Profile
+        if let fresh { me = fresh.me } else { me = try await api.request("me") }
+        // A Settings write began or landed while that `me` was on its way (a
+        // flush's can be minutes old by now): the phone's answer is the newer
+        // one until the next read. Otherwise the steps switch flipped back.
+        let stale = asked != writes || savingSteps || savingSharing
+        if stale, let profile { me.stepsSharing = profile.stepsSharing }
         // A re-paired phone starts with local sharing off (`clear()`), while the
         // server may still have this person sharing. The server is the record:
         // adopt it, before `profile` is published, so the household question
         // (which watches `profile`) sees a phone that is already sharing.
-        if SharingQuestion.adoptsServerSharing(local: outbox.state.sharing, pending: outbox.state.pendingSharing, server: me.sharing) {
+        // Not from a stale `me`: that would switch back on a phone just paused.
+        if !stale, SharingQuestion.adoptsServerSharing(local: outbox.state.sharing, pending: outbox.state.pendingSharing, server: me.sharing) {
             try? outbox.change { $0.sharing = true }
             location.start()
         }
@@ -352,12 +398,17 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             // Apply a local offline choice before reconciling remote changes.
             if let pending = outbox.state.pendingSharing {
                 let _: API.Acknowledgement = try await api.request("sharing", method: "PUT", data: JSONEncoder().encode(["enabled": pending]))
-                try outbox.change { $0.pendingSharing = nil }
+                // Only the choice just sent: the switch may have been flipped
+                // again while it was on its way, and that one is still owed.
+                try outbox.change { if $0.pendingSharing == pending { $0.pendingSharing = nil } }
             }
             // Reconcile with server before uploads so a browser pause is respected.
+            // But not with a `me` read before a Settings write landed: it may
+            // hold the switch's old position.
+            let asked = writes
             let me: Profile = try await api.request("me")
-            flushedProfile = me
-            if !me.sharing && outbox.state.sharing && outbox.state.pendingSharing == nil {
+            flushedProfile = (me: me, writes: asked)
+            if asked == writes, !me.sharing && outbox.state.sharing && outbox.state.pendingSharing == nil {
                 try outbox.change { $0.sharing = false; for i in $0.batches.indices { $0.batches[i].locations = [] } }
                 location.stop()
             }
