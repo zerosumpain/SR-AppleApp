@@ -148,7 +148,7 @@ final class GamesStore: ObservableObject {
             if next.serverNow > 0 { serverOffsetMs = next.serverNow - Date().timeIntervalSince1970 * 1000 }
             // Only publish a real change: `serverNow` moves on every read,
             // and each publish redrew the whole tab view.
-            if !Self.same(lobby, next) { lobby = next }
+            if !Self.same(lobby, next) { lobby = next; GamesWidgetBridge.save(next) }
             if message != nil { message = nil }
             await announce(next.invites)
         } catch is CancellationError {
