@@ -23,6 +23,7 @@ enum OfflineCatalogue {
         OfflineCatalogueItem(OldMaidRules.self) { OldMaidView(context: $0) },
         OfflineCatalogueItem(KnockoutWhistRules.self) { KnockoutWhistView(context: $0) },
         OfflineCatalogueItem(HigherLowerRules.self) { HigherLowerView(context: $0) },
+        OfflineCatalogueItem(withBot: OfflineFireworksRules.self) { OfflineFireworksView(context: $0) },
         // Reaction games.
         OfflineCatalogueItem(QuickDrawRules.self) { QuickDrawView(context: $0) },
         OfflineCatalogueItem(SnapRules.self) { SnapView(context: $0) },
@@ -44,6 +45,8 @@ enum OfflineCatalogue {
         OfflineCatalogueItem(OfflineBoggleRules.self) { OfflineBoggleView(context: $0) },
         OfflineCatalogueItem(OfflineAnagramRules.self) { OfflineAnagramView(context: $0) },
         OfflineCatalogueItem(OfflineCategoriesRules.self) { OfflineCategoriesView(context: $0) },
+        OfflineCatalogueItem(withBot: OfflineChessRules.self) { OfflineChessView(context: $0) },
+        OfflineCatalogueItem(withBot: OfflineLiarsDiceRules.self) { OfflineLiarsDiceView(context: $0) },
     ]
 
     /// What the host's room can start.

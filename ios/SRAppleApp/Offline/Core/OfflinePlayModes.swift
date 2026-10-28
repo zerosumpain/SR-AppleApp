@@ -7,11 +7,14 @@ import Foundation
 enum OfflinePlayModes {
     /// Computer players a solo game seats, or nil when it cannot be played
     /// alone: none for a one-player game, else enough to start (at least one
-    /// opponent) for a game with a bot.
+    /// opponent) for a game with a bot — or the game's own
+    /// `soloOpponents`, kept to the seats the table and the room have.
     static func soloBots(_ info: OfflineGameInfo, hasBot: Bool) -> Int? {
         if info.minPlayers <= 1 { return 0 }
         guard hasBot else { return nil }
-        return max(1, info.minPlayers - 1)
+        let fewest = max(1, info.minPlayers - 1)
+        let most = max(fewest, min(info.maxPlayers, OfflineRoom.capacity, OfflineRoom.botNames.count + 1) - 1)
+        return min(max(info.soloOpponents ?? fewest, fewest), most)
     }
 
     static func canPlaySolo(_ info: OfflineGameInfo, hasBot: Bool) -> Bool {
@@ -32,6 +35,9 @@ enum OfflinePlayModes {
         "boggle": "boggle",
         "anagram-blitz": "anagram-blitz",
         "categories": "categories",
+        "chess": "chess",
+        "liars-dice": "liars-dice",
+        "fireworks": "fireworks",
     ]
 
     /// The offline game to open for a game id from either catalogue.

@@ -108,6 +108,10 @@ struct OfflineGameInfo: Equatable {
     let symbol: String
     /// Short sentences, one rule each, shown before the game starts.
     let howToPlay: [String]
+    /// Computer players a game played alone seats, for a game with a bot that
+    /// plays best round a bigger table (Liar's Dice); nil for the fewest it
+    /// needs. `OfflinePlayModes.soloBots` keeps it within the table's limits.
+    var soloOpponents: Int? = nil
 
     /// "2–5 players", "1–4 players", "2 players".
     var playersLabel: String {
