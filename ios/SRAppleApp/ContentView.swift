@@ -330,6 +330,15 @@ final class Router: ObservableObject {
         push(GameRoomRef(id: roomId, game: game), on: .games)
     }
 
+    /// One jkai thread — a tapped chat push, `sr://chat/<id>`, Spotlight —
+    /// pushed on Chat. Nil, or somebody without chat: Chat itself (which
+    /// `show` turns into Today for them).
+    func openThread(_ id: String?) {
+        show(.chat)
+        guard AccessStore.shared.allows(.chat), let id else { return }
+        push(ThreadReference(id: id), on: .chat)
+    }
+
     func ask(_ question: String) {
         guard AccessStore.shared.allows(.chat) else { show(.today); return }
         pendingQuestion = question
@@ -650,6 +659,11 @@ struct ContentView: View {
                 router.openCaptures(capture)
                 return
             }
+            // sr://chat[/<id>] — one jkai thread, from a Shortcut or a link.
+            if let chat = ChatLink.from(url: url) {
+                router.openThread(chat.conversationId)
+                return
+            }
             // sr://pair?join=…&server=… — "Open SR" on the install page: the
             // link that put the app here connects the phone as its person.
             if let payload = PairingPayload.fromLink(url.absoluteString) {
@@ -676,8 +690,7 @@ struct ContentView: View {
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             guard access.allows(.chat),
                   let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
-            router.show(.chat)
-            router.chat.append(ThreadReference(id: id))
+            router.openThread(id)
         }
         .sheet(item: $router.sheet) { sheet in
             sheetContent(sheet)

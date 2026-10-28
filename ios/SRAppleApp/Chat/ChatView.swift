@@ -300,7 +300,8 @@ struct ThreadListScreen: View {
             Button {
                 Task { await store.togglePin(conversation) }
             } label: { Label(conversation.pinned ? "Unpin" : "Pin", systemImage: "pin") }
-            Link(destination: SiteClient.shared.webURL("jkai")) {
+            // This thread on the desk, not the desk's front page.
+            Link(destination: SiteClient.shared.webURL(ChatLink.webPath(conversation.id))) {
                 Label("Open jkai on the web", systemImage: "safari")
             }
             Divider()
@@ -693,7 +694,7 @@ struct ChatScreen: View {
                     }
 
                     if let blocked = store.blocked {
-                        BlockedTurnCard(blocked: blocked)
+                        BlockedTurnCard(blocked: blocked, conversationId: conversation.id)
                     }
 
                     if let plan = store.plan {
@@ -840,7 +841,7 @@ struct ChatScreen: View {
                             showingModel = true
                         } label: { Label("Model & thinking", systemImage: "cpu") }
                     }
-                    Link(destination: SiteClient.shared.webURL("jkai")) {
+                    Link(destination: SiteClient.shared.webURL(ChatLink.webPath(conversation.id))) {
                         Label("Open jkai on the web", systemImage: "safari")
                     }
                     Button {
@@ -857,10 +858,12 @@ struct ChatScreen: View {
         }
         // Handoff: the same thread, open on the desk. `isEligibleForHandoff`
         // is what puts it on the Mac's dock, and the web URL is what the Mac
-        // opens — there is no Mac app to hand off to.
+        // opens — there is no Mac app to hand off to. `/jkai?c=<id>` is THIS
+        // thread; plain `/jkai` opened the desk on whatever it showed last.
         .userActivity("com.strangeramblings.com.appleapp.thread") { activity in
             activity.title = store.title ?? conversation.displayTitle
-            activity.webpageURL = SiteClient.shared.webURL("jkai")
+            activity.webpageURL = SiteClient.shared.webURL(ChatLink.webPath(conversation.id))
+            activity.userInfo = ["conversationId": conversation.id]
             activity.isEligibleForHandoff = true
             activity.isEligibleForSearch = true
         }

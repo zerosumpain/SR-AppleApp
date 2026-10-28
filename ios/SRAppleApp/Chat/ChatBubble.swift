@@ -219,6 +219,14 @@ struct TurnActivityPanel: View {
 /// A turn that opened a gate the phone cannot answer.
 struct BlockedTurnCard: View {
     let blocked: BlockedTurn
+    /// The thread, so the link opens it on the desk rather than the desk's
+    /// front page — and on the site this phone is paired with, not always
+    /// production.
+    var conversationId: String? = nil
+
+    private var webLink: URL {
+        SiteClient.shared.webURL(conversationId.map(ChatLink.webPath) ?? "jkai")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -237,7 +245,7 @@ struct BlockedTurnCard: View {
                 .font(SR.body(14))
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            Link(destination: SiteClient.defaultOrigin.appendingPathComponent("jkai")) {
+            Link(destination: webLink) {
                 SRButtonLabel(title: "Open jkai on the web", icon: "safari")
             }
             .srButton(.prominent)
