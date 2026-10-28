@@ -117,7 +117,8 @@ final class WatchBridgeTests: XCTestCase {
     func testEveryCommandSurvivesTheTrip() {
         let commands: [WatchCommand] = [
             .markRead(id: "a1"), .clearFromToday(id: "a1"), .syncNow,
-            .ask(question: "How did I sleep?"), .runFlow(slug: "morning"), .refresh,
+            .ask(question: "How did I sleep?"), .askAloud(question: "What's on today?"),
+            .runFlow(slug: "morning"), .refresh,
         ]
         for command in commands {
             XCTAssertEqual(WatchCommand(message: command.message), command)

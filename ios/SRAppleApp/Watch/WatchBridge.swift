@@ -211,6 +211,15 @@ final class WatchBridge: NSObject, ObservableObject {
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return WatchReply(ok: true, text: "Waiting in the composer on your iPhone")
 
+        case .askAloud(let question):
+            // The owner's quick answer, read-only on the server; see
+            // `QuickAnswerIntent`. The wrist is the unlocked device here.
+            guard AccessStore.ownerSite, AccessStore.shared.allows(.chat), AccessStore.shared.viewingAs == nil else {
+                return WatchReply(ok: false, text: "Quick answers are the owner's")
+            }
+            let line = await QuickAnswerRunner.ask(question, surface: "watch")
+            return WatchReply(ok: true, text: line)
+
         case .runFlow(let slug):
             guard AccessStore.ownerSite else { return WatchReply(ok: false, text: "Workflows are the owner's") }
             guard let pin = PinnedFlows.shared.pins.first(where: { $0.slug == slug }) else {
@@ -268,6 +277,8 @@ extension WatchBridge: WCSessionDelegate {
     /// on the answer; the snapshot that follows is the answer.
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         guard let command = WatchCommand(message: userInfo) else { return }
+        // A queued quick answer has nobody waiting to hear it.
+        if case .askAloud = command { return }
         Task { @MainActor in _ = await self.handle(command) }
     }
 }

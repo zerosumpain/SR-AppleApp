@@ -64,6 +64,14 @@ struct WatchTodayPage: View {
                         model.send(.ask(question: question), key: "ask")
                     }
                     .tint(WatchInk.accent)
+                    // Answered here, read-only, into the Quick answers thread.
+                    TextFieldLink(prompt: Text("Quick answer")) {
+                        Label("Quick answer", systemImage: "waveform")
+                            .font(WatchInk.mono(13))
+                    } onSubmit: { question in
+                        model.send(.askAloud(question: question), key: "askAloud")
+                    }
+                    .tint(WatchInk.accent)
                 }
 
                 Text(freshness)

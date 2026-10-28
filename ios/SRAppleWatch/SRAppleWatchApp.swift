@@ -56,7 +56,9 @@ struct WatchRoot: View {
                     .padding(.bottom, 4)
                     .transition(.opacity)
                     .task(id: toast.text) {
-                        try? await Task.sleep(for: .seconds(2.5))
+                        // Long enough to read: a quick answer is a few sentences.
+                        let words = toast.text.split(separator: " ").count
+                        try? await Task.sleep(for: .seconds(min(12, max(2.5, Double(words) / 3))))
                         withAnimation { model.toast = nil }
                     }
             }

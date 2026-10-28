@@ -8,7 +8,8 @@
 # stream rules and `/chat/active`'s answer (`Chat/TurnStream.swift`), the
 # phone channel's frames and routing (`Chat/JkaiEvents.swift`), a turn's map
 # (`Chat/ChatMap.swift`), thread links (`Chat/ChatLink.swift`) and
-# read-aloud's text (`Chat/SpokenText.swift`) are Foundation-only by
+# read-aloud's text (`Chat/SpokenText.swift`) and the hands-free quick
+# answer (`Chat/QuickAnswer.swift`) are Foundation-only by
 # design, so they are compiled here as a throwaway SwiftPM module NAMED
 # `SRAppleApp` (the tests' `@testable import SRAppleApp` is untouched) with
 # `PanelReducerTests`, `TurnStreamTests`, `ChatLinkTests`, `JkaiEventsTests`
@@ -27,8 +28,8 @@ IMAGE="${CHAT_CHECK_IMAGE:-swift:6.0-jammy}"
 BASE="${CHAT_CHECK_TMP:-${TMPDIR:-/tmp}}"
 APP="$ROOT/ios/SRAppleApp"
 CHAT="$APP/Chat"
-PURE=(Chat/DeskModels.swift Chat/PanelReducer.swift Chat/TurnStream.swift Chat/ChatLink.swift Chat/SpokenText.swift Chat/JkaiEvents.swift Chat/ChatMap.swift)
-TESTS=(PanelReducerTests.swift TurnStreamTests.swift ChatLinkTests.swift JkaiEventsTests.swift ChatMapTests.swift)
+PURE=(Chat/DeskModels.swift Chat/PanelReducer.swift Chat/TurnStream.swift Chat/ChatLink.swift Chat/SpokenText.swift Chat/JkaiEvents.swift Chat/ChatMap.swift Chat/QuickAnswer.swift)
+TESTS=(PanelReducerTests.swift TurnStreamTests.swift ChatLinkTests.swift JkaiEventsTests.swift ChatMapTests.swift QuickAnswerTests.swift)
 
 command -v docker >/dev/null || { echo "chat-check: docker is not installed" >&2; exit 2; }
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
