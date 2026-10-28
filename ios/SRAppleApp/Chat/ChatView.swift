@@ -650,6 +650,7 @@ struct ChatScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var speech = SpeechOut.shared
     /// The desk drawer, and the turn it opened on (nil: the one being read).
     @State private var deskOpen = false
     @State private var deskFocus: String?
@@ -683,7 +684,12 @@ struct ChatScreen: View {
                     }
 
                     ForEach(store.messages) { message in
-                        ChatBubble(message: message, openDesk: { openDesk(at: message.id) })
+                        ChatBubble(
+                            message: message,
+                            openDesk: { openDesk(at: message.id) },
+                            live: message.id == store.liveMessageId,
+                            speaking: speech.speakingId == message.id
+                        )
                             .id(message.id)
                             .onAppear { deskVisibility.onScreen.insert(message.id) }
                             .onDisappear { deskVisibility.onScreen.remove(message.id) }
@@ -874,7 +880,10 @@ struct ChatScreen: View {
         // true — but the transcript stopped filling in and only a reload
         // recovered it. So: drop the socket to save the battery, and pick the
         // same job up from its last sequence number on the way back.
-        .onDisappear { store.stop() }
+        .onDisappear {
+            store.stop()
+            speech.stop()
+        }
         .onAppear { store.resume() }
         // Back from the background: the socket did not survive the trip, and
         // the reconnect picks up from the last frame handled.

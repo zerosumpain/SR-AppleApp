@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// One turn in the transcript.
 ///
@@ -15,6 +16,10 @@ struct ChatBubble: View {
     let message: ChatMessage
     /// Opens the desk at this turn. Nil where there is no desk.
     var openDesk: (() -> Void)? = nil
+    /// Still being written. Not read aloud or copied half-finished.
+    var live: Bool = false
+    /// This answer is being read aloud right now.
+    var speaking: Bool = false
 
     var body: some View {
         if message.isUser { userTurn } else { assistantTurn }
@@ -52,7 +57,10 @@ struct ChatBubble: View {
                     .font(SR.body(16))
                     .foregroundStyle(SR.inkMuted)
             } else {
-                MarkdownText(raw: message.content)
+                // Not selectable: the long press is the turn's menu (Read
+                // aloud, Copy), and a selectable run inside it would take the
+                // press for itself on most of the bubble. Copy is in the menu.
+                MarkdownText(raw: message.content, selectable: false)
             }
 
             attachments(register: .paper)
@@ -71,6 +79,43 @@ struct ChatBubble: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .contextMenu { if hasWords { answerMenu } }
+        .accessibilityAction(named: speaking ? "Stop reading" : "Read aloud") { toggleSpeech() }
+    }
+
+    /// An answer worth a menu: finished, and with something in it to read.
+    private var hasWords: Bool {
+        !live && !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.content != "*(no reply)*"
+    }
+
+    /// The long press on an answer. Nothing here speaks on its own: reading
+    /// aloud is always something you asked for.
+    @ViewBuilder
+    private var answerMenu: some View {
+        Button {
+            toggleSpeech()
+        } label: {
+            if speaking {
+                Label("Stop reading", systemImage: "stop.circle")
+            } else {
+                Label("Read aloud", systemImage: "speaker.wave.2")
+            }
+        }
+        Button {
+            UIPasteboard.general.string = message.content
+            SRHaptic.ok()
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
+    }
+
+    private func toggleSpeech() {
+        if speaking {
+            SpeechOut.shared.stop()
+        } else {
+            SpeechOut.shared.speak(message.content, id: message.id)
+        }
     }
 
     /// Whether this answer has a desk page to open.
@@ -272,6 +317,8 @@ struct MarkdownText: View {
     /// Which ground the prose is on. A user turn is smoked ink now, and ink
     /// type on it would be invisible.
     var register: SRRegister = .paper
+    /// Off where the surrounding view has a long-press menu of its own.
+    var selectable: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -280,15 +327,24 @@ struct MarkdownText: View {
                 case .code(let text, let language):
                     CodeBlock(text: text, language: language)
                 case .prose(let text):
-                    Text(inline(text))
-                        .font(SR.body(16))
-                        .lineSpacing(5)
-                        .foregroundStyle(register.primary)
-                        .tint(register.accent)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    prose(text)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func prose(_ text: String) -> some View {
+        let line = Text(inline(text))
+            .font(SR.body(16))
+            .lineSpacing(5)
+            .foregroundStyle(register.primary)
+            .tint(register.accent)
+            .fixedSize(horizontal: false, vertical: true)
+        if selectable {
+            line.textSelection(.enabled)
+        } else {
+            line
         }
     }
 

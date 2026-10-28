@@ -206,3 +206,72 @@ enum VoiceTranscriber {
         }
     }
 }
+
+/// jkai's answers, read aloud on this iPhone — only when asked.
+///
+/// From the long press on an answer ("Read aloud"), never on its own: a phone
+/// that starts talking in a pocket or a meeting is a bug. One voice for the
+/// app, so a second answer cuts off the first rather than talking over it.
+/// The words are `SpokenText.plain` — the answer without its markdown, so the
+/// voice says "Recovery is up", not "asterisk asterisk Recovery".
+///
+/// On the device: `AVSpeechSynthesizer` sends nothing anywhere. A British
+/// voice, as the site's prose is British English. `.spokenAudio` with ducking,
+/// so music dips rather than stops, and the silent switch is respected only as
+/// far as `.playback` respects it — which is to say not, because the reader
+/// asked to hear it.
+@MainActor
+final class SpeechOut: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    static let shared = SpeechOut()
+
+    /// The message being read, if any.
+    @Published private(set) var speakingId: String?
+    private let synth = AVSpeechSynthesizer()
+
+    override init() {
+        super.init()
+        synth.delegate = self
+    }
+
+    func speak(_ markdown: String, id: String) {
+        let words = SpokenText.plain(markdown)
+        guard !words.isEmpty else { return }
+        if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        try? session.setActive(true)
+        let utterance = AVSpeechUtterance(string: words)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-GB")
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        speakingId = id
+        synth.speak(utterance)
+    }
+
+    func stop() {
+        guard speakingId != nil || synth.isSpeaking else { return }
+        synth.stopSpeaking(at: .immediate)
+        speakingId = nil
+        release()
+    }
+
+    /// Give the audio back, so the music that was ducked comes up again.
+    private func release() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.settle() }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.settle() }
+    }
+
+    private func settle() {
+        guard !synth.isSpeaking else { return }
+        if speakingId != nil {
+            speakingId = nil
+            release()
+        }
+    }
+}
