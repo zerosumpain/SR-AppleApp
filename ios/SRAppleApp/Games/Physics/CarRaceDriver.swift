@@ -9,17 +9,19 @@ struct CarRival: Identifiable, Equatable {
     /// Seat, for the colour.
     let seat: Int
     var ghost: CarGhost
-    /// Seconds behind the race clock it is drawn at: a recorded ghost is
-    /// exact (0); a nearby car is drawn a moment late so there are always two
-    /// reports to slide between.
-    var delay: Double = 0
+    /// A car being driven on another phone right now, heard of a few times a
+    /// second: drawn where it should be NOW (carried on from its last report,
+    /// `CarGhost.predict`), and solid — my car knocks into it. A recorded
+    /// ghost is neither: it is drawn exactly and passes through.
+    var live = false
     var finished = false
 }
 
 /// This phone's car and its race: a display link that reads the steering,
-/// drives the rules' physics, counts laps, records the run as a ghost and
-/// keeps the other cars moving. Every mode uses it; the screens around it
-/// decide who the rivals are and what a finish means.
+/// drives the rules' physics, counts laps, records the run as a ghost, keeps
+/// the other cars moving and knocks my car off the live ones. Every mode
+/// uses it; the screens around it decide who the rivals are and what a
+/// finish means.
 @MainActor
 final class CarRaceDriver: ObservableObject {
     enum Phase: Equatable {
@@ -62,21 +64,21 @@ final class CarRaceDriver: ObservableObject {
     private var lastReport: Double = -1
     private var lastBump: Double = -1
     private var steer: Double = 0
+    /// My car's last bounce off each live rival, for the cooldown.
+    private var bumps = CarBumpClock()
+    /// How far each live rival is drawn from where it is predicted to be: the
+    /// jump a fresh report made, easing away (`hear`).
+    private var nudges: [String: CarVec] = [:]
 
     init(track: CarTrack, laps: Int, slot: Int, name: String, useTilt: Bool, startsAt: Double) {
         self.track = track
-        var road = Path()
-        if let first = track.points.first {
-            road.move(to: CGPoint(x: first.x, y: first.y))
-            for p in track.points.dropFirst() { road.addLine(to: CGPoint(x: p.x, y: p.y)) }
-            road.closeSubpath()
-        }
-        self.road = road
+        road = CarRaceScene.road(for: track)
         self.laps = laps
         self.name = name
         self.startsAt = startsAt
         scripted = SRDemo.isOn
-        self.useTilt = useTilt && !SRDemo.isOn
+        // No sensor (or the demo): the arrows steer, whatever was asked for.
+        self.useTilt = useTilt && PhysicsTilt.isAvailable
         let grid = track.grid(slot)
         car = CarState(x: grid.at.x, y: grid.at.y, heading: grid.heading)
         cameraHeading = grid.heading
@@ -112,9 +114,46 @@ final class CarRaceDriver: ObservableObject {
     /// Seconds until the lights go out (0 once racing).
     var countdown: Double { max(0, startsAt - OfflineUptime.now()) }
 
-    /// Where `rival` is now.
+    /// Where `rival` is drawn now.
     func pose(of rival: CarRival) -> (at: CarVec, heading: Double)? {
-        rival.ghost.pose(at: raceTime - rival.delay)
+        guard rival.live else { return rival.ghost.pose(at: raceTime) }
+        guard let body = rival.ghost.predict(at: raceTime) else { return nil }
+        return (body.at + (nudges[rival.id] ?? .zero), body.heading)
+    }
+
+    /// Whether my car can hit `rival` now: a live car still racing, with
+    /// news of it no older than the prediction reaches. One that has gone
+    /// quiet on the link is drawn faded and driven through — it would be
+    /// unfair to bounce off where a car might no longer be. On the grid a
+    /// rival's slot is news enough until the lights go out.
+    func isSolid(_ rival: CarRival) -> Bool {
+        guard rival.live, !rival.finished, let last = rival.ghost.samples.last else { return false }
+        return raceTime - max(last.t, 0) <= CarCollision.horizon
+    }
+
+    /// News of a car driven on another phone: its latest position joins its
+    /// trail. What this phone had predicted for it and what it now knows
+    /// rarely agree exactly, so the difference is kept as a nudge on the
+    /// drawing that eases away over a few frames — the car glides to the
+    /// truth instead of jumping. Collisions use the truth.
+    func hear(_ sample: CarGhost.Sample, from id: String, name: String, seat: Int, finished: Bool) {
+        guard let index = rivals.firstIndex(where: { $0.id == id }) else {
+            var ghost = CarGhost(trackId: track.id, laps: laps, name: name)
+            ghost.append(sample)
+            rivals.append(CarRival(id: id, name: name, seat: seat, ghost: ghost, live: true, finished: finished))
+            return
+        }
+        var rival = rivals[index]
+        let latest = rival.ghost.samples.last?.t
+        let before = rival.ghost.predict(at: raceTime)
+        rival.ghost.append(sample)
+        rival.finished = finished
+        if rival.ghost.samples.last?.t != latest, let before, let after = rival.ghost.predict(at: raceTime) {
+            let nudge = (nudges[id] ?? .zero) + (before.at - after.at)
+            // A jump that big is news (a lost link come back), not noise: show it.
+            nudges[id] = nudge.length > 6 ? .zero : nudge
+        }
+        if rival != rivals[index] { rivals[index] = rival }
     }
 
     /// My place among the cars on the track, by distance raced (1 is first).
@@ -123,7 +162,7 @@ final class CarRaceDriver: ObservableObject {
         let mine = counter.raced
         return 1 + rivals.filter { rival in
             if rival.finished { return true }
-            return (rival.ghost.raced(at: raceTime - rival.delay) ?? -.infinity) > mine
+            return (rival.ghost.raced(at: raceTime) ?? -.infinity) > mine
         }.count
     }
 
@@ -153,12 +192,18 @@ final class CarRaceDriver: ObservableObject {
             raceTime = now - startsAt
         }
         cameraHeading = Self.ease(cameraHeading, towards: car.heading, by: min(1, dt * 6))
+        if !nudges.isEmpty {
+            let keep = exp(-dt * 8)
+            nudges = nudges.mapValues { $0 * keep }
+        }
         return true
     }
 
     private func drive(dt: Double, now: Double) {
         var next = car
-        if let hit = CarPhysics.step(&next, input: input(), track: track, dt: dt), hit.impact > 4, now - lastBump > 0.3 {
+        let wall = CarPhysics.step(&next, input: input(), track: track, dt: dt)?.impact ?? 0
+        let knock = collide(&next)?.impact ?? 0
+        if max(wall, knock) > 4, now - lastBump > 0.3 {
             lastBump = now
             SRHaptic.tap()
         }
@@ -180,6 +225,17 @@ final class CarRaceDriver: ObservableObject {
             tilt.stop()
             onFinish?(laps, recording)
         }
+    }
+
+    /// My car against every solid rival where it is predicted to be now: my
+    /// half of each knock, on my car only (`CarCollision.collide`).
+    private func collide(_ car: inout CarState) -> CarBump? {
+        let others: [(id: String, body: CarBody)] = rivals.compactMap { rival in
+            guard isSolid(rival), let body = rival.ghost.predict(at: raceTime) else { return nil }
+            return (id: rival.id, body: body)
+        }
+        guard !others.isEmpty else { return nil }
+        return CarCollision.collide(&car, with: others, clock: &bumps, at: raceTime)
     }
 
     private func input() -> CarInput {
