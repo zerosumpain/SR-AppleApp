@@ -1,0 +1,2864 @@
+{
+  "source": "SR-Jkai-Core ebefb18 (src/lib/jkai/panel/apply.ts, schema.ts, turn-desk.ts) + SR-Main 3ea49d6ad (src/lib/jkai/native-rich.ts nativePanel), generated 2026-10-28",
+  "generator": "SR-AppleApp scripts/panel-fixtures/generate.sh",
+  "cases": [
+    {
+      "name": "turn-desk-two-searches",
+      "note": "TurnDesk emitted ops for two web searches, then finish() ops; final is done.result.panel",
+      "ops": [
+        {
+          "kind": "head",
+          "head": {
+            "kicker": "This turn",
+            "context": [
+              "travel"
+            ],
+            "title": "What time does the rome flight leave on monday"
+          },
+          "producer": "turn"
+        },
+        {
+          "kind": "upsert",
+          "section": "sources",
+          "sectionLabel": "Sources",
+          "block": {
+            "id": "src:c1",
+            "span": 12,
+            "title": "Searched “c1”",
+            "source": "web_search",
+            "type": "rows",
+            "numbered": false,
+            "rows": [
+              {
+                "id": "https://a.example/1",
+                "title": "https://a.example/1",
+                "sub": "a.example",
+                "meta": "found",
+                "href": "https://a.example/1",
+                "external": true
+              },
+              {
+                "id": "https://b.example/2",
+                "title": "https://b.example/2",
+                "sub": "b.example",
+                "meta": "found",
+                "href": "https://b.example/2",
+                "external": true
+              }
+            ],
+            "empty": "The search found nothing."
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "sources",
+          "sectionLabel": "Sources",
+          "block": {
+            "id": "tavily:offer",
+            "span": 12,
+            "note": "Deeper search spends Tavily credits — only when you ask.",
+            "type": "actions",
+            "items": [
+              {
+                "id": "tavily:offer:go",
+                "label": "Search deeper with Tavily",
+                "kind": "ask",
+                "ask": {
+                  "label": "Search with Tavily: c1",
+                  "detail": "Offered by the desk after a web search."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "sources",
+          "sectionLabel": "Sources",
+          "block": {
+            "id": "src:c2",
+            "span": 12,
+            "title": "Searched “c2”",
+            "source": "web_search",
+            "type": "rows",
+            "numbered": false,
+            "rows": [
+              {
+                "id": "https://c.example/3",
+                "title": "https://c.example/3",
+                "sub": "c.example",
+                "meta": "found",
+                "href": "https://c.example/3",
+                "external": true
+              }
+            ],
+            "empty": "The search found nothing."
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "sources",
+          "sectionLabel": "Sources",
+          "block": {
+            "id": "tavily:offer",
+            "span": 12,
+            "note": "Deeper search spends Tavily credits — only when you ask.",
+            "type": "actions",
+            "items": [
+              {
+                "id": "tavily:offer:go",
+                "label": "Search deeper with Tavily",
+                "kind": "ask",
+                "ask": {
+                  "label": "Search with Tavily: c2",
+                  "detail": "Offered by the desk after a web search."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "head",
+          "head": {
+            "kicker": "This turn",
+            "context": [
+              "travel"
+            ],
+            "title": "What time does the rome flight leave on monday",
+            "standfirst": "Built from 3 sources read for this answer."
+          },
+          "producer": "turn"
+        },
+        {
+          "kind": "head",
+          "head": {
+            "kicker": "This turn",
+            "context": [
+              "travel"
+            ],
+            "title": "What time does the rome flight leave on monday",
+            "standfirst": "Built from 3 sources read for this answer."
+          },
+          "producer": "turn"
+        }
+      ],
+      "raw": [
+        {
+          "id": "sources",
+          "label": "Sources",
+          "blocks": [
+            "src:c1",
+            "tavily:offer",
+            "src:c2"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [
+            "travel"
+          ],
+          "title": "What time does the rome flight leave on monday",
+          "standfirst": "Built from 3 sources read for this answer."
+        },
+        "sections": [
+          {
+            "id": "sources",
+            "label": "Sources",
+            "blocks": [
+              {
+                "id": "src:c1",
+                "span": 12,
+                "title": "Searched “c1”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://a.example/1",
+                    "title": "https://a.example/1",
+                    "sub": "a.example",
+                    "meta": "found",
+                    "href": "https://a.example/1",
+                    "external": true
+                  },
+                  {
+                    "id": "https://b.example/2",
+                    "title": "https://b.example/2",
+                    "sub": "b.example",
+                    "meta": "found",
+                    "href": "https://b.example/2",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              },
+              {
+                "id": "tavily:offer",
+                "span": 12,
+                "note": "Deeper search spends Tavily credits — only when you ask.",
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "tavily:offer:go",
+                    "label": "Search deeper with Tavily",
+                    "kind": "ask",
+                    "ask": {
+                      "label": "Search with Tavily: c2",
+                      "detail": "Offered by the desk after a web search."
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "src:c2",
+                "span": 12,
+                "title": "Searched “c2”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://c.example/3",
+                    "title": "https://c.example/3",
+                    "sub": "c.example",
+                    "meta": "found",
+                    "href": "https://c.example/3",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      },
+      "done": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [
+            "travel"
+          ],
+          "title": "What time does the rome flight leave on monday",
+          "standfirst": "Built from 3 sources read for this answer."
+        },
+        "sections": [
+          {
+            "id": "sources",
+            "label": "Sources",
+            "blocks": [
+              {
+                "id": "src:c1",
+                "span": 12,
+                "title": "Searched “c1”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://a.example/1",
+                    "title": "https://a.example/1",
+                    "sub": "a.example",
+                    "meta": "found",
+                    "href": "https://a.example/1",
+                    "external": true
+                  },
+                  {
+                    "id": "https://b.example/2",
+                    "title": "https://b.example/2",
+                    "sub": "b.example",
+                    "meta": "found",
+                    "href": "https://b.example/2",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              },
+              {
+                "id": "tavily:offer",
+                "span": 12,
+                "note": "Deeper search spends Tavily credits — only when you ask.",
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "tavily:offer:go",
+                    "label": "Search deeper with Tavily",
+                    "kind": "ask",
+                    "ask": {
+                      "label": "Search with Tavily: c2",
+                      "detail": "Offered by the desk after a web search."
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "src:c2",
+                "span": 12,
+                "title": "Searched “c2”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://c.example/3",
+                    "title": "https://c.example/3",
+                    "sub": "c.example",
+                    "meta": "found",
+                    "href": "https://c.example/3",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      },
+      "donePage": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [
+            "travel"
+          ],
+          "title": "What time does the rome flight leave on monday",
+          "standfirst": "Built from 3 sources read for this answer."
+        },
+        "sections": [
+          {
+            "id": "sources",
+            "label": "Sources",
+            "blocks": [
+              {
+                "id": "src:c1",
+                "span": 12,
+                "title": "Searched “c1”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://a.example/1",
+                    "title": "https://a.example/1",
+                    "sub": "a.example",
+                    "meta": "found",
+                    "href": "https://a.example/1",
+                    "external": true
+                  },
+                  {
+                    "id": "https://b.example/2",
+                    "title": "https://b.example/2",
+                    "sub": "b.example",
+                    "meta": "found",
+                    "href": "https://b.example/2",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              },
+              {
+                "id": "tavily:offer",
+                "span": 12,
+                "note": "Deeper search spends Tavily credits — only when you ask.",
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "tavily:offer:go",
+                    "label": "Search deeper with Tavily",
+                    "kind": "ask",
+                    "ask": {
+                      "label": "Search with Tavily: c2",
+                      "detail": "Offered by the desk after a web search."
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "src:c2",
+                "span": 12,
+                "title": "Searched “c2”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://c.example/3",
+                    "title": "https://c.example/3",
+                    "sub": "c.example",
+                    "meta": "found",
+                    "href": "https://c.example/3",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "turn-desk-health",
+      "note": "TurnDesk ops for a health turn with a search",
+      "ops": [
+        {
+          "kind": "head",
+          "head": {
+            "kicker": "Health",
+            "context": [
+              "health"
+            ],
+            "title": "Current fitness level"
+          },
+          "producer": "turn"
+        },
+        {
+          "kind": "upsert",
+          "section": "health-readiness",
+          "sectionLabel": "Readiness",
+          "block": {
+            "id": "hl:h1:ready",
+            "span": 12,
+            "title": "Readiness",
+            "source": "health_readiness",
+            "type": "figures",
+            "items": [
+              {
+                "label": "Readiness",
+                "value": "73",
+                "delta": "Ready",
+                "tone": "good"
+              },
+              {
+                "label": "Recovery",
+                "value": "51",
+                "unit": "%",
+                "tone": "warn"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "health-readiness",
+          "sectionLabel": "Readiness",
+          "block": {
+            "id": "hl:h1:factors",
+            "span": 12,
+            "title": "What the score is made of",
+            "note": "factor score · weight",
+            "foot": "Score 73 (Ready); the weakest factor is recovery at 51.",
+            "source": "health_readiness",
+            "type": "bars",
+            "rows": [
+              {
+                "id": "recovery",
+                "label": "Recovery",
+                "value": 51,
+                "display": "51 · 40%"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "sources",
+          "sectionLabel": "Sources",
+          "block": {
+            "id": "src:c1",
+            "span": 12,
+            "title": "Searched “c1”",
+            "source": "web_search",
+            "type": "rows",
+            "numbered": false,
+            "rows": [
+              {
+                "id": "https://a.example/1",
+                "title": "https://a.example/1",
+                "sub": "a.example",
+                "meta": "found",
+                "href": "https://a.example/1",
+                "external": true
+              }
+            ],
+            "empty": "The search found nothing."
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "sources",
+          "sectionLabel": "Sources",
+          "block": {
+            "id": "tavily:offer",
+            "span": 12,
+            "note": "Deeper search spends Tavily credits — only when you ask.",
+            "type": "actions",
+            "items": [
+              {
+                "id": "tavily:offer:go",
+                "label": "Search deeper with Tavily",
+                "kind": "ask",
+                "ask": {
+                  "label": "Search with Tavily: c1",
+                  "detail": "Offered by the desk after a web search."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "health-next",
+          "sectionLabel": "Next",
+          "block": {
+            "id": "hl:open",
+            "span": 12,
+            "type": "actions",
+            "items": [
+              {
+                "id": "open-health",
+                "label": "Open /health",
+                "kind": "link",
+                "href": "/health"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "health-next",
+          "sectionLabel": "Next",
+          "block": {
+            "id": "hl:open",
+            "span": 12,
+            "type": "actions",
+            "items": [
+              {
+                "id": "open-health",
+                "label": "Open /health",
+                "kind": "link",
+                "href": "/health"
+              }
+            ]
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "health-readiness",
+          "label": "Readiness",
+          "blocks": [
+            "hl:h1:ready",
+            "hl:h1:factors"
+          ]
+        },
+        {
+          "id": "sources",
+          "label": "Sources",
+          "blocks": [
+            "src:c1",
+            "tavily:offer"
+          ]
+        },
+        {
+          "id": "health-next",
+          "label": "Next",
+          "blocks": [
+            "hl:open"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "Health",
+          "context": [
+            "health"
+          ],
+          "title": "Current fitness level"
+        },
+        "sections": [
+          {
+            "id": "health-readiness",
+            "label": "Readiness",
+            "blocks": [
+              {
+                "id": "hl:h1:ready",
+                "span": 12,
+                "title": "Readiness",
+                "source": "health_readiness",
+                "type": "figures",
+                "items": [
+                  {
+                    "label": "Readiness",
+                    "value": "73",
+                    "delta": "Ready",
+                    "tone": "good"
+                  },
+                  {
+                    "label": "Recovery",
+                    "value": "51",
+                    "unit": "%",
+                    "tone": "warn"
+                  }
+                ]
+              },
+              {
+                "id": "hl:h1:factors",
+                "span": 12,
+                "title": "What the score is made of",
+                "note": "factor score · weight",
+                "foot": "Score 73 (Ready); the weakest factor is recovery at 51.",
+                "source": "health_readiness",
+                "type": "bars",
+                "rows": [
+                  {
+                    "id": "recovery",
+                    "label": "Recovery",
+                    "value": 51,
+                    "display": "51 · 40%"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sources",
+            "label": "Sources",
+            "blocks": [
+              {
+                "id": "src:c1",
+                "span": 12,
+                "title": "Searched “c1”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://a.example/1",
+                    "title": "https://a.example/1",
+                    "sub": "a.example",
+                    "meta": "found",
+                    "href": "https://a.example/1",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              },
+              {
+                "id": "tavily:offer",
+                "span": 12,
+                "note": "Deeper search spends Tavily credits — only when you ask.",
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "tavily:offer:go",
+                    "label": "Search deeper with Tavily",
+                    "kind": "ask",
+                    "ask": {
+                      "label": "Search with Tavily: c1",
+                      "detail": "Offered by the desk after a web search."
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "health-next",
+            "label": "Next",
+            "blocks": [
+              {
+                "id": "hl:open",
+                "span": 12,
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "open-health",
+                    "label": "Open /health",
+                    "kind": "link",
+                    "href": "/health"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      },
+      "done": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "Health",
+          "context": [
+            "health"
+          ],
+          "title": "Current fitness level"
+        },
+        "sections": [
+          {
+            "id": "health-readiness",
+            "label": "Readiness",
+            "blocks": [
+              {
+                "id": "hl:h1:ready",
+                "span": 12,
+                "title": "Readiness",
+                "source": "health_readiness",
+                "type": "figures",
+                "items": [
+                  {
+                    "label": "Readiness",
+                    "value": "73",
+                    "delta": "Ready",
+                    "tone": "good"
+                  },
+                  {
+                    "label": "Recovery",
+                    "value": "51",
+                    "unit": "%",
+                    "tone": "warn"
+                  }
+                ]
+              },
+              {
+                "id": "hl:h1:factors",
+                "span": 12,
+                "title": "What the score is made of",
+                "note": "factor score · weight",
+                "foot": "Score 73 (Ready); the weakest factor is recovery at 51.",
+                "source": "health_readiness",
+                "type": "bars",
+                "rows": [
+                  {
+                    "id": "recovery",
+                    "label": "Recovery",
+                    "value": 51,
+                    "display": "51 · 40%"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sources",
+            "label": "Sources",
+            "blocks": [
+              {
+                "id": "src:c1",
+                "span": 12,
+                "title": "Searched “c1”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://a.example/1",
+                    "title": "https://a.example/1",
+                    "sub": "a.example",
+                    "meta": "found",
+                    "href": "https://a.example/1",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              },
+              {
+                "id": "tavily:offer",
+                "span": 12,
+                "note": "Deeper search spends Tavily credits — only when you ask.",
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "tavily:offer:go",
+                    "label": "Search deeper with Tavily",
+                    "kind": "ask",
+                    "ask": {
+                      "label": "Search with Tavily: c1",
+                      "detail": "Offered by the desk after a web search."
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "health-next",
+            "label": "Next",
+            "blocks": [
+              {
+                "id": "hl:open",
+                "span": 12,
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "open-health",
+                    "label": "Open /health",
+                    "kind": "link",
+                    "href": "/health"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      },
+      "donePage": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "Health",
+          "context": [
+            "health"
+          ],
+          "title": "Current fitness level"
+        },
+        "sections": [
+          {
+            "id": "health-readiness",
+            "label": "Readiness",
+            "blocks": [
+              {
+                "id": "hl:h1:ready",
+                "span": 12,
+                "title": "Readiness",
+                "source": "health_readiness",
+                "type": "figures",
+                "items": [
+                  {
+                    "label": "Readiness",
+                    "value": "73",
+                    "delta": "Ready",
+                    "tone": "good"
+                  },
+                  {
+                    "label": "Recovery",
+                    "value": "51",
+                    "unit": "%",
+                    "tone": "warn"
+                  }
+                ]
+              },
+              {
+                "id": "hl:h1:factors",
+                "span": 12,
+                "title": "What the score is made of",
+                "note": "factor score · weight",
+                "foot": "Score 73 (Ready); the weakest factor is recovery at 51.",
+                "source": "health_readiness",
+                "type": "bars",
+                "rows": [
+                  {
+                    "id": "recovery",
+                    "label": "Recovery",
+                    "value": 51,
+                    "display": "51 · 40%"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sources",
+            "label": "Sources",
+            "blocks": [
+              {
+                "id": "src:c1",
+                "span": 12,
+                "title": "Searched “c1”",
+                "source": "web_search",
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "https://a.example/1",
+                    "title": "https://a.example/1",
+                    "sub": "a.example",
+                    "meta": "found",
+                    "href": "https://a.example/1",
+                    "external": true
+                  }
+                ],
+                "empty": "The search found nothing."
+              },
+              {
+                "id": "tavily:offer",
+                "span": 12,
+                "note": "Deeper search spends Tavily credits — only when you ask.",
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "tavily:offer:go",
+                    "label": "Search deeper with Tavily",
+                    "kind": "ask",
+                    "ask": {
+                      "label": "Search with Tavily: c1",
+                      "detail": "Offered by the desk after a web search."
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "health-next",
+            "label": "Next",
+            "blocks": [
+              {
+                "id": "hl:open",
+                "span": 12,
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "open-health",
+                    "label": "Open /health",
+                    "kind": "link",
+                    "href": "/health"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "turn-desk-casual-quiet",
+      "note": "a casual turn emits only quiet and has no page",
+      "ops": [
+        {
+          "kind": "quiet"
+        }
+      ],
+      "raw": [],
+      "rawQuiet": true,
+      "rawProducer": "turn",
+      "page": null,
+      "done": null,
+      "donePage": null
+    },
+    {
+      "name": "upsert-in-place",
+      "note": "apply.test.ts: replaces a block in place by id (replay-safe)",
+      "ops": [
+        {
+          "kind": "upsert",
+          "section": "s",
+          "block": {
+            "id": "a",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "one"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s",
+          "block": {
+            "id": "b",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s",
+          "block": {
+            "id": "a",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "two"
+              }
+            ]
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "s",
+          "label": "",
+          "blocks": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [],
+          "title": "Working"
+        },
+        "sections": [
+          {
+            "id": "s",
+            "label": "",
+            "blocks": [
+              {
+                "id": "a",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "two"
+                  }
+                ]
+              },
+              {
+                "id": "b",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "upsert-moves-section",
+      "note": "apply.test.ts: moves a block when upserted into another section (the emptied section stays in the raw page)",
+      "ops": [
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "sectionLabel": "One",
+          "block": {
+            "id": "a",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "sectionLabel": "Two",
+          "block": {
+            "id": "a",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "s1",
+          "label": "One",
+          "blocks": []
+        },
+        {
+          "id": "s2",
+          "label": "Two",
+          "blocks": [
+            "a"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [],
+          "title": "Working"
+        },
+        "sections": [
+          {
+            "id": "s2",
+            "label": "Two",
+            "blocks": [
+              {
+                "id": "a",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "cap-40",
+      "note": "apply.test.ts: caps the PAGE at MAX_BLOCKS_PER_PAGE (40) across sections; an existing id still updates. Kept to <=24 per section, the schema section cap, or nativePanel would refuse the page",
+      "ops": [
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a0",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a1",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a2",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a3",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a4",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a5",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a6",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a7",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a8",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a9",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a10",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a11",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a12",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a13",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a14",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a15",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a16",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a17",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a18",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s1",
+          "block": {
+            "id": "a19",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b0",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b1",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b2",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b3",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b4",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b5",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b6",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b7",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b8",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b9",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b10",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b11",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b12",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b13",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b14",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b15",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b16",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b17",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b18",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b19",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b20",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b21",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b22",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b23",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b24",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s2",
+          "block": {
+            "id": "b3",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "updated"
+              }
+            ]
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "s1",
+          "label": "",
+          "blocks": [
+            "a0",
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5",
+            "a6",
+            "a7",
+            "a8",
+            "a9",
+            "a10",
+            "a11",
+            "a12",
+            "a13",
+            "a14",
+            "a15",
+            "a16",
+            "a17",
+            "a18",
+            "a19"
+          ]
+        },
+        {
+          "id": "s2",
+          "label": "",
+          "blocks": [
+            "b0",
+            "b1",
+            "b2",
+            "b3",
+            "b4",
+            "b5",
+            "b6",
+            "b7",
+            "b8",
+            "b9",
+            "b10",
+            "b11",
+            "b12",
+            "b13",
+            "b14",
+            "b15",
+            "b16",
+            "b17",
+            "b18",
+            "b19"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [],
+          "title": "Working"
+        },
+        "sections": [
+          {
+            "id": "s1",
+            "label": "",
+            "blocks": [
+              {
+                "id": "a0",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a1",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a2",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a3",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a4",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a5",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a6",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a7",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a8",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a9",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a10",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a11",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a12",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a13",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a14",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a15",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a16",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a17",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a18",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "a19",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "s2",
+            "label": "",
+            "blocks": [
+              {
+                "id": "b0",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b1",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b2",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b3",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "updated"
+                  }
+                ]
+              },
+              {
+                "id": "b4",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b5",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b6",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b7",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b8",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b9",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b10",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b11",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b12",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b13",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b14",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b15",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b16",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b17",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b18",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "b19",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "head-quiet-remove-reset",
+      "note": "apply.test.ts: head with producer, quiet cleared by an upsert, remove, reset",
+      "ops": [
+        {
+          "kind": "head",
+          "head": {
+            "kicker": "Health",
+            "context": [
+              "health"
+            ],
+            "title": "Load"
+          },
+          "producer": "context"
+        },
+        {
+          "kind": "quiet"
+        },
+        {
+          "kind": "upsert",
+          "section": "s",
+          "block": {
+            "id": "a",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "t",
+          "sectionLabel": "Later",
+          "block": {
+            "id": "b",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "remove",
+          "id": "a"
+        },
+        {
+          "kind": "reset"
+        },
+        {
+          "kind": "upsert",
+          "section": "m-lead",
+          "sectionLabel": "Model",
+          "block": {
+            "id": "m:p",
+            "type": "prose",
+            "markdown": "Rebuilt"
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "m-lead",
+          "label": "Model",
+          "blocks": [
+            "m:p"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "context",
+      "page": {
+        "version": 1,
+        "producer": "context",
+        "head": {
+          "kicker": "Health",
+          "context": [
+            "health"
+          ],
+          "title": "Load"
+        },
+        "sections": [
+          {
+            "id": "m-lead",
+            "label": "Model",
+            "blocks": [
+              {
+                "id": "m:p",
+                "span": 12,
+                "type": "prose",
+                "markdown": "Rebuilt"
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "replay-twice",
+      "note": "a reconnect that replays ops already applied lands on the same page",
+      "ops": [
+        {
+          "kind": "head",
+          "head": {
+            "kicker": "This turn",
+            "context": [],
+            "title": "Mail"
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "mail",
+          "sectionLabel": "Mail",
+          "block": {
+            "id": "m1",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "First"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "mail",
+          "block": {
+            "id": "m2",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "Second"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "head",
+          "head": {
+            "kicker": "This turn",
+            "context": [],
+            "title": "Mail"
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "mail",
+          "sectionLabel": "Mail",
+          "block": {
+            "id": "m1",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "First"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "mail",
+          "block": {
+            "id": "m2",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "Second"
+              }
+            ]
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "mail",
+          "label": "Mail",
+          "blocks": [
+            "m1",
+            "m2"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [],
+          "title": "Mail"
+        },
+        "sections": [
+          {
+            "id": "mail",
+            "label": "Mail",
+            "blocks": [
+              {
+                "id": "m1",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "First"
+                  }
+                ]
+              },
+              {
+                "id": "m2",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "Second"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "phone-keep-filter",
+      "note": "Main nativePanel keep(): artifact blocks and non-ask/link actions never reach the phone; a section left empty is dropped",
+      "ops": [
+        {
+          "kind": "upsert",
+          "section": "charts",
+          "sectionLabel": "Charts",
+          "block": {
+            "id": "art",
+            "type": "artifact",
+            "artifact": {
+              "type": "chart",
+              "spec": {}
+            }
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "mixed",
+          "block": {
+            "id": "act",
+            "type": "actions",
+            "items": [
+              {
+                "id": "p",
+                "label": "Post",
+                "kind": "post",
+                "endpoint": "/api/x"
+              },
+              {
+                "id": "q",
+                "label": "Ask",
+                "kind": "ask",
+                "ask": {
+                  "label": "Draft",
+                  "detail": "Draft week 8"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "mixed",
+          "block": {
+            "id": "only-post",
+            "type": "actions",
+            "items": [
+              {
+                "id": "c",
+                "label": "Delete",
+                "kind": "confirm",
+                "endpoint": "/api/y"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "mixed",
+          "block": {
+            "id": "grp",
+            "type": "group",
+            "blocks": [
+              {
+                "id": "g-art",
+                "type": "artifact",
+                "artifact": {}
+              },
+              {
+                "id": "g-kv",
+                "type": "kv",
+                "items": [
+                  {
+                    "label": "x",
+                    "value": "y"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "charts",
+          "label": "Charts",
+          "blocks": [
+            "art"
+          ]
+        },
+        {
+          "id": "mixed",
+          "label": "",
+          "blocks": [
+            "act",
+            "only-post",
+            "grp"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [],
+          "title": "Working"
+        },
+        "sections": [
+          {
+            "id": "mixed",
+            "label": "",
+            "blocks": [
+              {
+                "id": "act",
+                "span": 12,
+                "type": "actions",
+                "items": [
+                  {
+                    "id": "q",
+                    "label": "Ask",
+                    "kind": "ask",
+                    "ask": {
+                      "label": "Draft",
+                      "detail": "Draft week 8"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "grp",
+                "span": 12,
+                "type": "group",
+                "blocks": [
+                  {
+                    "id": "g-kv",
+                    "span": 12,
+                    "type": "kv",
+                    "items": [
+                      {
+                        "label": "x",
+                        "value": "y"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    },
+    {
+      "name": "dropped-ops",
+      "note": "ops the web drops at safeParse (unknown kind, missing section, block without id) change nothing",
+      "ops": [
+        {
+          "kind": "upsert",
+          "section": "s",
+          "block": {
+            "id": "a",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "teleport",
+          "to": "mars"
+        },
+        {
+          "kind": "upsert",
+          "block": {
+            "id": "b",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "upsert",
+          "section": "s",
+          "block": {
+            "type": "rows",
+            "rows": []
+          }
+        },
+        {
+          "kind": "remove"
+        },
+        "not an op",
+        null,
+        {
+          "kind": "upsert",
+          "section": "s",
+          "block": {
+            "id": "c",
+            "type": "rows",
+            "rows": [
+              {
+                "id": "r",
+                "title": "a"
+              }
+            ]
+          }
+        }
+      ],
+      "raw": [
+        {
+          "id": "s",
+          "label": "",
+          "blocks": [
+            "a",
+            "c"
+          ]
+        }
+      ],
+      "rawQuiet": false,
+      "rawProducer": "turn",
+      "page": {
+        "version": 1,
+        "producer": "turn",
+        "head": {
+          "kicker": "This turn",
+          "context": [],
+          "title": "Working"
+        },
+        "sections": [
+          {
+            "id": "s",
+            "label": "",
+            "blocks": [
+              {
+                "id": "a",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              },
+              {
+                "id": "c",
+                "span": 12,
+                "type": "rows",
+                "numbered": false,
+                "rows": [
+                  {
+                    "id": "r",
+                    "title": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quiet": false
+      }
+    }
+  ]
+}
