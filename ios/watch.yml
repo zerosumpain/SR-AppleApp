@@ -96,6 +96,17 @@ targets:
       - path: SRAppleApp/Family/FamilyMessagesWidgetModel.swift
       - path: SRAppleApp/Family/FamilyMessagesWidgetFaces.swift
       - path: SRAppleApp/Intents/BatPhoneIntent.swift
+      # The glance widgets — Family now, Trips, Games, Health today: each
+      # snapshot and its rules (Foundation only), and its faces, shared with
+      # the app that fills the shelf and draws the gallery.
+      - path: SRAppleApp/Family/FamilyNowWidgetModel.swift
+      - path: SRAppleApp/Family/FamilyNowWidgetFaces.swift
+      - path: SRAppleApp/Trips/TripsWidgetModel.swift
+      - path: SRAppleApp/Trips/TripsWidgetFaces.swift
+      - path: SRAppleApp/Games/GamesWidgetModel.swift
+      - path: SRAppleApp/Games/GamesWidgetFaces.swift
+      - path: SRAppleApp/Health/HealthWidgetModel.swift
+      - path: SRAppleApp/Health/HealthWidgetFaces.swift
       # The reader's palette, as the app leaves it on the shelf.
       - path: SRAppleApp/Design/SRPaletteShared.swift
       # The headline and label faces, as on the Watch.

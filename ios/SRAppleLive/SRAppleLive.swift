@@ -11,8 +11,9 @@ import ActivityKit
 //
 // The same extension carries the family's Home Screen widgets — the step
 // board and the task list (`FamilyWidgets.swift`), msg family and the bat
-// phone (`FamilyMessagesWidgets.swift`) — so they ride on the profile CI
-// already mints for it rather than needing a target of their own.
+// phone (`FamilyMessagesWidgets.swift`), and the glance widgets: Family now,
+// Trips, Games and Health today (`GlanceWidgets.swift`) — so they ride on the
+// profile CI already mints for it rather than needing a target of their own.
 
 @main
 struct SRLiveBundle: WidgetBundle {
@@ -23,6 +24,8 @@ struct SRLiveBundle: WidgetBundle {
         FamilyTasksWidget()
         FamilyMessagesHomeWidget()
         BatPhoneWidget()
+        // Four more, in a bundle of their own: a body holds ten at most.
+        SRGlanceWidgets().body
         // A capture recording (`Captures/CaptureRecorder.swift` starts it).
         CaptureLiveActivity()
         // Start or stop a capture from Control Center or the Lock Screen;

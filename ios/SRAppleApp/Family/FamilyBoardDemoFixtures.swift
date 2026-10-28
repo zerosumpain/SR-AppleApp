@@ -204,6 +204,8 @@ struct FamilyWidgetGallery: View {
                         tile(BatPhoneWidgetView(size: .circular, palette: palette), width: 72, height: 72, lock: true)
                     }
                 }
+
+                GlanceWidgetGallerySections(palette: palette)
             }
             .padding(SR.gutter)
         }
