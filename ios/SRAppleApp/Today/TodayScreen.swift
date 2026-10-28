@@ -261,6 +261,7 @@ struct TodayScreen: View {
             // The Watch's health figures and Today's first alerts come from
             // this store's payload — no second request.
             WatchBridge.shared.attach(today: store)
+            HealthWidgetBridge.shared.attach(today: store, rings: rings)
             rings.start()
             // Not awaited before Today's own request: the family is a glance, and
             // the first paint must not wait on a second server.
