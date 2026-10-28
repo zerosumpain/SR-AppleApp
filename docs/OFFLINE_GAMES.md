@@ -35,6 +35,10 @@ ios/SRAppleApp/Offline/
     OfflinePlayModes.swift   which games can be played alone / nearby, online → offline twins
     OfflineResults.swift     OfflineResult, OfflineResultQueue: results waiting to sync
     OfflineRulesAudit.swift  generic checks every game's tests run
+    OfflineWords.swift       the word games' list: OfflineWordList (packed, sorted, binary search),
+                             OfflineWords.shared (read from the bundle on first use)
+  Words/       offline-words.txt — ~71k words of 3–9 letters from SR-Main's Boggle/Anagram lists
+               (regenerate: node scripts/build-offline-words.mjs <SR-Main>); bundled as a resource
   Link/        OfflineLink protocol, OfflineNearbyLink (MPC), OfflineHotspotLink (NWListener/NWBrowser),
                OfflineDualLink (both at once — the default)
   Session/     OfflineSession (@MainActor ObservableObject, one shared instance),
@@ -438,6 +442,17 @@ registered with `OfflineCatalogueItem(withBot: Rules.self)`. It can then be play
 (`OfflinePlayModes.soloBots`), and a host can add computer players to empty seats. The
 room moves bots on its tick after `OfflineRoom.botThink` and sends them nothing. Bots so
 far: Crazy Eights, Dots and Boxes, Four in a Row.
+
+**Word games** (Boggle, Anagram Blitz, Categories) are the offline twins of the site's
+games of the same ids (`OfflinePlayModes.offlineTwin`). Boggle and Anagram Blitz judge
+words on the host with `OfflineWords.shared.list`, the site's own list cut to nine
+letters, solved at the deal so the reveal can show what nobody found; if the bundle ever
+lacks the list they accept any word that fits rather than refusing everything. Categories
+needs no list: the site's letter test, shared answers score nothing, and a review where
+half the other players' vetoes strike an answer. All three end in a reveal that stays up
+until everyone taps "See the table" (`.ready` / `.done`). Their views share
+`UI/OfflineWordKit.swift`. Tests read the list from the source tree through
+`OfflineWordsTests.install()` (the check script copies it beside the Linux package).
 
 `OfflineCatalogueItem(Rules.self) { context in View }` builds both halves: the type-erased
 `OfflineGameEntry(Rules.self)` the host's `OfflineRoom` starts matches from (via

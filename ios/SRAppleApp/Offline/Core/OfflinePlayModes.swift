@@ -29,6 +29,9 @@ enum OfflinePlayModes {
     /// its own rules on the site; this one runs on the phone.
     static let offlineTwin: [String: String] = [
         "maths-sprint": "maths-sprint",
+        "boggle": "boggle",
+        "anagram-blitz": "anagram-blitz",
+        "categories": "categories",
     ]
 
     /// The offline game to open for a game id from either catalogue.
