@@ -49,6 +49,7 @@ final class CarRaceDriver: ObservableObject {
     /// Steering from the buttons: −1, 0, 1. Ignored when tilt steers.
     var steerHeld: Double = 0
     var brakeHeld = false
+    var boostHeld = false
     let useTilt: Bool
     let scripted: Bool
     let tilt = PhysicsTilt()
@@ -251,7 +252,7 @@ final class CarRaceDriver: ObservableObject {
         }
         // Buttons are all or nothing: ease them so a tap is a nudge, not a swerve.
         steer += (wanted - steer) * (useTilt ? 0.5 : 0.18)
-        return CarInput(throttle: brakeHeld ? -1 : 1, steer: steer)
+        return CarInput(throttle: brakeHeld ? -1 : 1, steer: steer, boost: boostHeld && !brakeHeld)
     }
 
     private static func ease(_ angle: Double, towards target: Double, by share: Double) -> Double {

@@ -95,7 +95,7 @@ final class CarSplitDriver: ObservableObject {
             let car = CarRaceScene.Car(at: racer.car.position, heading: racer.car.heading,
                                        colour: OfflineSeatColour.of(racer.id),
                                        ghost: racer.laps.finished && racer.id != seat,
-                                       smoke: racer.car.drifting, mine: racer.id == seat)
+                                       smoke: racer.car.drifting, boost: racer.car.boosting, mine: racer.id == seat)
             if racer.id == seat { mine = car } else { cars.append(car) }
         }
         if let mine { cars.append(mine) }
@@ -249,7 +249,7 @@ struct CarSplitPaneView: View {
             }
             .padding(10)
         }
-        .background(CarRaceScene.grass)
+        .background(CarRaceScene.ground(driver.track.scenery))
         .clipped()
         // The layer above reads the fingers; this part only shows them.
         .allowsHitTesting(false)
@@ -308,7 +308,9 @@ struct CarSplitPaneView: View {
             .srGlassCard(.paper)
     }
 
-    /// Where to hold: left, right, and both together to brake. Lit while held.
+    /// Where to hold: left, right, both together to brake, and the boost
+    /// down the middle with its tank. Lit while held; laid out in the same
+    /// shares as `CarSplitLayout.holds` reads the fingers.
     @ViewBuilder
     private var pedals: some View {
         if driver.scripted {
@@ -320,30 +322,59 @@ struct CarSplitPaneView: View {
                 .background(Capsule().fill(Color.black.opacity(0.35)))
         } else {
             let held = seat < driver.holds.count ? driver.holds[seat] : CarSplitHold()
-            HStack(spacing: 10) {
-                pedal(icon: "arrow.left", lit: held.left, braking: held.left && held.right)
+            let braking = held.left && held.right
+            VStack(spacing: 6) {
                 if racer?.laps.finished != true, driver.phase == .grid {
-                    Text("Hold both to brake")
+                    Text("Hold both arrows to brake · the middle to boost")
                         .font(SR.Text.mono(11))
                         .foregroundStyle(Color.white.opacity(0.85))
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
                 }
-                pedal(icon: "arrow.right", lit: held.right, braking: held.left && held.right)
+                HStack(spacing: 8) {
+                    pedal(icon: "arrow.left", lit: held.left, braking: braking)
+                    boostPedal(lit: held.boost && !braking)
+                        .frame(width: CGFloat(max(0, width - 20) * (1 - 2 * CarSplitLayout.steerShare)))
+                    pedal(icon: "arrow.right", lit: held.right, braking: braking)
+                }
             }
         }
     }
 
     private func pedal(icon: String, lit: Bool, braking: Bool) -> some View {
         Image(systemName: icon)
-            .font(.system(size: 18, weight: .bold))
+            .font(.system(size: 24, weight: .bold))
             .foregroundStyle(lit ? Color.white : Color.white.opacity(0.7))
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: 68)
             .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(braking ? SR.error.opacity(0.75) : Color.black.opacity(lit ? 0.45 : 0.18))
             )
+    }
+
+    /// The boost: lit while held, and its tank as a level rising behind it.
+    private func boostPedal(lit: Bool) -> some View {
+        let tank = racer?.car.boost ?? 0
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return Image(systemName: "bolt.fill")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(lit ? Color.white : Color.white.opacity(0.8))
+            .frame(maxWidth: .infinity, minHeight: 68)
+            .background {
+                ZStack(alignment: .bottom) {
+                    shape.fill(lit ? CarRaceScene.flame : Color.black.opacity(0.18))
+                    GeometryReader { geo in
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            Rectangle()
+                                .fill(CarRaceScene.flame.opacity(lit ? 0 : 0.45))
+                                .frame(height: geo.size.height * min(1, max(0, tank)))
+                        }
+                    }
+                }
+                .clipShape(shape)
+            }
     }
 }
 

@@ -29,6 +29,35 @@ final class CarRaceLogicTests: XCTestCase {
         XCTAssertNil(CarTrack.named("nowhere"))
     }
 
+    func testEightTracksEachNamedOnce() {
+        XCTAssertEqual(CarTrack.all.map(\.id), ["paddock", "riverside", "quarry", "harbour", "forest", "canyon", "alpine", "city"])
+        XCTAssertEqual(Set(CarTrack.all.map(\.id)).count, CarTrack.all.count)
+        XCTAssertTrue(CarTrack.nearby.allSatisfy { CarTrack.all.contains($0) })
+    }
+
+    func testSceneryStandsBesideTheRoadNeverOnIt() {
+        for track in CarTrack.all {
+            if track.scenery == .meadow {
+                XCTAssertTrue(track.props.isEmpty, track.id)
+                continue
+            }
+            XCTAssertGreaterThan(track.props.count, 40, track.id)
+            for prop in track.props {
+                let footprint = track.scenery == .city ? prop.size * 1.42 : prop.size
+                let off = abs(track.spot(of: prop.at).offset)
+                XCTAssertGreaterThan(off - footprint, track.width / 2 + track.verge - 1e-9, "\(track.id) prop at \(prop.at)")
+            }
+        }
+        XCTAssertEqual(Set(CarTrack.all.map(\.scenery)).count, CarScenery.allCases.count, "every scenery has a track")
+        // Seeded by the id: the same on every phone and every race, and another id lays it out differently.
+        let control: [(Double, Double)] = [(0, 0), (90, 0), (180, 0), (225, 45), (180, 95), (90, 95), (0, 95), (-45, 45)]
+        let a = CarTrack(id: "woods", name: "A", line: "", width: 16, scenery: .forest, control: control)
+        let b = CarTrack(id: "woods", name: "B", line: "", width: 16, scenery: .forest, control: control)
+        let c = CarTrack(id: "other", name: "C", line: "", width: 16, scenery: .forest, control: control)
+        XCTAssertEqual(a.props, b.props)
+        XCTAssertNotEqual(a.props, c.props)
+    }
+
     func testPointAtWrapsAndSpotFindsItAgain() {
         let track = CarTrack.riverside
         for d in stride(from: 0.0, to: track.length, by: 37) {
@@ -121,6 +150,57 @@ final class CarRaceLogicTests: XCTestCase {
         var free = CarState(x: 300, y: 0, heading: 0)
         free.vx = 20
         XCTAssertNil(CarPhysics.step(&free, input: CarInput(throttle: 1), track: straight, dt: 0.2))
+    }
+
+    func testBoostIsFasterWhileTheTankLasts() {
+        var plain = CarState(x: 100, y: 0, heading: 0)
+        var boosted = CarState(x: 100, y: 0, heading: 0)
+        for _ in 0..<8 {
+            CarPhysics.step(&plain, input: CarInput(throttle: 1), track: straight, dt: 0.25)
+            CarPhysics.step(&boosted, input: CarInput(throttle: 1, boost: true), track: straight, dt: 0.25)
+        }
+        // Two seconds in: the boosted car is well ahead and its tank nearly dry.
+        XCTAssertGreaterThan(boosted.speed, plain.speed + 10)
+        XCTAssertEqual(boosted.boost, 1 - 2 / CarPhysics.boostBurn, accuracy: 0.01)
+        XCTAssertEqual(plain.boost, 1, "a full tank stays full")
+        XCTAssertTrue(boosted.boosting)
+        // Held on with the tank dry: no more thrust, and no refill while held.
+        for _ in 0..<4 { CarPhysics.step(&boosted, input: CarInput(throttle: 1, boost: true), track: straight, dt: 0.25) }
+        XCTAssertEqual(boosted.boost, 0)
+        XCTAssertFalse(boosted.boosting)
+        // Let go: it refills, driving.
+        CarPhysics.step(&boosted, input: CarInput(throttle: 1), track: straight, dt: 0.25)
+        XCTAssertEqual(boosted.boost, 0.25 / CarPhysics.boostRefill, accuracy: 1e-6)
+        // Never past the safe top speed the nearby rules check finish times against.
+        var flatOut = CarState(x: 0, y: 0, heading: 0)
+        flatOut.vx = 40
+        for _ in 0..<40 {
+            flatOut.boost = 1
+            CarPhysics.step(&flatOut, input: CarInput(throttle: 1, boost: true), track: straight, dt: 0.25)
+            flatOut.x = 100
+        }
+        // (`CarRaceNearbyRules.fastest`, 60 m/s, is a whole race's average.)
+        XCTAssertLessThan(flatOut.speed, 50)
+    }
+
+    func testBrakingNeverBoostsAndADriftRefillsFaster() {
+        var car = CarState(x: 300, y: 0, heading: 0)
+        car.vx = 20
+        CarPhysics.step(&car, input: CarInput(throttle: -1, boost: true), track: straight, dt: 0.1)
+        XCTAssertFalse(car.boosting)
+        XCTAssertEqual(car.boost, 1)
+
+        var gripping = CarState(x: 300, y: 0, heading: 0)
+        gripping.vx = 20
+        gripping.boost = 0
+        CarPhysics.step(&gripping, input: CarInput(throttle: 1), track: straight, dt: 1.0 / 60)
+        var sliding = CarState(x: 300, y: 0, heading: 1.0)
+        sliding.vx = 35
+        sliding.boost = 0
+        CarPhysics.step(&sliding, input: CarInput(throttle: 1), track: straight, dt: 1.0 / 60)
+        CarPhysics.step(&sliding, input: CarInput(throttle: 1), track: straight, dt: 1.0 / 60)
+        XCTAssertTrue(sliding.drifting)
+        XCTAssertGreaterThan(sliding.boost, gripping.boost * 2.5)
     }
 
     // MARK: - Car against car

@@ -5,8 +5,8 @@ import Foundation
 // one phone, two to four at once on one split screen, or phone to phone nearby.
 //
 // Everything that decides a race lives here, free of SwiftUI and Core Motion:
-// the tracks, the car's physics (speed, drag, grip and a drift when the tyres
-// let go), the walls, cars knocking into each other, lap counting, the ghost a
+// the tracks and their scenery, the car's physics (speed, drag, grip, a drift
+// when the tyres let go, and a boost that drifting refills), the walls, cars knocking into each other, lap counting, the ghost a
 // run leaves behind and the pilot that drives demo mode. The screen turns tilt and touch into a
 // `CarInput`, calls `CarPhysics.step` once a frame and draws what comes back.
 //
@@ -50,14 +50,43 @@ struct CarTrackSpot: Equatable {
     let direction: Double
 }
 
+/// What a circuit is built through: the ground the screen paints, and what
+/// stands on it beside the road.
+enum CarScenery: String, Codable, CaseIterable {
+    /// Grass, and nothing on it: the first three tracks.
+    case meadow
+    /// Open water either side of a sandy causeway, boats moored off it.
+    case harbour
+    case forest
+    case desert
+    case snow
+    /// City blocks either side of the streets.
+    case city
+}
+
+/// Something beside the road, for the drawing only: a tree, a rock, a boat,
+/// a building. Never on the road and never solid — it is scenery.
+struct CarProp: Equatable {
+    let at: CarVec
+    /// Its radius (half a side for a building), metres.
+    let size: Double
+    /// Which way it lies, radians.
+    let turn: Double
+    /// 0..<1, for picking among a scenery's shades.
+    let shade: Double
+}
+
 /// A closed circuit: its middle line as points close enough together to read
-/// as a curve, and its width.
+/// as a curve, its width, and its scenery.
 struct CarTrack: Identifiable, Equatable {
     let id: String
     let name: String
     /// One sentence for the picker.
     let line: String
     let width: Double
+    let scenery: CarScenery
+    /// What stands beside the road, placed once when the track is built.
+    private(set) var props: [CarProp] = []
     /// The middle line, in racing order; the last point joins back to the first.
     let points: [CarVec]
     /// Metres round to each point.
@@ -66,11 +95,13 @@ struct CarTrack: Identifiable, Equatable {
 
     /// A track through `control` points, smoothed into a curve (Catmull-Rom,
     /// `samples` points per span) and closed.
-    init(id: String, name: String, line: String, width: Double, control: [(Double, Double)], samples: Int = 14) {
+    init(id: String, name: String, line: String, width: Double, scenery: CarScenery = .meadow,
+         control: [(Double, Double)], samples: Int = 14) {
         self.id = id
         self.name = name
         self.line = line
         self.width = width
+        self.scenery = scenery
         let c = control.map { CarVec(x: $0.0, y: $0.1) }
         var points: [CarVec] = []
         let n = c.count
@@ -94,6 +125,7 @@ struct CarTrack: Identifiable, Equatable {
         }
         self.distances = distances
         length = run
+        props = Self.place(scenery, around: self)
     }
 
     static func == (a: CarTrack, b: CarTrack) -> Bool { a.id == b.id }
@@ -153,6 +185,65 @@ struct CarTrack: Identifiable, Equatable {
         return ((xs.min() ?? 0) - pad, (ys.min() ?? 0) - pad, (xs.max() ?? 0) + pad, (ys.max() ?? 0) + pad)
     }
 
+    /// Metres of verge beside the kerb that scenery keeps off: the sand of a
+    /// causeway, a city's pavement, or just room to run wide.
+    var verge: Double {
+        switch scenery {
+        case .harbour: return 5
+        case .city: return 4
+        default: return 2.5
+        }
+    }
+
+    /// Scenery for `scenery` round `track`: a jittered grid over the ground
+    /// near the road, each spot kept only if the whole prop clears the road
+    /// and its verge. Seeded by the track's id, so it is the same every race.
+    private static func place(_ scenery: CarScenery, around track: CarTrack) -> [CarProp] {
+        let (spacing, smallest, largest, reach): (Double, Double, Double, Double)
+        switch scenery {
+        case .meadow: return []
+        case .harbour: (spacing, smallest, largest, reach) = (26, 1.4, 2.6, 60)
+        case .forest: (spacing, smallest, largest, reach) = (9, 2.2, 4.2, 45)
+        case .desert: (spacing, smallest, largest, reach) = (17, 1.0, 3.2, 50)
+        case .snow: (spacing, smallest, largest, reach) = (10, 1.6, 3.0, 40)
+        case .city: (spacing, smallest, largest, reach) = (17, 5.5, 7.5, 40)
+        }
+        // A splitmix64 seeded by the id's bytes: no Foundation randomness, so
+        // the same scenery on every phone and in every test.
+        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+        for byte in track.id.utf8 { seed = (seed ^ UInt64(byte)) &* 0x1000_0000_01B3 }
+        func next() -> Double {
+            seed &+= 0x9E37_79B9_7F4A_7C15
+            var z = seed
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            z ^= z >> 31
+            return Double(z >> 11) / Double(1 << 53)
+        }
+        let b = track.bounds
+        let clear = track.width / 2 + track.verge
+        var props: [CarProp] = []
+        var y = b.minY - reach
+        while y <= b.maxY + reach {
+            var x = b.minX - reach
+            while x <= b.maxX + reach {
+                let at = CarVec(x: x + (next() - 0.5) * spacing * 0.8, y: y + (next() - 0.5) * spacing * 0.8)
+                let size = smallest + (largest - smallest) * next()
+                let turn = scenery == .city ? 0 : next() * 2 * .pi
+                let shade = next()
+                // A building's corner reaches further than its side.
+                let footprint = scenery == .city ? size * 1.42 : size
+                let off = abs(track.spot(of: at).offset)
+                if off > clear + footprint, off < clear + reach {
+                    props.append(CarProp(at: at, size: size, turn: turn, shade: shade))
+                }
+                x += spacing
+            }
+            y += spacing
+        }
+        return props
+    }
+
     // MARK: - The circuits
 
     static let paddock = CarTrack(
@@ -172,7 +263,51 @@ struct CarTrack: Identifiable, Equatable {
         control: [(0, 0), (80, -20), (150, 10), (150, 70), (100, 80), (90, 130), (150, 160),
                   (130, 220), (40, 210), (20, 150), (-40, 140), (-60, 70)])
 
-    static let all: [CarTrack] = [.paddock, .riverside, .quarry]
+    static let harbour = CarTrack(
+        id: "harbour", name: "Harbour Wall", line: "Along the sea wall, out to the end of the pier and back.",
+        width: 15, scenery: .harbour,
+        control: [(0, 0), (100, 0), (200, 0), (255, 25), (255, 85), (245, 170), (222, 200), (196, 175),
+                  (194, 100), (150, 70), (95, 95), (45, 120), (-20, 110), (-50, 55)])
+
+    static let forest = CarTrack(
+        id: "forest", name: "Pinewood Esses", line: "Left, right, left through the trees. Find a rhythm.",
+        width: 14, scenery: .forest,
+        control: [(0, 0), (60, -30), (120, 5), (185, -35), (255, -5), (300, 55), (270, 125), (205, 110),
+                  (165, 155), (105, 120), (50, 160), (-10, 135), (-55, 90), (-45, 35)])
+
+    static let canyon = CarTrack(
+        id: "canyon", name: "Canyon Run", line: "Wide and fast, with one hairpin to catch you out. Boost the straights.",
+        width: 18, scenery: .desert,
+        control: [(0, 0), (160, -20), (320, -5), (410, 50), (420, 130), (360, 175), (285, 160), (262, 105),
+                  (258, 62), (235, 40), (210, 62), (205, 120), (160, 185), (60, 195), (-30, 170), (-70, 100),
+                  (-50, 30)])
+
+    static let alpine = CarTrack(
+        id: "alpine", name: "Alpine Pass", line: "Narrow switchbacks up the mountain and a long run down.",
+        width: 13, scenery: .snow,
+        control: [(0, 0), (120, 0), (158, 22), (140, 50), (40, 58), (18, 85), (40, 110), (140, 115),
+                  (160, 142), (138, 170), (-30, 170), (-62, 130), (-62, 40), (-38, 8)])
+
+    /// Square corners round city blocks: points every 25 m or so down each
+    /// street and two either side of each corner, so the curve turns sharply
+    /// there and runs straight between.
+    static let city = CarTrack(
+        id: "city", name: "Night Streets", line: "Right-angle corners round the blocks. Brake late, turn hard.",
+        width: 13, scenery: .city,
+        control: [(28, 0), (52, 0), (75, 0), (98, 0), (110, -12), (110, -33), (122, -45), (147, -45),
+                  (173, -45), (198, -45), (210, -33), (210, -5), (210, 22), (210, 50), (210, 78), (198, 90),
+                  (176, 90), (155, 90), (134, 90), (112, 90), (100, 102), (100, 125), (100, 148), (88, 160),
+                  (62, 160), (35, 160), (8, 160), (-18, 160), (-30, 148), (-30, 121), (-30, 94), (-30, 66),
+                  (-30, 39), (-30, 12), (-18, 0), (5, 0)],
+        samples: 6)
+
+    static let all: [CarTrack] = [.paddock, .riverside, .quarry, .harbour, .forest, .canyon, .alpine, .city]
+
+    /// The tracks a race nearby draws from: only those every phone in the
+    /// room knows. A phone a build behind would not find a newer track by
+    /// its id and would race a different one, so a track joins this list
+    /// only once every phone has had a build with it.
+    static let nearby: [CarTrack] = [.paddock, .riverside, .quarry]
 
     static func named(_ id: String) -> CarTrack? { all.first { $0.id == id } }
 }
@@ -187,6 +322,11 @@ struct CarState: Codable, Equatable {
     var vy: Double = 0
     /// The tyres have let go: the car is sliding sideways. For the screen's smoke.
     var drifting = false
+    /// The boost tank, 0…1: full on the grid, drained while boosting,
+    /// refilled while driving, and faster while drifting.
+    var boost: Double = 1
+    /// Boosting this step: for the flames.
+    var boosting = false
 
     init(x: Double, y: Double, heading: Double) {
         self.x = x
@@ -209,6 +349,8 @@ struct CarInput: Equatable {
     var throttle: Double = 0
     /// −1 full left, 1 full right.
     var steer: Double = 0
+    /// The boost is held: extra thrust while the tank lasts.
+    var boost = false
 }
 
 /// A knock against the wall this step: how hard, for a haptic.
@@ -244,6 +386,15 @@ enum CarPhysics {
     static let scrub: Double = 0.82
     /// The longest step taken at once; a slow frame is split into these.
     static let maxStep: Double = 1.0 / 120
+    /// Boost: thrust on top of the engine, m/s², while the tank lasts. With
+    /// it held the top speed climbs from about 29 m/s towards 44.
+    static let boostThrust: Double = 13
+    /// A full tank lasts this long, held down, seconds.
+    static let boostBurn: Double = 2.2
+    /// An empty tank refills in this long, driving, seconds — and in
+    /// `driftRefill` while drifting, so a good drift pays for a boost out of it.
+    static let boostRefill: Double = 14
+    static let driftRefill: Double = 4
 
     /// Drive for `dt` seconds. Returns the hardest wall hit, if any.
     @discardableResult
@@ -268,6 +419,16 @@ enum CarPhysics {
         let right = CarVec(x: -forward.y, y: forward.x)
         var along = car.velocity.dot(forward)
         var across = car.velocity.dot(right)
+
+        // Boost: on top of the engine, for as long as the tank lasts. Holding
+        // it with the tank empty does nothing, and refills nothing.
+        car.boosting = input.boost && throttle >= 0 && car.boost > 0
+        if car.boosting {
+            along += boostThrust * h
+            car.boost = max(0, car.boost - h / boostBurn)
+        } else if !input.boost {
+            car.boost = min(1, car.boost + h / (car.drifting ? driftRefill : boostRefill))
+        }
 
         // Engine, brakes and reverse.
         if throttle >= 0 {
@@ -671,7 +832,9 @@ enum CarAutopilot {
         while bend < -.pi { bend += 2 * .pi }
         let safe = max(12, 40 - abs(bend) * 30)
         let throttle: Double = speed > safe + 3 ? -0.6 : (speed > safe ? 0 : 1)
-        return CarInput(throttle: throttle, steer: min(max(error * 2.4, -1), 1))
+        // Boost down a straight it can see the end of, with a tank worth using.
+        let boost = throttle == 1 && abs(bend) < 0.12 && (car.boosting || car.boost > 0.3)
+        return CarInput(throttle: throttle, steer: min(max(error * 2.4, -1), 1), boost: boost)
     }
 }
 

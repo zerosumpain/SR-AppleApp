@@ -34,6 +34,14 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-29-car-race-boost", when: "October 2026", title: "Car Race, faster", items: [
+            WhatsNewItem(icon: "bolt.fill", title: "Boost",
+                         detail: "Hold Boost for a burst of speed down the straights. It fills up again as you drive, and faster while you drift. On a split screen, hold the middle of your part."),
+            WhatsNewItem(icon: "map", title: "Five new tracks",
+                         detail: "Harbour Wall out along the pier, Pinewood Esses through the trees, Canyon Run in the desert, Alpine Pass in the snow, and Night Streets round the city blocks."),
+            WhatsNewItem(icon: "hand.tap", title: "Bigger buttons",
+                         detail: "The arrows, Brake and Boost are much bigger. Using the arrows, both are under your left thumb, with Boost and Brake under your right."),
+        ]),
         WhatsNewRelease(id: "2026-10-28-offline-everything", when: "October 2026", title: "Play anywhere", items: [
             WhatsNewItem(icon: "wifi.slash", title: "Every board game offline",
                          detail: "Boggle, Anagram Blitz, Categories, Chess, Liar's Dice and Fireworks now play with no internet — alone against the phone or with phones nearby. Tap Play offline when you start one; scores sync when you're back online."),
