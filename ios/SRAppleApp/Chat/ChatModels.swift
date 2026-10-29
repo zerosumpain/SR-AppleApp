@@ -59,6 +59,16 @@ struct Conversation: Decodable, Identifiable, Hashable {
 
     var isWhatsApp: Bool { source == "whatsapp" }
 
+    /// A small tag for a thread jkai started somewhere else. WhatsApp has its
+    /// own glyph; threads opened here ("app") and at the desk carry none.
+    var originTag: String? {
+        switch source {
+        case "daydream": return "Daydream"
+        case "siri": return "Siri"
+        default: return nil
+        }
+    }
+
     /// A thread known only by its id — from Spotlight, or from a notification.
     ///
     /// The screen fetches the real row on appear and replaces the title; this

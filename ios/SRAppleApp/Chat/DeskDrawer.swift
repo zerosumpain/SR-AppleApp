@@ -77,27 +77,54 @@ struct DeskDrawer<Content: View>: View {
 /// page's blocks — or Today, when the thread has put nothing on the desk yet.
 struct DeskView: View {
     let turns: [DeskTurn]
+    /// The answer being streamed, if any. Its page fills while the turn runs
+    /// (`PanelReducer`), and the desk follows it there — until the reader
+    /// pages somewhere themselves.
+    let live: String?
     let close: () -> Void
 
     /// Into `DeskPager.pages(of:)`; `nil` is Today.
     @State private var index: Int?
     /// The turn asked about has no page; an earlier one is on show.
     @State private var held: Bool
+    /// The reader moved the pager. From then on the desk stays put.
+    @State private var paged = false
     @StateObject private var today = TodayStore()
+    /// Today from the server, when it has one for this phone (`ServerToday`).
+    @ObservedObject private var serverToday = ServerToday.shared
+    @Environment(\.deskActions) private var actions
+    /// Answers being red-teamed now, by row id.
+    @State private var checking: Set<String> = []
+    @State private var footNote: String?
 
-    init(turns: [DeskTurn], focus: String?, close: @escaping () -> Void) {
+    init(turns: [DeskTurn], focus: String?, live: String? = nil, close: @escaping () -> Void) {
         self.turns = turns
+        self.live = live
         self.close = close
         let choice = DeskPager.choose(turns: turns, focus: focus)
         _index = State(initialValue: choice.index)
         _held = State(initialValue: choice.held)
     }
 
+    /// Where the live answer's page sits in the pager, once it has one.
+    private var livePage: Int? {
+        guard let live else { return nil }
+        return pages.firstIndex { $0.id == live }
+    }
+
     private var pages: [DeskTurn] { DeskPager.pages(of: turns) }
 
     private var page: PanelPage {
         if let index, index < pages.count, let page = pages[index].page { return page }
-        return DeskToday.page(from: today.payload)
+        return serverToday.page ?? DeskToday.page(from: today.payload)
+    }
+
+    /// The answer on show, by its server row id: what the foot acts on. A
+    /// local bubble (still streaming, or not yet re-read) has no row to act on.
+    private var shownTurn: String? {
+        guard !showingToday, let index, index < pages.count else { return nil }
+        let id = pages[index].id
+        return id.hasPrefix("local-") || id == live ? nil : id
     }
 
     private var showingToday: Bool { index == nil || (index ?? 0) >= pages.count }
@@ -125,9 +152,10 @@ struct DeskView: View {
                             }
                         }
                     }
-                    if showingToday && today.loading && today.payload == nil {
+                    if showingToday && (today.loading || serverToday.loading) && today.payload == nil && serverToday.page == nil {
                         ProgressView().tint(SR.accent).frame(maxWidth: .infinity)
                     }
+                    foot
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -137,7 +165,21 @@ struct DeskView: View {
             .scrollIndicators(.hidden)
         }
         .task(id: showingToday) {
-            if showingToday && today.payload == nil { await today.load() }
+            guard showingToday else { return }
+            // The server's Today first; the phone builds its own only when the
+            // server has none for it (a member, or a site without the route).
+            await serverToday.load()
+            if serverToday.page == nil && today.payload == nil { await today.load() }
+        }
+        // The live answer's page appeared (its first block landed): show it,
+        // unless the reader has paged elsewhere. A desk opened on Today or on
+        // the held page before it is waiting for exactly this.
+        .onChange(of: livePage) { _, target in
+            guard let target, !paged, index != target else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                index = target
+                held = false
+            }
         }
     }
 
@@ -230,6 +272,66 @@ struct DeskView: View {
         SRHaptic.select()
         index = target
         held = false
+        paged = true
+    }
+
+    // MARK: Foot
+
+    /// What can be done with the answer on show. One quiet line: Red-team,
+    /// on the owner's phone, for an answer the server has a row for.
+    @ViewBuilder
+    private var foot: some View {
+        let target = shownTurn
+        if target != nil && actions.redTeam != nil || footNote != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                Divider().overlay(SR.line)
+                if let target, let redTeam = actions.redTeam {
+                    let busy = checking.contains(target)
+                    Button {
+                        SRHaptic.tap()
+                        Task { await check(target, redTeam) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.shield").font(.system(size: 12, weight: .semibold))
+                            Text(busy ? "Checking…" : "Red-team")
+                                .font(SR.Text.label(12))
+                                .tracking(0.8)
+                        }
+                        .foregroundStyle(busy ? SR.inkMuted : SR.accent)
+                        .frame(minHeight: SR.tapTarget)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(busy)
+                    .accessibilityLabel(busy ? "Checking this answer" : "Red-team this answer")
+                    .accessibilityHint("Asks for a second look at this answer, on the desk")
+                    .accessibilityIdentifier("desk-red-team")
+                }
+                if let footNote {
+                    Text(footNote)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func check(_ id: String, _ redTeam: (String) async -> DeskRedTeamOutcome) async {
+        checking.insert(id)
+        footNote = nil
+        let outcome = await redTeam(id)
+        checking.remove(id)
+        switch outcome {
+        case .done:
+            SRHaptic.ok()
+        case .refused:
+            footNote = "Red-team is not available on this phone."
+        case .failed:
+            footNote = "The red team could not look at this just now."
+            SRHaptic.bad()
+        }
     }
 
     private var quietLine: some View {
@@ -340,4 +442,51 @@ struct DeskToolLine: View {
 /// read only when the drawer opens, so it must not redraw the transcript.
 final class DeskVisibility {
     var onScreen: Set<String> = []
+}
+
+// MARK: - Today, from the server
+
+/// Today as the site builds it (`GET /api/jkai/today`, SR-Jkai-Core
+/// `panel/today.ts`): the same page the web's desk opens on, with the asks
+/// that seed an empty thread. Owner only. Where the server has none for this
+/// phone — a member (403), a site without the route yet (404, or 401 before
+/// the gateway passes it through) — the desk builds its own from
+/// `/api/native/today` (`DeskToday`) and an empty thread offers the app's
+/// own starters, exactly as before.
+@MainActor
+final class ServerToday: ObservableObject {
+    static let shared = ServerToday()
+
+    @Published private(set) var page: PanelPage?
+    @Published private(set) var loading = false
+
+    /// Asked again after this; a desk opened twice in a minute asks once.
+    static let freshFor: TimeInterval = 5 * 60
+    private var askedAt: Date?
+
+    /// The page's asks, for an empty thread's starters. Empty without a page.
+    var asks: [PanelAsk] { page?.asks ?? [] }
+
+    func load(force: Bool = false) async {
+        guard AccessStore.ownerSite, !SRDemo.isOn else {
+            page = nil
+            return
+        }
+        guard !loading else { return }
+        if !force, let askedAt, Date().timeIntervalSince(askedAt) < Self.freshFor { return }
+        loading = true
+        defer { loading = false }
+        askedAt = Date()
+        // `exchange`, not `send`: a refusal here is an answer ("not for this
+        // phone"), and a 401 from a route the gateway does not pass through
+        // yet must not read as the pairing being gone.
+        guard let reply = try? await SiteClient.shared.exchange("api/jkai/today", method: "GET"),
+              (200..<300).contains(reply.1.statusCode),
+              let fetched = try? JSONDecoder().decode(PanelPage.self, from: reply.0),
+              fetched.hasContent else {
+            page = nil
+            return
+        }
+        page = fetched
+    }
 }

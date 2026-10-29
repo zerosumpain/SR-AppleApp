@@ -41,6 +41,8 @@ final class Router: ObservableObject {
     @Published var settingsTarget: SettingsTarget?
     /// A question handed in from outside — a Shortcut, Siri, a quick action.
     @Published var pendingQuestion: String?
+    /// What the handed-in question is about, by id — sent with it, once.
+    @Published var pendingRefs: [TurnRef] = []
     /// Files handed in from another app — "Open in SR" on a Share sheet.
     @Published var pendingFiles: [URL] = []
 
@@ -330,8 +332,18 @@ final class Router: ObservableObject {
         push(GameRoomRef(id: roomId, game: game), on: .games)
     }
 
-    func ask(_ question: String) {
+    /// One jkai thread — a tapped chat push, `sr://chat/<id>`, Spotlight —
+    /// pushed on Chat. Nil, or somebody without chat: Chat itself (which
+    /// `show` turns into Today for them).
+    func openThread(_ id: String?) {
+        show(.chat)
+        guard AccessStore.shared.allows(.chat), let id else { return }
+        push(ThreadReference(id: id), on: .chat)
+    }
+
+    func ask(_ question: String, refs: [TurnRef] = []) {
         guard AccessStore.shared.allows(.chat) else { show(.today); return }
+        pendingRefs = refs
         pendingQuestion = question
         show(.chat)
     }
@@ -538,6 +550,8 @@ struct ContentView: View {
             }
             checkPersonal()
             syncGamesPoll()
+            // jkai's channel: foreground only, once the site says it has one.
+            JkaiLive.shared.setForeground(scenePhase == .active)
             // The widgets paint in the reader's palette, read from the shelf.
             palette.shareWithWidgets()
             await location.askForMotionIfNeeded()
@@ -559,6 +573,9 @@ struct ContentView: View {
             // The invite poll is a foreground thing: it stops the moment the
             // scene leaves, and nothing claims it runs when the app is shut.
             syncGamesPoll()
+            // jkai's channel is a foreground thing too: closed on the way out,
+            // and resumed from its last event on the way back.
+            if phase != .inactive { JkaiLive.shared.setForeground(phase == .active) }
             guard phase == .active else { return }
             // Games played with no internet go to the leaderboard now if they can.
             OfflineResultStore.shared.syncSoon()
@@ -581,6 +598,7 @@ struct ContentView: View {
             if !AccessStore.ownerSite { CommissionStore.shared.clear() }
             syncGamesPoll()
             syncFamilyWidgets()
+            JkaiLive.shared.setForeground(scenePhase == .active)
             Task {
                 await reconcileSite()
                 await connections.refresh()
@@ -600,6 +618,9 @@ struct ContentView: View {
         // "View as" changed: the family is theirs now, or yours again.
         .onChange(of: access.viewingAs) { _, _ in
             CommissionStore.shared.clear()
+            // The dots and the channel are the person being looked at's, or
+            // closed while somebody is.
+            JkaiLive.shared.reset()
             family.applyViewingAs()
             // The boards were the person before's; the site answers as the
             // new one on the next read.
@@ -650,6 +671,11 @@ struct ContentView: View {
                 router.openCaptures(capture)
                 return
             }
+            // sr://chat[/<id>] — one jkai thread, from a Shortcut or a link.
+            if let chat = ChatLink.from(url: url) {
+                router.openThread(chat.conversationId)
+                return
+            }
             // sr://pair?join=…&server=… — "Open SR" on the install page: the
             // link that put the app here connects the phone as its person.
             if let payload = PairingPayload.fromLink(url.absoluteString) {
@@ -676,8 +702,7 @@ struct ContentView: View {
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             guard access.allows(.chat),
                   let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
-            router.show(.chat)
-            router.chat.append(ThreadReference(id: id))
+            router.openThread(id)
         }
         .sheet(item: $router.sheet) { sheet in
             sheetContent(sheet)

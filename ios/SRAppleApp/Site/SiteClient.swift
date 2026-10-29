@@ -139,13 +139,32 @@ final class SiteClient {
     private lazy var liveSession: URLSession = Self.makeSession(demo: false)
     private lazy var demoSession: URLSession = Self.makeSession(demo: true)
 
-    private static func makeSession(demo: Bool, transport: [AnyClass] = []) -> URLSession {
+    /// A chat turn's stream has a session of its own.
+    ///
+    /// The shared one caps every request at 600 s, which ended a long turn's
+    /// stream as an error at ten minutes even while the turn was running. A
+    /// stream is not a request with an end: what ends a DEAD one is silence,
+    /// and a running job sends a heartbeat frame every five seconds, so twenty
+    /// seconds with no bytes is a connection that has gone (`ChatStore`
+    /// reconnects from the last frame it saw). The server still ends the turn
+    /// itself at its own limits; this only stops the phone ending it first.
+    private var streamSession: URLSession { SRDemo.isOn ? demoSession : liveStreamSession }
+    private lazy var liveStreamSession: URLSession = Self.makeSession(demo: false, stream: true)
+
+    /// The phone's jkai channel (`JkaiLive`) is quieter than a turn: nothing
+    /// but a `: keepalive` comment every thirty seconds when nothing happens.
+    /// Twenty seconds of silence would end it between every pair of them, so
+    /// it waits two and a half keepalives instead.
+    private var eventsSession: URLSession { SRDemo.isOn ? demoSession : liveEventsSession }
+    private lazy var liveEventsSession: URLSession = Self.makeSession(demo: false, stream: true, idle: 75)
+
+    private static func makeSession(demo: Bool, transport: [AnyClass] = [], stream: Bool = false, idle: TimeInterval? = nil) -> URLSession {
         let config = URLSessionConfiguration.default
         config.urlCache = nil
-        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForRequest = idle ?? (stream ? TurnStreamResume.silence : 30)
         // A chat turn can think for a long time before its first token. The
         // stream's own idle timeout is what ends a dead connection, not this.
-        config.timeoutIntervalForResource = 600
+        config.timeoutIntervalForResource = stream ? 24 * 60 * 60 : 600
         var first: [AnyClass] = transport
         if demo { first = [SRDemoURLProtocol.self] }
         #if DEBUG
@@ -164,6 +183,8 @@ final class SiteClient {
     /// demo never uses it.
     func useLiveTransport(_ transport: [AnyClass]) {
         liveSession = Self.makeSession(demo: false, transport: transport)
+        liveStreamSession = Self.makeSession(demo: false, transport: transport, stream: true)
+        liveEventsSession = Self.makeSession(demo: false, transport: transport, stream: true, idle: 75)
     }
     #endif
 
@@ -245,6 +266,18 @@ final class SiteClient {
         } catch {
             throw SiteError.message("The server sent something this version of the app cannot read.")
         }
+    }
+
+    /// A chat turn's POST, answered as it came: the status, the body and any
+    /// `Retry-After`, because a 409 here is not one thing. With `pending` it
+    /// means "the same send is still being accepted, ask again"; without, "that
+    /// id belongs to another message". `TurnStart.classify` reads it. Only a
+    /// 401 throws, as everywhere.
+    func postTurn(_ body: Data) async throws -> (status: Int, body: Data, retryAfter: String?) {
+        let (data, response) = try await session.data(for: try request("api/workflows/orchestrator/chat", method: "POST", body: body))
+        guard let http = response as? HTTPURLResponse else { throw SiteError.message("No reply from the server.") }
+        if http.statusCode == 401 { throw SiteError.expired }
+        return (http.statusCode, data, http.value(forHTTPHeaderField: "Retry-After"))
     }
 
     @discardableResult
@@ -574,7 +607,14 @@ final class SiteClient {
     /// what silently doubled every bubble on reconnect, so the server publishes
     /// a sequence number on every frame and honours `Last-Event-ID`.
     func stream(jobId: String, after lastEventId: Int? = nil) throws -> AsyncThrowingStream<StreamFrame, Error> {
-        try stream(path: "api/workflows/orchestrator/chat/stream?jobId=\(jobId)", after: lastEventId)
+        try stream(path: "api/workflows/orchestrator/chat/stream?jobId=\(jobId)", after: lastEventId, session: streamSession)
+    }
+
+    /// The phone's jkai channel, `GET /api/jkai/events?scope=me`, resuming
+    /// after `lastEventId`. Always as this phone's own person: the channel is
+    /// never opened while viewing as somebody (`JkaiLive`).
+    func events(after lastEventId: Int? = nil) throws -> AsyncThrowingStream<StreamFrame, Error> {
+        try stream(path: "api/jkai/events?scope=me", after: lastEventId, session: eventsSession, asSelf: true)
     }
 
     /// Frames from any server-sent-events route on the site — a chat job, a
@@ -585,10 +625,13 @@ final class SiteClient {
     /// finished cleanly, and the caller could not tell "the room has gone"
     /// from "the room said nothing".
     func stream(path: String, after lastEventId: Int? = nil) throws -> AsyncThrowingStream<StreamFrame, Error> {
-        var req = try request(path)
+        try stream(path: path, after: lastEventId, session: session)
+    }
+
+    private func stream(path: String, after lastEventId: Int?, session: URLSession, asSelf: Bool = false) throws -> AsyncThrowingStream<StreamFrame, Error> {
+        var req = try request(path, asSelf: asSelf)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         if let lastEventId { req.setValue(String(lastEventId), forHTTPHeaderField: "Last-Event-ID") }
-        let session = self.session
 
         return AsyncThrowingStream { continuation in
             let task = Task {

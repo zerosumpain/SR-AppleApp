@@ -141,6 +141,11 @@ enum WatchCommand: Equatable {
     case syncNow
     /// Put in the phone's composer, NEVER sent — see `AskJkaiIntent`.
     case ask(question: String)
+    /// A quick answer, said back to the wrist: the phone runs the same
+    /// read-only turn as `QuickAnswerIntent`, with surface 'watch', and
+    /// replies with the text. Only while the phone is reachable — nobody is
+    /// waiting on a queued one.
+    case askAloud(question: String)
     case runFlow(slug: String)
     /// "Send me what you have": the Watch opened with nothing, or a stale copy.
     case refresh
@@ -153,6 +158,7 @@ enum WatchCommand: Equatable {
         case .clearFromToday(let id): return [Self.key: "clear", "id": id]
         case .syncNow: return [Self.key: "sync"]
         case .ask(let question): return [Self.key: "ask", "question": question]
+        case .askAloud(let question): return [Self.key: "askAloud", "question": question]
         case .runFlow(let slug): return [Self.key: "runFlow", "slug": slug]
         case .refresh: return [Self.key: "refresh"]
         }
@@ -171,6 +177,10 @@ enum WatchCommand: Equatable {
             let question = (message["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !question.isEmpty else { return nil }
             self = .ask(question: question)
+        case "askAloud":
+            let question = (message["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !question.isEmpty else { return nil }
+            self = .askAloud(question: question)
         case "runFlow":
             guard let slug = message["slug"] as? String, !slug.isEmpty else { return nil }
             self = .runFlow(slug: slug)

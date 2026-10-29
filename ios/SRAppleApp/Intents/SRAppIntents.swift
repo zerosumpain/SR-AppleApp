@@ -65,10 +65,12 @@ struct HealthTodayIntent: AppIntent {
 
 /// "Ask jkai ‹something›" — opens the app on chat with the question waiting.
 ///
-/// It deliberately does NOT send. A turn sent from a locked phone with no
-/// transcript in front of you is a turn you cannot see go wrong, and chat here
-/// can open gates the phone is unable to answer. The question lands in the
-/// composer and a thumb sends it.
+/// It deliberately does NOT send. A turn sent with no transcript in front of
+/// you is a turn you cannot see go wrong, and chat here can open gates the
+/// phone is unable to answer. The question lands in the composer and a thumb
+/// sends it. The one exception is `QuickAnswerIntent`: unlocked only, and
+/// read-only on the server (every gate auto-denied), so there is nothing in
+/// it to go wrong out of sight.
 struct AskJkaiIntent: AppIntent {
     static var title: LocalizedStringResource = "Ask jkai"
     static var description = IntentDescription("Open jkai with a question ready to send.")
@@ -137,6 +139,15 @@ struct SRShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Ask jkai",
             systemImageName: "bubble.left.and.text.bubble.right"
+        )
+        AppShortcut(
+            intent: QuickAnswerIntent(),
+            phrases: [
+                "Quick answer from \(.applicationName)",
+                "Ask \(.applicationName) for a quick answer",
+            ],
+            shortTitle: "Quick answer",
+            systemImageName: "waveform.and.mic"
         )
         AppShortcut(
             intent: SyncNowIntent(),

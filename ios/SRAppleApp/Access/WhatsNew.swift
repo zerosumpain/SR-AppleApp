@@ -34,6 +34,26 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-29-jkai-overhaul", when: "October 2026", title: "jkai, everywhere", items: [
+            WhatsNewItem(icon: "arrow.triangle.2.circlepath", title: "Pick up where it left off",
+                         detail: "Close the app mid-answer and jkai keeps going. Open it again, here or on the website, and the reply carries on. If it is still working somewhere else, it says so.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "arrow.clockwise", title: "Try again, safely",
+                         detail: "A dropped connection never sends your message twice, and Try again picks the same turn back up rather than starting over.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "rectangle.split.2x1", title: "The desk, live",
+                         detail: "The side panel on jkai fills in as it works: trips, captures, daydreams and builds, the same as on the website.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "link", title: "Straight to the thread",
+                         detail: "Links and Handoff open the exact conversation, on the phone or the Mac, and threads are labelled by what they're about.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "speaker.wave.2", title: "Read aloud and Ask jkai",
+                         detail: "Have any answer read out, and press Ask jkai on a trip, a capture or a place to ask about that thing. Places open in Maps.",
+                         ownerOnly: true),
+            WhatsNewItem(icon: "applewatch", title: "Quick answer anywhere",
+                         detail: "Ask from Siri, the Action Button or the Watch. The iPhone needs to be unlocked, so nobody can ask jkai from a locked phone.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-10-29-car-race-boost", when: "October 2026", title: "Car Race, faster", items: [
             WhatsNewItem(icon: "bolt.fill", title: "Boost",
                          detail: "Hold Boost for a burst of speed down the straights. It fills up again as you drive, and faster while you drift. On a split screen, hold the middle of your part."),

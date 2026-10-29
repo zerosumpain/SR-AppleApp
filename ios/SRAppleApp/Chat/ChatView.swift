@@ -30,6 +30,8 @@ struct ThreadListScreen: View {
     @EnvironmentObject private var router: Router
     @ObservedObject private var access = AccessStore.shared
     @ObservedObject private var family = FamilyMessagesStore.shared
+    /// The rows' dots: a turn running, waiting on you, something new.
+    @ObservedObject private var live = JkaiLive.shared
     @State private var renaming: Conversation?
     @State private var renameDraft = ""
     @State private var deleting: Conversation?
@@ -276,7 +278,7 @@ struct ThreadListScreen: View {
     @ViewBuilder
     private func row(_ conversation: Conversation) -> some View {
         NavigationLink(value: conversation) {
-            ThreadRow(conversation: conversation)
+            ThreadRow(conversation: conversation, mark: live.mark(for: conversation.id))
         }
         .srGlassRow()
         .accessibilityIdentifier("thread-\(conversation.id)")
@@ -300,7 +302,8 @@ struct ThreadListScreen: View {
             Button {
                 Task { await store.togglePin(conversation) }
             } label: { Label(conversation.pinned ? "Unpin" : "Pin", systemImage: "pin") }
-            Link(destination: SiteClient.shared.webURL("jkai")) {
+            // This thread on the desk, not the desk's front page.
+            Link(destination: SiteClient.shared.webURL(ChatLink.webPath(conversation.id))) {
                 Label("Open jkai on the web", systemImage: "safari")
             }
             Divider()
@@ -515,6 +518,8 @@ struct JkaiHelpPanel: View {
 /// One thread. Title, a sub-line of provenance, and the last thing said.
 struct ThreadRow: View {
     let conversation: Conversation
+    /// One small dot beside the time, at most (`JkaiLive`).
+    var mark: JkaiRowMark?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -537,7 +542,17 @@ struct ThreadRow: View {
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
                     .lineLimit(1)
+                if let tag = conversation.originTag {
+                    SRPill(text: tag, tone: SR.inkMuted)
+                }
                 Spacer(minLength: 6)
+                if let mark {
+                    Circle()
+                        .fill(mark == .running ? SR.accent : SR.accentDeep)
+                        .frame(width: 7, height: 7)
+                        .accessibilityLabel(Self.label(mark))
+                        .accessibilityIdentifier("thread-mark-\(mark.rawValue)")
+                }
                 if let updated = conversation.updatedAt {
                     Text(shortAgo(updated))
                         .font(SR.Text.mono())
@@ -559,6 +574,14 @@ struct ThreadRow: View {
         }
         .padding(.vertical, 6)
         .frame(minHeight: SR.tapTarget, alignment: .leading)
+    }
+
+    private static func label(_ mark: JkaiRowMark) -> String {
+        switch mark {
+        case .running: return "jkai is working on this"
+        case .waiting: return "Waiting on you"
+        case .reply: return "New reply"
+        }
     }
 }
 
@@ -631,6 +654,9 @@ struct ChatScreen: View {
     @StateObject private var store: ChatStore
     @EnvironmentObject private var router: Router
     @State private var draft = ""
+    /// What a seeded draft is about ("Ask jkai" on a capture, note, trip day
+    /// or health day): sent with the next message from the composer, once.
+    @State private var draftRefs: [TurnRef] = []
     @State private var atBottom = true
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
@@ -648,6 +674,11 @@ struct ChatScreen: View {
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var speech = SpeechOut.shared
+    /// The server's Today, whose asks seed an empty thread when it has one.
+    @ObservedObject private var serverToday = ServerToday.shared
+    @ObservedObject private var live = JkaiLive.shared
     /// The desk drawer, and the turn it opened on (nil: the one being read).
     @State private var deskOpen = false
     @State private var deskFocus: String?
@@ -681,7 +712,12 @@ struct ChatScreen: View {
                     }
 
                     ForEach(store.messages) { message in
-                        ChatBubble(message: message, openDesk: { openDesk(at: message.id) })
+                        ChatBubble(
+                            message: message,
+                            openDesk: { openDesk(at: message.id) },
+                            live: message.id == store.liveMessageId,
+                            speaking: speech.speakingId == message.id
+                        )
                             .id(message.id)
                             .onAppear { deskVisibility.onScreen.insert(message.id) }
                             .onDisappear { deskVisibility.onScreen.remove(message.id) }
@@ -691,8 +727,12 @@ struct ChatScreen: View {
                         TurnActivityPanel(activity: store.activity)
                     }
 
+                    if let elsewhere = store.elsewhere {
+                        ElsewhereTurnLine(turn: elsewhere)
+                    }
+
                     if let blocked = store.blocked {
-                        BlockedTurnCard(blocked: blocked)
+                        BlockedTurnCard(blocked: blocked, conversationId: conversation.id)
                     }
 
                     if let plan = store.plan {
@@ -710,7 +750,7 @@ struct ChatScreen: View {
                     }
 
                     if showsStarters {
-                        StarterPrompts { prompt in
+                        StarterPrompts(asks: serverToday.asks) { prompt in
                             atBottom = true
                             Task { await store.send(prompt) }
                         }
@@ -761,7 +801,9 @@ struct ChatScreen: View {
                 if let question = router.pendingQuestion {
                     // Seeded, not sent. See AskJkaiIntent for why.
                     draft = question
+                    draftRefs = router.pendingRefs
                     router.pendingQuestion = nil
+                    router.pendingRefs = []
                     composerFocused = true
                 }
                 // Files handed in from another app's Share sheet ("Open in").
@@ -771,6 +813,11 @@ struct ChatScreen: View {
                     for url in urls { attachFile(url) }
                 }
                 await store.load()
+                // A turn running on this thread — started here before the app
+                // went away, or on the web, or on another phone: join it. (If
+                // the server has let it go, the reload above already shows
+                // what it saved.)
+                await store.rejoin()
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
                 // Unstructured, like a starter prompt's send: leaving the
                 // screen must not cancel the question on its way.
@@ -803,12 +850,15 @@ struct ChatScreen: View {
         }
         .overlay {
             DeskDrawer(isOpen: $deskOpen) {
-                DeskView(turns: deskTurns, focus: deskFocus) { closeDesk() }
+                DeskView(turns: deskTurns, focus: deskFocus, live: store.liveMessageId) { closeDesk() }
                     .environment(\.deskActions, DeskActions(
-                        ask: { detail in askFromDesk(detail) },
+                        ask: { text in askFromDesk(text) },
                         open: { href in
                             if let url = DeskLinks.resolve(href, origin: SiteClient.shared.origin) { openURL(url) }
-                        }
+                        },
+                        // The owner's phone only; a 403 takes it away.
+                        redTeam: AccessStore.ownerSite && !live.redTeamRefused
+                            ? { id in await store.redTeam(messageId: id) } : nil
                     ))
             }
         }
@@ -835,7 +885,7 @@ struct ChatScreen: View {
                             showingModel = true
                         } label: { Label("Model & thinking", systemImage: "cpu") }
                     }
-                    Link(destination: SiteClient.shared.webURL("jkai")) {
+                    Link(destination: SiteClient.shared.webURL(ChatLink.webPath(conversation.id))) {
                         Label("Open jkai on the web", systemImage: "safari")
                     }
                     Button {
@@ -852,10 +902,12 @@ struct ChatScreen: View {
         }
         // Handoff: the same thread, open on the desk. `isEligibleForHandoff`
         // is what puts it on the Mac's dock, and the web URL is what the Mac
-        // opens — there is no Mac app to hand off to.
+        // opens — there is no Mac app to hand off to. `/jkai?c=<id>` is THIS
+        // thread; plain `/jkai` opened the desk on whatever it showed last.
         .userActivity("com.strangeramblings.com.appleapp.thread") { activity in
             activity.title = store.title ?? conversation.displayTitle
-            activity.webpageURL = SiteClient.shared.webURL("jkai")
+            activity.webpageURL = SiteClient.shared.webURL(ChatLink.webPath(conversation.id))
+            activity.userInfo = ["conversationId": conversation.id]
             activity.isEligibleForHandoff = true
             activity.isEligibleForSearch = true
         }
@@ -866,8 +918,37 @@ struct ChatScreen: View {
         // true — but the transcript stopped filling in and only a reload
         // recovered it. So: drop the socket to save the battery, and pick the
         // same job up from its last sequence number on the way back.
-        .onDisappear { store.stop() }
-        .onAppear { store.resume() }
+        .onDisappear {
+            store.stop()
+            store.stopPresence()
+            JkaiLive.shared.closed(store)
+            speech.stop()
+        }
+        .onAppear {
+            store.resume()
+            JkaiLive.shared.opened(store)
+            if scenePhase == .active { store.startPresence() }
+        }
+        // Back from the background: the socket did not survive the trip, and
+        // the reconnect picks up from the last frame handled — and a turn
+        // started elsewhere meanwhile is joined. Presence stops the moment the
+        // app leaves, so the server knows the phone is pocketed.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                store.resume()
+                store.startPresence()
+                Task { await store.rejoin() }
+            case .background:
+                store.stopPresence()
+            default:
+                break
+            }
+        }
+        // An empty thread's starters come from the server's Today, when it has one.
+        .task(id: showsStarters) {
+            if showsStarters { await serverToday.load() }
+        }
     }
 
     // MARK: - The desk
@@ -897,8 +978,8 @@ struct ChatScreen: View {
 
     /// A desk button's prompt goes into the composer, NOT to the model: the
     /// reader sees it, can change it, and sends it themselves.
-    private func askFromDesk(_ detail: String) {
-        draft = detail
+    private func askFromDesk(_ text: String) {
+        draft = text
         closeDesk()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { composerFocused = true }
     }
@@ -931,6 +1012,19 @@ struct ChatScreen: View {
             // any fixed offset is wrong for most of its range.
             if let message = store.message {
                 SRBanner(text: message, tone: SR.error)
+            }
+            // A send that did not get through. The same request again, so
+            // one that DID reach the site is answered rather than repeated.
+            if store.failedSend != nil && !store.sending {
+                Button {
+                    SRHaptic.tap()
+                    atBottom = true
+                    Task { await store.retryFailedSend() }
+                } label: {
+                    SRButtonLabel(title: "Try again", icon: "arrow.clockwise")
+                }
+                .srButton()
+                .accessibilityIdentifier("chat-retry-send")
             }
             if !store.pending.isEmpty {
                 PendingAttachmentStrip(items: store.pending) { store.removePending($0) }
@@ -975,10 +1069,12 @@ struct ChatScreen: View {
                 Task { await store.cancel() }
             } else {
                 let text = draft
+                let refs = draftRefs
+                draftRefs = []
                 clearDraft()
                 atBottom = true
                 SRHaptic.tap()
-                Task { await store.send(text) }
+                Task { await store.send(text, refs: refs) }
             }
         } label: {
             Image(systemName: store.sending ? "stop.fill" : "arrow.up")

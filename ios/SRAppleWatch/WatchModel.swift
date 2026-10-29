@@ -56,6 +56,11 @@ final class WatchModel: NSObject, ObservableObject {
             toast = WatchReply(ok: false, text: "No iPhone connection")
             return
         }
+        // A quick answer is only worth having now: never queued for later.
+        if case .askAloud = command, !session.isReachable {
+            toast = WatchReply(ok: false, text: "No iPhone connection")
+            return
+        }
         busy.insert(key)
         if session.isReachable {
             session.sendMessage(command.message, replyHandler: { reply in
@@ -65,6 +70,11 @@ final class WatchModel: NSObject, ObservableObject {
                 }
             }, errorHandler: { _ in
                 Task { @MainActor in
+                    if case .askAloud = command {
+                        self.busy.remove(key)
+                        self.toast = WatchReply(ok: false, text: "No iPhone connection")
+                        return
+                    }
                     // Reachable a moment ago and not now: queue it rather than lose it.
                     session.transferUserInfo(command.message)
                     self.busy.remove(key)

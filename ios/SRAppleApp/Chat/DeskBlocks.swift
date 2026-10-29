@@ -17,6 +17,18 @@ struct DeskActions {
     var ask: (String) -> Void = { _ in }
     /// Open an `href` from a page.
     var open: (String) -> Void = { _ in }
+    /// Red-team the answer with this server row id. Nil where it is not
+    /// offered: a member's phone, or one the site has refused.
+    var redTeam: ((String) async -> DeskRedTeamOutcome)?
+}
+
+/// How a red-team request came back.
+enum DeskRedTeamOutcome: Equatable {
+    /// The section is stored on the answer; the thread has been re-read.
+    case done
+    /// Not for this phone (403).
+    case refused
+    case failed
 }
 
 private struct DeskActionsKey: EnvironmentKey {
@@ -468,7 +480,7 @@ struct DeskRows: View {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                     if index > 0 { Divider().overlay(SR.divider) }
                     if let ask = row.ask {
-                        Button { actions.ask(ask.detail) } label: { line(row, index: index) }
+                        Button { actions.ask(ask.composerText) } label: { line(row, index: index) }
                             .buttonStyle(.plain)
                             .accessibilityHint("Puts a question in the composer")
                     } else if let href = row.href {
@@ -730,7 +742,7 @@ struct DeskActionRow: View {
                 Button {
                     SRHaptic.tap()
                     if item.kind == "ask", let ask = item.ask {
-                        actions.ask(ask.detail)
+                        actions.ask(ask.composerText)
                     } else if let href = item.href {
                         actions.open(href)
                     }
@@ -766,7 +778,7 @@ struct DeskAskButton: View {
     var body: some View {
         Button {
             SRHaptic.tap()
-            actions.ask(ask.detail)
+            actions.ask(ask.composerText)
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "text.bubble").font(.system(size: 11, weight: .semibold))

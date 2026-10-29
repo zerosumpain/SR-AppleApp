@@ -195,6 +195,18 @@ struct HealthCompactHero: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(spoken)
         .accessibilityIdentifier("health-readiness")
+        // "Ask jkai" about today's health, handed over by date (a
+        // `health_day` ref), from a long press — no new chrome on the hero.
+        .contextMenu {
+            if AccessStore.shared.allows(.chat) {
+                Button { askJkai() } label: { Label("Ask jkai about today", systemImage: "sparkle") }
+            }
+        }
+        .accessibilityAction(named: "Ask jkai about today") { askJkai() }
+    }
+
+    private func askJkai() {
+        router.ask("About my health today: ", refs: [.healthDay(TurnRef.localDay())])
     }
 
     private var score: String {

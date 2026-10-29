@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 import WatchConnectivity
 
 /// The iPhone's side of the Watch app.
@@ -211,6 +212,24 @@ final class WatchBridge: NSObject, ObservableObject {
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return WatchReply(ok: true, text: "Waiting in the composer on your iPhone")
 
+        case .askAloud(let question):
+            // The owner's quick answer, read-only on the server; see
+            // `QuickAnswerIntent`. It reads private tools, and nothing proves
+            // the Watch is on a wrist and unlocked (no such API reaches the
+            // bridge), so the iPhone must be unlocked now or a moment ago —
+            // `QuickAnswer.watchGate` has the reasoning. A locked phone answers
+            // nothing private: the Watch is told to unlock it instead.
+            guard AccessStore.ownerSite, AccessStore.shared.allows(.chat), AccessStore.shared.viewingAs == nil else {
+                return WatchReply(ok: false, text: "Quick answers are the owner's")
+            }
+            if case .refuse(let text) = QuickAnswer.watchGate(
+                phoneUnlockedRecently: UIApplication.shared.isProtectedDataAvailable
+            ) {
+                return WatchReply(ok: false, text: text)
+            }
+            let line = await QuickAnswerRunner.ask(question, surface: "watch")
+            return WatchReply(ok: true, text: line)
+
         case .runFlow(let slug):
             guard AccessStore.ownerSite else { return WatchReply(ok: false, text: "Workflows are the owner's") }
             guard let pin = PinnedFlows.shared.pins.first(where: { $0.slug == slug }) else {
@@ -268,6 +287,8 @@ extension WatchBridge: WCSessionDelegate {
     /// on the answer; the snapshot that follows is the answer.
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         guard let command = WatchCommand(message: userInfo) else { return }
+        // A queued quick answer has nobody waiting to hear it.
+        if case .askAloud = command { return }
         Task { @MainActor in _ = await self.handle(command) }
     }
 }

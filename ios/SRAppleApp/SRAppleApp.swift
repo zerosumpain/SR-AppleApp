@@ -402,6 +402,15 @@ import Combine
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
+        // A chat push that names its thread — a turn waiting on you, or one
+        // that stopped — opens THAT thread, not the inbox over the Chat tab.
+        // The id is in `userInfo`, or only in its `url` (`/jkai?c=<id>`) on a
+        // phone that hides notification details.
+        if category == "chat", let id = ChatLink.conversationId(userInfo: response.notification.request.content.userInfo) {
+            Self.pending.chatThread = id
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
         switch category {
         case "health": Self.pending.tab = .health
         case "chat": Self.pending.tab = .chat
@@ -437,6 +446,8 @@ import Combine
     var trip: TripLink?
     /// A capture, from a tapped "Capture ready".
     var capture: CaptureLink?
+    /// A jkai thread, from a tapped chat push.
+    var chatThread: String?
     var openAlerts = false
     var openConnections = false
     var daydreamCommission: String?
@@ -471,6 +482,11 @@ import Combine
         if let capture {
             router.openCaptures(capture)
             self.capture = nil
+            tab = nil
+        }
+        if let chatThread {
+            router.openThread(chatThread)
+            self.chatThread = nil
             tab = nil
         }
         if let tab { router.show(tab) }
