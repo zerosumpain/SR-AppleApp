@@ -9,6 +9,23 @@ final class CarRaceSplitTests: XCTestCase {
         XCTAssertEqual(CarSplitHold(left: true).input, CarInput(throttle: 1, steer: -1))
         XCTAssertEqual(CarSplitHold(right: true).input, CarInput(throttle: 1, steer: 1))
         XCTAssertEqual(CarSplitHold(left: true, right: true).input, CarInput(throttle: -1, steer: 0))
+        XCTAssertEqual(CarSplitHold(boost: true).input, CarInput(throttle: 1, steer: 0, boost: true))
+        XCTAssertEqual(CarSplitHold(right: true, boost: true).input, CarInput(throttle: 1, steer: 1, boost: true))
+        // Braking wins: no boost with both sides held.
+        XCTAssertEqual(CarSplitHold(left: true, right: true, boost: true).input, CarInput(throttle: -1, steer: 0))
+    }
+
+    func testTheMiddleOfAPartBoosts() {
+        let panes = CarSplitLayout.panes(players: 2, width: 400, height: 800, facing: true)
+        XCTAssertEqual(CarSplitLayout.holds(touches: [CarVec(x: 200, y: 700)], panes: panes, players: 2),
+                       [CarSplitHold(boost: true), CarSplitHold()])
+        // Just inside each steering side, and just inside the boost.
+        XCTAssertEqual(CarSplitLayout.holds(touches: [CarVec(x: 143, y: 700)], panes: panes, players: 2)[0], CarSplitHold(left: true))
+        XCTAssertEqual(CarSplitLayout.holds(touches: [CarVec(x: 145, y: 700)], panes: panes, players: 2)[0], CarSplitHold(boost: true))
+        XCTAssertEqual(CarSplitLayout.holds(touches: [CarVec(x: 257, y: 700)], panes: panes, players: 2)[0], CarSplitHold(right: true))
+        // The far side, turned round: the middle is still the middle, and its sides swap.
+        XCTAssertEqual(CarSplitLayout.holds(touches: [CarVec(x: 200, y: 100), CarVec(x: 30, y: 100)], panes: panes, players: 2)[1],
+                       CarSplitHold(right: true, boost: true))
     }
 
     // MARK: - Layout

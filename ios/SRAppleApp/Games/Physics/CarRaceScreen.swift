@@ -422,7 +422,7 @@ struct CarRaceScreen: View {
             .padding(SR.cardPadding)
             .srGlassCard(.paper)
             .accessibilityIdentifier("car-race-facing")
-            Text("Hold the left or right of your part of the screen to steer, and both together to brake.")
+            Text("Hold the left or right of your part of the screen to steer, both together to brake, and the middle to boost.")
                 .font(SR.Text.mono())
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -538,9 +538,9 @@ struct CarRaceSessionView: View {
                              strap: session.best == nil ? "Your run becomes the ghost to beat next time." : "Your best run is on the track with you, as a ghost.")
             }
             Text(session.mode == .splitScreen
-                 ? "Hold the left or right of your part of the screen to steer; hold both to brake. Cars bump — and bump back."
-                 : session.useTilt ? "Tilt to steer. Hold Brake for the bends — brake hard into one to drift." :
-                    "Hold the arrows to steer and Brake for the bends — brake hard into one to drift.")
+                 ? "Hold the left or right of your part of the screen to steer; hold both to brake, and the middle to boost. Cars bump — and bump back."
+                 : session.useTilt ? "Tilt to steer. Hold Brake for the bends — brake hard into one to drift. Hold Boost down the straights; drifting fills it faster." :
+                    "Hold the arrows to steer and Brake for the bends — brake hard into one to drift. Hold Boost down the straights; drifting fills it faster.")
                 .font(SR.Text.secondary())
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -789,32 +789,32 @@ struct CarRaceView: View {
     }
 }
 
-/// Brake, and the steering arrows when tilt does not steer.
+/// The pedals: Brake and Boost, and the steering arrows when tilt does not
+/// steer. Sized for thumbs mid-race, not for a settings page.
+///
+/// Tilting, the phone is held like a wheel: Brake under the left thumb,
+/// Boost under the right, and between them, out of a thumb's way, the
+/// button that makes the way the phone is held straight ahead. Steering by
+/// the arrows, the left thumb has both
+/// arrows and the right thumb rocks between Boost and Brake, the way a
+/// racing game on a phone usually goes.
 struct CarRaceControls: View {
     @ObservedObject var driver: CarRaceDriver
 
+    static let pedalHeight: CGFloat = 88
+    static let arrowHeight: CGFloat = 116
+
     var body: some View {
-        HStack(spacing: 12) {
-            if !driver.useTilt && !driver.scripted {
-                LanderHoldButton(icon: "arrow.left", label: "Steer left") { driver.steerHeld = $0 ? -1 : 0 }
-                    .accessibilityIdentifier("car-race-left")
-            }
-            Spacer(minLength: 0)
-            if driver.scripted {
-                Text("Autopilot")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(Color.white.opacity(0.8))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.black.opacity(0.35)))
-            } else {
-                CarRaceBrake { driver.brakeHeld = $0 }
-            }
-            Spacer(minLength: 0)
-            if !driver.useTilt && !driver.scripted {
-                LanderHoldButton(icon: "arrow.right", label: "Steer right") { driver.steerHeld = $0 ? 1 : 0 }
-                    .accessibilityIdentifier("car-race-right")
-            } else if driver.useTilt {
+        if driver.scripted {
+            Text("Autopilot")
+                .font(SR.Text.mono())
+                .foregroundStyle(Color.white.opacity(0.8))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.black.opacity(0.35)))
+        } else if driver.useTilt {
+            HStack(spacing: 12) {
+                brake.frame(height: Self.arrowHeight)
                 Button {
                     SRHaptic.tap()
                     driver.tilt.recentre()
@@ -826,40 +826,105 @@ struct CarRaceControls: View {
                 .srButton(.regular)
                 .accessibilityLabel("Make the way I'm holding the phone straight ahead")
                 .accessibilityIdentifier("car-race-recentre")
+                boost.frame(height: Self.arrowHeight)
+            }
+        } else {
+            HStack(alignment: .bottom, spacing: 12) {
+                HStack(spacing: 10) {
+                    CarRacePad(icon: "arrow.left", label: "Steer left") { driver.steerHeld = $0 ? -1 : 0 }
+                        .frame(minWidth: 76, maxWidth: 104)
+                        .frame(height: Self.arrowHeight)
+                        .accessibilityIdentifier("car-race-left")
+                    CarRacePad(icon: "arrow.right", label: "Steer right") { driver.steerHeld = $0 ? 1 : 0 }
+                        .frame(minWidth: 76, maxWidth: 104)
+                        .frame(height: Self.arrowHeight)
+                        .accessibilityIdentifier("car-race-right")
+                }
+                Spacer(minLength: 0)
+                VStack(spacing: 10) {
+                    boost.frame(height: Self.pedalHeight)
+                    brake.frame(height: Self.pedalHeight)
+                }
+                .frame(minWidth: 112, maxWidth: 148)
             }
         }
     }
+
+    private var brake: some View {
+        CarRacePad(title: "BRAKE", label: "Brake", hint: "Hold to slow down") { driver.brakeHeld = $0 }
+            .accessibilityIdentifier("car-race-brake")
+    }
+
+    private var boost: some View {
+        CarRacePad(title: "BOOST", icon: "bolt.fill", label: "Boost", hint: "Hold for a burst of speed",
+                   lit: CarRaceScene.flame, level: driver.car.boost) { driver.boostHeld = $0 }
+            .accessibilityIdentifier("car-race-boost")
+    }
 }
 
-/// The brake pedal: on while a finger holds it.
-struct CarRaceBrake: View {
+/// A pad held down with a finger — an arrow, the brake, the boost — lit while
+/// it is held. It fills whatever frame it is given, all of it touchable. The
+/// boost's pad shows how full the tank is as a level rising behind it.
+struct CarRacePad: View {
+    var title: String? = nil
+    var icon: String? = nil
+    let label: String
+    var hint: String? = nil
+    /// The colour it lights up when held.
+    var lit: Color = SR.error
+    /// The boost tank, 0…1: drawn as a level behind the label. Nil for none.
+    var level: Double? = nil
     let changed: (Bool) -> Void
     @State private var held = false
 
     var body: some View {
-        Text("BRAKE")
-            .font(SR.Text.label(14))
-            .tracking(SR.inkKickerTracking)
-            .foregroundStyle(held ? Color.white : SR.ink)
-            .frame(width: 120, height: 64)
-            .background {
-                if held { RoundedRectangle(cornerRadius: 32, style: .continuous).fill(SR.error) }
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        VStack(spacing: 4) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: title == nil ? 34 : 22, weight: .bold))
             }
-            .srGlassCard(.paper, radius: 32)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !held { held = true; changed(true) }
+            if let title {
+                Text(title)
+                    .font(SR.Text.label(16))
+                    .tracking(SR.inkKickerTracking)
+            }
+        }
+        .foregroundStyle(held ? Color.white : SR.ink)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            ZStack(alignment: .bottom) {
+                if let level {
+                    GeometryReader { geo in
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            Rectangle()
+                                .fill(lit.opacity(held ? 0 : 0.35))
+                                .frame(height: geo.size.height * min(1, max(0, level)))
+                        }
                     }
-                    .onEnded { _ in
-                        held = false
-                        changed(false)
-                    }
-            )
-            .accessibilityElement()
-            .accessibilityLabel("Brake")
-            .accessibilityHint("Hold to slow down")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("car-race-brake")
+                }
+                if held { shape.fill(lit) }
+            }
+            .clipShape(shape)
+        }
+        .srGlassCard(.paper, radius: 26)
+        .contentShape(shape)
+        .scaleEffect(held ? 0.96 : 1)
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !held { held = true; changed(true) }
+                }
+                .onEnded { _ in
+                    held = false
+                    changed(false)
+                }
+        )
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityValue(level.map { "\(Int(($0 * 100).rounded())) percent" } ?? "")
+        .accessibilityHint(hint ?? "")
+        .accessibilityAddTraits(.isButton)
     }
 }

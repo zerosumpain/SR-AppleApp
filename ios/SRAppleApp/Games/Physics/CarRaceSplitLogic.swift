@@ -11,20 +11,21 @@ import Foundation
 // where each player's part of the screen is and which side a finger is on.
 
 /// What a split-screen player is holding: their left side, their right, both
-/// or neither.
+/// or neither, and the boost strip between them.
 struct CarSplitHold: Equatable {
     var left = false
     var right = false
+    var boost = false
 
-    /// Left steers left, right steers right, both together is the brake, and
-    /// the throttle is down the rest of the time. The steering is what is
-    /// wanted, before easing.
+    /// Left steers left, right steers right, both together is the brake, the
+    /// middle boosts, and the throttle is down the rest of the time. The
+    /// steering is what is wanted, before easing.
     var input: CarInput {
         switch (left, right) {
         case (true, true): return CarInput(throttle: -1, steer: 0)
-        case (true, false): return CarInput(throttle: 1, steer: -1)
-        case (false, true): return CarInput(throttle: 1, steer: 1)
-        case (false, false): return CarInput(throttle: 1, steer: 0)
+        case (true, false): return CarInput(throttle: 1, steer: -1, boost: boost)
+        case (false, true): return CarInput(throttle: 1, steer: 1, boost: boost)
+        case (false, false): return CarInput(throttle: 1, steer: 0, boost: boost)
         }
     }
 }
@@ -55,8 +56,9 @@ struct CarSplitRace: Equatable {
 
     /// After the first car home, the rest have this long.
     static let finishGrace: Double = 30
-    /// No race runs longer than this, whatever happens.
-    static let longest: Double = 360
+    /// No race runs longer than this, whatever happens: room for five slow
+    /// laps of the longest track.
+    static let longest: Double = 600
     /// A car home drives on at no more than this, m/s, out of everyone's way.
     static let cruise: Double = 14
 
@@ -98,7 +100,10 @@ struct CarSplitRace: Equatable {
             let racer = racers[index]
             if racer.laps.finished || autopilot {
                 var input = CarAutopilot.input(for: racer.car, on: track, lane: Self.lane(racer.id, on: track))
-                if racer.laps.finished { input.throttle = racer.car.speed > Self.cruise ? -0.4 : min(input.throttle, 0.3) }
+                if racer.laps.finished {
+                    input.throttle = racer.car.speed > Self.cruise ? -0.4 : min(input.throttle, 0.3)
+                    input.boost = false
+                }
                 inputs.append(input)
             } else {
                 let held = index < holds.count ? holds[index] : CarSplitHold()
@@ -200,7 +205,8 @@ struct CarSplitPane: Equatable {
 }
 
 /// Where each player's part of the screen is, and which of their sides a
-/// finger is on.
+/// finger is on: the outer `steerShare` of each side steers, and the strip
+/// down the middle between them boosts.
 ///
 /// Upright (taller than wide), the screen is cut across: two players get the
 /// bottom and top halves; three get the bottom two quarters and the whole top
@@ -209,6 +215,10 @@ struct CarSplitPane: Equatable {
 /// far end. Wider than tall, two or three players sit side by side in
 /// columns and four in quarters, all the right way up.
 enum CarSplitLayout {
+    /// How much of a part's width each steering side takes; the rest, down
+    /// the middle, is the boost.
+    static let steerShare = 0.36
+
     static func panes(players: Int, width: Double, height: Double, facing: Bool) -> [CarSplitPane] {
         let n = min(max(players, 1), 4)
         let w = max(0, width), h = max(0, height)
@@ -240,14 +250,22 @@ enum CarSplitLayout {
     }
 
     /// What every player is holding, by seat, from where the fingers are: a
-    /// finger in a player's part counts on their left or right side as THEY
-    /// see it, so a turned pane's sides are swapped on the screen.
+    /// finger in a player's part counts on their left or right side (or the
+    /// boost between) as THEY see it, so a turned pane's sides are swapped on
+    /// the screen.
     static func holds(touches: [CarVec], panes: [CarSplitPane], players: Int) -> [CarSplitHold] {
         var out = Array(repeating: CarSplitHold(), count: max(0, players))
         for touch in touches {
             guard let pane = panes.first(where: { $0.contains(touch) }), pane.seat < out.count else { continue }
-            let onRight = touch.x >= pane.x + pane.width / 2
-            if onRight != pane.turned { out[pane.seat].right = true } else { out[pane.seat].left = true }
+            var across = pane.width > 0 ? (touch.x - pane.x) / pane.width : 0.5
+            if pane.turned { across = 1 - across }
+            if across < steerShare {
+                out[pane.seat].left = true
+            } else if across >= 1 - steerShare {
+                out[pane.seat].right = true
+            } else {
+                out[pane.seat].boost = true
+            }
         }
         return out
     }
