@@ -212,19 +212,34 @@ enum JkaiEventAction: Equatable {
 /// `Last-Event-ID` and the same backoff, and once the backoff is spent the
 /// channel waits for the app's next return to the foreground. A refusal
 /// (403, 404, 401) closes it until then too: the server does not have it.
+///
+/// Deduped by the ids seen, not by a high-water mark: the server's seqs commit
+/// out of order, so 104 can arrive after 105 and is still news. A reconnect
+/// sends the highest id seen as `Last-Event-ID`, and the server replays from
+/// `window` behind it (its `LOOKBACK`), so what the phone already had comes
+/// again and is dropped here. Bounded like the server's own record: an id
+/// `window` or more below the highest is forgotten and refused, because the
+/// server no longer looks that far back either.
 struct JkaiEventsResume: Equatable {
+    /// The server's `LOOKBACK` (`events.server.ts`).
+    static let window = 200
+
+    /// The highest id seen: the next connection's `Last-Event-ID`.
     private(set) var lastEventId: Int?
     private(set) var attempts = 0
+    private var seen: Set<Int> = []
 
-    init(lastEventId: Int? = nil) {
-        self.lastEventId = lastEventId
-    }
-
-    /// Whether a frame is new: one at or below the resume point is a replay.
+    /// Whether a frame is new: one already seen is a replay.
     mutating func accept(_ id: Int?) -> Bool {
         guard let id else { return true }
-        if let last = lastEventId, id <= last { return false }
-        lastEventId = id
+        let high = lastEventId ?? Int.min
+        if lastEventId != nil, id <= high - Self.window { return false }
+        guard seen.insert(id).inserted else { return false }
+        if id > high {
+            lastEventId = id
+            let floor = id - Self.window
+            seen = seen.filter { $0 > floor }
+        }
         attempts = 0
         return true
     }

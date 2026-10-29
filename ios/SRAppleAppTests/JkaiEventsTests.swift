@@ -138,6 +138,38 @@ final class JkaiEventsTests: XCTestCase {
         XCTAssertEqual(resume.lastEventId, 7, "kept for the next foreground")
     }
 
+    /// Seqs commit out of order: 104 after 105 is news, not a replay.
+    func testALateLowerIdIsStillAccepted() {
+        var resume = JkaiEventsResume()
+        XCTAssertTrue(resume.accept(103))
+        XCTAssertTrue(resume.accept(105))
+        XCTAssertTrue(resume.accept(104), "late, not old")
+        XCTAssertEqual(resume.lastEventId, 105, "Last-Event-ID stays the highest seen")
+        XCTAssertFalse(resume.accept(104), "seen")
+        XCTAssertFalse(resume.accept(105), "seen")
+        XCTAssertTrue(resume.accept(106))
+    }
+
+    /// A reconnect replays from `window` behind `Last-Event-ID`: what the
+    /// phone had is dropped, what it missed below the resume point comes in.
+    func testTheReplayWindowDropsWhatWasSeenAndKeepsWhatWasMissed() {
+        var resume = JkaiEventsResume()
+        let window = JkaiEventsResume.window
+        XCTAssertEqual(window, 200, "the server's LOOKBACK")
+        for id in 1...300 where id != 250 { XCTAssertTrue(resume.accept(id)) }
+        XCTAssertEqual(resume.lastEventId, 300)
+        // The replay: (300 - 200, 300], with 250 committed late.
+        var fresh: [Int] = []
+        for id in (300 - window + 1)...300 where resume.accept(id) { fresh.append(id) }
+        XCTAssertEqual(fresh, [250])
+        XCTAssertEqual(resume.lastEventId, 300)
+        XCTAssertFalse(resume.accept(100), "beyond the window: the server no longer looks that far back")
+        XCTAssertTrue(resume.accept(301))
+        XCTAssertFalse(resume.accept(101), "the window moved with the highest")
+        XCTAssertFalse(resume.accept(102), "seen")
+        XCTAssertFalse(resume.accept(250), "seen")
+    }
+
     func testFeaturesAreOffUnlessSaidTrue() {
         XCTAssertEqual(JkaiFeatures(nil), .off)
         XCTAssertEqual(JkaiFeatures(["presence": "yes", "events": true]), JkaiFeatures(events: true))
