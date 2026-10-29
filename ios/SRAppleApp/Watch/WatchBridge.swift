@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 import WatchConnectivity
 
 /// The iPhone's side of the Watch app.
@@ -213,9 +214,18 @@ final class WatchBridge: NSObject, ObservableObject {
 
         case .askAloud(let question):
             // The owner's quick answer, read-only on the server; see
-            // `QuickAnswerIntent`. The wrist is the unlocked device here.
+            // `QuickAnswerIntent`. It reads private tools, and nothing proves
+            // the Watch is on a wrist and unlocked (no such API reaches the
+            // bridge), so the iPhone must be unlocked now or a moment ago —
+            // `QuickAnswer.watchGate` has the reasoning. A locked phone answers
+            // nothing private: the Watch is told to unlock it instead.
             guard AccessStore.ownerSite, AccessStore.shared.allows(.chat), AccessStore.shared.viewingAs == nil else {
                 return WatchReply(ok: false, text: "Quick answers are the owner's")
+            }
+            if case .refuse(let text) = QuickAnswer.watchGate(
+                phoneUnlockedRecently: UIApplication.shared.isProtectedDataAvailable
+            ) {
+                return WatchReply(ok: false, text: text)
             }
             let line = await QuickAnswerRunner.ask(question, surface: "watch")
             return WatchReply(ok: true, text: line)

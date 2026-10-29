@@ -120,4 +120,9 @@ final class QuickAnswerTests: XCTestCase {
         XCTAssertEqual(outcome, .stillWorking)
         XCTAssertEqual(posts, TurnStart.pendingTries + 1)
     }
+
+    func testTheWatchIsAnsweredOnlyWhileTheIPhoneIsUnlocked() {
+        XCTAssertEqual(QuickAnswer.watchGate(phoneUnlockedRecently: true), .answer)
+        XCTAssertEqual(QuickAnswer.watchGate(phoneUnlockedRecently: false), .refuse(QuickAnswer.watchLockedReply))
+    }
 }

@@ -152,4 +152,41 @@ enum QuickAnswer {
             return trimmed.isEmpty ? "That didn't work." : trimmed
         }
     }
+
+    // MARK: - The Watch's private-read gate
+
+    /// Whether the Watch's "ask aloud" may be answered, and what to say if not.
+    ///
+    /// A quick answer reads John's private tools (his day, his health, his
+    /// mail), and the Watch holds no credential: the iPhone answers for it.
+    /// The Siri path has `.requiresAuthentication`; a WatchConnectivity
+    /// message has nothing like it, so the phone must judge presence itself.
+    ///
+    /// What the platform lets the iPhone see (checked 2026-10-29):
+    /// - The iPhone's own lock: `UIApplication.isProtectedDataAvailable` is
+    ///   true while it is unlocked and for a few seconds after it locks (the
+    ///   `NSFileProtectionComplete` grace). That is the "unlocked recently"
+    ///   signal, and it is what is required here.
+    /// - The Watch's wrist and lock state: NOT available. `WCSession` reports
+    ///   paired, installed and reachable only, and watchOS has no public
+    ///   on-wrist API to pass across (wrist detection can also be switched
+    ///   off, leaving a Watch unlocked on a table). So "on-wrist and unlocked"
+    ///   cannot be proved from the bridge.
+    ///
+    /// Server-side, a 'watch' turn already gets only read tools (Core), but
+    /// there is no "non-private reads only" mode the phone could ask for — so
+    /// with the iPhone locked the restriction is the strict one: no quick
+    /// answer at all, and the Watch is told to unlock the phone. Non-private
+    /// reads (the Today snapshot the Watch already shows) need no question.
+    enum WatchGate: Equatable {
+        case answer
+        case refuse(String)
+    }
+
+    static let watchLockedReply = "Unlock your iPhone to ask jkai from the Watch."
+
+    static func watchGate(phoneUnlockedRecently: Bool) -> WatchGate {
+        phoneUnlockedRecently ? .answer : .refuse(watchLockedReply)
+    }
+
 }
