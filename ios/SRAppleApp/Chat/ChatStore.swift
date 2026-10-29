@@ -197,6 +197,9 @@ final class ChatStore: ObservableObject {
     /// cheapest thing that moves once per frame and cannot loop: nothing that
     /// reads it writes it.
     @Published private(set) var streamTick = 0
+    /// A turn running in another session, which this phone cannot stream:
+    /// shown as a quiet line until it ends. See `rejoin()`.
+    @Published private(set) var elsewhere: ElsewhereTurn?
 
     let conversationId: String
     private let client = SiteClient.shared
@@ -554,6 +557,7 @@ final class ChatStore: ObservableObject {
     private var livePage: PanelPage?
 
     private func begin(_ job: String) {
+        clearElsewhere()
         jobId = job
         streamResume = TurnStreamResume()
         rejoining = false
@@ -585,20 +589,33 @@ final class ChatStore: ObservableObject {
         // Not in a demo: its jobs live in memory and are gone with the app.
         guard !SRDemo.isOn, !sending, streamTask == nil else { return }
         guard let probe = await probeActive() else {
+            // Following a turn elsewhere: a missed ask is asked again.
+            if elsewhere != nil {
+                pollElsewhere()
+                return
+            }
             // An older site, or no network: the phone's own hint is all there is.
             rejoinIfRunning()
             return
         }
         JkaiLive.shared.note(probe.features)
-        JkaiLive.shared.setRunning(conversationId, probe.liveJob != nil)
+        JkaiLive.shared.setRunning(conversationId, probe.isRunning)
         if presenceTask != nil && lastBeat == nil { Task { await beat() } }
         let local = TurnRejoin.Local(
             busy: sending || streamTask != nil,
             jobId: jobId,
             gateShown: plan != nil || clarify != nil || blocked != nil,
-            hint: activeTurns.entry(for: conversationId)?.jobId
+            hint: activeTurns.entry(for: conversationId)?.jobId,
+            elsewhere: elsewhere != nil
         )
-        switch TurnRejoin.decide(probe, local: local) {
+        let decision = TurnRejoin.decide(probe, local: local)
+        if case .elsewhere = decision {} else { clearElsewhere() }
+        switch decision {
+        case .elsewhere(let status, let partial):
+            // The other slot holds it: show it running, never stream it (that
+            // slot's stream would 404 here), and ask until it ends.
+            elsewhere = ElsewhereTurn(status: status, partialText: partial)
+            pollElsewhere()
         case .nothing:
             // Sitting on a gate with the stream let go (the screen went away
             // for a moment): hold it again while presence says the phone is open.
@@ -620,6 +637,33 @@ final class ChatStore: ObservableObject {
             jobId = nil
             await load()
         }
+    }
+
+    /// Re-asking about a turn running elsewhere: only while the thread is on
+    /// screen in the foreground (`startPresence` / `stopPresence`), and less
+    /// often the longer it runs (`ElsewherePoll`).
+    private var elsewherePoll = ElsewherePoll()
+    private var elsewhereTask: Task<Void, Never>?
+    private var onScreen = false
+
+    private func pollElsewhere() {
+        elsewhereTask?.cancel()
+        elsewhereTask = nil
+        guard onScreen, elsewhere != nil else { return }
+        let wait = elsewherePoll.next()
+        elsewhereTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled, let self else { return }
+            self.elsewhereTask = nil
+            await self.rejoin()
+        }
+    }
+
+    private func clearElsewhere() {
+        elsewhereTask?.cancel()
+        elsewhereTask = nil
+        elsewherePoll = ElsewherePoll()
+        elsewhere = nil
     }
 
     private func probeActive() async -> ActiveTurnProbe? {
@@ -685,6 +729,7 @@ final class ChatStore: ObservableObject {
     /// it already knows; otherwise re-read the thread for what it saved.
     func serverTurnEnded(jobId job: String) async {
         guard !sending, streamTask == nil || gateOnStream else { return }
+        clearElsewhere()
         if jobId == job {
             stop()
             gateOnStream = false
@@ -754,6 +799,7 @@ final class ChatStore: ObservableObject {
     private var lastBeat: Date?
 
     func startPresence() {
+        onScreen = true
         guard presenceTask == nil, !SRDemo.isOn else { return }
         presenceTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -768,6 +814,11 @@ final class ChatStore: ObservableObject {
         presenceTask?.cancel()
         presenceTask = nil
         lastBeat = nil
+        // Nobody is looking: stop asking about a turn elsewhere. The line
+        // stays, and the next foreground's `rejoin()` asks again.
+        onScreen = false
+        elsewhereTask?.cancel()
+        elsewhereTask = nil
         // A gate's stream was held only because the phone was open. It is not
         // now, so let it go: the server's nudge goes out as it used to.
         if gateOnStream {

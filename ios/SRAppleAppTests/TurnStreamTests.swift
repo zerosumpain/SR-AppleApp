@@ -404,6 +404,58 @@ final class TurnStreamTests: XCTestCase {
         XCTAssertEqual(TurnRejoin.decide(gated, local: .init()), .attach(jobId: "j", gate: "plan", partialText: ""))
     }
 
+    /// `jobId` comes only from the slot that holds the job. A turn on the
+    /// other slot is `turn` with `held: false`: running, never streamed.
+    func testATurnHeldByTheOtherSlotIsShownRunningAndNotStreamed() throws {
+        let remote = try XCTUnwrap(probe(#"{"jobId":null,"turn":{"jobId":"j","status":"running","partialText":"Half","lastSeq":3,"held":false}}"#))
+        XCTAssertNil(remote.liveJob, "nothing to attach to")
+        XCTAssertEqual(remote.turn?.held, false)
+        XCTAssertEqual(remote.runningElsewhere?.jobId, "j")
+        XCTAssertTrue(remote.isRunning, "the dot stays on")
+        XCTAssertEqual(TurnRejoin.decide(remote, local: .init()), .elsewhere(status: "running", partialText: "Half"))
+        XCTAssertEqual(TurnRejoin.decide(remote, local: .init(hint: "j")), .elsewhere(status: "running", partialText: "Half"),
+                       "the phone's hint is not a reason to re-read while it runs")
+        XCTAssertEqual(TurnRejoin.decide(remote, local: .init(busy: true)), .nothing)
+        let gated = try XCTUnwrap(probe(#"{"jobId":null,"turn":{"jobId":"j","status":"gated","partialText":"","held":false}}"#))
+        XCTAssertEqual(TurnRejoin.decide(gated, local: .init()), .elsewhere(status: "gated", partialText: ""))
+        XCTAssertTrue(ElsewhereTurn(status: "gated", partialText: "").line.hasPrefix("Waiting on you in another session"))
+        XCTAssertTrue(ElsewhereTurn(status: "running", partialText: "").line.hasPrefix("Still working in another session"))
+
+        // It ends: re-read the thread, which holds what it saved.
+        let ended = try XCTUnwrap(probe(#"{"jobId":null,"turn":{"jobId":"j","status":"done","partialText":"","held":false}}"#))
+        XCTAssertNil(ended.runningElsewhere)
+        XCTAssertFalse(ended.isRunning)
+        XCTAssertEqual(TurnRejoin.decide(ended, local: .init(elsewhere: true)), .reload)
+        XCTAssertEqual(TurnRejoin.decide(ended, local: .init()), .nothing)
+
+        // A slot that holds it answers: attach as usual.
+        let held = try XCTUnwrap(probe(#"{"jobId":"j","turn":{"jobId":"j","status":"running","partialText":"More","lastSeq":9,"held":true}}"#))
+        XCTAssertNil(held.runningElsewhere)
+        XCTAssertEqual(TurnRejoin.decide(held, local: .init(elsewhere: true)), .attach(jobId: "j", gate: nil, partialText: "More"))
+    }
+
+    /// Before `held`, a live turn with no `jobId` was one this slot could not
+    /// see either: not shown as elsewhere.
+    func testALiveTurnWithoutHeldIsNotElsewhere() throws {
+        let older = try XCTUnwrap(probe(#"{"jobId":null,"turn":{"jobId":"j","status":"running","partialText":""}}"#))
+        XCTAssertNil(older.runningElsewhere)
+        XCTAssertFalse(older.isRunning)
+    }
+
+    func testElsewhereIsAskedAgainLessOftenTheLongerItRuns() {
+        var poll = ElsewherePoll()
+        let waits = (0..<7).map { _ in poll.next() }
+        XCTAssertEqual(waits, [3, 4, 6, 10, 15, 15, 15])
+    }
+
+    func testTheRunningListCountsTurnsOnEitherSlot() throws {
+        let list = try XCTUnwrap(ActiveTurnList.read(Data("""
+        {"jobs":[{"conversationId":"a","jobId":"1","status":"running","held":true},
+                 {"conversationId":"b","jobId":"2","status":"gated","held":false}]}
+        """.utf8)))
+        XCTAssertEqual(list.running, ["a": "running", "b": "gated"])
+    }
+
     func testTheRunningListKeepsOnlyLiveTurns() throws {
         let list = try XCTUnwrap(ActiveTurnList.read(Data("""
         {"jobs":[{"conversationId":"a","jobId":"1","status":"running"},{"conversationId":"b","jobId":"2","status":"gated"},

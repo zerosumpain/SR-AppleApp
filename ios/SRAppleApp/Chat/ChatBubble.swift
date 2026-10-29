@@ -198,6 +198,32 @@ struct ToolStepList: View {
     }
 }
 
+/// A turn running in another session, which this phone shows but cannot
+/// stream: what it had said when last asked, and one quiet line.
+struct ElsewhereTurnLine: View {
+    let turn: ElsewhereTurn
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !turn.partialText.isEmpty {
+                Text(turn.partialText)
+                    .font(SR.body(15))
+                    .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Circle().fill(SR.accent).frame(width: 6, height: 6)
+                Text(turn.line)
+                    .font(SR.mono(12))
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// The live panel between the send and the answer.
 ///
 /// One line while it works — what it is doing and how many steps so far — with

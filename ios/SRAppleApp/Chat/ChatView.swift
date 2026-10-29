@@ -727,6 +727,10 @@ struct ChatScreen: View {
                         TurnActivityPanel(activity: store.activity)
                     }
 
+                    if let elsewhere = store.elsewhere {
+                        ElsewhereTurnLine(turn: elsewhere)
+                    }
+
                     if let blocked = store.blocked {
                         BlockedTurnCard(blocked: blocked, conversationId: conversation.id)
                     }

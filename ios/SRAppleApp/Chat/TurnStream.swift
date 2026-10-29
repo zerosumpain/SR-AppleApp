@@ -543,6 +543,11 @@ struct ActiveTurnProbe: Equatable {
         let partialText: String
         let error: String?
         let surface: String?
+        /// Whether the slot that answered holds the job and so can stream it.
+        /// `false` is a turn on the other slot: running, but not this
+        /// answer's to attach to. Nil on an older server, which offered
+        /// `jobId` only for a job it could stream anyway.
+        var held: Bool? = nil
 
         var isLive: Bool { status == "running" || status == "gated" }
 
@@ -572,7 +577,8 @@ struct ActiveTurnProbe: Equatable {
         }
     }
 
-    /// Set only while a turn is running or waiting on a gate.
+    /// Set only while a turn is running or waiting on a gate AND the slot
+    /// that answered holds it: an invitation to stream it.
     let jobId: String?
     /// The latest turn on the thread, finished or not. Nil on an older server.
     let turn: Turn?
@@ -592,7 +598,8 @@ struct ActiveTurnProbe: Equatable {
                 lastSeq: (t["lastSeq"] as? NSNumber)?.intValue,
                 partialText: t["partialText"] as? String ?? "",
                 error: t["error"] as? String,
-                surface: t["surface"] as? String
+                surface: t["surface"] as? String,
+                held: t["held"] as? Bool
             )
         }
         var gate: OpenGate?
@@ -613,6 +620,47 @@ struct ActiveTurnProbe: Equatable {
         guard let jobId else { return nil }
         if let turn, turn.jobId == jobId, !turn.isLive { return nil }
         return jobId
+    }
+
+    /// A turn that is running, but on a slot that did not answer: no `jobId`
+    /// to stream, `turn.held == false`. The thread shows it running and asks
+    /// again until it ends or a slot that holds it answers.
+    var runningElsewhere: Turn? {
+        guard liveJob == nil, let turn, turn.isLive, turn.held == false else { return nil }
+        return turn
+    }
+
+    /// Whether the thread has a turn running anywhere: its row's dot.
+    var isRunning: Bool { liveJob != nil || runningElsewhere != nil }
+}
+
+/// A turn running in another session, as an open thread shows it.
+struct ElsewhereTurn: Equatable {
+    /// `running` or `gated`.
+    let status: String
+    let partialText: String
+
+    /// The thread's quiet status line, as the web words it.
+    var line: String {
+        status == "gated"
+            ? "Waiting on you in another session — the reply lands here when it finishes."
+            : "Still working in another session — the reply lands here when it finishes."
+    }
+}
+
+/// How often an open thread re-asks `/chat/active` about a turn running in
+/// another session (`ActiveTurnProbe.runningElsewhere`), which it cannot
+/// stream. A few seconds at first, as the web does, then less often for a long
+/// turn. Only while the thread is on screen in the foreground.
+struct ElsewherePoll: Equatable {
+    static let delays: [TimeInterval] = [3, 4, 6, 10, 15]
+    private(set) var asked = 0
+
+    /// The wait before the next ask; the last delay repeats.
+    mutating func next() -> TimeInterval {
+        let wait = Self.delays[min(asked, Self.delays.count - 1)]
+        asked += 1
+        return wait
     }
 }
 
@@ -646,12 +694,16 @@ enum TurnRejoin: Equatable {
     /// before a relaunch): a fresh live bubble and a full replay from the
     /// first frame, with `gate` shown at once if the server has one open.
     case attach(jobId: String, gate: String?, partialText: String)
+    /// A turn is running in another session (the other slot holds it): show
+    /// that it is, with what it has said so far, and ask again later. Never
+    /// streamed from here — that slot's stream would 404 this one.
+    case elsewhere(status: String, partialText: String)
     /// The phone is showing a gate card for this job, and the server says it
     /// is no longer waiting on it (answered at the desk): carry on streaming
     /// from where the phone stopped.
     case carryOn(jobId: String)
-    /// Nothing is running, but the phone thought something was (a hint, or a
-    /// card still up): re-read the thread, which holds what the turn saved.
+    /// Nothing is running, but the phone thought something was (a hint, a
+    /// card still up, or a turn shown running elsewhere): re-read the thread, which holds what the turn saved.
     /// An interrupted turn's partial reply is a row in it — never an error.
     case reload
 
@@ -665,6 +717,8 @@ enum TurnRejoin: Equatable {
         var gateShown = false
         /// `ActiveTurns`' job for this thread, if any.
         var hint: String?
+        /// The thread is showing a turn running in another session.
+        var elsewhere = false
     }
 
     static func decide(_ probe: ActiveTurnProbe, local: Local) -> TurnRejoin {
@@ -677,7 +731,10 @@ enum TurnRejoin: Equatable {
             let partial = probe.turn?.jobId == job ? probe.turn?.partialText ?? "" : ""
             return .attach(jobId: job, gate: probe.openGate?.kind, partialText: partial)
         }
-        if local.gateShown || local.hint != nil { return .reload }
+        if let turn = probe.runningElsewhere {
+            return .elsewhere(status: turn.status, partialText: turn.partialText)
+        }
+        if local.gateShown || local.hint != nil || local.elsewhere { return .reload }
         return .nothing
     }
 }
