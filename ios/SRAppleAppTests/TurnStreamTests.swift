@@ -414,3 +414,52 @@ final class TurnStreamTests: XCTestCase {
         XCTAssertEqual(list.features, JkaiFeatures(events: true))
     }
 }
+
+/// "Try again" after a `pending` (409) answer: re-read the thread, re-send at
+/// most once under a fresh id, then stop with a plain error.
+final class PendingSendTests: XCTestCase {
+    private let first = ISO8601DateFormatter().date(from: "2026-10-28T10:00:00Z")!
+    private let request = TurnRequest(message: "  Book the 9:40  ", conversationId: "c1", attachmentIds: nil)
+
+    func testNoSavedRowMeansOneResendUnderAFreshId() {
+        let thread = [PendingSend.Row(role: "assistant", content: "Book the 9:40", createdAt: "2026-10-28T10:00:05Z")]
+        guard case .resend(let fresh) = PendingSend.decide(request: request, firstTriedAt: first, freshRetriesUsed: 0, thread: thread) else {
+            return XCTFail("expected a re-send")
+        }
+        XCTAssertNotEqual(fresh.requestId, request.requestId)
+        XCTAssertEqual(fresh.message, request.message)
+        XCTAssertEqual(fresh.conversationId, request.conversationId)
+    }
+
+    func testASavedUserRowSinceTheFirstAttemptMeansItArrived() {
+        let thread = [PendingSend.Row(role: "user", content: "Book the 9:40", createdAt: "2026-10-28T10:00:01.250Z")]
+        XCTAssertEqual(PendingSend.decide(request: request, firstTriedAt: first, freshRetriesUsed: 0, thread: thread), .arrived)
+        XCTAssertEqual(PendingSend.decide(request: request, firstTriedAt: first, freshRetriesUsed: 1, thread: thread), .arrived)
+    }
+
+    func testTheSameWordsSentLongBeforeAreNotThisSend() {
+        let thread = [PendingSend.Row(role: "user", content: "Book the 9:40", createdAt: "2026-10-27T09:00:00Z")]
+        if case .resend = PendingSend.decide(request: request, firstTriedAt: first, freshRetriesUsed: 0, thread: thread) { return }
+        XCTFail("an old identical message is not proof this one arrived")
+    }
+
+    func testAnUndatedIdenticalRowCountsAsArrived() {
+        let thread = [PendingSend.Row(role: "user", content: "Book the 9:40", createdAt: nil)]
+        XCTAssertEqual(PendingSend.decide(request: request, firstTriedAt: first, freshRetriesUsed: 0, thread: thread), .arrived)
+    }
+
+    func testAfterTheCapItIsAPlainErrorNotAnotherLoop() {
+        XCTAssertEqual(PendingSend.freshRetryCap, 1)
+        XCTAssertEqual(PendingSend.decide(request: request, firstTriedAt: first, freshRetriesUsed: 1, thread: []),
+                       .giveUp(PendingSend.giveUpMessage))
+    }
+
+    func testAFreshRequestIsADifferentBodyOnlyByItsId() throws {
+        let fresh = request.withFreshRequestId()
+        let a = try JSONSerialization.jsonObject(with: request.body()) as! [String: Any]
+        let b = try JSONSerialization.jsonObject(with: fresh.body()) as! [String: Any]
+        XCTAssertNotEqual(a["requestId"] as? String, b["requestId"] as? String)
+        XCTAssertEqual(a["message"] as? String, b["message"] as? String)
+        XCTAssertEqual(Set(a.keys), Set(b.keys))
+    }
+}

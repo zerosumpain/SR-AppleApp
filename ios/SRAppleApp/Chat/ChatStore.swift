@@ -352,6 +352,11 @@ final class ChatStore: ObservableObject {
         /// The question's bubble, left on screen so the reader can see what
         /// did not go. The retry takes it away and draws the turn afresh.
         let bubbleId: String
+        /// Set when the server answered `pending` (409): when the first
+        /// attempt was made, for `PendingSend.decide`. Nil for other failures.
+        var pendingSince: Date? = nil
+        /// Fresh-id re-sends already made for this message.
+        var freshRetries = 0
     }
 
     @Published private(set) var failedSend: FailedSend?
@@ -377,13 +382,36 @@ final class ChatStore: ObservableObject {
 
     /// "Try again" on a send that did not get through: the same request, so
     /// a first attempt that DID reach the server is answered, not repeated.
+    ///
+    /// Except after a `pending` answer: the same id would only be answered
+    /// `pending` again, forever. Then the thread decides (`PendingSend`).
     func retryFailedSend() async {
         guard let failed = failedSend, !sending else { return }
+        guard let since = failed.pendingSince else {
+            messages.removeAll { $0.id == failed.bubbleId }
+            await start(failed.request, attachments: failed.attachments)
+            return
+        }
+        failedSend = nil
         messages.removeAll { $0.id == failed.bubbleId }
-        await start(failed.request, attachments: failed.attachments)
+        await load()
+        let rows = messages.map { PendingSend.Row(role: $0.role, content: $0.content, createdAt: $0.createdAt) }
+        switch PendingSend.decide(request: failed.request, firstTriedAt: since,
+                                  freshRetriesUsed: failed.freshRetries, thread: rows) {
+        case .arrived:
+            message = "That message arrived — it is in the thread above."
+        case .resend(let fresh):
+            await start(fresh, attachments: failed.attachments,
+                        pendingSince: since, freshRetries: failed.freshRetries + 1)
+        case .giveUp(let reason):
+            message = reason
+            SRHaptic.bad()
+        }
     }
 
-    private func start(_ request: TurnRequest, attachments: [ChatAttachment]) async {
+    private func start(_ request: TurnRequest, attachments: [ChatAttachment],
+                       pendingSince: Date? = nil, freshRetries: Int = 0) async {
+        let attemptedAt = Date()
         sending = true
         blocked = nil
         plan = nil
@@ -420,9 +448,21 @@ final class ChatStore: ObservableObject {
             // The server holds this send and has not finished accepting it —
             // it may have started a turn. Re-read the thread rather than guess;
             // "Try again" stays, and is safe, because it is the same request.
-            notSent(request, attachments: attachments, bubbleId: userBubble.id,
-                    reason: "That message is still being accepted. Check the thread before sending it again.")
+            // "Try again" then re-reads the thread and re-sends at most once
+            // under a fresh id (`retryFailedSend`), never this id forever.
+            let reason = "That message is still being accepted. Check the thread before sending it again."
+            notSent(request, attachments: attachments, bubbleId: userBubble.id, reason: reason)
+            failedSend?.pendingSince = pendingSince ?? attemptedAt
+            failedSend?.freshRetries = freshRetries
             await load()
+            // `load` clears the banner on success; put the reason back.
+            if freshRetries >= PendingSend.freshRetryCap {
+                // Already re-sent once and still stuck: no more "Try again".
+                failedSend = nil
+                message = PendingSend.giveUpMessage
+            } else {
+                message = reason
+            }
         }
     }
 

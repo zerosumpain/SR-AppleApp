@@ -144,6 +144,14 @@ struct TurnRequest: Equatable {
         self.envelope = envelope
     }
 
+    /// The same message, attachments and envelope under a NEW `requestId` —
+    /// a different send to the server. Only `PendingSend` may ask for one,
+    /// after the thread showed the first never arrived.
+    func withFreshRequestId() -> TurnRequest {
+        TurnRequest(message: message, conversationId: conversationId, attachmentIds: attachmentIds,
+                    envelope: envelope, requestId: TurnStart.newRequestId())
+    }
+
     func body() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -195,6 +203,65 @@ enum TurnStart: Equatable {
     /// How many times a `pending` answer is asked again before the thread is
     /// re-read instead.
     static let pendingTries = 3
+}
+
+/// "Try again" on a send the server keeps answering `pending` (409).
+///
+/// Core's receipt is claimed BEFORE a turn starts, and a claim whose process
+/// died stays `pending` for good — so re-sending the same `requestId`, which
+/// is what "Try again" does for every other failure, loops forever. The
+/// receipts are not exposed and saved messages carry no request id, so the
+/// thread is the evidence: re-read it, and if no user row with this message
+/// was saved since the first attempt, the turn never started and ONE re-send
+/// under a fresh id is safe. If one was saved, the message arrived; nothing is
+/// re-sent. After the cap, a plain error and no more "Try again".
+enum PendingSend {
+    /// Fresh-id re-sends allowed for one message.
+    static let freshRetryCap = 1
+    /// Clock skew allowed between the phone's first attempt and the server's row.
+    static let skew: TimeInterval = 120
+
+    /// A saved message, as much of it as the decision needs.
+    struct Row: Equatable {
+        let role: String
+        let content: String
+        let createdAt: String?
+    }
+
+    enum Decision: Equatable {
+        /// The message is in the thread: it arrived, so do not send it again.
+        case arrived
+        /// Not in the thread: send it once more as a new request.
+        case resend(TurnRequest)
+        /// Re-sent already and still stuck: say so plainly and stop.
+        case giveUp(String)
+    }
+
+    static let giveUpMessage = "That message could not be sent. Copy it and send it again as a new message."
+
+    static func decide(request: TurnRequest, firstTriedAt: Date, freshRetriesUsed: Int, thread: [Row]) -> Decision {
+        let wanted = request.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let since = firstTriedAt.addingTimeInterval(-skew)
+        let saved = thread.contains { row in
+            guard row.role == "user",
+                  row.content.trimmingCharacters(in: .whitespacesAndNewlines) == wanted else { return false }
+            // A row we cannot date is not taken as proof of anything older,
+            // but an identical message with no date still counts as arrived:
+            // a duplicate turn is worse than one "check the thread".
+            guard let stamp = row.createdAt, let date = parseDate(stamp) else { return true }
+            return date >= since
+        }
+        if saved { return .arrived }
+        guard freshRetriesUsed < freshRetryCap else { return .giveUp(giveUpMessage) }
+        return .resend(request.withFreshRequestId())
+    }
+
+    private static func parseDate(_ text: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFraction.date(from: text) { return date }
+        return ISO8601DateFormatter().date(from: text)
+    }
 }
 
 /// Why a stream stopped, as far as what to do next is concerned.
