@@ -15,7 +15,7 @@ struct WelcomeBackSheet: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var page = 0
     /// The paged cards need a height; it grows with the reader's text size.
-    @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 230
+    @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 260
 
     var body: some View {
         NavigationStack {
@@ -76,20 +76,32 @@ struct WelcomeBackSheet: View {
 
     private func cardView(_ card: HometownsCard) -> some View {
         let line = store.say(card.key, card.data)
+        let news = card.key.hasPrefix("bulletin")
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                HometownsMascot(advisor: card.key.hasPrefix("bulletin.money") ? "penny" : "bramble")
-                Text(card.key.hasPrefix("bulletin") ? (store.level == .kid ? "MORNING NEWS" : "MORNING BULLETIN") : "WELCOME BACK")
-                    .font(SR.Text.label())
-                    .tracking(SR.kickerTracking)
-                    .foregroundStyle(SR.accent)
+                HometownsMascot(advisor: card.key.hasPrefix("bulletin.money") ? "penny" : "bramble", size: 44)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(news ? (store.level == .kid ? "MORNING NEWS" : "MORNING BULLETIN") : "WELCOME BACK")
+                        .font(SR.Text.label())
+                        .tracking(SR.kickerTracking)
+                        .foregroundStyle(SR.accent)
+                    if news {
+                        // A masthead's double rule.
+                        VStack(spacing: 2) {
+                            Rectangle().fill(SR.ink.opacity(0.5)).frame(height: 1.5)
+                            Rectangle().fill(SR.ink.opacity(0.5)).frame(height: 0.75)
+                        }
+                        .frame(maxWidth: 140)
+                        .accessibilityHidden(true)
+                    }
+                }
             }
             Text(line)
                 .font(SR.Text.display(21))
                 .foregroundStyle(SR.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Button { store.readAloud(line) } label: { SRButtonLabel(title: "Read aloud", icon: "speaker.wave.2.fill") }
+            Button { store.readAloud(line) } label: { HometownsBigLabel(title: "Read aloud", icon: "speaker.wave.2.fill") }
                 .srButton(.regular)
                 .accessibilityIdentifier("hometowns-read-\(card.key)")
         }

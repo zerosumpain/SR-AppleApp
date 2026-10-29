@@ -78,6 +78,27 @@ enum OfflineCatalogue {
 
     /// Every game that can be played alone, in catalogue order.
     static var soloGames: [OfflineCatalogueItem] { items.filter(\.canPlaySolo) }
+
+    /// Every game the lobby could start with `count` players, in catalogue
+    /// order: the picker's "Ready for N of you" shelf.
+    static func games(fitting count: Int) -> [OfflineCatalogueItem] {
+        items.filter { $0.info.allows(count) }
+    }
+}
+
+// MARK: - Words for a game's card
+
+extension OfflineCatalogueItem {
+    /// "Solo v bots", "Nearby", "2–5 players": the tags on its card.
+    var modeTags: [String] {
+        OfflineShell.modeTags(canPlaySolo: canPlaySolo, bots: soloBots, playersLabel: info.playersLabel)
+    }
+
+    /// Who a solo game is against: "Just you", "You v the phone".
+    var opponentLine: String { OfflineShell.opponentLine(bots: soloBots) }
+
+    /// The words on its Play alone button.
+    var soloButtonTitle: String { soloBots > 0 ? "Play against the phone" : "Play alone" }
 }
 
 /// Navigation value for one game played alone, offline: its rules, and Play.

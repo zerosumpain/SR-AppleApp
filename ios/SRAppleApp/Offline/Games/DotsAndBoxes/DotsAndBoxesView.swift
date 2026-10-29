@@ -9,6 +9,13 @@ import SwiftUI
 /// the nearest undrawn line and highlights it, and Draw (or a second tap on
 /// the same gap) sends it. A mis-tap costs nothing. VoiceOver reads the board
 /// box by box, and each box offers its open sides as actions.
+///
+/// The board is a sheet of squared paper in pen: the newest line in the
+/// colour of whoever drew it, the picked line dashed in mine, and a claimed
+/// box shaded in its owner's colour with their initial — a box just won
+/// rings out once as it is claimed. On my turn, boxes one line from closing
+/// glow faintly, so a child can see the free box waiting (and the trap of
+/// leaving one). Everyone's count sits in the seat rail.
 struct DotsAndBoxesView: View {
     let context: OfflineGameContext<DotsAndBoxesRules>
     /// The line picked but not yet drawn.
@@ -23,13 +30,14 @@ struct DotsAndBoxesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 SRPageHeader(kicker: kicker, title: title, strap: strap)
                 if view.phase == .playing { turnBar }
                 DotsAndBoxesBoard(
                     view: view,
                     selected: selected,
                     interactive: canDraw,
+                    myTone: myTone,
                     name: { who($0) },
                     onPick: { pick($0) },
                     onDraw: { draw($0) }
@@ -59,6 +67,10 @@ struct DotsAndBoxesView: View {
             if view.turnPlayer == context.me, view.lastMove?.playerId != context.me { SRHaptic.tap() }
             if let move = view.lastMove, move.playerId == context.me, move.claimed > 0 { SRHaptic.ok() }
         }
+        .onChange(of: view.phase) { _, new in
+            guard new == .done else { return }
+            if view.champions.contains(context.me) { SRHaptic.ok() }
+        }
         .onChange(of: context.refusal) { _, new in
             if new != nil {
                 SRHaptic.bad()
@@ -85,6 +97,11 @@ struct DotsAndBoxesView: View {
 
     /// I may pick and draw a line now.
     private var canDraw: Bool { myTurn && playing && !waiting }
+
+    private var myTone: Color {
+        guard let seat = view.seats.first(where: { $0.id == context.me }) else { return SR.accent }
+        return OfflineSeatColour.of(seat.seat)
+    }
 
     private func who(_ id: String) -> String {
         id == context.me ? "You" : context.name(of: id)
@@ -134,54 +151,31 @@ struct DotsAndBoxesView: View {
 
     // MARK: - The turn
 
+    @ViewBuilder
     private var turnBar: some View {
-        HStack(spacing: 10) {
-            if let turn = view.turnPlayer, let seat = view.seats.first(where: { $0.id == turn }) {
-                OfflineInitial(name: seat.name, size: 28, tone: OfflineSeatColour.of(seat.seat))
-                Text(turn == context.me ? "Your line" : "\(seat.name) is drawing")
-                    .font(SR.Text.bodyMedium(15))
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+        if let turn = view.turnPlayer, let seat = view.seats.first(where: { $0.id == turn }) {
+            let tone = OfflineSeatColour.of(seat.seat)
+            PlayTableTurnStrip(text: turn == context.me ? "Your line" : "\(seat.name) is drawing",
+                               mine: turn == context.me, clock: context.clock, until: view.turnEndsAt,
+                               total: DotsAndBoxesRules.turnSeconds, tone: tone) {
+                OfflineInitial(name: seat.name, size: 40, tone: tone)
             }
-            Spacer(minLength: 6)
-            Image(systemName: "timer")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(SR.inkSecondary)
-                .accessibilityHidden(true)
-            OfflineCountdown(clock: context.clock, until: view.turnEndsAt, font: SR.Text.display(22),
-                             tone: myTurn ? SR.accent : SR.ink)
-                .fixedSize()
+            .accessibilityIdentifier("offline-dots-and-boxes-turn")
         }
-        .padding(.horizontal, SR.cardPadding)
-        .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
-        .srGlassCard(.paper)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("offline-dots-and-boxes-turn")
     }
 
     private var drawControls: some View {
         HStack(spacing: 10) {
-            Button {
+            PlayTableButton(title: "Draw", icon: "pencil", haptic: .none) {
                 if let line = selected { draw(line) }
-            } label: {
-                SRButtonLabel(title: "Draw", icon: "pencil", fill: true)
             }
-            .srButton(.prominent)
-            .controlSize(.large)
             .disabled(selected == nil)
             .accessibilityIdentifier("offline-dots-and-boxes-draw")
             .accessibilityLabel("Draw the picked line")
 
-            Button {
-                SRHaptic.select()
+            PlayTableButton(title: "Clear", weight: .regular, haptic: .select) {
                 selected = nil
-            } label: {
-                SRButtonLabel(title: "Clear", fill: true)
             }
-            .srButton(.regular)
-            .controlSize(.large)
             .disabled(selected == nil)
             .accessibilityIdentifier("offline-dots-and-boxes-clear")
             .accessibilityLabel("Clear the picked line")
@@ -191,51 +185,26 @@ struct DotsAndBoxesView: View {
     // MARK: - The scores
 
     private var scores: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(view.seats.enumerated()), id: \.element.id) { index, seat in
-                if index > 0 { Divider().overlay(SR.divider) }
-                HStack(spacing: 10) {
-                    OfflineInitial(name: seat.name, size: 28, tone: OfflineSeatColour.of(seat.seat))
-                    Text(seat.id == context.me ? "You" : seat.name)
-                        .font(SR.Text.bodyMedium(15))
-                        .foregroundStyle(seat.away ? SR.inkMuted : SR.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if view.turnPlayer == seat.id {
-                        Image(systemName: "arrowtriangle.left.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    if view.champions.contains(seat.id) {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    Spacer(minLength: 6)
-                    if seat.away {
-                        Text("left")
-                            .font(SR.Text.mono(13))
-                            .foregroundStyle(SR.inkSecondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    Text("\(seat.boxes)")
-                        .font(SR.Text.mono(15))
-                        .foregroundStyle(SR.ink)
-                        .frame(minWidth: 30, alignment: .trailing)
-                        .fixedSize()
-                }
-                .frame(minHeight: 40)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(seatLabel(seat))
-            }
-        }
-        .padding(.horizontal, SR.cardPadding)
-        .padding(.vertical, 6)
-        .srGlassCard(.paper)
-        .accessibilityIdentifier("offline-dots-and-boxes-scores")
+        PlayTableSeatRail(seats: view.seats.map { pod($0) })
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("offline-dots-and-boxes-scores")
+    }
+
+    private func pod(_ seat: DotsAndBoxesRules.Seat) -> PlayTableSeat {
+        let won = view.champions.contains(seat.id)
+        return PlayTableSeat(
+            id: seat.id,
+            label: seat.id == context.me ? "You" : seat.name,
+            initialOf: seat.name,
+            tone: OfflineSeatColour.of(seat.seat),
+            detail: seat.away ? "left" : (seat.boxes == 1 ? "1 box" : "\(seat.boxes) boxes"),
+            turn: view.phase == .playing && view.turnPlayer == seat.id,
+            away: seat.away,
+            mark: won ? "crown.fill" : nil,
+            markTone: Color(hex: 0xE0A21C),
+            score: "\(seat.boxes)",
+            spoken: seatLabel(seat)
+        )
     }
 
     private func seatLabel(_ seat: DotsAndBoxesRules.Seat) -> String {
@@ -281,17 +250,28 @@ struct DotsAndBoxesView: View {
     }
 }
 
+/// Paper and pen for the board: the same in both appearances, as a page is.
+enum DotsAndBoxesPaint {
+    static let paper = Color(hex: 0xFFFDF6)
+    static let grid = Color(hex: 0x9BB8D9).opacity(0.35)
+    static let ink = Color(hex: 0x22253A)
+    static let faint = Color(hex: 0x22253A).opacity(0.16)
+}
+
 /// The board itself: dots, drawn lines, claimed boxes in their owner's seat
-/// colour, the last line in the accent colour, and the picked line dashed.
+/// colour, the last line in its drawer's colour, and the picked line dashed.
 ///
 /// Drawn in one `Canvas` sized from the available width (the aspect ratio
 /// fixes the height), with one spatial tap that is turned into the nearest
 /// undrawn line. Over it sits an invisible grid of one accessibility element
-/// per box — hit testing off, so it never steals a tap — for VoiceOver.
+/// per box — hit testing off, so it never steals a tap — for VoiceOver, and
+/// the one-off ring on any box the last line won.
 struct DotsAndBoxesBoard: View {
     let view: DotsAndBoxesRules.PlayerView
     let selected: DotsAndBoxesRules.Line?
     let interactive: Bool
+    /// My seat's colour, for the picked line.
+    var myTone: Color = SR.accent
     /// A player's display name by id ("You" for me).
     let name: (String) -> String
     let onPick: (DotsAndBoxesRules.Line) -> Void
@@ -305,8 +285,8 @@ struct DotsAndBoxesBoard: View {
         GeometryReader { geo in
             let metrics = Metrics(size: geo.size, rows: view.rows, cols: view.cols)
             ZStack(alignment: .topLeading) {
-                Canvas { canvas, _ in
-                    paint(canvas, metrics)
+                Canvas { canvas, size in
+                    paint(canvas, size: size, metrics)
                 }
                 .contentShape(Rectangle())
                 .gesture(
@@ -316,6 +296,14 @@ struct DotsAndBoxesBoard: View {
                     }
                 )
                 .accessibilityHidden(true)
+
+                ForEach(wonBoxes, id: \.self) { box in
+                    DotsAndBoxesPop(tone: lastTone, side: metrics.unit)
+                        .position(metrics.centre(row: box / max(view.cols, 1), col: box % max(view.cols, 1)))
+                        .id("\(view.turnNumber)-\(box)")
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
 
                 ForEach(0..<(view.rows * view.cols), id: \.self) { index in
                     let row = index / view.cols
@@ -340,7 +328,16 @@ struct DotsAndBoxesBoard: View {
             }
         }
         .aspectRatio((CGFloat(view.cols) + 2 * Self.margin) / (CGFloat(view.rows) + 2 * Self.margin), contentMode: .fit)
-        .frame(maxWidth: 420)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(DotsAndBoxesPaint.paper)
+                .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
+        )
+        .frame(maxWidth: 440)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Board, \(view.rows) rows of \(view.cols) boxes")
@@ -362,6 +359,21 @@ struct DotsAndBoxesBoard: View {
         guard view.boxes.indices.contains(index), view.boxes[index] >= 0 else { return nil }
         let seat = view.boxes[index]
         return view.seats.first { $0.seat == seat }
+    }
+
+    /// The colour of whoever drew the last line.
+    private var lastTone: Color {
+        guard let move = view.lastMove, let seat = view.seats.first(where: { $0.id == move.playerId }) else { return SR.accent }
+        return OfflineSeatColour.of(seat.seat)
+    }
+
+    /// Boxes the last line closed, for their one ring.
+    private var wonBoxes: [Int] {
+        guard let move = view.lastMove, move.claimed > 0 else { return [] }
+        let line = move.line
+        return PlayTableMath.boxesBeside(horizontal: line.horizontal, row: line.row, col: line.col,
+                                          rows: view.rows, cols: view.cols)
+            .filter { view.boxes.indices.contains($0) && view.boxes[$0] >= 0 }
     }
 
     /// A box's sides with their spoken names, top, bottom, left, right.
@@ -388,48 +400,80 @@ struct DotsAndBoxesBoard: View {
 
     // MARK: - Painting
 
-    private func paint(_ canvas: GraphicsContext, _ m: Metrics) {
-        // Claimed boxes, in the owner's colour, with their initial.
+    private func paint(_ canvas: GraphicsContext, size: CGSize, _ m: Metrics) {
+        paintGrid(canvas, size: size, m)
+
+        // Claimed boxes, in the owner's colour, with their initial; on my
+        // turn, open boxes one line from closing glow faintly.
         for row in 0..<view.rows {
             for col in 0..<view.cols {
-                guard let seat = owner(row: row, col: col) else { continue }
-                let tone = OfflineSeatColour.of(seat.seat)
                 let origin = m.dot(row: row, col: col)
                 let rect = CGRect(x: origin.x, y: origin.y, width: m.unit, height: m.unit)
-                canvas.fill(Path(rect), with: .color(tone.opacity(0.28)))
-                let initial = Text(String(seat.name.prefix(1)).uppercased())
-                    .font(.system(size: m.unit * 0.38, weight: .bold, design: .rounded))
-                    .foregroundColor(tone)
-                canvas.draw(initial, at: m.centre(row: row, col: col))
+                if let seat = owner(row: row, col: col) {
+                    let tone = OfflineSeatColour.of(seat.seat)
+                    canvas.fill(Path(rect), with: .color(tone.opacity(0.3)))
+                    let initial = Text(String(seat.name.prefix(1)).uppercased())
+                        .font(.system(size: m.unit * 0.42, weight: .heavy, design: .rounded))
+                        .foregroundColor(tone)
+                    canvas.draw(initial, at: m.centre(row: row, col: col))
+                } else if interactive, openSides(row: row, col: col).count == 1 {
+                    canvas.fill(Path(rect.insetBy(dx: m.unit * 0.12, dy: m.unit * 0.12)),
+                                with: .color(myTone.opacity(0.14)))
+                }
             }
         }
 
         let thin = max(1, m.unit * 0.02)
-        let thick = max(3, m.unit * 0.07)
+        let thick = max(3.5, m.unit * 0.075)
         let last = view.lastMove?.line
 
         for line in allLines {
             let path = m.path(of: line)
             if isDrawn(line) {
-                let tone = line == last ? SR.accent : SR.ink
-                canvas.stroke(path, with: .color(tone), style: StrokeStyle(lineWidth: thick, lineCap: .round))
+                if line == last {
+                    canvas.stroke(path, with: .color(lastTone.opacity(0.35)),
+                                  style: StrokeStyle(lineWidth: thick * 2.2, lineCap: .round))
+                    canvas.stroke(path, with: .color(lastTone), style: StrokeStyle(lineWidth: thick, lineCap: .round))
+                } else {
+                    canvas.stroke(path, with: .color(DotsAndBoxesPaint.ink), style: StrokeStyle(lineWidth: thick, lineCap: .round))
+                }
             } else if line == selected {
-                canvas.stroke(path, with: .color(SR.accent.opacity(0.8)),
+                canvas.stroke(path, with: .color(myTone),
                               style: StrokeStyle(lineWidth: thick, lineCap: .round, dash: [thick * 1.6, thick * 1.4]))
             } else if view.phase == .playing {
-                canvas.stroke(path, with: .color(SR.inkGhost), style: StrokeStyle(lineWidth: thin, lineCap: .round))
+                canvas.stroke(path, with: .color(DotsAndBoxesPaint.faint), style: StrokeStyle(lineWidth: thin, lineCap: .round))
             }
         }
 
         // Dots last, on top of the line ends.
-        let radius = max(3.5, m.unit * 0.08)
+        let radius = max(4, m.unit * 0.085)
         for row in 0...view.rows {
             for col in 0...view.cols {
                 let point = m.dot(row: row, col: col)
                 let rect = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
-                canvas.fill(Path(ellipseIn: rect), with: .color(SR.ink))
+                canvas.fill(Path(ellipseIn: rect), with: .color(DotsAndBoxesPaint.ink))
             }
         }
+    }
+
+    /// The squared paper under the dots: a faint grid at a quarter box.
+    private func paintGrid(_ canvas: GraphicsContext, size: CGSize, _ m: Metrics) {
+        let step = m.unit / 4
+        guard step > 2 else { return }
+        var grid = Path()
+        var x = m.originX.truncatingRemainder(dividingBy: step)
+        while x < size.width {
+            grid.move(to: CGPoint(x: x, y: 0))
+            grid.addLine(to: CGPoint(x: x, y: size.height))
+            x += step
+        }
+        var y = m.originY.truncatingRemainder(dividingBy: step)
+        while y < size.height {
+            grid.move(to: CGPoint(x: 0, y: y))
+            grid.addLine(to: CGPoint(x: size.width, y: y))
+            y += step
+        }
+        canvas.stroke(grid, with: .color(DotsAndBoxesPaint.grid), lineWidth: 0.5)
     }
 
     /// Every line on the board, horizontals then verticals.
@@ -517,5 +561,26 @@ struct DotsAndBoxesBoard: View {
             let t = min(max(((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared, 0), 1)
             return hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy))
         }
+    }
+}
+
+/// A box just won: a ring in the winner's colour that swells and fades,
+/// once. Nothing under Reduce Motion.
+struct DotsAndBoxesPop: View {
+    let tone: Color
+    let side: CGFloat
+    @State private var gone = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: side * 0.12, style: .continuous)
+            .strokeBorder(tone, lineWidth: max(2, side * 0.06))
+            .frame(width: side * 0.8, height: side * 0.8)
+            .scaleEffect(gone ? 1.35 : 0.7)
+            .opacity(gone || reduceMotion ? 0 : 1)
+            .onAppear {
+                guard !reduceMotion, !gone else { return }
+                withAnimation(.easeOut(duration: 0.7)) { gone = true }
+            }
     }
 }

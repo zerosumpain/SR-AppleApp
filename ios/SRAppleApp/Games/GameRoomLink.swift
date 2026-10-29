@@ -36,6 +36,9 @@ final class GameRoomLink {
     /// ("Sam no longer has those cards."); most games only re-read the room.
     private(set) var lastConflict: String?
     private let client = SiteClient.shared
+    /// One decoder for every frame: a busy room streams several a second, and
+    /// a decoder made per frame was garbage the phone did not need.
+    private let decoder = JSONDecoder()
     /// Counted in `GameRoomsOnScreen` while open, so a "your move" push for
     /// this room is swallowed and re-reads it instead of ringing.
     private var onScreen = false
@@ -131,7 +134,7 @@ final class GameRoomLink {
             for try await frame in stream {
                 if Task.isCancelled { break }
                 let received = Self.nowMs()
-                guard let decoded = try? JSONDecoder().decode(GameStreamFrame.self, from: frame.data),
+                guard let decoded = try? decoder.decode(GameStreamFrame.self, from: frame.data),
                       decoded.type == "room", let room = decoded.room else { continue }
                 delivered = true
                 clock.record(serverNow: room.serverNow, receivedAt: received)
@@ -196,7 +199,7 @@ final class GameRoomLink {
         do {
             let data = try await client.post("api/native/games/\(roomId)", body: try JSONEncoder().encode(body))
             let received = Self.nowMs()
-            if let envelope = try? JSONDecoder().decode(GameRoomEnvelope.self, from: data) {
+            if let envelope = try? decoder.decode(GameRoomEnvelope.self, from: data) {
                 clock.record(serverNow: envelope.room.serverNow, sentAt: sent, receivedAt: received)
                 deliver(envelope.room, answer: true)
             }

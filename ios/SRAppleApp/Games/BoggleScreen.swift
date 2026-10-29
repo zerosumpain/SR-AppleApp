@@ -4,12 +4,15 @@ import UIKit
 /// One Boggle room, from lobby to the reveal.
 ///
 /// The lobby and the 3-2-1 are every game's (`GameLobby`, `GameCountdownView`),
-/// with the round the host picked — grid, clock, scoring — as the lobby's panel.
-/// Playing is the board of dice, filling the width: drag a finger through
-/// touching letters and lift to send the word, or tap the tiles one at a time
-/// and press Enter. Everyone else is a name, a word count and a score until the
-/// finish reveals every word found, who found it, what was crossed out, and the
-/// best words nobody saw — any of which lights its path on the board.
+/// with the round the host picked — grid, clock, scoring — and how to play as
+/// the lobby's panel. Playing is the tray of dice, filling the width: drag a
+/// finger through touching letters and lift to send the word, or tap the dice
+/// one at a time and press Enter. The trace glows as it goes, the word above
+/// says what it would score, and a word that lands flashes its path green and
+/// floats its points away. Everyone else is a name, a word count and a score
+/// until the finish reveals every word found, who found it, what was crossed
+/// out, and the best words nobody saw — any of which lights its path on the
+/// board — beside my bests for this size of board.
 struct BoggleScreen: View {
     let roomId: String
     @StateObject private var store: BoggleStore
@@ -51,7 +54,7 @@ struct BoggleScreen: View {
             switch room.phase {
             case .lobby, .unknown, .armed, .result, .question, .reveal, .show, .input, .review:
                 GameLobby(room: room, store: store, prefix: "boggle", done: { dismiss() },
-                          panel: AnyView(BoggleRoundCard(room: room)))
+                          panel: AnyView(BoggleLobbyPanel(room: room)))
             case .countdown:
                 GameCountdownView(room: room, store: store,
                                   note: "Drag through touching letters. Lift to send the word.",
@@ -72,12 +75,112 @@ struct BoggleScreen: View {
     }
 }
 
+// MARK: - The dice, drawn
+
+/// A Boggle die's paint. Fixed, not the mode-following tokens: dice are
+/// cream plastic with dark letters on every phone, as the real ones are.
+enum BoggleRoomPaint {
+    static let face = Color(hex: 0xFBF5E6)
+    static let faceLow = Color(hex: 0xEADFC6)
+    static let lip = Color(hex: 0xB9A988)
+    static let letter = Color(hex: 0x24202F)
+    /// The tray, deep and a little warm, under the dice.
+    static var tray: [Color] { [SR.accentDeep, SR.accentDeep.opacity(0.82)] }
+}
+
+/// One die. `lit` is in the word being traced (or the word picked at the
+/// finish); `flash` is a word that just landed; `last` is under the finger.
+struct BoggleRoomDie: View {
+    let face: String
+    let side: CGFloat
+    var lit = false
+    var flash = false
+    var last = false
+    /// The trace's colour: the accent while playing, the accent ink at the finish.
+    var tone: Color = SR.accent
+
+    var body: some View {
+        let radius = side * 0.2
+        let text = BoggleRules.display(face)
+        ZStack {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(lit || flash ? Color.black.opacity(0.25) : BoggleRoomPaint.lip)
+                .offset(y: max(2, side * 0.05))
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(fill)
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(last ? Color.white : Color.white.opacity(0.5), lineWidth: last ? 3 : 1)
+            Text(text.isEmpty ? " " : text)
+                // The play field keeps its own size: a die is a die.
+                .font(.system(size: text.count > 1 ? side * 0.4 : side * 0.54, weight: .heavy, design: .rounded))
+                .foregroundStyle(lit || flash ? Color.white : BoggleRoomPaint.letter)
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                .padding(.horizontal, 3)
+        }
+        .frame(width: side, height: side)
+    }
+
+    private var fill: LinearGradient {
+        if flash {
+            return LinearGradient(colors: [SR.good.opacity(0.85), SR.good], startPoint: .top, endPoint: .bottom)
+        }
+        if lit {
+            return LinearGradient(colors: [tone.opacity(0.85), tone], startPoint: .top, endPoint: .bottom)
+        }
+        return LinearGradient(colors: [BoggleRoomPaint.face, BoggleRoomPaint.faceLow], startPoint: .top, endPoint: .bottom)
+    }
+}
+
 // MARK: - Lobby
 
-/// The round the host picked, in the lobby: a little empty tray of the right
-/// size beside grid, clock and scoring.
+/// The lobby's panel: the round the host picked, then how to play.
+struct BoggleLobbyPanel: View {
+    let room: GameRoom
+    @State private var book = WordRoomBestBook()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            BoggleRoundCard(room: room)
+            WordRoomHowToCard(title: "How to play", steps: steps, best: best, id: "boggle-howto") {
+                HStack(spacing: 5) {
+                    ForEach(Array(["B", "O", "G", "G", "L", "E"].enumerated()), id: \.offset) { item in
+                        BoggleRoomDie(face: item.element, side: 40, lit: item.offset < 3, last: item.offset == 2)
+                    }
+                }
+            }
+        }
+        .onAppear { book = WordRoomBestStore(game: .boggle, variant: "\(room.size)x\(room.size)").load() }
+    }
+
+    private var steps: [WordRoomStep] {
+        var list = [
+            WordRoomStep(icon: "hand.draw.fill", text: "Drag through letters that touch — across, up, down or diagonally — and lift to send the word."),
+            WordRoomStep(icon: "hand.tap.fill", text: "Or tap the letters one by one, then press Enter. Each die once per word."),
+            WordRoomStep(icon: "rotate.right", text: "Turn the board for a fresh look at the same dice."),
+        ]
+        if BoggleScoring.from(room.scoring) == .classic {
+            list.append(WordRoomStep(icon: "xmark.circle.fill", text: "Classic scoring: a word someone else also finds is crossed out. Hunt the odd ones."))
+        } else {
+            list.append(WordRoomStep(icon: "checkmark.circle.fill", text: "Every word counts for whoever finds it."))
+        }
+        return list
+    }
+
+    private var best: String? {
+        guard book.played > 0 else { return nil }
+        var parts = ["Your best on \(BoggleSettings.sizeLabel(room.size)): \(book.bestScore) points"]
+        if !book.longest.isEmpty { parts.append("longest \(BoggleRules.display(book.longest).uppercased())") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// The round the host picked, in the lobby: a little tray of the right size,
+/// a few dice face up, beside grid, clock and scoring.
 struct BoggleRoundCard: View {
     let room: GameRoom
+
+    static let sample = Array("BOGGLEWORDSFUNQXTRAPSENDLIMEAHORSE").map { String($0) }
 
     var body: some View {
         let scoring = BoggleScoring.from(room.scoring)
@@ -109,23 +212,24 @@ struct BoggleRoundCard: View {
     }
 
     private var tray: some View {
-        let n = room.size
-        let side: CGFloat = 64
-        let gap: CGFloat = 2
+        let n = max(room.size, 1)
+        let side: CGFloat = 84
+        let gap: CGFloat = 3
         let cell = (side - gap * CGFloat(n - 1)) / CGFloat(n)
         return VStack(spacing: gap) {
-            ForEach(0..<n, id: \.self) { _ in
+            ForEach(0..<n, id: \.self) { row in
                 HStack(spacing: gap) {
-                    ForEach(0..<n, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 2, style: .continuous)
-                            .fill(SR.paper)
-                            .frame(width: cell, height: cell)
+                    ForEach(0..<n, id: \.self) { column in
+                        BoggleRoomDie(face: Self.sample[(row * n + column) % Self.sample.count], side: cell)
                     }
                 }
             }
         }
-        .padding(5)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(SR.accentDeep))
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(LinearGradient(colors: BoggleRoomPaint.tray, startPoint: .top, endPoint: .bottom))
+        )
         .accessibilityHidden(true)
     }
 }
@@ -137,19 +241,27 @@ struct BogglePlaying: View {
     @ObservedObject var store: BoggleStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The path of the word that just landed, lit green for a moment.
+    @State private var flash: [Int] = []
+    @State private var landedToken = 0
+    @State private var floatText = ""
+    /// Bumped for a long word (six letters or more): the board bursts.
+    @State private var bigWord = 0
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 header
-                BoggleTimeBar(room: room, store: store)
+                WordRoomTimeBar(room: room, store: store)
                 if !room.others.isEmpty {
                     AnagramOthersStrip(room: room, prefix: "boggle")
                 }
                 wordRow
-                BoggleBoard(room: room, store: store, interactive: true)
+                BoggleBoard(room: room, store: store, interactive: true, flash: flash)
+                    .overlay { WordRoomBurst(token: bigWord) }
                 controls
                 statusLine
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 36)
                 BoggleMyWords(words: store.mine)
             }
             .padding(.horizontal, SR.gutter)
@@ -163,20 +275,42 @@ struct BogglePlaying: View {
         .onChange(of: store.shakes) { _, _ in
             if let refusal = store.refusal { UIAccessibility.post(notification: .announcement, argument: refusal) }
         }
+        .onChange(of: store.landed) { _, word in
+            guard let word else { return }
+            landed(word)
+        }
+    }
+
+    private func landed(_ word: BoggleWord) {
+        floatText = "+\(word.points)"
+        landedToken += 1
+        if word.word.count >= 6 { bigWord += 1 }
+        UIAccessibility.post(notification: .announcement, argument: "\(word.word), \(word.points) points")
+        guard !reduceMotion, !word.path.isEmpty else { return }
+        flash = word.path
+        let path = word.path
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            if flash == path {
+                withAnimation(.easeOut(duration: 0.35)) { flash = [] }
+            }
+        }
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("BOGGLE · \(BoggleSettings.sizeLabel(room.size)) · \(GameDifficulty.label(for: room.difficulty).uppercased())")
                     .font(SR.Text.label())
                     .tracking(SR.kickerTracking)
                     .foregroundStyle(SR.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("\(room.me?.score ?? 0)")
-                        .font(SR.Text.display(26))
+                        .font(SR.Text.display(30))
                         .foregroundStyle(SR.ink)
                         .monospacedDigit()
+                        .srNumeric(Double(room.me?.score ?? 0))
                     Text(GameResults.count(room.me?.wordCount ?? 0, "word", "words").uppercased())
                         .font(SR.Text.label())
                         .foregroundStyle(SR.inkMuted)
@@ -186,16 +320,22 @@ struct BogglePlaying: View {
                 .accessibilityIdentifier("boggle-my-score")
             }
             Spacer(minLength: 8)
-            WordleTimer(room: room, store: store, id: "boggle-timer")
+            WordRoomClock(room: room, store: store, id: "boggle-timer")
         }
+    }
+
+    private var wordState: WordRoomWordState {
+        let word = store.word
+        return WordRoomWordState.of(word: word, minLength: room.minLength, mine: store.mine.map(\.word),
+                                    points: BoggleRules.points(for: word, table: room.points))
     }
 
     /// The word being traced, with what it would score, over a rule.
     private var wordRow: some View {
         let word = store.word
         let shown = BoggleRules.display(word)
-        let long = word.count >= room.minLength
-        let had = store.mine.contains { $0.word == word }
+        let state = wordState
+        let had = state == .have
         return VStack(spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(word.isEmpty ? " " : shown.uppercased())
@@ -204,56 +344,78 @@ struct BogglePlaying: View {
                     .foregroundStyle(had ? SR.inkGhost : SR.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.4)
-                if long && !had {
-                    Text("+\(BoggleRules.points(for: word, table: room.points))")
-                        .font(SR.Text.figure(20))
-                        .foregroundStyle(SR.accent)
-                        .monospacedDigit()
-                        .transition(.opacity)
-                } else if had {
-                    Text("HAVE IT")
-                        .font(SR.Text.label())
-                        .tracking(1)
-                        .foregroundStyle(SR.inkMuted)
-                }
+                chip(state)
             }
             .frame(maxWidth: .infinity, minHeight: 48)
-            Rectangle().fill(SR.line).frame(height: 1.5)
+            Capsule()
+                .fill(state.ready ? SR.accent : SR.line)
+                .frame(height: state.ready ? 3 : 1.5)
+                .srAnimation(.snappy, value: state.ready)
         }
         .modifier(WordleShake(animatableData: CGFloat(reduceMotion ? 0 : store.shakes)))
         .animation(.linear(duration: 0.4), value: store.shakes)
+        .overlay { WordRoomFloatUp(text: floatText, token: landedToken, tone: SR.good) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(word.isEmpty ? "Your word, empty" : "Your word, \(word)")
+        .accessibilityValue(state.text)
         .accessibilityIdentifier("boggle-word")
+    }
+
+    @ViewBuilder
+    private func chip(_ state: WordRoomWordState) -> some View {
+        switch state {
+        case .empty:
+            EmptyView()
+        case .short:
+            Text(state.text.uppercased())
+                .font(SR.Text.label())
+                .tracking(1)
+                .foregroundStyle(SR.inkMuted)
+        case .have:
+            Text("HAVE IT")
+                .font(SR.Text.label())
+                .tracking(1)
+                .foregroundStyle(SR.inkMuted)
+        case .worth(let points):
+            Text("+\(points)")
+                .font(SR.Text.figure(20))
+                .foregroundStyle(SR.accent)
+                .monospacedDigit()
+                .transition(.opacity)
+        }
     }
 
     private var controls: some View {
         HStack(spacing: 10) {
             Button { store.rotate() } label: {
-                Image(systemName: "rotate.right")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(minWidth: SR.tapTarget, minHeight: 30)
+                Image(systemName: "rotate.right.fill")
+                    .font(.title3.weight(.semibold))
             }
-            .srButton(.regular)
-            .controlSize(.large)
+            .buttonStyle(WordRoomButtonStyle(tone: .soft))
+            .frame(width: 76)
             .accessibilityLabel("Turn the board")
             .accessibilityIdentifier("boggle-rotate")
+
             Button { store.delete() } label: {
-                Image(systemName: "delete.left")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(minWidth: SR.tapTarget, minHeight: 30)
+                Image(systemName: "delete.left.fill")
+                    .font(.title3.weight(.semibold))
             }
-            .srButton(.regular)
-            .controlSize(.large)
+            .buttonStyle(WordRoomButtonStyle(tone: .soft))
+            .frame(width: 76)
             .disabled(store.trace.isEmpty)
             .accessibilityLabel("Delete letter")
             .accessibilityIdentifier("boggle-delete")
+
             Button { store.submit() } label: {
-                SRButtonLabel(title: "Enter", icon: "return", fill: true)
+                HStack(spacing: 8) {
+                    Image(systemName: "return")
+                        .font(.headline.weight(.bold))
+                    Text("ENTER")
+                }
             }
-            .srButton(.prominent)
-            .controlSize(.large)
+            .buttonStyle(WordRoomButtonStyle(tone: wordState.ready ? .go : .firm))
             .disabled(store.trace.path.count < 2)
+            .accessibilityLabel("Enter")
             .accessibilityIdentifier("boggle-enter")
         }
         .disabled(!store.canPlay)
@@ -262,20 +424,13 @@ struct BogglePlaying: View {
     @ViewBuilder
     private var statusLine: some View {
         if let refusal = store.refusal {
-            Label(refusal, systemImage: "exclamationmark.circle")
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.error)
-                .multilineTextAlignment(.center)
+            WordRoomPill(text: refusal, icon: "exclamationmark.circle.fill", tone: SR.error)
                 .accessibilityIdentifier("boggle-refusal")
         } else if let landed = store.landed {
-            Label("\(BoggleRules.display(landed.word).uppercased()) +\(landed.points)", systemImage: "checkmark.circle.fill")
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.good)
+            WordRoomPill(text: "\(BoggleRules.display(landed.word).uppercased()) +\(landed.points)", icon: "checkmark.circle.fill", tone: SR.good, filled: true)
                 .accessibilityIdentifier("boggle-landed")
         } else if room.me?.joined != true {
-            Text("You are not playing in this one.")
-                .font(SR.Text.secondary())
-                .foregroundStyle(SR.inkMuted)
+            WordRoomPill(text: "You are not playing in this one.", icon: "eye", tone: SR.inkMuted)
         } else {
             Text(rulesLine)
                 .font(SR.Text.mono())
@@ -295,36 +450,6 @@ struct BogglePlaying: View {
     }
 }
 
-/// The sand running out: a bar that empties towards the limit and warms as it goes.
-struct BoggleTimeBar: View {
-    let room: GameRoom
-    @ObservedObject var store: BoggleStore
-
-    var body: some View {
-        // Ticks, not an animation: a bar that is always animating keeps the app
-        // from ever going idle, and UI tests then cannot read the screen.
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            let left = fraction
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(SR.line)
-                    Capsule()
-                        .fill(left < 0.17 ? SR.error : left < 0.34 ? SR.accent : SR.good)
-                        .frame(width: geo.size.width * left)
-                }
-            }
-            .frame(height: 5)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private var fraction: CGFloat {
-        guard let end = room.phaseEndsAt, let limit = room.timeLimitMs, limit > 0,
-              let now = store.serverNow() else { return 1 }
-        return CGFloat(min(1, max(0, (end - now) / limit)))
-    }
-}
-
 /// The dice. While playing it takes a finger: a drag through touching tiles
 /// traces a word and lifting sends it; a touch that never leaves its tile is a
 /// tap, which builds a word one tile at a time. Finished, it is still, and
@@ -336,6 +461,8 @@ struct BoggleBoard: View {
     let room: GameRoom
     @ObservedObject var store: BoggleStore
     let interactive: Bool
+    /// The path of a word that just landed, lit green.
+    var flash: [Int] = []
 
     /// Space between dice.
     static let gap: CGFloat = 6
@@ -346,16 +473,12 @@ struct BoggleBoard: View {
 
     var body: some View {
         GeometryReader { geo in
-            let side = BoggleRules.tileSide(width: geo.size.width - 12, size: room.size, gap: Self.gap)
+            let side = BoggleRules.tileSide(width: geo.size.width - 16, size: room.size, gap: Self.gap)
             let boardSide = side * CGFloat(room.size) + Self.gap * CGFloat(room.size - 1)
             board(side: side)
                 .frame(width: boardSide, height: boardSide)
-                .padding(6)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(SR.accentDeep)
-                        .shadow(color: SR.ink.opacity(0.18), radius: 8, y: 4)
-                )
+                .padding(8)
+                .background(tray)
                 .frame(maxWidth: .infinity)
         }
         .aspectRatio(1, contentMode: .fit)
@@ -363,6 +486,16 @@ struct BoggleBoard: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("boggle-board")
+    }
+
+    private var tray: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(LinearGradient(colors: BoggleRoomPaint.tray, startPoint: .top, endPoint: .bottom))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 1.5)
+            )
+            .shadow(color: SR.ink.opacity(0.2), radius: 10, y: 5)
     }
 
     private var path: [Int] { interactive ? store.trace.path : store.highlightedPath }
@@ -396,16 +529,31 @@ struct BoggleBoard: View {
         return CGPoint(x: CGFloat(column) * pitch + side / 2, y: CGFloat(row) * pitch + side / 2)
     }
 
-    /// The trace, as one line through the centres of its tiles.
+    private var lineTone: Color { interactive ? SR.accent : SR.accentInk }
+
+    /// The trace, as a glowing line through the centres of its tiles, with a
+    /// bead on each.
     private func traceLine(side: CGFloat) -> some View {
         let points = path.map { centre(of: $0, side: side) }
-        return Path { line in
+        let line = Path { trace in
             guard let first = points.first else { return }
-            line.move(to: first)
-            for point in points.dropFirst() { line.addLine(to: point) }
+            trace.move(to: first)
+            for point in points.dropFirst() { trace.addLine(to: point) }
         }
-        .stroke(interactive ? SR.accent.opacity(0.55) : SR.accentInk.opacity(0.6),
-                style: StrokeStyle(lineWidth: max(8, side * 0.22), lineCap: .round, lineJoin: .round))
+        let bead = max(6, side * 0.14)
+        return ZStack(alignment: .topLeading) {
+            line.stroke(lineTone.opacity(0.28),
+                        style: StrokeStyle(lineWidth: max(14, side * 0.38), lineCap: .round, lineJoin: .round))
+            line.stroke(lineTone.opacity(0.8),
+                        style: StrokeStyle(lineWidth: max(5, side * 0.12), lineCap: .round, lineJoin: .round))
+            ForEach(0..<points.count, id: \.self) { index in
+                Circle()
+                    .fill(Color.white)
+                    .overlay(Circle().strokeBorder(lineTone, lineWidth: 2))
+                    .frame(width: bead, height: bead)
+                    .position(points[index])
+            }
+        }
     }
 
     private func die(_ tile: Int, face: String, side: CGFloat) -> some View {
@@ -413,32 +561,25 @@ struct BoggleBoard: View {
         let lit = at != nil
         let last = interactive && tile == path.last
         let pressed = interactive && touchStart == tile && !dragging && !lit
+        let flashing = interactive && flash.contains(tile) && !lit
         let text = BoggleRules.display(face)
-        let fill: Color = lit ? (interactive ? SR.accent : SR.accentInk) : pressed ? SR.surface : SR.paper
         return ZStack {
-            RoundedRectangle(cornerRadius: side * 0.2, style: .continuous)
-                .fill(fill)
-                .shadow(color: SR.ink.opacity(lit ? 0 : 0.22), radius: 0, x: 0, y: 2)
-            RoundedRectangle(cornerRadius: side * 0.2, style: .continuous)
-                .strokeBorder(last ? SR.paper : SR.ink.opacity(0.08), lineWidth: last ? 3 : 1)
-            Text(text.isEmpty ? " " : text)
-                .font(SR.Text.display(text.count > 1 ? side * 0.4 : side * 0.52))
-                .foregroundStyle(lit ? SR.paper : SR.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.4)
-                .padding(.horizontal, 3)
+            BoggleRoomDie(face: face, side: side, lit: lit, flash: flashing, last: last, tone: lineTone)
+                .brightness(pressed ? -0.06 : 0)
             if let at, !interactive || path.count > 1 {
                 Text("\(at + 1)")
-                    .font(SR.Text.label(max(9, side * 0.16)))
-                    .foregroundStyle(SR.paper.opacity(0.85))
+                    .font(.system(size: max(9, side * 0.16), weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.9))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(side * 0.08)
                     .accessibilityHidden(true)
             }
         }
         .frame(width: side, height: side)
-        .scaleEffect(last ? 1.06 : 1)
+        .scaleEffect(last ? 1.08 : (pressed ? 0.94 : 1))
         .animation(.snappy(duration: 0.12), value: last)
+        .animation(.snappy(duration: 0.12), value: pressed)
+        .animation(.easeOut(duration: 0.2), value: flashing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken(text, at: at))
         .accessibilityAddTraits(interactive ? .isButton : [])
@@ -510,29 +651,38 @@ struct BoggleMyWords: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], alignment: .leading, spacing: 8) {
                     ForEach(BoggleRules.newestFirst(words)) { word in
-                        HStack(spacing: 6) {
-                            Text(BoggleRules.display(word.word).uppercased())
-                                .font(SR.Text.bodyMedium(15))
-                                .foregroundStyle(SR.ink)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.6)
-                            Spacer(minLength: 4)
-                            Text("+\(word.points)")
-                                .font(SR.Text.label())
-                                .foregroundStyle(SR.accent)
-                                .monospacedDigit()
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 2)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(word.word), \(word.points) points")
+                        chip(word)
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
                 }
+                .srAnimation(.snappy, value: words.count)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("boggle-my-words")
+    }
+
+    private func chip(_ word: BoggleWord) -> some View {
+        HStack(spacing: 6) {
+            Text(BoggleRules.display(word.word).uppercased())
+                .font(SR.Text.bodyMedium(15))
+                .foregroundStyle(SR.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Spacer(minLength: 4)
+            Text("+\(word.points)")
+                .font(SR.Text.label())
+                .foregroundStyle(SR.accentInk)
+                .monospacedDigit()
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(SR.accent.opacity(0.14)))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(word.word), \(word.points) points")
     }
 }
 
@@ -542,6 +692,9 @@ struct BoggleFinished: View {
     let room: GameRoom
     @ObservedObject var store: BoggleStore
     let done: () -> Void
+
+    @State private var book: WordRoomBestBook?
+    @State private var news = WordRoomNewBests()
 
     private var classic: Bool { BoggleScoring.from(room.scoring) == .classic && !room.solo }
 
@@ -561,16 +714,12 @@ struct BoggleFinished: View {
                         figure: { (text: "\($0.score)", spoken: "\($0.score) points") }
                     )
 
-                    VStack(alignment: .leading, spacing: SR.cardGap) {
-                        SRSectionLabel(text: "The board", trailing: caption)
-                        BoggleBoard(room: room, store: store, interactive: false)
-                        Text(boardLine)
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("boggle-possible")
+                    if let book {
+                        WordRoomBestsCard(items: bestItems(book), id: "boggle-bests")
                     }
-                    .id("board")
+
+                    boardSection
+                        .id("board")
 
                     if let found = room.boggleFound, !found.isEmpty {
                         VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -591,7 +740,7 @@ struct BoggleFinished: View {
 
                     if let missed = room.boggleMissed, !missed.isEmpty {
                         VStack(alignment: .leading, spacing: SR.cardGap) {
-                            SRSectionLabel(text: "Nobody found")
+                            SRSectionLabel(text: "Nobody found", trailing: "\(missed.count)")
                             FlowChips(missed: missed, lit: store.highlighted) { show($0, reader) }
                                 .accessibilityIdentifier("boggle-missed")
                         }
@@ -606,7 +755,39 @@ struct BoggleFinished: View {
         }
         .srGround(.warm)
         .accessibilityIdentifier("boggle-finished")
-        .onAppear { if room.winnerIds.contains(room.meId) { SRHaptic.ok() } }
+        .onAppear { recordBests() }
+    }
+
+    private var boardSection: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "The board", trailing: caption)
+            BoggleBoard(room: room, store: store, interactive: false)
+            possibleMeter
+            Text(boardLine)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("boggle-possible")
+        }
+    }
+
+    /// How much of the board the family found, as a bar.
+    @ViewBuilder
+    private var possibleMeter: some View {
+        if let possible = room.possible, possible.words > 0 {
+            let found = room.boggleFound?.count ?? 0
+            let share = CGFloat(min(1, Double(found) / Double(possible.words)))
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(SR.line)
+                    Capsule()
+                        .fill(LinearGradient(colors: [SR.accent.opacity(0.7), SR.accent], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(8, geo.size.width * share))
+                }
+            }
+            .frame(height: 8)
+            .accessibilityHidden(true)
+        }
     }
 
     /// The lit word, over the board.
@@ -667,6 +848,10 @@ struct BoggleFinished: View {
                     .foregroundStyle(crossed ? SR.inkGhost : SR.ink)
                     .monospacedDigit()
                     .frame(minWidth: 28, alignment: .trailing)
+                Image(systemName: lit ? "eye.fill" : "eye")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(lit ? SR.accentInk : SR.inkGhost)
+                    .accessibilityHidden(true)
             }
             .frame(minHeight: SR.tapTarget)
             .padding(.horizontal, 6)
@@ -686,6 +871,39 @@ struct BoggleFinished: View {
         let shared = crossed ? ", shared, crossed out" : ""
         return "\(word.word), found by \(who)\(shared), \(word.points) points"
     }
+
+    // MARK: Bests
+
+    private func recordBests() {
+        guard book == nil, let me = room.me, me.joined else { return }
+        let mine = room.standings?.first { $0.id == room.meId }
+        let myWords = me.boggleWords ?? []
+        let mineLongest: String = myWords.map(\.word).max(by: { $0.count < $1.count }) ?? ""
+        let longest: String = mine?.longest ?? mineLongest
+        let round = WordRoomRound(
+            key: WordRoomRound.key(roomId: room.id, startedAt: room.startedAt, deal: (room.grid ?? []).joined()),
+            competitive: !room.solo,
+            won: room.winnerIds.contains(room.meId),
+            score: mine?.score ?? me.score,
+            words: mine?.words ?? me.wordCount,
+            longest: longest
+        )
+        let result = WordRoomBestStore(game: .boggle, variant: "\(room.size)x\(room.size)").record(round, persist: !SRDemo.isOn)
+        book = result.book
+        news = result.news ?? WordRoomNewBests()
+        if news.any, !room.winnerIds.contains(room.meId) { SRHaptic.ok() }
+    }
+
+    private func bestItems(_ book: WordRoomBestBook) -> [WordRoomBestItem] {
+        var items = [
+            WordRoomBestItem(label: "Best on \(BoggleSettings.sizeLabel(room.size))", value: "\(book.bestScore)", fresh: news.score),
+            WordRoomBestItem(label: "Longest word", value: book.longest.isEmpty ? "–" : BoggleRules.display(book.longest).uppercased(), fresh: news.longest),
+            WordRoomBestItem(label: "Most words", value: "\(book.bestWords)"),
+            WordRoomBestItem(label: "Played", value: "\(book.played)"),
+        ]
+        if book.won > 0 { items.append(WordRoomBestItem(label: "Won", value: "\(book.won) · \(book.winPercent)%")) }
+        return items
+    }
 }
 
 /// The best words nobody found, as chips that wrap; each lights its path.
@@ -697,38 +915,46 @@ private struct FlowChips: View {
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
             ForEach(missed) { word in
-                let on = lit == word.word
-                Button {
-                    pick(word.word)
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(BoggleRules.display(word.word).uppercased())
-                            .font(SR.Text.bodyMedium(15))
-                            .foregroundStyle(on ? SR.paper : SR.ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                        Spacer(minLength: 4)
-                        Text("\(word.points)")
-                            .font(SR.Text.label())
-                            .foregroundStyle(on ? SR.paper : SR.accent)
-                            .monospacedDigit()
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(minHeight: SR.tapTarget)
-                    .background(
-                        RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 2, style: .continuous)
-                            .fill(on ? SR.accentInk : Color.clear)
-                    )
-                    .srGlassCard(on ? .clear : .paper, radius: SR.Glass.innerRadius + 2)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(word.word), \(word.points) points, nobody found it")
-                .accessibilityHint("Shows it on the board")
-                .accessibilityAddTraits(on ? .isSelected : [])
-                .accessibilityIdentifier("boggle-missed-\(word.word)")
+                chip(word)
             }
         }
+    }
+
+    private func chip(_ word: BoggleMissed) -> some View {
+        let on = lit == word.word
+        return Button {
+            pick(word.word)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: on ? "eye.fill" : "eye")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(on ? SR.paper : SR.inkGhost)
+                    .accessibilityHidden(true)
+                Text(BoggleRules.display(word.word).uppercased())
+                    .font(SR.Text.bodyMedium(15))
+                    .foregroundStyle(on ? SR.paper : SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 4)
+                Text("\(word.points)")
+                    .font(SR.Text.label())
+                    .foregroundStyle(on ? SR.paper : SR.accent)
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(minHeight: SR.tapTarget)
+            .background(
+                RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 2, style: .continuous)
+                    .fill(on ? SR.accentInk : Color.clear)
+            )
+            .srGlassCard(on ? .clear : .paper, radius: SR.Glass.innerRadius + 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(word.word), \(word.points) points, nobody found it")
+        .accessibilityHint("Shows it on the board")
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityIdentifier("boggle-missed-\(word.word)")
     }
 }

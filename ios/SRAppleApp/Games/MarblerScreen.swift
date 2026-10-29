@@ -68,6 +68,17 @@ final class MarblerModel: ObservableObject {
     @Published var bench: String?
     @Published var error: String?
     @Published var thermal = ProcessInfo.processInfo.thermalState
+    /// The page has loaded and spoken: the loading cover comes off.
+    @Published var loaded = false
+    /// Marbler on its own keeps this phone's book of races; a family race
+    /// (Marble Race) keeps the room's instead, so leaves this off.
+    var keepsSoloRecord = false
+    /// The book, while `keepsSoloRecord`.
+    @Published private(set) var soloBook = MarbleRaceRecordBook()
+    /// Where my marble came in the race just run, for the native toast.
+    @Published var finishNote: MarblerFinishNote?
+    /// My marble's finish is counted once a race.
+    private var countedThisRace = false
     /// Set by the web view once it exists, for calls into the page.
     weak var webView: WKWebView?
     /// A family race (Marble Race): the `room(…)` call for the page, worked out
@@ -123,8 +134,17 @@ final class MarblerModel: ObservableObject {
         call("setFx(\(on))")
     }
 
+    /// Start keeping Marbler's own book (the solo screen calls this once).
+    func keepSoloRecord() {
+        guard !keepsSoloRecord else { return }
+        keepsSoloRecord = true
+        soloBook = MarbleRaceRecordStore(key: MarbleRaceRecordStore.soloKey).load()
+    }
+
     func receive(_ body: Any) {
         guard let m = body as? [String: Any], let type = m["type"] as? String else { return }
+        // Any word from the page means it is up.
+        if !loaded { loaded = true }
         switch type {
         case "ready":
             pageReady = true
@@ -139,12 +159,17 @@ final class MarblerModel: ObservableObject {
             phase = m["phase"] as? String ?? "ready"
             recorded = m["recorded"] as? Bool ?? false
             if phase == "ready" { checks = nil }
+            if phase == "racing" {
+                countedThisRace = false
+                finishNote = nil
+            }
         case "favourite":
             favourite = m["colour"] as? String
         case "finish":
             // Your marble home is the moment; somebody else's win is a tap.
             let place = m["place"] as? Int ?? 0
             if m["yours"] as? Bool == true { place <= 3 ? SRHaptic.ok() : SRHaptic.select() } else if place == 1 { SRHaptic.tap() }
+            if m["yours"] as? Bool == true, place >= 1 { noteMyFinish(place) }
         case "burned":
             SRHaptic.select()
         case "won":
@@ -174,7 +199,32 @@ final class MarblerModel: ObservableObject {
         }
     }
 
-    func pageNotReady() { pageReady = false }
+    func pageNotReady() {
+        pageReady = false
+        loaded = false
+    }
+
+    /// The page is being loaded afresh (Try again).
+    func reload() {
+        error = nil
+        pageNotReady()
+        webView?.load(URLRequest(url: MarblerModel.pageURL))
+    }
+
+    /// My marble is home: say where, and on its own keep the best.
+    private func noteMyFinish(_ place: Int) {
+        guard !countedThisRace else { return }
+        countedThisRace = true
+        var newBest = false
+        if keepsSoloRecord {
+            let store = MarbleRaceRecordStore(key: MarbleRaceRecordStore.soloKey)
+            var book = store.load()
+            newBest = book.record(key: nil, place: place).newBest && book.races > 1
+            store.save(book)
+            soloBook = book
+        }
+        finishNote = MarblerFinishNote(place: place, newBest: newBest, best: keepsSoloRecord ? soloBook.bestPlace : nil)
+    }
 
     var thermalText: String {
         switch thermal {
@@ -187,78 +237,136 @@ final class MarblerModel: ObservableObject {
     }
 }
 
+/// Where my marble came, for the toast over the race.
+struct MarblerFinishNote: Equatable {
+    let place: Int
+    /// A new best on this phone (never on the very first race).
+    let newBest: Bool
+    /// The best so far, when Marbler keeps a book.
+    let best: Int?
+
+    var text: String {
+        let came = "Your marble came \(MarbleRaceOrdinal.text(place))"
+        if newBest { return "\(came) — a new best!" }
+        if let best, best < place { return "\(came) · best \(MarbleRaceOrdinal.text(best))" }
+        return "\(came)."
+    }
+}
+
+/// Marbler's dark ground, behind the page and under its controls.
+enum MarblerPaint {
+    static let ground = Color(red: 0x14 / 255, green: 0x10 / 255, blue: 0x0c / 255)
+    static let groundUI = UIColor(red: 0x14 / 255, green: 0x10 / 255, blue: 0x0c / 255, alpha: 1)
+    static let cream = Color(hex: 0xF4EBDD)
+}
+
+/// Marbler on this phone: the page's race, the app's controls under it —
+/// pause, a new race, speed and the next course, each a big button — and the
+/// course list and the spike's numbers in the bar. While the page loads a
+/// cover says so; if it cannot load, a card says why with Try again. When my
+/// marble is home a toast says where it came and whether that is a best.
 struct MarblerScreen: View {
     @StateObject private var model = MarblerModel()
     @Environment(\.scenePhase) private var scenePhase
     @State private var choosing = false
+    /// Paused from the app's own button: a trip to the background and back
+    /// leaves it paused.
+    @State private var paused = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            race
+            MarblerControlBar(model: model, paused: paused, togglePause: togglePause)
+        }
+        .background(MarblerPaint.ground.ignoresSafeArea())
+        .navigationTitle(model.course.isEmpty ? "Marbler" : model.course)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    SRHaptic.tap()
+                    choosing = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                }
+                .disabled(model.courses.isEmpty)
+                .accessibilityLabel("Courses")
+                .accessibilityIdentifier("marbler-courses")
+            }
+            ToolbarItem(placement: .topBarTrailing) { menu }
+        }
+        .sheet(isPresented: $choosing) {
+            MarblerCourseList(courses: model.courses, current: model.courseId, book: model.soloBook) { course in
+                choosing = false
+                endPause()
+                model.load(course)
+            }
+            .presentationDetents([.medium, .large])
+        }
+        .onAppear {
+            model.keepSoloRecord()
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onChange(of: scenePhase) { _, phase in
+            model.call(phase == .active && !paused ? "resume()" : "pause()")
+        }
+        .onChange(of: model.phase) { _, phase in
+            // A race that ends, or a new one, is never left paused.
+            if phase != "racing" { endPause() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)) { _ in
+            model.thermal = ProcessInfo.processInfo.thermalState
+        }
+        .accessibilityIdentifier("marbler-screen")
+    }
+
+    /// The page, with whatever it needs on top: loading, a failure, the pause, the finish.
+    private var race: some View {
         MarblerWebView(model: model)
-            .ignoresSafeArea(edges: .bottom)
-            .background(Color(red: 0x14 / 255, green: 0x10 / 255, blue: 0x0c / 255))
             .overlay {
                 if let error = model.error {
-                    VStack(spacing: 12) {
-                        Text("Marbler couldn't start")
-                            .font(SR.Text.title())
-                            .foregroundStyle(SR.ink)
-                        Text(error)
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                            .multilineTextAlignment(.center)
-                        Button("Try again") {
-                            model.error = nil
-                            model.webView?.load(URLRequest(url: MarblerModel.pageURL))
-                        }
-                        .accessibilityIdentifier("marbler-retry")
-                    }
-                    .padding(SR.gutter)
-                    .background(SR.surface)
+                    MarblerErrorCard(message: error, retry: { model.reload() })
+                } else if !model.loaded {
+                    MarblerLoadingCover(text: "Rolling out the course…")
+                } else if paused {
+                    MarblerPausedCover(resume: togglePause)
                 }
             }
-            .navigationTitle(model.course.isEmpty ? "Marbler" : model.course)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .tabBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        SRHaptic.tap()
-                        choosing = true
-                    } label: {
-                        Image(systemName: "list.bullet")
-                    }
-                    .disabled(model.courses.isEmpty)
-                    .accessibilityLabel("Courses")
-                    .accessibilityIdentifier("marbler-courses")
-                }
-                ToolbarItem(placement: .topBarTrailing) { menu }
+            .overlay(alignment: .top) {
+                MarblerFinishToast(note: model.finishNote, dismiss: { model.finishNote = nil })
             }
-            .sheet(isPresented: $choosing) {
-                MarblerCourseList(courses: model.courses, current: model.courseId) { course in
-                    choosing = false
-                    model.load(course)
-                }
-                .presentationDetents([.medium, .large])
-            }
-            .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-            .onChange(of: scenePhase) { _, phase in
-                model.call(phase == .active ? "resume()" : "pause()")
-            }
-            .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)) { _ in
-                model.thermal = ProcessInfo.processInfo.thermalState
-            }
-            .accessibilityIdentifier("marbler-screen")
+            .animation(.easeOut(duration: 0.2), value: paused)
+            .animation(.easeOut(duration: 0.25), value: model.loaded)
+    }
+
+    private func togglePause() {
+        SRHaptic.tap()
+        paused.toggle()
+        model.call(paused ? "pause()" : "resume()")
+        UIAccessibility.post(notification: .announcement, argument: paused ? "Paused" : "Racing")
+    }
+
+    /// Out of a pause without a toggle: a new race, the next course or a
+    /// finish. The page is told too, so it never waits paused under a bar
+    /// that says it is running.
+    private func endPause() {
+        guard paused else { return }
+        paused = false
+        model.call("resume()")
     }
 
     private var menu: some View {
         Menu {
             Button {
+                endPause()
                 model.call("again()")
             } label: {
                 Label("New race on this course", systemImage: "arrow.clockwise")
             }
             Button {
+                endPause()
                 model.call("next()")
             } label: {
                 Label("Next course", systemImage: "forward")
@@ -290,15 +398,234 @@ struct MarblerScreen: View {
     }
 }
 
+/// The race's controls, under the page: four big buttons on the dark ground.
+/// Pause works only while a race is running (picking and the results are the
+/// page's own); speed steps 1×, 2×, 4× and round again.
+struct MarblerControlBar: View {
+    @ObservedObject var model: MarblerModel
+    let paused: Bool
+    let togglePause: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            control(icon: paused ? "play.fill" : "pause.fill", title: paused ? "Resume" : "Pause",
+                    spoken: paused ? "Resume the race" : "Pause the race", id: "marbler-pause",
+                    enabled: model.loaded && model.phase == "racing") {
+                togglePause()
+            }
+            control(icon: "arrow.clockwise", title: "New race", spoken: "New race on this course",
+                    id: "marbler-again", enabled: model.loaded) {
+                SRHaptic.tap()
+                model.call("again()")
+            }
+            control(icon: "gauge.with.dots.needle.67percent", title: "\(model.speed)×",
+                    spoken: "Speed, \(model.speed) times. Tap for faster.", id: "marbler-speed", enabled: model.loaded) {
+                SRHaptic.select()
+                model.setSpeed(Self.nextSpeed(after: model.speed))
+            }
+            control(icon: "forward.fill", title: "Next", spoken: "Next course", id: "marbler-next", enabled: model.loaded) {
+                SRHaptic.tap()
+                model.call("next()")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+        .background(MarblerPaint.ground.ignoresSafeArea(edges: .bottom))
+    }
+
+    static func nextSpeed(after speed: Int) -> Int {
+        switch speed {
+        case 1: return 2
+        case 2: return 4
+        default: return 1
+        }
+    }
+
+    private func control(icon: String, title: String, spoken: String, id: String, enabled: Bool,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.title3.weight(.semibold))
+                Text(title.uppercased())
+                    .font(SR.Text.label())
+                    .tracking(0.8)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(MarblerPaint.cream)
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.1)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(SRPressStyle())
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityLabel(spoken)
+        .accessibilityIdentifier(id)
+    }
+}
+
+/// Over the page while it loads: three marbles and a line.
+struct MarblerLoadingCover: View {
+    let text: String
+
+    var body: some View {
+        ZStack {
+            MarblerPaint.ground
+            VStack(spacing: 18) {
+                HStack(spacing: -8) {
+                    ForEach(0..<4, id: \.self) { m in
+                        MarbleRaceMarbleArt(index: m, size: 40)
+                    }
+                }
+                ProgressView()
+                    .tint(MarblerPaint.cream)
+                Text(text)
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(MarblerPaint.cream.opacity(0.8))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+        .accessibilityIdentifier("marbler-loading")
+    }
+}
+
+/// The page would not load: why, and Try again.
+struct MarblerErrorCard: View {
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        ZStack {
+            MarblerPaint.ground
+            VStack(spacing: 14) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.largeTitle)
+                    .foregroundStyle(SR.accent)
+                    .accessibilityHidden(true)
+                Text("Marbler couldn't start")
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                Text(message)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("The race comes from strangeramblings.com, so it needs a connection.")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    SRHaptic.tap()
+                    retry()
+                } label: {
+                    SRButtonLabel(title: "Try again", icon: "arrow.clockwise", fill: true)
+                        .frame(minHeight: 44)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityIdentifier("marbler-retry")
+            }
+            .padding(SR.cardPadding + 4)
+            .srGlassCard(.paper)
+            .padding(.horizontal, SR.gutter)
+        }
+    }
+}
+
+/// Paused from the app's button: the race waits under a dim, with Resume.
+struct MarblerPausedCover: View {
+    let resume: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+            VStack(spacing: 14) {
+                Text("PAUSED")
+                    .font(SR.Text.label(13))
+                    .tracking(SR.inkKickerTracking)
+                    .foregroundStyle(MarblerPaint.cream.opacity(0.8))
+                Button(action: resume) {
+                    SRButtonLabel(title: "Resume", icon: "play.fill", fill: true)
+                        .frame(minHeight: 44)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .frame(maxWidth: 260)
+                .accessibilityIdentifier("marbler-resume")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+    }
+}
+
+/// "Your marble came 2nd — a new best!", dropped over the top of the race
+/// when my marble is home, gone by itself after a few seconds or on a tap.
+struct MarblerFinishToast: View {
+    let note: MarblerFinishNote?
+    let dismiss: () -> Void
+
+    var body: some View {
+        // A stack, not a Group: the toast's arrival needs a container to animate in.
+        VStack(spacing: 0) {
+            if let note {
+                Button(action: dismiss) {
+                    HStack(spacing: 10) {
+                        Image(systemName: note.place == 1 ? "trophy.fill" : note.newBest ? "star.fill" : "flag.checkered")
+                            .foregroundStyle(note.place <= 3 ? Color(hex: 0xFFD54F) : MarblerPaint.cream)
+                            .accessibilityHidden(true)
+                        Text(note.text)
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(MarblerPaint.cream)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(minHeight: 48)
+                    .background(Capsule().fill(Color.black.opacity(0.72)))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 10)
+                .padding(.horizontal, SR.gutter)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityIdentifier("marbler-finish")
+                .task(id: note) {
+                    UIAccessibility.post(notification: .announcement, argument: note.text)
+                    try? await Task.sleep(nanoseconds: 4_500_000_000)
+                    if !Task.isCancelled { dismiss() }
+                }
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: note)
+    }
+}
+
 /// The course pack, today's course first.
 struct MarblerCourseList: View {
     let courses: [MarblerCourse]
     let current: String
+    /// This phone's races, for the line at the top; none shows nothing.
+    var book = MarbleRaceRecordBook()
     let choose: (MarblerCourse) -> Void
 
     var body: some View {
         NavigationStack {
             List {
+                if book.races > 0 {
+                    Section("On this phone") {
+                        Label(book.line, systemImage: "trophy")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.ink)
+                            .accessibilityIdentifier("marbler-record")
+                    }
+                }
                 if let today = courses.first(where: \.today) {
                     Section("Today") { row(today) }
                 }
@@ -355,7 +682,7 @@ struct MarblerWebView: UIViewRepresentable {
         config.allowsInlineMediaPlayback = true
         let web = WKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
-        web.backgroundColor = UIColor(red: 0x14 / 255, green: 0x10 / 255, blue: 0x0c / 255, alpha: 1)
+        web.backgroundColor = MarblerPaint.groundUI
         web.scrollView.isScrollEnabled = false
         web.scrollView.bounces = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
@@ -394,6 +721,11 @@ struct MarblerWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             model.error = error.localizedDescription
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // An older page may never say "ready"; loaded is loaded.
+            model.loaded = true
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

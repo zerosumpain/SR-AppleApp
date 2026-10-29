@@ -3,9 +3,14 @@ import UIKit
 
 /// One Wordle Race room, from lobby to the reveal.
 ///
-/// The lobby and the 3-2-1 are every game's (`GameLobby`, `GameCountdownView`).
-/// Playing is my grid, the others' colours above it, and a keyboard pinned
-/// under it; finished reveals the word and everybody's letters.
+/// The lobby and the 3-2-1 are every game's (`GameLobby`, `GameCountdownView`),
+/// with how to play — a scored sample row and what each colour means — and my
+/// bests as the lobby's panel. Playing is my grid, sized to the room the phone
+/// has above the keyboard, the others' colours in a strip over it and a clock
+/// that drains; a guess flips in tile by tile, a solve jumps and bursts, and
+/// once I have nothing left to play the keyboard gives way to who we are
+/// waiting for. Finished flips the word over, then standings, my bests and
+/// everybody's letters.
 struct WordleRaceScreen: View {
     let roomId: String
     @StateObject private var store: WordleRaceStore
@@ -47,7 +52,8 @@ struct WordleRaceScreen: View {
         } else if let room = store.room {
             switch room.phase {
             case .lobby, .unknown, .armed, .result, .question, .reveal, .show, .input, .review:
-                GameLobby(room: room, store: store, prefix: "wordle", done: { dismiss() })
+                GameLobby(room: room, store: store, prefix: "wordle", done: { dismiss() },
+                          panel: AnyView(WordleRaceHowTo(room: room)))
             case .countdown:
                 GameCountdownView(room: room, store: store,
                                   note: "Same word for everyone. Six guesses. The others see your colours, not your letters.",
@@ -68,6 +74,79 @@ struct WordleRaceScreen: View {
     }
 }
 
+// MARK: - Lobby
+
+/// How to play, in the lobby: a sample row scored the way the real ones are,
+/// what each colour means, and my bests so far.
+struct WordleRaceHowTo: View {
+    let room: GameRoom
+    @State private var book = WordRoomBestBook()
+
+    var body: some View {
+        WordRoomHowToCard(title: "How to play", steps: steps, best: best, id: "wordle-howto") {
+            WordleRaceSample()
+        }
+        .onAppear { book = WordRoomBestStore(game: .wordle).load() }
+    }
+
+    private var steps: [WordRoomStep] {
+        var list = [
+            WordRoomStep(icon: "keyboard", text: "Everyone gets the same \(WordRoomText.number(room.wordLength))-letter word and \(room.maxGuesses) guesses. Race to crack it."),
+            WordRoomStep(icon: "square.fill", text: "Green with a bar: right letter, right place. Yellow with a dot: in the word, somewhere else. Grey: not in it."),
+            WordRoomStep(icon: "eye.slash", text: "The others see your colours, never your letters, until the end."),
+        ]
+        if room.hardMode {
+            list.append(WordRoomStep(icon: "lock.fill", text: "Hard mode: greens stay put, and found letters must stay in."))
+        }
+        return list
+    }
+
+    private var best: String? {
+        guard book.played > 0 else { return nil }
+        var parts = ["Played \(book.played)"]
+        if book.fewestGuesses > 0 { parts.append("best solve in \(book.fewestGuesses)") }
+        if book.bestStreak > 1 { parts.append("longest run \(book.bestStreak)") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// CRANE, scored: the colours and their shapes, as the grid will show them.
+struct WordleRaceSample: View {
+    static let letters: [Character] = Array("CRANE")
+    static let marks: [WordleMark] = [.absent, .present, .correct, .absent, .correct]
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 6) {
+                ForEach(0..<Self.letters.count, id: \.self) { index in
+                    WordleTile(letter: Self.letters[index], mark: Self.marks[index], side: 44)
+                }
+            }
+            HStack(spacing: 8) {
+                legend(.correct, "Right place")
+                legend(.present, "In the word")
+                legend(.absent, "Not in it")
+            }
+        }
+    }
+
+    private func legend(_ mark: WordleMark, _ text: String) -> some View {
+        HStack(spacing: 5) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(WordlePalette.fill(mark))
+                WordleCue(mark: mark, side: 16)
+            }
+            .frame(width: 16, height: 16)
+            Text(text)
+                .font(SR.Text.label())
+                .foregroundStyle(SR.inkSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
+}
+
 // MARK: - Playing
 
 struct WordlePlaying: View {
@@ -75,70 +154,125 @@ struct WordlePlaying: View {
     @ObservedObject var store: WordleRaceStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The newest scored row, flipping in tile by tile.
+    @State private var flipRow: Int?
+    @State private var flipped = true
+    /// Bumped when I solve it: the row jumps and the board bursts.
+    @State private var cheers = 0
+
+    /// Header, clock bar, the others and the status line, roughly: what the
+    /// grid must leave room for above the keyboard.
+    private var reserved: CGFloat { room.others.isEmpty ? 150 : 222 }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                if !room.others.isEmpty {
-                    WordleOthersStrip(room: room)
+        GeometryReader { full in
+            let keyHeight: CGFloat = full.size.height < 640 ? 50 : 56
+            let bottomHeight = keyHeight * 3 + WordleKeyboardView.rowGap * 2 + 20
+            let side = CGFloat(WordRoomLayout.wordleTileSide(
+                width: Double(full.size.width - SR.gutter * 2),
+                height: Double(full.size.height - bottomHeight - reserved),
+                wordLength: room.wordLength,
+                maxGuesses: room.maxGuesses
+            ))
+            VStack(spacing: 0) {
+                ScrollView {
+                    page(side: side)
                 }
-                WordleBoard(
-                    rows: me?.rows ?? [],
-                    typing: store.canType ? store.input : nil,
-                    maxGuesses: room.maxGuesses,
-                    wordLength: room.wordLength,
-                    side: 52,
-                    shakes: reduceMotion ? 0 : store.shakes
-                )
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("wordle-board")
-                statusLine
-                    .frame(maxWidth: .infinity)
+                bottom(keyHeight: keyHeight)
             }
-            .padding(.horizontal, SR.gutter)
-            .padding(.top, 4)
-            .padding(.bottom, 16)
         }
         .srGround(.warm)
-        .safeAreaInset(edge: .bottom) {
-            WordleKeyboardView(
-                marks: WordleKeyboard.marks(server: room.keyboard, rows: me?.rows ?? []),
-                enabled: store.canType && !store.submitting,
-                press: { store.press($0) },
-                delete: { store.delete() },
-                submit: { store.submit() }
-            )
-            .padding(.horizontal, 6)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .background(SR.paper.opacity(0.94), ignoresSafeAreaEdges: .bottom)
-        }
         .accessibilityIdentifier("wordle-playing")
         .onChange(of: store.shakes) { _, _ in
             if let refusal = store.refusal { UIAccessibility.post(notification: .announcement, argument: refusal) }
+        }
+        .onChange(of: me?.rows.count ?? 0) { old, new in
+            if new > old { flip(new - 1) }
+        }
+        .onChange(of: me?.solved ?? false) { old, new in
+            if new && !old {
+                cheers += 1
+                UIAccessibility.post(notification: .announcement, argument: solvedLine(me?.guessCount ?? 0))
+            }
         }
     }
 
     private var me: GamePlayer? { room.me }
 
-    private func solvedLine(_ guesses: Int) -> String {
-        guesses == 1 ? "Solved in one. Waiting for the others." : "Solved in \(guesses). Waiting for the others."
+    private func page(side: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            WordRoomTimeBar(room: room, store: store)
+            if !room.others.isEmpty {
+                WordleOthersStrip(room: room)
+            }
+            board(side: side)
+            statusLine
+                .frame(maxWidth: .infinity, minHeight: 34)
+        }
+        .padding(.horizontal, SR.gutter)
+        .padding(.top, 4)
+        .padding(.bottom, 12)
     }
 
+    private func board(side: CGFloat) -> some View {
+        WordleBoard(
+            rows: me?.rows ?? [],
+            typing: store.canType ? store.input : nil,
+            maxGuesses: room.maxGuesses,
+            wordLength: room.wordLength,
+            side: side,
+            shakes: reduceMotion ? 0 : store.shakes,
+            flipRow: flipRow,
+            flipped: flipped,
+            cheerRow: (me?.solved ?? false) ? max(0, (me?.rows.count ?? 1) - 1) : nil,
+            cheers: reduceMotion ? 0 : cheers
+        )
+        .frame(maxWidth: .infinity)
+        .overlay {
+            WordRoomBurst(token: cheers, colours: [SR.good, SR.warn, SR.accent])
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("wordle-board")
+    }
+
+    /// The new row turns edge-on at once, then each tile flips face up in turn.
+    private func flip(_ row: Int) {
+        guard !reduceMotion else { return }
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) {
+            flipRow = row
+            flipped = false
+        }
+        DispatchQueue.main.async { flipped = true }
+    }
+
+    private func solvedLine(_ guesses: Int) -> String {
+        guesses == 1 ? "Solved in one!" : "Solved in \(guesses)!"
+    }
+
+    // MARK: Header
+
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(kicker)
                     .font(SR.Text.label())
                     .tracking(SR.kickerTracking)
                     .foregroundStyle(SR.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Text(progress)
-                    .font(SR.Text.display(22))
+                    .font(SR.Text.display(24))
                     .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .contentTransition(.numericText())
+                    .srAnimation(.snappy, value: progress)
             }
             Spacer(minLength: 8)
-            WordleTimer(room: room, store: store)
+            WordRoomClock(room: room, store: store, id: "wordle-timer")
         }
     }
 
@@ -154,35 +288,85 @@ struct WordlePlaying: View {
         return "Guess \(me.guessCount + 1) of \(room.maxGuesses)"
     }
 
+    // MARK: Status
+
     @ViewBuilder
     private var statusLine: some View {
         if let refusal = store.refusal {
-            Label(refusal, systemImage: "exclamationmark.circle")
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.error)
-                .multilineTextAlignment(.center)
+            WordRoomPill(text: refusal, icon: "exclamationmark.circle.fill", tone: SR.error)
                 .transition(.opacity)
                 .accessibilityIdentifier("wordle-refusal")
         } else if let me, me.solved {
-            Text(solvedLine(me.guessCount))
-                .font(SR.Text.secondary())
-                .foregroundStyle(SR.good)
-                .multilineTextAlignment(.center)
+            WordRoomPill(text: solvedLine(me.guessCount), icon: "checkmark.seal.fill", tone: SR.good, filled: true)
         } else if let me, me.done || me.guessCount >= room.maxGuesses {
-            Text("Out of guesses. The word is revealed when everyone is done.")
-                .font(SR.Text.secondary())
-                .foregroundStyle(SR.inkMuted)
-                .multilineTextAlignment(.center)
+            WordRoomPill(text: "Out of guesses. The word is revealed when everyone is done.", icon: "hourglass", tone: SR.inkMuted)
         } else if room.me?.joined != true {
-            Text("You are not playing in this one.")
-                .font(SR.Text.secondary())
-                .foregroundStyle(SR.inkMuted)
-        } else if room.hardMode {
-            Text("Hard mode: greens stay put, found letters stay in.")
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
-                .multilineTextAlignment(.center)
+            WordRoomPill(text: "You are not playing in this one.", icon: "eye", tone: SR.inkMuted)
+        } else if store.submitting {
+            WordRoomPill(text: "Checking…", icon: "ellipsis", tone: SR.inkMuted)
+        } else {
+            WordRoomPill(text: hint, icon: store.input.isComplete ? "return" : "hand.point.up.left", tone: store.input.isComplete ? SR.accentInk : SR.inkMuted)
         }
+    }
+
+    private var hint: String {
+        let line = WordRoomText.wordleHint(typed: store.input.letters.count, length: room.wordLength,
+                                           guessNumber: (me?.guessCount ?? 0) + 1)
+        if room.hardMode, store.input.isEmpty, (me?.guessCount ?? 0) > 0 {
+            return "Hard mode: greens stay put, found letters stay in."
+        }
+        return line
+    }
+
+    // MARK: Bottom
+
+    @ViewBuilder
+    private func bottom(keyHeight: CGFloat) -> some View {
+        Group {
+            if store.canType {
+                WordleKeyboardView(
+                    marks: WordleKeyboard.marks(server: room.keyboard, rows: me?.rows ?? []),
+                    enabled: !store.submitting,
+                    ready: store.input.isComplete,
+                    keyHeight: keyHeight,
+                    press: { store.press($0) },
+                    delete: { store.delete() },
+                    submit: { store.submit() }
+                )
+                .padding(.horizontal, 4)
+            } else {
+                waitCard
+                    .padding(.horizontal, SR.gutter)
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background(
+            SR.paper.opacity(0.94)
+                .overlay(alignment: .top) { Rectangle().fill(SR.line).frame(height: 1) }
+                .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    @ViewBuilder
+    private var waitCard: some View {
+        if let me, me.joined, me.solved {
+            WordRoomWaitCard(icon: "checkmark", title: solvedLine(me.guessCount), line: waitingLine, tone: SR.good)
+                .accessibilityIdentifier("wordle-waiting")
+        } else if let me, me.joined {
+            WordRoomWaitCard(icon: "hourglass", title: "Out of guesses", line: waitingLine, tone: SR.inkMuted)
+                .accessibilityIdentifier("wordle-waiting")
+        } else {
+            WordRoomWaitCard(icon: "eye", title: "Watching", line: "You are not playing in this one. The word is shown at the end.", tone: SR.accentInk)
+                .accessibilityIdentifier("wordle-watching")
+        }
+    }
+
+    private var waitingLine: String {
+        let still = room.others.filter { !$0.done && !$0.solved }.map(\.name)
+        if still.isEmpty { return "Everyone is done. Here comes the word…" }
+        return "Waiting for \(WordRoomText.list(still)). The word is revealed when everyone is done."
     }
 }
 
@@ -281,26 +465,44 @@ struct WordleCue: View {
 }
 
 /// One square. `mark` nil is a tile not yet scored: empty, or being typed.
+///
+/// A scored tile is lit from above — a sheen over its top half and a darker
+/// lip along its foot — so the grid reads as tiles, not flat swatches. Mini
+/// tiles (the others' grids) skip the sheen: at 7 points it is only noise.
 struct WordleTile: View {
     let letter: Character?
     let mark: WordleMark?
     let side: CGFloat
 
+    private var radius: CGFloat { max(2, side * 0.12) }
+    private var detailed: Bool { side >= 20 }
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: max(2, side * 0.06), style: .continuous)
-                .fill(mark.map { WordlePalette.fill($0) } ?? Color.clear)
-            if mark == nil {
-                RoundedRectangle(cornerRadius: max(2, side * 0.06), style: .continuous)
-                    .strokeBorder(letter == nil ? SR.line : SR.ink, lineWidth: letter == nil ? 1.5 : 2)
+            if let mark {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(WordlePalette.fill(mark))
+                if detailed && mark != .unknown {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(LinearGradient(colors: [Color.white.opacity(0.22), Color.white.opacity(0)],
+                                             startPoint: .top, endPoint: .center))
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                }
+            } else {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(letter == nil ? Color.clear : SR.surface.opacity(0.85))
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(letter == nil ? SR.line : SR.ink.opacity(0.75), lineWidth: letter == nil ? 1.5 : 2.5)
             }
             if let letter {
                 Text(String(letter).uppercased())
-                    .font(SR.Text.display(side * 0.5))
+                    // The play field keeps its own size: a tile is a tile.
+                    .font(.system(size: max(6, side * 0.54), weight: .heavy, design: .rounded))
                     .foregroundStyle(mark.map { WordlePalette.letter($0) } ?? SR.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.4)
-                    .padding(side * 0.08)
+                    .padding(side * 0.06)
             }
             if let mark { WordleCue(mark: mark, side: side) }
         }
@@ -319,9 +521,15 @@ struct WordleBoard: View {
     let side: CGFloat
     /// The typing row shakes each time this changes.
     var shakes: Int = 0
+    /// The scored row turning over, and whether it has turned.
+    var flipRow: Int? = nil
+    var flipped: Bool = true
+    /// The solved row jumps, tile after tile, each time `cheers` changes.
+    var cheerRow: Int? = nil
+    var cheers: Int = 0
 
     var body: some View {
-        VStack(spacing: max(2, side * 0.12)) {
+        VStack(spacing: max(1.5, side * 0.12)) {
             ForEach(0..<maxGuesses, id: \.self) { index in
                 rowView(index)
             }
@@ -330,17 +538,13 @@ struct WordleBoard: View {
 
     @ViewBuilder
     private func rowView(_ index: Int) -> some View {
-        let spacing = max(2, side * 0.12)
+        let spacing = max(1.5, side * 0.12)
         if index < rows.count {
             let row = rows[index]
             let letters = row.letters
             HStack(spacing: spacing) {
                 ForEach(0..<wordLength, id: \.self) { column in
-                    WordleTile(
-                        letter: Self.letter(at: column, in: letters),
-                        mark: column < row.marks.count ? row.marks[column] : .unknown,
-                        side: side
-                    )
+                    scoredTile(row: index, column: column, letters: letters, marks: row.marks)
                 }
             }
             .accessibilityElement(children: .ignore)
@@ -348,11 +552,10 @@ struct WordleBoard: View {
         } else if index == rows.count, let typing {
             HStack(spacing: spacing) {
                 ForEach(0..<wordLength, id: \.self) { column in
-                    WordleTile(
-                        letter: column < typing.letters.count ? typing.letters[column] : nil,
-                        mark: nil,
-                        side: side
-                    )
+                    let letter: Character? = column < typing.letters.count ? typing.letters[column] : nil
+                    WordleTile(letter: letter, mark: nil, side: side)
+                        .modifier(WordRoomPop(animatableData: letter == nil ? 0 : 1, amount: 0.12))
+                        .animation(.easeOut(duration: 0.14), value: letter == nil)
                 }
             }
             .modifier(WordleShake(animatableData: CGFloat(shakes)))
@@ -368,6 +571,20 @@ struct WordleBoard: View {
             }
             .accessibilityHidden(true)
         }
+    }
+
+    private func scoredTile(row: Int, column: Int, letters: [Character]?, marks: [WordleMark]) -> some View {
+        let turning = row == flipRow && !flipped
+        let cheering = row == cheerRow
+        return WordleTile(
+            letter: Self.letter(at: column, in: letters),
+            mark: column < marks.count ? marks[column] : .unknown,
+            side: side
+        )
+        .rotation3DEffect(.degrees(turning ? 90 : 0), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
+        .animation(.easeOut(duration: 0.26).delay(0.11 * Double(column)), value: turning)
+        .modifier(WordRoomPop(animatableData: cheering ? CGFloat(cheers) : 0, amount: 0.22))
+        .animation(.easeOut(duration: 0.32).delay(0.6 + 0.08 * Double(column)), value: cheers)
     }
 }
 
@@ -409,42 +626,57 @@ enum WordleSpeech {
 
 // MARK: - The others
 
-/// Everyone else, as colours: their rows without letters, how many guesses,
-/// and whether they have it.
+/// Everyone else, as colours: their rows without letters beside their name,
+/// how many guesses, and whether they have it — compact, so the grid keeps
+/// the room on a small phone.
 struct WordleOthersStrip: View {
     let room: GameRoom
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
                 ForEach(room.others) { player in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(player.name)
-                            .font(SR.Text.title(14))
-                            .foregroundStyle(SR.ink)
-                            .lineLimit(1)
-                        WordleBoard(
-                            rows: player.rows,
-                            typing: nil,
-                            maxGuesses: room.maxGuesses,
-                            wordLength: room.wordLength,
-                            side: 11
-                        )
-                        .accessibilityHidden(true)
-                        standing(player)
-                    }
-                    .padding(10)
-                    .frame(minWidth: 96, alignment: .leading)
-                    .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(spoken(player))
-                    .accessibilityIdentifier("wordle-other-\(player.id)")
+                    card(player)
                 }
             }
             .padding(.vertical, 2)
         }
         .scrollClipDisabled()
         .accessibilityIdentifier("wordle-others")
+    }
+
+    private func card(_ player: GamePlayer) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            WordleBoard(
+                rows: player.rows,
+                typing: nil,
+                maxGuesses: room.maxGuesses,
+                wordLength: room.wordLength,
+                side: 7
+            )
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    GameInitial(name: player.name, tone: player.solved ? SR.good : SR.accentInk, side: 22)
+                    Text(player.name)
+                        .font(SR.Text.title(14))
+                        .foregroundStyle(SR.ink)
+                        .lineLimit(1)
+                }
+                standing(player)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .overlay(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius + 4, style: .continuous)
+                .strokeBorder(player.solved ? SR.good : Color.clear, lineWidth: 2)
+        )
+        .srAnimation(.snappy, value: player.guessCount)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken(player))
+        .accessibilityIdentifier("wordle-other-\(player.id)")
     }
 
     @ViewBuilder
@@ -482,15 +714,18 @@ struct WordleOthersStrip: View {
 // MARK: - Keyboard
 
 /// QWERTY, coloured by my best mark per letter, with Enter and Delete. Keys
-/// are at least 44 points tall; ten across a phone cannot also be 44 wide.
+/// are 50 to 56 points tall; ten across a phone cannot also be 44 wide, so
+/// they are as tall as the phone allows instead. Enter lights up once the
+/// row is full — the one key to press next.
 struct WordleKeyboardView: View {
     let marks: [Character: WordleMark]
     let enabled: Bool
+    var ready: Bool = false
+    var keyHeight: CGFloat = 56
     let press: (Character) -> Void
     let delete: () -> Void
     let submit: () -> Void
 
-    static let keyHeight: CGFloat = 52
     static let rowGap: CGFloat = 8
     static let keyGap: CGFloat = 5
 
@@ -499,8 +734,8 @@ struct WordleKeyboardView: View {
             keys(unit: max(20, (geo.size.width - Self.keyGap * 9) / 10))
                 .frame(width: geo.size.width)
         }
-        .frame(height: Self.keyHeight * 3 + Self.rowGap * 2)
-        .opacity(enabled ? 1 : 0.55)
+        .frame(height: keyHeight * 3 + Self.rowGap * 2)
+        .opacity(enabled ? 1 : 0.6)
         // `.contain`, so each key keeps its own id under the keyboard's.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("wordle-keyboard")
@@ -515,69 +750,93 @@ struct WordleKeyboardView: View {
                 ForEach(WordleKeyboard.rows[1], id: \.self) { letterKey($0, width: unit) }
             }
             HStack(spacing: Self.keyGap) {
-                actionKey(title: "ENTER", icon: nil, label: "Enter guess", id: "wordle-enter", width: unit * 1.5, action: submit)
+                enterKey(width: unit * 1.5)
                 ForEach(WordleKeyboard.rows[2], id: \.self) { letterKey($0, width: unit) }
-                actionKey(title: nil, icon: "delete.left", label: "Delete letter", id: "wordle-delete", width: unit * 1.5, action: delete)
+                deleteKey(width: unit * 1.5)
+            }
+        }
+    }
+
+    private func keyFace(fill: Color, edge: Color, outlined: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(edge)
+                .offset(y: 2)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(fill)
+            if outlined {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(SR.line, lineWidth: 1)
             }
         }
     }
 
     private func letterKey(_ letter: Character, width: CGFloat) -> some View {
         let mark = marks[letter]
+        let fill: Color = mark.map { WordlePalette.fill($0) } ?? SR.surface
         return Button {
             press(letter)
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(mark.map { WordlePalette.fill($0) } ?? SR.surface)
-                if mark == nil {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(SR.line, lineWidth: 1)
-                }
+                keyFace(fill: fill, edge: SR.ink.opacity(0.18), outlined: mark == nil)
                 Text(String(letter).uppercased())
-                    .font(SR.bodyBold(18))
+                    .font(.system(size: min(22, keyHeight * 0.4), weight: .bold, design: .rounded))
                     .foregroundStyle(mark.map { WordlePalette.letter($0) } ?? SR.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                if let mark { WordleCue(mark: mark, side: min(width, Self.keyHeight)) }
+                if let mark { WordleCue(mark: mark, side: min(width, keyHeight)) }
             }
-            .frame(width: width, height: Self.keyHeight)
+            .frame(width: width, height: keyHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WordRoomPressStyle(depth: 0.9))
         .disabled(!enabled)
         .accessibilityLabel(mark.map { "\(String(letter).uppercased()), \($0.spoken)" } ?? String(letter).uppercased())
         .accessibilityIdentifier("wordle-key-\(letter)")
     }
 
-    private func actionKey(title: String?, icon: String?, label: String, id: String, width: CGFloat,
-                           action: @escaping () -> Void) -> some View {
+    private func enterKey(width: CGFloat) -> some View {
         Button {
-            action()
+            submit()
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(SR.ink)
-                if let title {
-                    Text(title)
-                        .font(SR.Text.label(12))
-                        .foregroundStyle(SR.paper)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                }
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(SR.paper)
-                }
+                keyFace(fill: ready ? SR.accent : SR.ink, edge: ready ? SR.accentDeep : SR.ink.opacity(0.5), outlined: false)
+                Text("ENTER")
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .tracking(0.6)
+                    .foregroundStyle(ready ? SR.cream : SR.paper)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .padding(.horizontal, 2)
             }
-            .frame(width: width, height: Self.keyHeight)
+            .frame(width: width, height: keyHeight)
+            .contentShape(Rectangle())
+            .srAnimation(.snappy, value: ready)
+        }
+        .buttonStyle(WordRoomPressStyle(depth: 0.92))
+        .disabled(!enabled)
+        .accessibilityLabel("Enter guess")
+        .accessibilityHint(ready ? "Sends your guess" : "Fill the row first")
+        .accessibilityIdentifier("wordle-enter")
+    }
+
+    private func deleteKey(width: CGFloat) -> some View {
+        Button {
+            delete()
+        } label: {
+            ZStack {
+                keyFace(fill: SR.ink, edge: SR.ink.opacity(0.5), outlined: false)
+                Image(systemName: "delete.left.fill")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(SR.paper)
+            }
+            .frame(width: width, height: keyHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WordRoomPressStyle(depth: 0.92))
         .disabled(!enabled)
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(id)
+        .accessibilityLabel("Delete letter")
+        .accessibilityIdentifier("wordle-delete")
     }
 }
 
@@ -588,112 +847,36 @@ struct WordleFinished: View {
     @ObservedObject var store: WordleRaceStore
     let done: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The word has turned face up.
+    @State private var revealed = false
+    @State private var book: WordRoomBestBook?
+    @State private var news = WordRoomNewBests()
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SR.sectionGap) {
                 SRPageHeader(kicker: "Wordle Race · final", title: title, strap: strap)
 
                 if let secret = room.secret, !secret.isEmpty {
-                    VStack(alignment: .leading, spacing: SR.cardGap) {
-                        SRSectionLabel(text: "The word")
-                        HStack(spacing: 6) {
-                            ForEach(Array(secret.uppercased().enumerated()), id: \.offset) { _, letter in
-                                WordleTile(letter: letter, mark: .correct, side: 48)
-                            }
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("The word was \(secret.uppercased())")
-                        .accessibilityIdentifier("wordle-secret")
-                    }
+                    secretCard(secret)
                 }
 
-                VStack(alignment: .leading, spacing: SR.cardGap) {
-                    SRSectionLabel(text: room.solo ? "Your game" : "Standings")
-                    VStack(spacing: 0) {
-                        ForEach(Array(standings.enumerated()), id: \.element.id) { index, row in
-                            if index > 0 { Divider().overlay(SR.divider) }
-                            HStack(alignment: .top, spacing: 12) {
-                                Text("\(index + 1)")
-                                    .font(SR.Text.display(26))
-                                    .foregroundStyle(room.winnerIds.contains(row.id) ? SR.accent : SR.inkGhost)
-                                    .frame(width: 32, alignment: .leading)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 6) {
-                                        Text(row.name + (row.id == room.meId ? " (you)" : ""))
-                                            .font(SR.Text.title())
-                                            .foregroundStyle(SR.ink)
-                                        if room.winnerIds.contains(row.id), !room.solo {
-                                            Image(systemName: "crown.fill")
-                                                .font(.system(size: 13, weight: .semibold))
-                                                .foregroundStyle(SR.accent)
-                                                .accessibilityLabel("Winner")
-                                        }
-                                    }
-                                    Text(detail(row))
-                                        .font(SR.Text.mono())
-                                        .foregroundStyle(SR.inkMuted)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                Spacer(minLength: 8)
-                                Image(systemName: row.solved ? "checkmark.circle.fill" : "xmark.circle")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(row.solved ? SR.good : SR.inkGhost)
-                                    .accessibilityLabel(row.solved ? "Solved" : "Not solved")
-                            }
-                            .padding(.vertical, 10)
-                            .accessibilityElement(children: .combine)
-                        }
-                    }
-                    .padding(.horizontal, SR.cardPadding)
-                    .padding(.vertical, 6)
-                    .srGlassCard(.paper)
-                    .accessibilityIdentifier("wordle-standings")
+                GameStandingsCard(
+                    room: room,
+                    label: room.solo ? "Your game" : "Standings",
+                    id: "wordle-standings",
+                    detail: detail,
+                    figure: figure
+                )
+
+                if let book {
+                    WordRoomBestsCard(items: bestItems(book), id: "wordle-bests")
                 }
 
-                VStack(alignment: .leading, spacing: SR.cardGap) {
-                    SRSectionLabel(text: room.solo ? "Your grid" : "Everyone’s grids")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], alignment: .leading, spacing: 12) {
-                        ForEach(room.playing) { player in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(player.name + (player.id == room.meId ? " (you)" : ""))
-                                    .font(SR.Text.title(15))
-                                    .foregroundStyle(SR.ink)
-                                    .lineLimit(1)
-                                WordleBoard(
-                                    rows: player.rows,
-                                    typing: nil,
-                                    maxGuesses: room.maxGuesses,
-                                    wordLength: room.wordLength,
-                                    side: 24
-                                )
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("wordle-grid-\(player.id)")
-                        }
-                    }
-                }
+                grids
 
-                VStack(spacing: 10) {
-                    if room.isHost {
-                        Button {
-                            SRHaptic.tap()
-                            Task { await store.act("again") }
-                        } label: {
-                            SRButtonLabel(title: "Play again", icon: "arrow.counterclockwise", fill: true)
-                        }
-                        .srButton(.prominent)
-                        .controlSize(.large)
-                        .disabled(store.busy)
-                        .accessibilityIdentifier("wordle-again")
-                    }
-                    Button { done() } label: { SRButtonLabel(title: "Done", fill: true) }
-                        .srButton(.regular)
-                        .controlSize(.large)
-                        .accessibilityIdentifier("wordle-done")
-                }
+                GameFinishedButtons(room: room, store: store, prefix: "wordle", done: done)
             }
             .padding(.horizontal, SR.gutter)
             .padding(.top, 4)
@@ -701,7 +884,86 @@ struct WordleFinished: View {
         }
         .srGround(.warm)
         .accessibilityIdentifier("wordle-finished")
-        .onAppear { if room.winnerIds.contains(room.meId) { SRHaptic.ok() } }
+        .onAppear {
+            recordBests()
+            if reduceMotion {
+                revealed = true
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { revealed = true }
+            }
+        }
+    }
+
+    /// The word, turning face up a letter at a time.
+    private func secretCard(_ secret: String) -> some View {
+        let letters = Array(secret.uppercased())
+        return VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "The word")
+            // The largest tiles that fit across: a six- or seven-letter word
+            // at 52 points would run off a 375-point phone.
+            ViewThatFits(in: .horizontal) {
+                secretRow(letters, side: 52)
+                secretRow(letters, side: 42)
+                secretRow(letters, side: 34)
+                secretRow(letters, side: 26)
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("The word was \(secret.uppercased())")
+            .accessibilityIdentifier("wordle-secret")
+        }
+    }
+
+    private func secretRow(_ letters: [Character], side: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            ForEach(0..<letters.count, id: \.self) { index in
+                WordleTile(letter: letters[index], mark: .correct, side: side)
+                    .rotation3DEffect(.degrees(revealed ? 0 : 90), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
+                    .opacity(revealed ? 1 : 0)
+                    .animation(.easeOut(duration: 0.3).delay(0.12 * Double(index)), value: revealed)
+            }
+        }
+    }
+
+    private var grids: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: room.solo ? "Your grid" : "Everyone’s grids")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], alignment: .leading, spacing: 12) {
+                ForEach(room.playing) { player in
+                    gridCard(player)
+                }
+            }
+        }
+    }
+
+    private func gridCard(_ player: GamePlayer) -> some View {
+        let winner = room.winnerIds.contains(player.id)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(player.name + (player.id == room.meId ? " (you)" : ""))
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                if winner, !room.solo {
+                    Image(systemName: "crown.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(SR.warn)
+                        .accessibilityLabel("Winner")
+                }
+            }
+            WordleBoard(
+                rows: player.rows,
+                typing: nil,
+                maxGuesses: room.maxGuesses,
+                wordLength: room.wordLength,
+                side: 24
+            )
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("wordle-grid-\(player.id)")
     }
 
     /// The server's standings; failing those, everyone in, solvers first.
@@ -722,11 +984,57 @@ struct WordleFinished: View {
         room.isHost ? nil : "Only \(room.host?.name ?? "the host") can start another round of this one."
     }
 
+    private func guesses(_ row: GameStanding) -> Int {
+        row.guesses ?? room.players.first(where: { $0.id == row.id })?.guessCount ?? 0
+    }
+
     private func detail(_ row: GameStanding) -> String {
-        let guesses = row.guesses ?? room.players.first(where: { $0.id == row.id })?.guessCount ?? 0
-        let count = guesses == 1 ? "1 guess" : "\(guesses) guesses"
+        let count = guesses(row) == 1 ? "1 guess" : "\(guesses(row)) guesses"
         guard row.solved else { return "not solved · \(count)" }
         if let ms = row.solveMs { return "\(count) · \(WordleClock.duration(ms: ms))" }
         return count
+    }
+
+    private func figure(_ row: GameStanding) -> (text: String, spoken: String)? {
+        guard row.solved else { return (text: "–", spoken: "not solved") }
+        let n = guesses(row)
+        return (text: "\(n)/\(room.maxGuesses)", spoken: n == 1 ? "solved in one guess" : "solved in \(n) guesses")
+    }
+
+    // MARK: Bests
+
+    private func recordBests() {
+        guard book == nil else { return }
+        guard let me = room.me, me.joined else {
+            book = nil
+            return
+        }
+        let mine = standings.first { $0.id == room.meId }
+        let round = WordRoomRound(
+            key: WordRoomRound.key(roomId: room.id, startedAt: room.startedAt, deal: room.secret ?? ""),
+            competitive: !room.solo,
+            won: room.winnerIds.contains(room.meId),
+            tracksStreak: true,
+            solved: mine?.solved ?? me.solved,
+            guesses: mine?.guesses ?? me.guessCount,
+            solveMs: mine?.solveMs ?? me.solveMs
+        )
+        let result = WordRoomBestStore(game: .wordle).record(round, persist: !SRDemo.isOn)
+        book = result.book
+        news = result.news ?? WordRoomNewBests()
+        // A win is already felt through the standings; a new best on its own
+        // deserves the same tap.
+        if news.any, !room.winnerIds.contains(room.meId) { SRHaptic.ok() }
+    }
+
+    private func bestItems(_ book: WordRoomBestBook) -> [WordRoomBestItem] {
+        var items = [WordRoomBestItem(label: "Played", value: "\(book.played)")]
+        if !room.solo || book.won > 0 {
+            items.append(WordRoomBestItem(label: "Won", value: "\(book.won) · \(book.winPercent)%"))
+        }
+        items.append(WordRoomBestItem(label: "Fewest guesses", value: book.fewestGuesses > 0 ? "\(book.fewestGuesses)" : "–", fresh: news.guesses))
+        items.append(WordRoomBestItem(label: "Fastest solve", value: WordRoomText.clock(ms: book.fastestMs), fresh: news.time))
+        items.append(WordRoomBestItem(label: "Solved in a row", value: "\(book.streak) · best \(book.bestStreak)", fresh: news.streak))
+        return items
     }
 }

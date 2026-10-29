@@ -189,44 +189,16 @@ final class GameLeaderboardStore: ObservableObject {
 
 // MARK: - Screen
 
-/// Day / Week / All, the overall table, then a board per game played.
+/// Day / Week / All, the overall table — the first three on a podium — then
+/// a board per game played, each under its game's badge.
 struct GameLeaderboardScreen: View {
     @StateObject private var store = GameLeaderboardStore()
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: SR.sectionGap) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Picker("Window", selection: $store.window) {
-                        ForEach(LeaderboardWindow.allCases) { window in
-                            Text(window.label).tag(window)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: store.window) { _, _ in SRHaptic.select() }
-                    .accessibilityIdentifier("leaderboard-window")
-                    Text(store.window.caption)
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let board = store.current {
-                    if board.isEmpty {
-                        SREmpty(
-                            title: "No games yet",
-                            icon: "trophy",
-                            message: "Finish a game and it lands here — solo games count for high scores."
-                        )
-                        .frame(maxWidth: .infinity)
-                        .accessibilityIdentifier("leaderboard-empty")
-                    } else {
-                        overall(board)
-                        ForEach(board.games) { game in
-                            gameBoard(game, meId: board.meId)
-                        }
-                    }
-                }
+                windowPicker
+                content
             }
             .padding(.horizontal, SR.gutter)
             .padding(.top, 4)
@@ -239,37 +211,99 @@ struct GameLeaderboardScreen: View {
         // One read per window change, and the first on arrival.
         .task(id: store.window) { await store.load() }
         .srRefreshable { await store.load() }
-        .overlay {
-            if store.loading && store.current == nil { ProgressView().tint(SR.accent) }
-        }
         .overlay(alignment: .bottom) {
-            if let message = store.message { SRBanner(text: message) }
+            // A failed refresh over a board already shown: said, not blanked.
+            if let message = store.message, store.current != nil { SRBanner(text: message) }
+        }
+    }
+
+    private var windowPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("Window", selection: $store.window) {
+                ForEach(LeaderboardWindow.allCases) { window in
+                    Text(window.label).tag(window)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: store.window) { _, _ in SRHaptic.select() }
+            .accessibilityIdentifier("leaderboard-window")
+            Text(store.window.caption)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let board = store.current {
+            if board.isEmpty {
+                SREmpty(
+                    title: "No games yet",
+                    icon: "trophy",
+                    message: "Finish a game and it lands here — solo games count for high scores."
+                )
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("leaderboard-empty")
+            } else {
+                overall(board)
+                ForEach(board.games) { game in
+                    gameBoard(game, meId: board.meId)
+                }
+            }
+        } else if store.loading {
+            VStack(spacing: 12) {
+                ProgressView().controlSize(.large).tint(SR.accent)
+                Text("Fetching the scores…")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 48)
+            .accessibilityElement(children: .combine)
+        } else if let message = store.message {
+            SREmpty(
+                title: "The scores didn't load",
+                icon: "wifi.exclamationmark",
+                message: message,
+                actionLabel: "Try again",
+                action: { Task { await store.load() } }
+            )
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("leaderboard-error")
         }
     }
 
     // MARK: Overall
 
     private func overall(_ board: GameLeaderboard) -> some View {
-        VStack(alignment: .leading, spacing: SR.cardGap) {
+        let split = GamesPagePlan.podium(board.overall)
+        return VStack(alignment: .leading, spacing: SR.cardGap) {
             SRSectionLabel(text: "Overall", trailing: "Wins")
-            VStack(spacing: 0) {
-                ForEach(Array(board.overall.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { Divider().overlay(SR.divider) }
-                    LeaderboardLine(
-                        rank: row.rank,
-                        name: row.name,
-                        isMe: row.playerId == board.meId,
-                        detail: LeaderboardWords.count(row.played, "game", "games"),
-                        figure: "\(row.wins)",
-                        spoken: LeaderboardWords.count(row.wins, "win", "wins")
-                    )
-                    .accessibilityIdentifier("leaderboard-overall-\(row.playerId)")
-                }
+            if !split.top.isEmpty {
+                LeaderboardPodium(rows: split.top, meId: board.meId)
             }
-            .padding(.horizontal, SR.cardPadding)
-            .padding(.vertical, 6)
-            .srGlassCard(.paper)
+            if !split.rest.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(split.rest.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { Divider().overlay(SR.divider) }
+                        LeaderboardLine(
+                            rank: row.rank,
+                            name: row.name,
+                            isMe: row.playerId == board.meId,
+                            detail: LeaderboardWords.count(row.played, "game", "games"),
+                            figure: "\(row.wins)",
+                            spoken: LeaderboardWords.count(row.wins, "win", "wins")
+                        )
+                        .accessibilityIdentifier("leaderboard-overall-\(row.playerId)")
+                    }
+                }
+                .padding(.horizontal, SR.cardPadding)
+                .padding(.vertical, 6)
+                .srGlassCard(.paper)
+            }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("leaderboard-overall")
     }
 
@@ -277,7 +311,10 @@ struct GameLeaderboardScreen: View {
 
     private func gameBoard(_ game: LeaderboardGame, meId: String) -> some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
-            SRSectionLabel(text: game.title, trailing: game.scored ? "Best" : "Wins")
+            HStack(spacing: 10) {
+                GameArtBadge(game: game.game, side: 32)
+                SRSectionLabel(text: game.title, trailing: game.scored ? "Best" : "Wins")
+            }
             VStack(spacing: 0) {
                 ForEach(Array(game.rows.enumerated()), id: \.element.id) { index, row in
                     if index > 0 { Divider().overlay(SR.divider) }
@@ -296,6 +333,7 @@ struct GameLeaderboardScreen: View {
             .padding(.vertical, 6)
             .srGlassCard(.paper)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("leaderboard-game-\(game.game)")
     }
 
@@ -322,7 +360,77 @@ struct GameLeaderboardScreen: View {
     }
 }
 
-/// One row of a board: rank, name (mine picked out), a detail line, a figure.
+/// The overall table's first three, on steps: second, first, third, each with
+/// its medal, name and wins, the steps rising in as the board arrives.
+struct LeaderboardPodium: View {
+    let rows: [LeaderboardOverallRow]
+    let meId: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .body) private var tallest: CGFloat = 92
+    @State private var risen = false
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            ForEach(GamesPagePlan.podiumOrder(rows.count), id: \.self) { index in
+                step(rows[index], slot: index + 1)
+            }
+        }
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.top, 16)
+        .padding(.bottom, SR.cardPadding)
+        .frame(maxWidth: .infinity)
+        .srGlassCard(.paper)
+        .onAppear { risen = true }
+    }
+
+    /// `slot` is the step's height order; the medal is the row's own rank,
+    /// so two people level on wins share a colour.
+    private func step(_ row: LeaderboardOverallRow, slot: Int) -> some View {
+        let place = row.rank > 0 ? row.rank : slot
+        let mine = row.playerId == meId
+        let share: CGFloat = slot == 1 ? 1 : (slot == 2 ? 0.72 : 0.52)
+        let colours = GameMedal.colours(min(place, 3)) ?? [SR.accent, SR.accentDeep]
+        return VStack(spacing: 6) {
+            if place == 1 {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: 0xE9A800))
+                    .accessibilityHidden(true)
+            }
+            GameMedal(place: place, side: place == 1 ? 40 : 34)
+            Text(mine ? "\(row.name) (you)" : row.name)
+                .font(SR.Text.title(place == 1 ? 16 : 15))
+                .foregroundStyle(mine ? SR.accentInk : SR.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.8)
+            Text(LeaderboardWords.count(row.wins, "win", "wins"))
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(LinearGradient(colors: [colours[0].opacity(0.85), colours[1].opacity(0.55)],
+                                     startPoint: .top, endPoint: .bottom))
+                .overlay(alignment: .top) {
+                    Text("\(row.wins)")
+                        .font(SR.Text.figure(place == 1 ? 26 : 22))
+                        .foregroundStyle(Color(hex: 0x2A2340))
+                        .monospacedDigit()
+                        .padding(.top, 8)
+                }
+                .frame(height: (risen || reduceMotion ? share : 0.15) * tallest)
+                .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.8).delay(Double(3 - slot) * 0.08),
+                           value: risen)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(GameMedal.spoken(place)): \(row.name)\(mine ? ", you" : ""), \(LeaderboardWords.count(row.wins, "win", "wins")), \(LeaderboardWords.count(row.played, "game", "games"))")
+        .accessibilityIdentifier("leaderboard-overall-\(row.playerId)")
+    }
+}
+
+/// One row of a board: rank (a medal for the first three), name (mine picked
+/// out), a detail line, a figure.
 struct LeaderboardLine: View {
     let rank: Int
     let name: String
@@ -333,10 +441,7 @@ struct LeaderboardLine: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text("\(rank)")
-                .font(SR.Text.display(24))
-                .foregroundStyle(rank == 1 ? SR.accent : SR.inkGhost)
-                .frame(width: 32, alignment: .leading)
+            GameMedal(place: rank, side: 32)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(isMe ? "\(name) (you)" : name)
@@ -345,8 +450,8 @@ struct LeaderboardLine: View {
                     if rank == 1 {
                         Image(systemName: "crown.fill")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityLabel("First")
+                            .foregroundStyle(Color(hex: 0xE9A800))
+                            .accessibilityHidden(true)
                     }
                 }
                 Text(detail)
@@ -362,11 +467,11 @@ struct LeaderboardLine: View {
                 .accessibilityLabel(spoken)
         }
         .padding(.vertical, 10)
-        .padding(.horizontal, isMe ? 6 : 0)
+        .padding(.horizontal, isMe ? 8 : 0)
         .background {
             if isMe {
-                RoundedRectangle(cornerRadius: SR.Radius.soft, style: .continuous)
-                    .fill(SR.accentInk.opacity(0.08))
+                RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                    .fill(SR.accentInk.opacity(0.09))
             }
         }
         .accessibilityElement(children: .combine)
@@ -383,11 +488,29 @@ struct GameRecordLine: View {
 
     var body: some View {
         if let text = GameRecordLine.text(room) {
-            Label(text, systemImage: "trophy.fill")
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.accent)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("game-record")
+            HStack(spacing: 10) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x2A2340))
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(LinearGradient(colors: GameMedal.colours(1) ?? [SR.accent],
+                                                             startPoint: .topLeading, endPoint: .bottomTrailing)))
+                    .accessibilityHidden(true)
+                Text(text)
+                    .font(SR.Text.title(16))
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            // A rounded panel, not a capsule: the sentence wraps at large
+            // text sizes, and a capsule round two lines reads as a pill.
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0xFFD54A).opacity(0.22)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color(hex: 0xE9A800).opacity(0.5), lineWidth: 1))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("game-record")
         }
     }
 

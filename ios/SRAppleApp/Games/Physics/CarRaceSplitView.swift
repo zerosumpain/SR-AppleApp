@@ -4,7 +4,9 @@ import UIKit
 /// A split-screen race on this phone: a display link that turns what each
 /// player is holding into the rules' `CarSplitRace.step`, eases every
 /// camera behind its car and says when the race is over. The demo's pilots
-/// drive every car, and nobody's fingers count.
+/// drive every car, and nobody's fingers count. A pause stops the clock for
+/// everyone: the lights-out time moves on by however long it lasted, so the
+/// race (and every ghost it records) carries on as if it had not happened.
 @MainActor
 final class CarSplitDriver: ObservableObject {
     enum Phase: Equatable {
@@ -28,8 +30,12 @@ final class CarSplitDriver: ObservableObject {
     @Published private(set) var holds: [CarSplitHold]
     /// Each camera's heading, eased behind its car's so a twitch is not a lurch.
     private(set) var cameras: [Double]
-    /// Local uptime the lights go out.
-    let startsAt: Double
+    /// Local uptime the lights go out; moved on by each pause.
+    private(set) var startsAt: Double
+    /// The clock is stopped for everyone.
+    @Published private(set) var paused = false
+    /// The skid marks and smoke every car leaves, shared by every camera.
+    let effects = CarRaceEffects()
     /// Called once, when the race is over (everyone home, the clock run out,
     /// or stopped).
     var onOver: (@MainActor (CarSplitRace) -> Void)?
@@ -37,6 +43,7 @@ final class CarSplitDriver: ObservableObject {
     private var ticker: FrameTicker?
     private var lastFrame: Double?
     private var lastBump: Double = -1
+    private var pausedAt: Double?
 
     init(track: CarTrack, laps: Int, names: [String], startsAt: Double) {
         self.track = track
@@ -49,11 +56,11 @@ final class CarSplitDriver: ObservableObject {
         self.startsAt = startsAt
     }
 
-    /// Seconds until the lights go out (0 once racing).
-    var countdown: Double { max(0, startsAt - OfflineUptime.now()) }
+    /// Seconds until the lights go out (0 once racing); still while paused.
+    var countdown: Double { max(0, startsAt - (pausedAt ?? OfflineUptime.now())) }
 
     func start() {
-        guard ticker == nil, phase != .over else { return }
+        guard ticker == nil, phase != .over, !paused else { return }
         lastFrame = nil
         let ticker = FrameTicker { [weak self] time in
             guard let self else { return false }
@@ -69,6 +76,25 @@ final class CarSplitDriver: ObservableObject {
         lastFrame = nil
     }
 
+    /// Stop the clock for everyone: nobody's car moves until `resume`.
+    func pause() {
+        guard phase != .over, !paused else { return }
+        paused = true
+        pausedAt = OfflineUptime.now()
+        stop()
+        holds = Array(repeating: CarSplitHold(), count: race.racers.count)
+    }
+
+    /// Carry on where the pause stopped: the lights-out time moves on by
+    /// however long it lasted.
+    func resume() {
+        guard paused, phase != .over else { return }
+        if let pausedAt { startsAt += OfflineUptime.now() - pausedAt }
+        pausedAt = nil
+        paused = false
+        start()
+    }
+
     /// Stop the race now: whoever is not home does not finish.
     func end() {
         guard phase != .over else { return }
@@ -80,7 +106,7 @@ final class CarSplitDriver: ObservableObject {
 
     /// Where the fingers are now, in the split view's own points.
     func touched(_ points: [CGPoint], panes: [CarSplitPane]) {
-        guard !scripted else { return }
+        guard !scripted, !paused else { return }
         let touches = points.map { CarVec(x: Double($0.x), y: Double($0.y)) }
         let next = CarSplitLayout.holds(touches: touches, panes: panes, players: race.racers.count)
         if next != holds { holds = next }
@@ -102,7 +128,8 @@ final class CarSplitDriver: ObservableObject {
         let focus = race.racers.first { $0.id == seat }?.car.position ?? .zero
         return CarRaceScene(track: track, road: road, focus: focus,
                             heading: seat < cameras.count ? cameras[seat] : 0, cars: cars,
-                            span: 64 * min(1, max(0.6, width / 390)), mapSize: min(92, max(0, width * 0.26)))
+                            span: 64 * min(1, max(0.6, width / 390)), mapSize: min(92, max(0, width * 0.26)),
+                            effects: effects, time: raceTime)
     }
 
     // MARK: - The frame
@@ -121,6 +148,7 @@ final class CarSplitDriver: ObservableObject {
         case .racing:
             objectWillChange.send()
             let events = race.step(holds: holds, autopilot: scripted, dt: dt, time: raceTime)
+            for racer in race.racers { effects.note("\(racer.id)", car: racer.car, time: raceTime) }
             if events.hardest > 4, now - lastBump > 0.3 {
                 lastBump = now
                 SRHaptic.tap()
@@ -158,7 +186,7 @@ final class CarSplitDriver: ObservableObject {
 }
 
 /// Split screen: each player's part of the screen with its own camera, one
-/// layer over them all that reads every finger, and a stop button where the
+/// layer over them all that reads every finger, and a pause button where the
 /// parts meet. With the phone flat between players sitting opposite, the far
 /// players' parts are turned round to face them (`facing`).
 struct CarSplitView: View {
@@ -167,6 +195,7 @@ struct CarSplitView: View {
     /// Stop the race for everyone.
     let stop: () -> Void
     @State private var confirmStop = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         GeometryReader { geo in
@@ -200,11 +229,21 @@ struct CarSplitView: View {
         .defersSystemGestures(on: .all)
         .onAppear { driver.start() }
         .onDisappear { driver.stop() }
-        .confirmationDialog("Stop the race?", isPresented: $confirmStop, titleVisibility: .visible) {
-            Button("Stop the race", role: .destructive) { stop() }
+        // A call or the home screen pauses everyone, and the pause card is waiting.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active && driver.phase != .over {
+                driver.pause()
+                confirmStop = true
+            }
+        }
+        .onChange(of: confirmStop) { _, showing in
+            if !showing { driver.resume() }
+        }
+        .confirmationDialog("Paused", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Keep racing", role: .cancel) {}
+            Button("Stop the race", role: .destructive) { stop() }
         } message: {
-            Text("Anyone not home yet won't get a time.")
+            Text("The clock is stopped for everyone. Stop the race and anyone not home yet won't get a time.")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("car-race-split")
@@ -213,20 +252,26 @@ struct CarSplitView: View {
     private var stopButton: some View {
         Button {
             SRHaptic.tap()
+            driver.pause()
             confirmStop = true
         } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 15, weight: .bold))
-                .frame(width: SR.tapTarget, height: SR.tapTarget)
+            Image(systemName: "pause.fill")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Color.white)
+                .frame(width: 56, height: 56)
+                .background(Circle().fill(Color.black.opacity(0.72)))
+                .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 2))
+                .contentShape(Circle())
         }
-        .srButton(.regular)
-        .accessibilityLabel("Stop the race")
+        .buttonStyle(SRPressStyle())
+        .accessibilityLabel("Pause the race")
         .accessibilityIdentifier("car-race-split-stop")
     }
 }
 
 /// One player's part of a split screen: their camera, their lap, place and
-/// clock, the lights, and where to hold to steer.
+/// clock, the start lights, a banner on each new lap and at the finish, and
+/// where to hold to steer.
 struct CarSplitPaneView: View {
     @ObservedObject var driver: CarSplitDriver
     let seat: Int
@@ -243,7 +288,7 @@ struct CarSplitPaneView: View {
                 instruments
                     .padding(.trailing, CGFloat(scene.mapSize) + 4)
                 Spacer(minLength: 0)
-                if driver.phase == .grid { lights }
+                middle
                 Spacer(minLength: 0)
                 pedals
             }
@@ -269,43 +314,45 @@ struct CarSplitPaneView: View {
     }
 
     private var instruments: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Circle()
-                .fill(OfflineSeatColour.of(seat))
-                .frame(width: 10, height: 10)
-            Text(racer?.name ?? "")
-                .font(SR.Text.label(11))
-                .foregroundStyle(SR.ink)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if let racer {
-                if let time = racer.laps.finishTime {
-                    Text("P\(driver.race.place(of: seat)) · \(CarRaceFormat.time(time))")
+        HStack(alignment: .center, spacing: 8) {
+            Text("P\(driver.race.place(of: seat))")
+                .font(SR.Text.title(17))
+                .foregroundStyle(Color.white)
+                .monospacedDigit()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(OfflineSeatColour.of(seat)))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(racer?.name ?? "")
+                    .font(SR.Text.label())
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                if let racer {
+                    Text(racer.laps.finishTime.map { CarRaceFormat.time($0) } ?? "Lap \(racer.laps.lap)/\(racer.laps.laps)")
                         .font(SR.Text.mono())
-                        .foregroundStyle(SR.good)
+                        .foregroundStyle(racer.laps.finished ? SR.good : SR.inkSecondary)
                         .monospacedDigit()
-                } else {
-                    Text("P\(driver.race.place(of: seat)) · L\(racer.laps.lap)/\(racer.laps.laps)")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.ink)
-                        .monospacedDigit()
+                        .lineLimit(1)
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .srGlassCard(.paper)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .srGlassCard(.paper, radius: 18)
     }
 
-    /// The start lights: a number counting down, then GO.
-    private var lights: some View {
-        let left = Int(driver.countdown.rounded(.up))
-        return Text(left > 0 ? "\(left)" : "GO")
-            .font(SR.Text.hero(56))
-            .foregroundStyle(left > 0 ? SR.error : SR.good)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 6)
-            .srGlassCard(.paper)
+    /// The middle of the part: the lights on the grid, then a banner on each
+    /// new lap and when this player is home.
+    @ViewBuilder
+    private var middle: some View {
+        if let racer, let time = racer.laps.finishTime {
+            CarRaceFinishBanner(time: time, place: driver.race.place(of: seat), newBest: false, compact: true)
+        } else if driver.phase == .grid || driver.raceTime < 1 {
+            CarRaceStartLights(countdown: driver.countdown, sinceStart: driver.raceTime, compact: true)
+        } else if let racer, let banner = CarRaceLapBanner.words(laps: racer.laps, raceTime: driver.raceTime) {
+            CarRaceLapBanner(text: banner, compact: true)
+        }
     }
 
     /// Where to hold: left, right, both together to brake, and the boost
@@ -326,11 +373,14 @@ struct CarSplitPaneView: View {
             VStack(spacing: 6) {
                 if racer?.laps.finished != true, driver.phase == .grid {
                     Text("Hold both arrows to brake · the middle to boost")
-                        .font(SR.Text.mono(11))
-                        .foregroundStyle(Color.white.opacity(0.85))
+                        .font(SR.Text.mono())
+                        .foregroundStyle(Color.white)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.black.opacity(0.45)))
                 }
                 HStack(spacing: 8) {
                     pedal(icon: "arrow.left", lit: held.left, braking: braking)
@@ -343,38 +393,39 @@ struct CarSplitPaneView: View {
     }
 
     private func pedal(icon: String, lit: Bool, braking: Bool) -> some View {
-        Image(systemName: icon)
-            .font(.system(size: 24, weight: .bold))
-            .foregroundStyle(lit ? Color.white : Color.white.opacity(0.7))
-            .frame(maxWidth: .infinity, minHeight: 68)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(braking ? SR.error.opacity(0.75) : Color.black.opacity(lit ? 0.45 : 0.18))
-            )
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return Image(systemName: braking ? "exclamationmark.octagon.fill" : icon)
+            .font(.system(size: 26, weight: .bold))
+            .foregroundStyle(lit ? Color.white : Color.white.opacity(0.75))
+            .frame(maxWidth: .infinity, minHeight: 72)
+            .background(shape.fill(braking ? SR.error.opacity(0.8) : Color.black.opacity(lit ? 0.5 : 0.22)))
+            .overlay(shape.stroke(Color.white.opacity(lit ? 0.7 : 0.25), lineWidth: lit ? 2 : 1))
+            .scaleEffect(lit ? 0.96 : 1)
     }
 
     /// The boost: lit while held, and its tank as a level rising behind it.
     private func boostPedal(lit: Bool) -> some View {
         let tank = racer?.car.boost ?? 0
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         return Image(systemName: "bolt.fill")
-            .font(.system(size: 22, weight: .bold))
-            .foregroundStyle(lit ? Color.white : Color.white.opacity(0.8))
-            .frame(maxWidth: .infinity, minHeight: 68)
+            .font(.system(size: 24, weight: .bold))
+            .foregroundStyle(lit ? Color.white : Color.white.opacity(0.85))
+            .frame(maxWidth: .infinity, minHeight: 72)
             .background {
                 ZStack(alignment: .bottom) {
-                    shape.fill(lit ? CarRaceScene.flame : Color.black.opacity(0.18))
+                    shape.fill(lit ? CarRaceScene.flame : Color.black.opacity(0.22))
                     GeometryReader { geo in
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
                             Rectangle()
-                                .fill(CarRaceScene.flame.opacity(lit ? 0 : 0.45))
+                                .fill(CarRaceScene.flame.opacity(lit ? 0 : 0.5))
                                 .frame(height: geo.size.height * min(1, max(0, tank)))
                         }
                     }
                 }
                 .clipShape(shape)
             }
+            .overlay(shape.stroke(Color.white.opacity(lit ? 0.7 : 0.25), lineWidth: lit ? 2 : 1))
     }
 }
 

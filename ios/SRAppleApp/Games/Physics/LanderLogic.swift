@@ -188,6 +188,57 @@ struct LanderLanding: Codable, Equatable {
     /// Softer than `LanderRules.gentleVertical` and nearly upright: a bonus.
     let gentle: Bool
     let points: Int
+
+    /// The points part by part, on a level with a pad this wide. Its total
+    /// is `points` for the level and pad the landing was made on.
+    func breakdown(level: Int, padHalfWidth: Double) -> LanderScore {
+        LanderRules.score(level: level, fuelLeft: fuelLeft, offset: offset, padHalfWidth: padHalfWidth, gentle: gentle)
+    }
+}
+
+/// What a landing's points were made of: the level's base, the fuel kept,
+/// how close to the middle, and the gentle bonus. `total` is the points.
+struct LanderScore: Equatable {
+    let base: Int
+    let fuel: Int
+    let precision: Int
+    let gentle: Int
+
+    var total: Int { base + fuel + precision + gentle }
+
+    /// One to three stars for the card: one for getting down safely, one
+    /// for a gentle touch, one for landing close to the middle (two thirds
+    /// of the precision bonus or better).
+    var stars: Int { 1 + (gentle > 0 ? 1 : 0) + (precision >= 20 ? 1 : 0) }
+}
+
+/// What the instruments warn about while flying: each is a way the next
+/// touchdown would end in a crash (or the tank running dry), in the order a
+/// pilot should fix them.
+enum LanderWarning: String, Equatable, CaseIterable {
+    case tooFast, leaning, sliding, offPad, lowFuel
+
+    /// The few words the warning strip shows.
+    var words: String {
+        switch self {
+        case .tooFast: return "Too fast — burn"
+        case .leaning: return "Level the craft"
+        case .sliding: return "Sliding sideways"
+        case .offPad: return "Not over the pad"
+        case .lowFuel: return "Fuel low"
+        }
+    }
+
+    /// An SF Symbol to go with the words, so the warning is never colour alone.
+    var symbol: String {
+        switch self {
+        case .tooFast: return "arrow.down.to.line"
+        case .leaning: return "rotate.left"
+        case .sliding: return "arrow.left.and.right"
+        case .offPad: return "scope"
+        case .lowFuel: return "fuelpump.fill"
+        }
+    }
 }
 
 enum LanderOutcome: Codable, Equatable {
@@ -236,11 +287,25 @@ enum LanderRules {
     /// What a landing scores: more on later levels, more for fuel kept, a
     /// touch exactly in the middle, and a gentle touchdown.
     static func points(level: Int, fuelLeft: Double, offset: Double, padHalfWidth: Double, gentle: Bool) -> Int {
+        score(level: level, fuelLeft: fuelLeft, offset: offset, padHalfWidth: padHalfWidth, gentle: gentle).total
+    }
+
+    /// The same points, part by part, for the card after a landing.
+    static func score(level: Int, fuelLeft: Double, offset: Double, padHalfWidth: Double, gentle: Bool) -> LanderScore {
         let base = 100 * max(1, level)
         let fuelBonus = Int((max(0, fuelLeft) * 2).rounded())
         let precision = padHalfWidth > 0 ? Int((30 * max(0, 1 - offset / padHalfWidth)).rounded()) : 0
-        return base + fuelBonus + precision + (gentle ? 50 : 0)
+        return LanderScore(base: base, fuel: fuelBonus, precision: precision, gentle: gentle ? gentleBonus : 0)
     }
+
+    /// The bonus a gentle touchdown adds.
+    static let gentleBonus = 50
+
+    /// Below this height (metres, feet to ground) the instruments start
+    /// warning about what would go wrong if the craft touched down now.
+    static let warningHeight: Double = 30
+    /// A tank under this share of what the level gave is running low.
+    static let lowFuelShare: Double = 0.2
 
     /// The verdict on a touchdown with these speeds, this lean, these feet.
     static func verdict(vx: Double, vy: Double, angle: Double, feetOnPad: Bool) -> LanderCrash? {
@@ -282,6 +347,29 @@ struct LanderFlight: Equatable {
     /// Height of the craft's feet above the ground straight under it, metres.
     var altitude: Double {
         craft.y - LanderRules.footDrop - terrain.height(at: craft.x)
+    }
+
+    /// The share of the level's fuel still in the tank, 0…1.
+    var fuelShare: Double { min(1, max(0, craft.fuel / max(1, level.fuel))) }
+
+    /// Whether both feet are over the pad right now.
+    var overPad: Bool { craft.feet.allSatisfy { terrain.isOnPad($0.x) } }
+
+    /// What would go wrong if the craft touched down now. Speed, lean and
+    /// the pad only count near the ground (`LanderRules.warningHeight`), so
+    /// the strip is quiet on the long flight across; fuel counts anywhere.
+    /// Nothing once the flight is over.
+    var warnings: [LanderWarning] {
+        guard outcome == .flying else { return [] }
+        var out: [LanderWarning] = []
+        if altitude < LanderRules.warningHeight {
+            if -craft.vy > LanderRules.safeVertical { out.append(.tooFast) }
+            if abs(craft.angle) > LanderRules.safeAngle { out.append(.leaning) }
+            if abs(craft.vx) > LanderRules.safeHorizontal { out.append(.sliding) }
+            if !overPad { out.append(.offPad) }
+        }
+        if fuelShare < LanderRules.lowFuelShare { out.append(.lowFuel) }
+        return out
     }
 
     /// Fly for `dt` seconds with `input` held. Long steps are split, so a

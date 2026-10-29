@@ -14,6 +14,12 @@ import SwiftUI
 /// Other players appear only as counts — "4 of 10", cracked or not — which
 /// is all the host ever sends about them. The code itself arrives only when
 /// the race is over.
+///
+/// It looks like the board game: a wooden board with glossy pegs in sunk
+/// holes and the little black and white key pegs beside each guess, which
+/// pop in one at a time when a guess comes back marked. The picker is two
+/// rows of three big pegs, a thumb wide each. Cracking the code stamps it;
+/// the race clock drains a bar and turns red in the last half minute.
 struct CodeBreakerView: View {
     let context: OfflineGameContext<CodeBreakerRules>
     /// The guess being built: one entry per slot, nil while empty.
@@ -30,7 +36,7 @@ struct CodeBreakerView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 SRPageHeader(kicker: kicker, title: title, strap: strap)
                     .accessibilityIdentifier("offline-code-breaker-header")
                 clockBar
@@ -141,30 +147,54 @@ struct CodeBreakerView: View {
     // MARK: - The clock
 
     private var clockBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: view.phase == .playing ? "timer" : "hourglass")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(SR.inkSecondary)
+        let playingNow = view.phase == .playing
+        let until = playingNow ? view.endsAt : view.revealUntil
+        let total = playingNow ? CodeBreakerRules.raceSeconds : CodeBreakerRules.revealPause
+        let clock = context.clock
+        return HStack(spacing: 12) {
+            Image(systemName: playingNow ? "timer" : "hourglass")
+                .font(SR.Text.title(17))
+                .foregroundStyle(SR.accent)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(SR.accent.opacity(0.14)))
                 .accessibilityHidden(true)
-            Text(view.phase == .playing ? "Race ends in" : "Table in")
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.ink)
-                .lineLimit(1)
-            Spacer(minLength: 6)
             TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-                let until = view.phase == .playing ? view.endsAt : view.revealUntil
-                let left = context.clock.secondsLeft(until: until)
-                Text(CodeBreakerRules.clock(left))
-                    .font(SR.Text.display(22))
-                    .foregroundStyle(view.phase == .playing && left <= 30 ? SR.error : SR.ink)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .accessibilityLabel("\(left / 60) minutes \(left % 60) seconds")
+                let left = clock.secondsLeft(until: until)
+                let fraction = PlayTableMath.drainFraction(secondsLeft: until - clock.now(), total: total)
+                let late = playingNow && left <= 30
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(playingNow ? "Race ends in" : "Table in")
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.ink)
+                            .lineLimit(1)
+                        Spacer(minLength: 6)
+                        Text(CodeBreakerRules.clock(left))
+                            .font(SR.Text.display(24))
+                            .monospacedDigit()
+                            .foregroundStyle(late ? SR.error : SR.ink)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .scaleEffect(late && left > 0 && left <= 10 ? 1.08 : 1)
+                            .accessibilityLabel("\(left / 60) minutes \(left % 60) seconds")
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(SR.inkGhost.opacity(0.25))
+                            Capsule()
+                                .fill(late ? SR.error : SR.accent)
+                                .frame(width: max(6, geo.size.width * CGFloat(fraction)))
+                        }
+                    }
+                    .frame(height: 6)
+                    .srAnimation(.linear(duration: 0.25), value: fraction)
+                    .accessibilityHidden(true)
+                }
             }
         }
         .padding(.horizontal, SR.cardPadding)
-        .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
+        .padding(.vertical, 10)
+        .frame(minHeight: 64)
         .srGlassCard(.paper)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("offline-code-breaker-clock")
@@ -172,46 +202,59 @@ struct CodeBreakerView: View {
 
     // MARK: - Sizes
 
-    /// Width inside a glass card.
+    /// Width inside a board.
     private var inner: CGFloat { max(200, width - 2 * SR.cardPadding) }
 
     /// The guess number column and the marks box beside each guess.
     private var numberWidth: CGFloat { 26 }
-    private var marksSide: CGFloat { 40 }
-    private var pegGap: CGFloat { 8 }
+    private var marksSide: CGFloat { 42 }
+    private var pegGap: CGFloat { 10 }
 
     /// A peg in a guess row: four of them, the number and the marks fit.
     private var rowPeg: CGFloat {
-        let room = inner - numberWidth - marksSide - 20 - 3 * pegGap
-        return max(24, min(44, room / CGFloat(view.codeLength)))
+        let room = inner - numberWidth - marksSide - 24 - 3 * pegGap
+        return max(26, min(46, room / CGFloat(view.codeLength)))
     }
 
     /// A peg in the composer's slots.
     private var slotPeg: CGFloat {
-        max(32, min(56, (inner - 3 * pegGap) / CGFloat(view.codeLength)))
+        max(40, min(64, (inner - 3 * 14) / CGFloat(view.codeLength)))
     }
 
-    /// A colour in the picker: six to a row.
+    /// A colour in the picker: two rows of three, each a thumb wide.
     private var pickerPeg: CGFloat {
-        max(28, min(48, (inner - CGFloat(view.colours - 1) * pegGap) / CGFloat(view.colours)))
+        max(52, min(68, (inner - 2 * 18) / 3))
     }
 
     // MARK: - The code, once the race is over
 
     private func secretCard(_ secret: [Int]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRSectionLabel(text: "The code")
-            HStack(spacing: pegGap) {
-                ForEach(Array(secret.enumerated()), id: \.offset) { _, peg in
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                CodeBreakerBoardLabel(text: "The code")
+                Spacer(minLength: 6)
+                Image(systemName: view.leaders.isEmpty ? "lock.fill" : "lock.open.fill")
+                    .font(SR.Text.title(18))
+                    .foregroundStyle(CodeBreakerPaint.ink)
+                    .accessibilityHidden(true)
+            }
+            HStack(spacing: 14) {
+                ForEach(Array(secret.enumerated()), id: \.offset) { index, peg in
                     CodeBreakerPeg(peg: peg, size: slotPeg)
+                        .modifier(CodeBreakerPopIn(delay: PlayTableMath.stagger(index: index, step: 0.12, cap: 0.6)))
                 }
             }
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("The code was " + secret.map { CodeBreakerRules.pegName($0) }.joined(separator: ", "))
+            if solved {
+                PlayTableStamp(text: "Cracked", tone: Color(hex: 0x1D6B3A), size: 22)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(SR.cardPadding)
-        .srGlassCard(.paper)
+        .modifier(CodeBreakerBoardSurface())
         .accessibilityIdentifier("offline-code-breaker-secret")
     }
 
@@ -219,30 +262,61 @@ struct CodeBreakerView: View {
 
     private var guessesCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SRSectionLabel(text: "Your guesses", trailing: "\(view.myGuesses.count) of \(view.maxGuesses)")
-                .padding(.bottom, 8)
+            HStack {
+                CodeBreakerBoardLabel(text: "Your guesses")
+                Spacer(minLength: 6)
+                Text("\(view.myGuesses.count) of \(view.maxGuesses)")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(CodeBreakerPaint.ink)
+            }
+            .padding(.bottom, 8)
             if view.myGuesses.isEmpty {
                 Text("No guesses yet. Your marks appear here — nobody else sees them.")
                     .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
+                    .foregroundStyle(CodeBreakerPaint.ink.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 6)
             }
             ForEach(Array(view.myGuesses.enumerated()), id: \.offset) { index, guess in
-                if index > 0 { Divider().overlay(SR.divider) }
+                if index > 0 {
+                    Rectangle().fill(CodeBreakerPaint.groove).frame(height: 1)
+                }
                 guessRow(number: index + 1, guess: guess)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            if canGuess { guessesLeft }
         }
+        .srAnimation(.spring(response: 0.4, dampingFraction: 0.8), value: view.myGuesses.count)
         .padding(SR.cardPadding)
-        .srGlassCard(.paper)
+        .modifier(CodeBreakerBoardSurface())
         .accessibilityIdentifier("offline-code-breaker-guesses")
     }
 
+    /// The holes still empty, as a row of small pips: how many tries are left.
+    private var guessesLeft: some View {
+        let left = max(0, view.maxGuesses - view.myGuesses.count)
+        return HStack(spacing: 6) {
+            ForEach(0..<left, id: \.self) { _ in
+                Circle()
+                    .fill(CodeBreakerPaint.hole)
+                    .frame(width: 10, height: 10)
+            }
+            Spacer(minLength: 6)
+            Text(left == 1 ? "1 guess left" : "\(left) guesses left")
+                .font(SR.Text.mono())
+                .foregroundStyle(left <= 2 ? Color(hex: 0x9E1B1B) : CodeBreakerPaint.ink)
+        }
+        .padding(.top, 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(left == 1 ? "1 guess left" : "\(left) guesses left")
+    }
+
     private func guessRow(number: Int, guess: CodeBreakerRules.Guess) -> some View {
-        HStack(spacing: 10) {
+        let newest = number == view.myGuesses.count
+        return HStack(spacing: 12) {
             Text("\(number)")
                 .font(SR.Text.mono(13))
-                .foregroundStyle(SR.inkMuted)
+                .foregroundStyle(CodeBreakerPaint.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(width: numberWidth, alignment: .leading)
@@ -252,9 +326,14 @@ struct CodeBreakerView: View {
                 }
             }
             Spacer(minLength: 0)
-            CodeBreakerMarks(black: guess.black, white: guess.white, slots: view.codeLength, side: marksSide)
+            CodeBreakerMarks(black: guess.black, white: guess.white, slots: view.codeLength, side: marksSide,
+                             reveal: newest)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(guess.black == view.codeLength ? Color(hex: 0x2E9A54).opacity(0.25) : Color.clear)
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(guessLabel(number: number, guess: guess))
         .accessibilityIdentifier("offline-code-breaker-guess-\(number)")
@@ -269,72 +348,87 @@ struct CodeBreakerView: View {
     // MARK: - Building a guess
 
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SRSectionLabel(text: "Next guess")
-            HStack(spacing: pegGap) {
-                ForEach(0..<view.codeLength, id: \.self) { slot in
-                    Button {
-                        SRHaptic.select()
-                        cursor = slot
-                    } label: {
-                        CodeBreakerPeg(peg: slot < draft.count ? draft[slot] : nil, size: slotPeg,
-                                       highlighted: slot == cursor)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(waiting)
-                    .accessibilityLabel(slotLabel(slot))
-                    .accessibilityHint("Selects this slot for the next colour.")
-                    .accessibilityAddTraits(slot == cursor ? AccessibilityTraits.isSelected : AccessibilityTraits())
-                    .accessibilityIdentifier("offline-code-breaker-slot-\(slot + 1)")
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            HStack(spacing: pegGap) {
-                ForEach(0..<view.colours, id: \.self) { peg in
-                    Button {
-                        fill(peg)
-                    } label: {
-                        CodeBreakerPeg(peg: peg, size: pickerPeg)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(waiting)
-                    .accessibilityLabel(CodeBreakerRules.pegName(peg))
-                    .accessibilityHint("Puts this colour in slot \(cursor + 1).")
-                    .accessibilityIdentifier("offline-code-breaker-colour-\(peg)")
-                }
-            }
-            .frame(maxWidth: .infinity)
-
+        VStack(alignment: .leading, spacing: 16) {
+            CodeBreakerBoardLabel(text: "Next guess")
+            slots
+            picker
             HStack(spacing: 10) {
-                Button {
+                PlayTableButton(title: "Guess", icon: "lock.open", haptic: .none) {
                     send()
-                } label: {
-                    SRButtonLabel(title: "Guess", icon: "lock.open", fill: true)
                 }
-                .srButton(.prominent)
-                .controlSize(.large)
                 .disabled(!draftComplete || waiting)
                 .accessibilityIdentifier("offline-code-breaker-submit")
                 .accessibilityLabel("Send this guess")
 
-                Button {
-                    SRHaptic.select()
+                PlayTableButton(title: "Clear", weight: .regular, haptic: .select) {
                     draft = Array(repeating: nil, count: view.codeLength)
                     cursor = 0
-                } label: {
-                    SRButtonLabel(title: "Clear", fill: true)
                 }
-                .srButton(.regular)
-                .controlSize(.large)
                 .disabled(draft.allSatisfy { $0 == nil } || waiting)
                 .accessibilityIdentifier("offline-code-breaker-clear")
                 .accessibilityLabel("Clear the guess")
             }
         }
         .padding(SR.cardPadding)
-        .srGlassCard(.paper)
+        .modifier(CodeBreakerBoardSurface())
         .accessibilityIdentifier("offline-code-breaker-composer")
+    }
+
+    private var slots: some View {
+        HStack(spacing: 14) {
+            ForEach(0..<view.codeLength, id: \.self) { slot in
+                Button {
+                    SRHaptic.select()
+                    cursor = slot
+                } label: {
+                    CodeBreakerPeg(peg: slot < draft.count ? draft[slot] : nil, size: slotPeg,
+                                   highlighted: slot == cursor)
+                }
+                .buttonStyle(SRPressStyle())
+                .disabled(waiting)
+                .accessibilityLabel(slotLabel(slot))
+                .accessibilityHint("Selects this slot for the next colour.")
+                .accessibilityAddTraits(slot == cursor ? AccessibilityTraits.isSelected : AccessibilityTraits())
+                .accessibilityIdentifier("offline-code-breaker-slot-\(slot + 1)")
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .srAnimation(.spring(response: 0.25, dampingFraction: 0.6), value: draft)
+        .srAnimation(.snappy(duration: 0.18), value: cursor)
+    }
+
+    /// The six colours as two rows of three big pegs.
+    private var picker: some View {
+        let columns = 3
+        let rows = (view.colours + columns - 1) / columns
+        return VStack(spacing: 14) {
+            ForEach(0..<rows, id: \.self) { row in
+                HStack(spacing: 18) {
+                    ForEach(0..<columns, id: \.self) { column in
+                        pickerButton(row * columns + column)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func pickerButton(_ peg: Int) -> some View {
+        if peg < view.colours {
+            Button {
+                fill(peg)
+            } label: {
+                CodeBreakerPeg(peg: peg, size: pickerPeg)
+            }
+            .buttonStyle(SRPressStyle())
+            .disabled(waiting)
+            .accessibilityLabel(CodeBreakerRules.pegName(peg))
+            .accessibilityHint("Puts this colour in slot \(cursor + 1).")
+            .accessibilityIdentifier("offline-code-breaker-colour-\(peg)")
+        } else {
+            Color.clear.frame(width: pickerPeg, height: pickerPeg)
+        }
     }
 
     private func slotLabel(_ slot: Int) -> String {
@@ -350,39 +444,61 @@ struct CodeBreakerView: View {
                 .padding(.bottom, 6)
             ForEach(Array(view.rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Divider().overlay(SR.divider) }
-                HStack(spacing: 10) {
-                    OfflineInitial(name: row.name, size: 28, tone: OfflineSeatColour.of(index))
-                    Text(row.id == context.me ? "You" : row.name)
-                        .font(SR.Text.bodyMedium(15))
-                        .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if view.leaders.first == row.id {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    Spacer(minLength: 6)
-                    Text(status(row))
-                        .font(SR.Text.mono(13))
-                        .foregroundStyle(row.solved ? SR.accent : SR.inkSecondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                    Image(systemName: icon(row))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(row.solved ? SR.accent : SR.inkMuted)
-                        .frame(width: 20)
-                        .accessibilityHidden(true)
-                }
-                .frame(minHeight: 40)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(rowLabel(row))
+                raceRow(row, index: index)
             }
         }
         .padding(SR.cardPadding)
         .srGlassCard(.paper)
         .accessibilityIdentifier("offline-code-breaker-players")
+    }
+
+    private func raceRow(_ row: CodeBreakerRules.Row, index: Int) -> some View {
+        let tone = OfflineSeatColour.of(index)
+        let fraction = CGFloat(min(row.used, view.maxGuesses)) / CGFloat(max(view.maxGuesses, 1))
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                OfflineInitial(name: row.name, size: 32, tone: tone)
+                Text(row.id == context.me ? "You" : row.name)
+                    .font(SR.Text.bodyMedium(16))
+                    .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if view.leaders.first == row.id {
+                    Image(systemName: "crown.fill")
+                        .font(SR.Text.label(13))
+                        .foregroundStyle(Color(hex: 0xE0A21C))
+                        .accessibilityHidden(true)
+                }
+                Spacer(minLength: 6)
+                Text(status(row))
+                    .font(SR.Text.mono(13))
+                    .foregroundStyle(row.solved ? SR.good : SR.inkSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                Image(systemName: icon(row))
+                    .font(SR.Text.label(14))
+                    .foregroundStyle(row.solved ? SR.good : SR.inkMuted)
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(SR.inkGhost.opacity(0.22))
+                    Capsule()
+                        .fill(row.solved ? SR.good : tone)
+                        .frame(width: max(6, geo.size.width * fraction))
+                        .opacity(row.used == 0 ? 0 : 1)
+                }
+            }
+            .frame(height: 6)
+            .padding(.leading, 42)
+            .srAnimation(.spring(response: 0.4, dampingFraction: 0.8), value: row.used)
+            .accessibilityHidden(true)
+        }
+        .padding(.vertical, 8)
+        .frame(minHeight: 48)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(rowLabel(row))
     }
 
     /// "4/10", "1:23", "left".
@@ -438,9 +554,46 @@ struct CodeBreakerView: View {
     }
 }
 
-/// One peg: its colour, with its own shape on top so it reads without
-/// colour. An empty peg is a dashed ring; the highlighted one (the slot the
-/// picker fills next) gets an accent ring.
+/// The board's colours: wood and its grooves, the same in both appearances.
+enum CodeBreakerPaint {
+    static let woodLight = Color(hex: 0xE2B97F)
+    static let woodDeep = Color(hex: 0xBE8C4E)
+    static let groove = Color(hex: 0x8A5F2E).opacity(0.45)
+    static let hole = Color(hex: 0x6E4A22)
+    static let ink = Color(hex: 0x3B2410)
+}
+
+/// A wooden board under a stretch of the game.
+struct CodeBreakerBoardSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+        return content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                shape.fill(LinearGradient(colors: [CodeBreakerPaint.woodLight, CodeBreakerPaint.woodDeep],
+                                          startPoint: .top, endPoint: .bottom))
+                    .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+            )
+            .overlay(shape.strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
+    }
+}
+
+/// A small-caps heading burnt into the board.
+struct CodeBreakerBoardLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(SR.Text.label())
+            .tracking(1.3)
+            .foregroundStyle(CodeBreakerPaint.ink)
+            .lineLimit(1)
+    }
+}
+
+/// One peg: its colour, lit like a glossy plastic peg, with its own shape on
+/// top so it reads without colour. An empty peg is a hole sunk in the board;
+/// the highlighted one (the slot the picker fills next) gets an accent ring.
 struct CodeBreakerPeg: View {
     let peg: Int?
     let size: CGFloat
@@ -451,20 +604,33 @@ struct CodeBreakerPeg: View {
             if let peg, peg >= 0, peg < CodeBreakerRules.colours {
                 Circle()
                     .fill(CodeBreakerPeg.colour(peg))
+                Circle()
+                    .fill(RadialGradient(colors: [Color.white.opacity(0.55), Color.white.opacity(0)],
+                                         center: UnitPoint(x: 0.32, y: 0.26), startRadius: 0, endRadius: size * 0.6))
+                Circle()
+                    .strokeBorder(Color.black.opacity(0.22), lineWidth: max(1, size * 0.04))
                 Image(systemName: CodeBreakerRules.symbols[peg])
-                    .font(.system(size: size * 0.4, weight: .bold))
+                    .font(.system(size: size * 0.36, weight: .bold))
                     .foregroundStyle(CodeBreakerPeg.symbolTone(peg))
+                    .transition(.scale.combined(with: .opacity))
             } else {
                 Circle()
-                    .strokeBorder(SR.inkGhost, style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                    .fill(CodeBreakerPaint.hole)
+                Circle()
+                    .fill(LinearGradient(colors: [Color.black.opacity(0.35), Color.black.opacity(0)],
+                                         startPoint: .top, endPoint: .center))
+                    .padding(size * 0.06)
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
             }
             if highlighted {
                 Circle()
-                    .strokeBorder(SR.accent, lineWidth: 3)
-                    .padding(-4)
+                    .strokeBorder(SR.accent, lineWidth: 3.5)
+                    .padding(-5)
             }
         }
         .frame(width: size, height: size)
+        .shadow(color: Color.black.opacity(peg == nil ? 0 : 0.28), radius: size * 0.06, x: 0, y: size * 0.05)
         .contentShape(Circle())
     }
 
@@ -486,19 +652,22 @@ struct CodeBreakerPeg: View {
     }
 }
 
-/// A guess's marks as a small square of dots: filled for black (right
-/// place), ringed for white (wrong place), faint for nothing.
+/// A guess's marks as a small square of key pegs: black for right place,
+/// white for wrong place, an empty hole for nothing. The newest guess's
+/// pegs pop in one at a time.
 struct CodeBreakerMarks: View {
     let black: Int
     let white: Int
     let slots: Int
     let side: CGFloat
+    /// Pop the pegs in, staggered (the guess just came back).
+    var reveal: Bool = false
 
     var body: some View {
         let columns = 2
         let rows = (slots + columns - 1) / columns
         let dot = side / CGFloat(max(columns, rows)) * 0.62
-        VStack(spacing: dot * 0.45) {
+        return VStack(spacing: dot * 0.45) {
             ForEach(0..<rows, id: \.self) { row in
                 HStack(spacing: dot * 0.45) {
                     ForEach(0..<columns, id: \.self) { column in
@@ -508,20 +677,56 @@ struct CodeBreakerMarks: View {
             }
         }
         .frame(width: side, height: side)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black.opacity(0.12))
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(black) black, \(white) white")
     }
 
     @ViewBuilder
     private func mark(_ index: Int, dot: CGFloat) -> some View {
+        let delay = reveal ? PlayTableMath.stagger(index: index, step: 0.12, cap: 0.6) : 0
         if index >= slots {
             Color.clear.frame(width: dot, height: dot)
         } else if index < black {
-            Circle().fill(SR.ink).frame(width: dot, height: dot)
+            Circle()
+                .fill(Color(hex: 0x15131C))
+                .overlay(Circle().fill(Color.white.opacity(0.25)).padding(dot * 0.25).offset(x: -dot * 0.12, y: -dot * 0.12))
+                .frame(width: dot, height: dot)
+                .modifier(CodeBreakerPopIn(delay: delay, active: reveal))
         } else if index < black + white {
-            Circle().strokeBorder(SR.ink, lineWidth: 1.5).frame(width: dot, height: dot)
+            Circle()
+                .fill(Color.white)
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 1))
+                .frame(width: dot, height: dot)
+                .modifier(CodeBreakerPopIn(delay: delay, active: reveal))
         } else {
-            Circle().fill(SR.inkGhost.opacity(0.5)).frame(width: dot, height: dot)
+            Circle()
+                .fill(CodeBreakerPaint.hole.opacity(0.7))
+                .frame(width: dot * 0.7, height: dot * 0.7)
+                .frame(width: dot, height: dot)
         }
+    }
+}
+
+/// Pops a piece in after `delay`, once, when it first appears. Off under
+/// Reduce Motion, or when `active` is false.
+struct CodeBreakerPopIn: ViewModifier {
+    let delay: Double
+    var active: Bool = true
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let up = shown || reduceMotion || !active
+        return content
+            .scaleEffect(up ? 1 : 0.2)
+            .opacity(up ? 1 : 0)
+            .onAppear {
+                guard active, !reduceMotion, !shown else { return }
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.55).delay(delay)) { shown = true }
+            }
     }
 }

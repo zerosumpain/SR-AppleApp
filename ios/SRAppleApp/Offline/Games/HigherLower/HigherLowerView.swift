@@ -1,30 +1,37 @@
 import SwiftUI
 
 /// Higher or Lower on one phone: the card everyone is calling against, the
-/// face-down card to come, two buttons, and the table of scores.
+/// face-down card to come, two big buttons, and the table of scores.
 ///
 /// While the timer runs, Higher and Lower each send one call; the call shows
 /// here at once (the host's view confirms it) and the buttons lock, because a
 /// call cannot be changed. Other players show only a tick until the card
 /// turns. Then the face-down card flips to the host's revealed card, every
-/// call appears beside its owner with the points it earned, and a countdown
-/// runs to the next card. The cards turned so far sit at the bottom, small,
+/// call appears beside its owner with the points it earned, and a ring runs
+/// down to the next card. The cards turned so far sit at the bottom, small,
 /// for anyone who likes to count.
+///
+/// The overhaul (2026-10-29) laid the two cards on green baize with the
+/// verdict between them, made Higher and Lower two big coloured buttons, and
+/// pops "Right! +2" (or the miss) the moment the card turns.
 struct HigherLowerView: View {
     let context: OfflineGameContext<HigherLowerRules>
     /// My call this round, shown before the host's echo arrives.
     @State private var local: HigherLowerRules.Call?
     @State private var localRound = 0
+    @State private var callout = ""
+    @State private var calloutTone: Color = SR.accentDeep
+    @State private var calloutIcon: String?
+    @State private var calloutToken = 0
+    @State private var burstToken = 0
 
     private var view: HigherLowerRules.PlayerView { context.view }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: kicker, title: title, strap: strap)
-                HigherLowerTable(current: view.current, revealed: view.revealed, outcome: view.outcome)
-                    .frame(maxWidth: .infinity)
-                status
+            VStack(alignment: .leading, spacing: 18) {
+                banner
+                felt
                 if playing && view.phase == .calling { callButtons }
                 scoreboard
                 if !view.history.isEmpty { history }
@@ -34,6 +41,12 @@ struct HigherLowerView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay {
+            ZStack {
+                NearbyPlayBurst(token: burstToken)
+                NearbyPlayCallout(text: callout, icon: calloutIcon, tone: calloutTone, token: calloutToken)
+            }
+        }
         .onChange(of: view.round) { _, _ in
             local = nil
         }
@@ -45,8 +58,8 @@ struct HigherLowerView: View {
             }
         }
         .onChange(of: view.phase) { _, new in
-            guard new == .reveal, let right = myRow?.gained else { return }
-            if right > 0 { SRHaptic.ok() } else if playing { SRHaptic.bad() }
+            guard new == .reveal else { return }
+            revealed()
         }
     }
 
@@ -66,6 +79,9 @@ struct HigherLowerView: View {
     private var myCall: HigherLowerRules.Call? {
         view.myCall ?? (localRound == view.round ? local : nil)
     }
+
+    /// The call is mine to make now.
+    private var callIsMine: Bool { playing && view.phase == .calling && myCall == nil }
 
     private var kicker: String {
         "Card \(view.round) of \(view.rounds) · \(view.cardsLeft) in the deck"
@@ -102,76 +118,107 @@ struct HigherLowerView: View {
             if gained > 0 { return "Right! +\(gained) point\(gained == 1 ? "" : "s")." }
             return myRow?.call == nil ? "No call in time — that counts as wrong." : "Wrong this time. Streak reset."
         case .over:
-            return nil
+            return "All \(view.rounds) cards called."
         }
     }
 
-    // MARK: - Timer line
-
-    private var status: some View {
-        HStack(spacing: 8) {
-            switch view.phase {
-            case .calling:
-                Image(systemName: "timer")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(SR.inkMuted)
-                    .accessibilityHidden(true)
-                Text("Calls close in")
-                    .font(SR.Text.mono(13))
-                    .foregroundStyle(SR.inkMuted)
-                OfflineCountdown(clock: context.clock, until: view.callEndsAt, font: SR.Text.mono(15), tone: SR.ink)
-            case .reveal:
-                Text(view.round >= view.rounds ? "Final scores in" : "Next card in")
-                    .font(SR.Text.mono(13))
-                    .foregroundStyle(SR.inkMuted)
-                OfflineCountdown(clock: context.clock, until: view.revealUntil, font: SR.Text.mono(15), tone: SR.inkMuted)
-            case .over:
-                Text("All \(view.rounds) cards called.")
-                    .font(SR.Text.mono(13))
-                    .foregroundStyle(SR.inkMuted)
-            }
-            Spacer(minLength: 0)
+    private var bannerMark: NearbyPlayMark {
+        switch view.phase {
+        case .calling: return .symbol("arrow.up.arrow.down")
+        case .reveal: return .symbol(HigherLowerTable.symbol(view.outcome))
+        case .over: return .symbol("trophy.fill")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("offline-higher-lower-timer")
+    }
+
+    // MARK: - The top
+
+    private var banner: some View {
+        NearbyPlayBanner(kicker: kicker, title: title, strap: strap, mine: callIsMine, mark: bannerMark) {
+            ringClock
+        }
+    }
+
+    /// The ring to the end of the calls, then to the next card.
+    @ViewBuilder
+    private var ringClock: some View {
+        switch view.phase {
+        case .calling:
+            NearbyPlayBannerClock(clock: context.clock, until: view.callEndsAt,
+                                  total: HigherLowerRules.callWindow, mine: callIsMine)
+                .accessibilityLabel("Calls close soon")
+                .accessibilityIdentifier("offline-higher-lower-timer")
+        case .reveal:
+            NearbyPlayBannerClock(clock: context.clock, until: view.revealUntil,
+                                  total: HigherLowerRules.revealPause, mine: false)
+                .accessibilityLabel(view.round >= view.rounds ? "Final scores next" : "Next card coming")
+                .accessibilityIdentifier("offline-higher-lower-timer")
+        case .over:
+            EmptyView()
+        }
+    }
+
+    // MARK: - The table
+
+    private var felt: some View {
+        NearbyPlayFelt(tone: .baize) {
+            VStack(spacing: 12) {
+                HigherLowerTable(current: view.current, revealed: view.revealed, outcome: view.outcome)
+                    .frame(maxWidth: .infinity)
+                HStack(spacing: 8) {
+                    NearbyPlayStat(icon: "rectangle.portrait.on.rectangle.portrait.fill",
+                                   text: "\(view.cardsLeft) left", onFelt: true)
+                    if let streak = myRow?.streak, streak >= 2 {
+                        NearbyPlayStat(icon: "flame.fill", text: "Streak \(streak)", onFelt: true)
+                            .nearbyPlayBump(streak)
+                    }
+                    Spacer(minLength: 0)
+                    if let row = myRow {
+                        Text("\(row.score)")
+                            .font(SR.Text.figure(26))
+                            .foregroundStyle(NearbyPlayFeltInk.primary)
+                            .contentTransition(.numericText(value: Double(row.score)))
+                            .srAnimation(.snappy, value: row.score)
+                            .nearbyPlayBump(row.score)
+                            .accessibilityLabel("Your score, \(row.score)")
+                        Text("pts")
+                            .font(SR.Text.mono())
+                            .foregroundStyle(NearbyPlayFeltInk.secondary)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Calling
 
     private var callButtons: some View {
-        HStack(spacing: 12) {
-            callButton(.higher, title: "Higher", icon: "arrow.up")
-            callButton(.lower, title: "Lower", icon: "arrow.down")
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                callButton(.higher, title: "Higher", icon: "arrow.up.circle.fill", kind: .go)
+                callButton(.lower, title: "Lower", icon: "arrow.down.circle.fill", kind: .danger)
+            }
+            Text(myCall == nil ? "Aces are high. The same rank loses for everyone." : "Locked in — calls can't be changed.")
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
+                .frame(maxWidth: .infinity)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    @ViewBuilder
-    private func callButton(_ call: HigherLowerRules.Call, title: String, icon: String) -> some View {
+    private func callButton(_ call: HigherLowerRules.Call, title: String, icon: String,
+                            kind: NearbyPlayButtonKind) -> some View {
         let chosen = myCall == call
         let locked = myCall != nil
-        if chosen {
-            Button { } label: {
-                SRButtonLabel(title: title, icon: icon, fill: true)
-            }
-            .srButton(.prominent)
-            .controlSize(.large)
-            .allowsHitTesting(false)
-            .accessibilityLabel("You called \(title.lowercased())")
-            .accessibilityIdentifier("offline-higher-lower-\(call.rawValue)")
-        } else {
-            Button {
-                send(call)
-            } label: {
-                SRButtonLabel(title: title, icon: icon, fill: true)
-            }
-            .srButton(.regular)
-            .controlSize(.large)
-            .disabled(locked)
-            .opacity(locked ? 0.45 : 1)
-            .accessibilityLabel("Call \(title.lowercased())")
-            .accessibilityHint("The next card will be \(title.lowercased()) than the \(view.current.name).")
-            .accessibilityIdentifier("offline-higher-lower-\(call.rawValue)")
+        return NearbyPlayButton(title: title, icon: icon, kind: kind, enabled: !locked,
+                                minHeight: NearbyPlayMetrics.bigButton, chosen: chosen) {
+            send(call)
         }
+        .allowsHitTesting(!locked)
+        .accessibilityLabel(chosen ? "You called \(title.lowercased())" : "Call \(title.lowercased())")
+        .accessibilityHint(locked ? "" : "The next card will be \(title.lowercased()) than the \(view.current.name).")
+        .accessibilityIdentifier("offline-higher-lower-\(call.rawValue)")
     }
 
     private func send(_ call: HigherLowerRules.Call) {
@@ -180,6 +227,37 @@ struct HigherLowerView: View {
         local = call
         localRound = view.round
         context.send(.call(round: view.round, call: call))
+    }
+
+    // MARK: - The turn
+
+    /// The card has turned: a buzz and a word for how my call did.
+    private func revealed() {
+        guard playing, let row = myRow else {
+            if let outcome = view.outcome {
+                pop(HigherLowerTable.word(outcome), icon: HigherLowerTable.symbol(outcome), tone: SR.accentDeep)
+            }
+            return
+        }
+        let gained = row.gained ?? 0
+        if view.outcome == .same {
+            SRHaptic.bad()
+            pop("Same rank!", icon: "equal.circle.fill", tone: SR.warn)
+        } else if gained > 0 {
+            SRHaptic.ok()
+            pop("Right! +\(gained)", icon: "checkmark.circle.fill", tone: SR.good)
+            if row.streak >= 3 { burstToken += 1 }
+        } else {
+            SRHaptic.bad()
+            pop(row.call == nil ? "No call" : "Wrong", icon: "xmark.circle.fill", tone: SR.error)
+        }
+    }
+
+    private func pop(_ text: String, icon: String?, tone: Color) {
+        callout = text
+        calloutIcon = icon
+        calloutTone = tone
+        calloutToken += 1
     }
 
     // MARK: - Scores
@@ -214,8 +292,9 @@ struct HigherLowerView: View {
     }
 }
 
-/// The card showing and the card to come, side by side, sized from the
-/// width available so two cards and the arrow between them always fit.
+/// The card showing and the card to come, side by side on the felt, sized
+/// from the width available so two cards and the verdict between them always
+/// fit. The card to come turns over with a flip when the host reveals it.
 struct HigherLowerTable: View {
     let current: OfflineCard
     let revealed: OfflineCard?
@@ -226,47 +305,85 @@ struct HigherLowerTable: View {
             let width = cardWidth(for: geo.size.width)
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                OfflineCardFace(card: current, width: width)
+                NearbyPlayFlipCard(card: current, width: width)
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Showing: \(current.name)")
                     .accessibilityIdentifier("offline-higher-lower-current")
-                Image(systemName: arrow)
-                    .font(.system(size: width * 0.28, weight: .bold))
-                    .foregroundStyle(outcome == nil ? SR.inkGhost : SR.accent)
+                verdict(width: width)
                     .frame(width: gap(for: geo.size.width))
-                    .accessibilityHidden(true)
-                Group {
-                    if let revealed {
-                        OfflineCardFace(card: revealed, width: width, selected: true)
-                            .accessibilityLabel("Turned: \(revealed.name)")
-                    } else {
-                        OfflineCardBack(width: width)
-                            .accessibilityLabel("Next card, face down")
-                    }
-                }
-                .accessibilityIdentifier("offline-higher-lower-next")
+                NearbyPlayFlipCard(card: revealed, width: width, selected: revealed != nil)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(revealed.map { "Turned: \($0.name)" } ?? "Next card, face down")
+                    .accessibilityIdentifier("offline-higher-lower-next")
                 Spacer(minLength: 0)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
-        .aspectRatio(2.4, contentMode: .fit)
-        .frame(maxWidth: 360)
+        .aspectRatio(2.3, contentMode: .fit)
+        .frame(maxWidth: 380)
     }
 
-    private func gap(for total: CGFloat) -> CGFloat { max(36, total * 0.16) }
+    /// The disc between the cards: a question while calls are open, then
+    /// the way the card went, in its colour.
+    private func verdict(width: CGFloat) -> some View {
+        let side = max(34, width * 0.42)
+        return ZStack {
+            Circle()
+                .fill(outcome == nil ? NearbyPlayFeltInk.chip : HigherLowerTable.tone(outcome))
+            Image(systemName: outcome == nil ? "questionmark" : HigherLowerTable.arrow(outcome))
+                .font(.system(size: side * 0.5, weight: .heavy))
+                .foregroundStyle(Color.white)
+        }
+        .frame(width: side, height: side)
+        .overlay { Circle().strokeBorder(Color.white.opacity(0.35), lineWidth: 2) }
+        .shadow(color: Color.black.opacity(0.25), radius: 5, x: 0, y: 3)
+        .scaleEffect(outcome == nil ? 0.9 : 1.08)
+        .srAnimation(.spring(response: 0.4, dampingFraction: 0.55), value: outcome)
+        .accessibilityHidden(true)
+    }
 
-    /// Two cards and the gap fit `total`, and their height fits the 2.4:1 frame.
+    private func gap(for total: CGFloat) -> CGFloat { max(44, total * 0.2) }
+
+    /// Two cards and the gap fit `total`, and their height fits the frame.
     private func cardWidth(for total: CGFloat) -> CGFloat {
         let byWidth = (total - gap(for: total)) / 2
-        let byHeight = (total / 2.4) / OfflineCardMetrics.aspect
+        let byHeight = (total / 2.3) / OfflineCardMetrics.aspect
         return max(20, min(byWidth, byHeight, 130))
     }
 
-    private var arrow: String {
+    static func arrow(_ outcome: HigherLowerRules.Outcome?) -> String {
+        switch outcome {
+        case .higher?: return "arrow.up"
+        case .lower?: return "arrow.down"
+        case .same?: return "equal"
+        case nil: return "questionmark"
+        }
+    }
+
+    static func symbol(_ outcome: HigherLowerRules.Outcome?) -> String {
         switch outcome {
         case .higher?: return "arrow.up.circle.fill"
         case .lower?: return "arrow.down.circle.fill"
         case .same?: return "equal.circle.fill"
         case nil: return "questionmark.circle"
+        }
+    }
+
+    static func word(_ outcome: HigherLowerRules.Outcome) -> String {
+        switch outcome {
+        case .higher: return "Higher!"
+        case .lower: return "Lower!"
+        case .same: return "Same rank!"
+        }
+    }
+
+    /// Fixed colours: they sit on the felt, which is green in both modes.
+    static func tone(_ outcome: HigherLowerRules.Outcome?) -> Color {
+        switch outcome {
+        case .higher?: return Color(hex: 0x1E9E5A)
+        case .lower?: return Color(hex: 0xD6453D)
+        case .same?: return Color(hex: 0xD89512)
+        case nil: return NearbyPlayFeltInk.chip
         }
     }
 }
@@ -283,35 +400,51 @@ struct HigherLowerRowView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            OfflineInitial(name: row.name, size: 28, tone: OfflineSeatColour.of(seat))
+            OfflineInitial(name: row.name, size: 32, tone: OfflineSeatColour.of(seat))
             VStack(alignment: .leading, spacing: 2) {
                 Text(isMe ? "You" : row.name)
                     .font(SR.Text.title(16))
                     .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(detail)
-                    .font(SR.Text.mono(12))
-                    .foregroundStyle(SR.inkMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 4) {
+                    if row.streak >= 2 && !row.away {
+                        Image(systemName: "flame.fill")
+                            .font(SR.Text.label(12))
+                            .foregroundStyle(SR.warn)
+                            .accessibilityHidden(true)
+                    }
+                    Text(detail)
+                        .font(SR.Text.mono(12))
+                        .foregroundStyle(SR.inkMuted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             Spacer(minLength: 6)
             callBadge
             if let gained = row.gained, gained > 0 {
                 Text("+\(gained)")
-                    .font(SR.Text.mono(14))
+                    .font(SR.Text.title(15))
                     .foregroundStyle(SR.good)
                     .fixedSize()
+                    .transition(.scale.combined(with: .opacity))
             }
             Text("\(row.score)")
-                .font(SR.Text.display(20))
+                .font(SR.Text.display(22))
                 .foregroundStyle(SR.ink)
-                .frame(minWidth: 28, alignment: .trailing)
+                .contentTransition(.numericText(value: Double(row.score)))
+                .frame(minWidth: 30, alignment: .trailing)
                 .fixedSize()
         }
-        .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
+        .frame(minHeight: 52)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                .fill(isMe ? SR.accent.opacity(0.08) : Color.clear)
+                .padding(.horizontal, -8)
+        )
+        .srAnimation(.snappy(duration: 0.3), value: row)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityIdentifier("offline-higher-lower-row-\(row.id)")
@@ -331,25 +464,30 @@ struct HigherLowerRowView: View {
     @ViewBuilder
     private var callBadge: some View {
         if let call = shownCall {
-            Image(systemName: call == .higher ? "arrow.up" : "arrow.down")
-                .font(.system(size: 14, weight: .bold))
+            Image(systemName: call == .higher ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                .font(SR.Text.title(20))
                 .foregroundStyle(badgeTone)
-                .frame(width: 22)
+                .frame(width: 26)
         } else if phase == .calling && row.called {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14, weight: .bold))
+                .font(SR.Text.title(18))
                 .foregroundStyle(SR.inkSecondary)
-                .frame(width: 22)
+                .frame(width: 26)
+        } else if phase == .calling && !row.away {
+            Image(systemName: "ellipsis")
+                .font(SR.Text.title(16))
+                .foregroundStyle(SR.inkGhost)
+                .frame(width: 26)
         } else if phase == .reveal && !row.away {
             Image(systemName: "minus")
-                .font(.system(size: 14, weight: .bold))
+                .font(SR.Text.title(16))
                 .foregroundStyle(SR.inkGhost)
-                .frame(width: 22)
+                .frame(width: 26)
         }
     }
 
     private var badgeTone: Color {
-        guard let gained = row.gained else { return SR.ink }
+        guard let gained = row.gained else { return SR.accent }
         return gained > 0 ? SR.good : SR.error
     }
 

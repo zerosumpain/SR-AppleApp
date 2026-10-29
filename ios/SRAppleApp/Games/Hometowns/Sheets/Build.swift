@@ -13,29 +13,17 @@ import SwiftUI
 struct HometownsBuildSheet: View {
     @ObservedObject var store: HometownsStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
+                    wallet
                     today
                     HometownsDeputyUndoList(store: store)
                     ForEach(HometownsCatalogue.trays, id: \.self) { tray in
-                        let items = trayItems.filter { $0.tray == tray }
-                        if !items.isEmpty {
-                            VStack(alignment: .leading, spacing: SR.cardGap) {
-                                SRSectionLabel(text: store.say("tray.\(tray)"))
-                                VStack(spacing: 0) {
-                                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                                        if index > 0 { Divider().overlay(SR.divider) }
-                                        row(item)
-                                    }
-                                }
-                                .padding(.horizontal, SR.cardPadding)
-                                .padding(.vertical, 4)
-                                .srGlassCard(.paper)
-                            }
-                        }
+                        trayView(tray)
                     }
                     // The store holds it: the page stays top-down after the sheet closes, and so does the switch.
                     Toggle(isOn: Binding(get: { store.topDown }, set: { store.setTopDown($0) })) {
@@ -65,6 +53,95 @@ struct HometownsBuildSheet: View {
         }
         .presentationDetents([.medium, .large])
         .accessibilityIdentifier("hometowns-build")
+    }
+
+    /// The money box at the top, so every price below reads against it.
+    @ViewBuilder
+    private var wallet: some View {
+        if let town = store.town {
+            HStack(spacing: 12) {
+                Image(systemName: "sterlingsign.circle.fill")
+                    .font(SR.Text.title(26))
+                    .foregroundStyle(Color(hex: 0xE0A030))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.level == .kid ? "IN THE MONEY BOX" : "RESERVES")
+                        .font(SR.Text.label())
+                        .tracking(SR.kickerTracking)
+                        .foregroundStyle(SR.inkMuted)
+                    Text(HometownsText.money(town.money.reserves, store.level))
+                        .font(SR.Text.figure(24))
+                        .foregroundStyle(town.money.reserves < 0 ? SR.error : SR.ink)
+                }
+                Spacer(minLength: 8)
+                Text(store.level == .kid ? "Pick something, then draw it on the map" : "Pick a tool, then plan on the map")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(SR.cardPadding)
+            .srGlassCard(.paper)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("hometowns-build-wallet")
+        }
+    }
+
+    /// One tray as a grid of tiles: two across on a phone, one at the largest text sizes.
+    @ViewBuilder
+    private func trayView(_ tray: String) -> some View {
+        let items = trayItems.filter { $0.tray == tray }
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                HStack(spacing: 8) {
+                    Image(systemName: trayIcon(tray))
+                        .font(SR.Text.label(13))
+                        .foregroundStyle(Color.white)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(trayColour(tray)))
+                        .accessibilityHidden(true)
+                    SRSectionLabel(text: store.say("tray.\(tray)"), trailing: "\(items.filter { $0.locked == nil }.count) of \(items.count)")
+                }
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(items) { item in row(item) }
+                }
+            }
+        }
+    }
+
+    private var columns: [GridItem] {
+        if typeSize.isAccessibilitySize { return [GridItem(.flexible())] }
+        return [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+    }
+
+    private func trayIcon(_ tray: String) -> String {
+        switch tray {
+        case "roads": return "road.lanes"
+        case "zones": return "paintbrush.fill"
+        case "powerWater": return "bolt.fill"
+        case "safety": return "shield.fill"
+        case "learning": return "book.fill"
+        case "health": return "cross.case.fill"
+        case "fun": return "figure.play"
+        case "cultureVisitors": return "theatermasks.fill"
+        case "transport": return "bus.fill"
+        default: return "star.fill"
+        }
+    }
+
+    private func trayColour(_ tray: String) -> Color {
+        switch tray {
+        case "roads": return Color(hex: 0x7C7A74)
+        case "zones": return HometownsZoneStyle.colour("homes")
+        case "powerWater": return Color(hex: 0x3F86CF)
+        case "safety": return Color(hex: 0xC2453A)
+        case "learning": return Color(hex: 0x6574C8)
+        case "health": return Color(hex: 0x3E9A7A)
+        case "fun": return Color(hex: 0x7FAE45)
+        case "cultureVisitors": return Color(hex: 0xB96BC0)
+        case "transport": return Color(hex: 0xE0A030)
+        default: return SR.accent
+        }
     }
 
     private var trayItems: [HometownsBuildItem] {
@@ -117,9 +194,14 @@ struct HometownsBuildSheet: View {
         .accessibilityIdentifier("hometowns-today")
     }
 
+    /// A tile: the thing's symbol on its colour, its name, its price (amber
+    /// when it is more than the money box holds), or why it is locked.
     private func row(_ item: HometownsBuildItem) -> some View {
-        Button {
-            guard item.locked == nil else {
+        let open = item.locked == nil
+        let picked = store.tool == item.tool
+        let colour = tileColour(item)
+        return Button {
+            guard open else {
                 SRHaptic.bad()
                 return
             }
@@ -127,40 +209,62 @@ struct HometownsBuildSheet: View {
             store.setTool(item.tool)
             dismiss()
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: item.locked == nil ? icon(item) : "lock.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(item.locked == nil ? SR.accent : SR.inkGhost)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.label)
-                        .font(SR.Text.title())
-                        .foregroundStyle(item.locked == nil ? SR.ink : SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let locked = item.locked {
-                        Text(locked)
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                            .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top) {
+                    Image(systemName: open ? icon(item) : "lock.fill")
+                        .font(SR.Text.title(18))
+                        .foregroundStyle(open ? Color.white : SR.inkMuted)
+                        .frame(width: 40, height: 40)
+                        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(open ? colour : SR.line))
+                        .accessibilityHidden(true)
+                    Spacer(minLength: 4)
+                    if picked {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(SR.Text.title(18))
+                            .foregroundStyle(SR.accent)
+                            .accessibilityLabel("Picked")
                     }
                 }
-                Spacer(minLength: 8)
-                if let cost = item.cost {
-                    Text(costText(cost, item))
+                Text(item.label)
+                    .font(SR.Text.title(16))
+                    .foregroundStyle(open ? SR.ink : SR.inkMuted)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let locked = item.locked {
+                    Text(locked)
                         .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let cost = item.cost {
+                    Text(costText(cost, item))
+                        .font(SR.Text.title(14).monospacedDigit())
                         .foregroundStyle(affordable(cost) ? SR.inkSecondary : SR.warn)
+                } else {
+                    Text("Free")
+                        .font(SR.Text.title(14).monospacedDigit())
+                        .foregroundStyle(SR.good)
                 }
-                if store.tool == item.tool {
-                    Image(systemName: "checkmark").foregroundStyle(SR.accent).accessibilityLabel("Picked")
-                }
+                Spacer(minLength: 0)
             }
-            .frame(minHeight: SR.tapTarget)
-            .padding(.vertical, 4)
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+            .srGlassCard(.paper, radius: SR.Glass.innerRadius, interactive: open)
+            .overlay(
+                RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                    .stroke(picked ? SR.accent : Color.clear, lineWidth: 2)
+            )
+            .opacity(open ? 1 : 0.75)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .accessibilityHint(item.locked ?? "")
+        .accessibilityAddTraits(picked ? .isSelected : [])
         .accessibilityIdentifier("hometowns-item-\(item.id)")
+    }
+
+    private func tileColour(_ item: HometownsBuildItem) -> Color {
+        if item.tool.kind == "zone" { return HometownsZoneStyle.colour(item.tool.variant ?? "") }
+        return trayColour(item.tray)
     }
 
     private func costText(_ cost: Double, _ item: HometownsBuildItem) -> String {
@@ -175,7 +279,7 @@ struct HometownsBuildSheet: View {
     private func icon(_ item: HometownsBuildItem) -> String {
         switch item.tool.kind {
         case "road", "upgrade": return "road.lanes"
-        case "zone": return "paintbrush.fill"
+        case "zone": return HometownsZoneStyle.icon(item.tool.variant ?? "")
         case "dezone": return "eraser.fill"
         case "bulldoze": return "xmark.bin.fill"
         case "parcel": return "square.dashed"
@@ -295,6 +399,7 @@ struct HometownsLensSheet: View {
             dismiss()
         } label: {
             HStack(spacing: 12) {
+                swatch(id)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(SR.Text.title())
@@ -308,14 +413,41 @@ struct HometownsLensSheet: View {
                 }
                 Spacer(minLength: 8)
                 if store.lens == id {
-                    Image(systemName: "checkmark").foregroundStyle(SR.accent).accessibilityLabel("On")
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(SR.Text.title(20))
+                        .foregroundStyle(SR.accent)
+                        .accessibilityLabel("On")
                 }
             }
-            .frame(minHeight: SR.tapTarget)
+            .frame(minHeight: 56)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .srPlainRow()
         .accessibilityIdentifier("hometowns-lens-\(id)")
+    }
+
+    /// The lens's colour ramp as a little map tile, as the map will tint it.
+    private func swatch(_ id: String) -> some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(LinearGradient(colors: ramp(id), startPoint: .bottomLeading, endPoint: .topTrailing))
+            .frame(width: 40, height: 40)
+            .overlay(
+                Image(systemName: id == "none" ? "house.fill" : "eye.fill")
+                    .font(SR.Text.label(13))
+                    .foregroundStyle(Color.white.opacity(0.9))
+            )
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.black.opacity(0.1), lineWidth: 1))
+            .accessibilityHidden(true)
+    }
+
+    private func ramp(_ id: String) -> [Color] {
+        switch id {
+        case "none": return [Color(hex: 0xC9C3AE), Color(hex: 0xE8E4D4)]
+        case "happy": return [Color(hex: 0xC2453A), Color(hex: 0xF2C230), Color(hex: 0x5BA35B)]
+        case "pollution", "noise", "traffic": return [Color(hex: 0x5BA35B), Color(hex: 0xE0A030), Color(hex: 0x8E3A2E)]
+        case "landValue", "desirability": return [Color(hex: 0xE9E1C9), Color(hex: 0xD9A441), Color(hex: 0x8E5BB5)]
+        default: return [Color(hex: 0xE9E1C9), Color(hex: 0x6FB0D8), Color(hex: 0x2F5F9E)]
+        }
     }
 }

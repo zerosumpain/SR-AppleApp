@@ -12,7 +12,14 @@ import SwiftUI
 /// host spells it, checks it and scores it.
 ///
 /// The tracing pieces are the online Boggle's (`BoggleTrace`, `BoggleRules`'
-/// tile maths), so a finger behaves the same on both boards.
+/// tile maths), so a finger behaves the same on both boards — including Turn,
+/// which gives the board a quarter turn on this phone only (a fresh look at
+/// the same dice, as players turn the real tray). Each die is placed by its
+/// turned position, so on a turn the dice glide to their new places.
+///
+/// The dice are rounded cubes in a plastic tray (`PlayTableLetterTile`); they
+/// tumble in when the board is first shown, the trace glows through them, and
+/// a word this phone already knows is wrong shakes the word bar.
 struct OfflineBoggleView: View {
     let context: OfflineGameContext<OfflineBoggleRules>
     @State private var trace = BoggleTrace(size: OfflineBoggleRules.size)
@@ -24,9 +31,14 @@ struct OfflineBoggleView: View {
     @State private var lit: String?
     /// A refusal this phone can say without asking the host.
     @State private var note: String?
+    /// Quarter turns of the board, on this phone only.
+    @State private var turns = 0
+    /// Bumped to shake the word bar.
+    @State private var shakes = 0
+    @ObservedObject private var results = OfflineResultStore.shared
 
     private typealias Rules = OfflineBoggleRules
-    private static let gap: CGFloat = 6
+    private static let gap: CGFloat = 7
 
     private var view: Rules.PlayerView { context.view }
     private var revealed: Bool { view.phase == .reveal || view.phase == .over }
@@ -46,6 +58,7 @@ struct OfflineBoggleView: View {
                         controls
                         statusLine
                             .frame(maxWidth: .infinity)
+                            .srAnimation(.spring(response: 0.35, dampingFraction: 0.6), value: view.mine?.first?.word)
                     } else if revealed {
                         Text(boardLine)
                             .font(SR.Text.mono())
@@ -54,13 +67,13 @@ struct OfflineBoggleView: View {
                             .accessibilityIdentifier("offline-boggle-possible")
                     }
                 } else {
-                    Text("The dice are rolling. Get ready to trace.")
-                        .font(SR.Text.body())
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    waitingTray
                 }
                 if revealed {
                     reveal
+                    if view.mine != nil {
+                        PlayTableBestStrip(score: myScore, best: results.queue.tallies[Rules.info.id]?.best)
+                    }
                 } else if let mine = view.mine, !mine.isEmpty {
                     myWords(mine)
                 }
@@ -78,7 +91,10 @@ struct OfflineBoggleView: View {
             if (new ?? 0) > (old ?? 0) { SRHaptic.ok() }
         }
         .onChange(of: context.refusal) { _, new in
-            if new != nil { SRHaptic.bad() }
+            if new != nil {
+                SRHaptic.bad()
+                shakes += 1
+            }
         }
         .onChange(of: view.phase) { _, new in
             trace.clear()
@@ -119,33 +135,58 @@ struct OfflineBoggleView: View {
         }
     }
 
+    /// Before the dice are rolled: the empty tray and what is coming.
+    private var waitingTray: some View {
+        VStack(spacing: 14) {
+            OfflineBoggleTray(cornerRadius: 22) {
+                Image(systemName: "die.face.5.fill")
+                    .font(SR.Text.hero(44))
+                    .foregroundStyle(Color.white.opacity(0.85))
+                    .frame(maxWidth: .infinity, minHeight: 140)
+            }
+            .accessibilityHidden(true)
+            Text("The dice are rolling. Get ready to trace.")
+                .font(SR.Text.body())
+                .foregroundStyle(SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     // MARK: - The word being traced
 
     private func wordRow(_ grid: [String]) -> some View {
         let word = BoggleRules.word(trace.path, grid: grid)
         let had = view.mine?.contains { $0.word == word } ?? false
-        return VStack(spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(word.isEmpty ? " " : word.uppercased())
-                    .font(SR.Text.hero(34))
-                    .tracking(3)
-                    .foregroundStyle(had ? SR.inkGhost : SR.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.4)
-                if word.count >= Rules.minLength && !had {
-                    Text("+\(Rules.points(word))")
-                        .font(SR.Text.figure(20))
-                        .foregroundStyle(SR.accent)
-                } else if had {
-                    Text("HAVE IT")
-                        .font(SR.Text.label())
-                        .tracking(1)
-                        .foregroundStyle(SR.inkMuted)
-                }
+        return HStack(alignment: .center, spacing: 10) {
+            Text(word.isEmpty ? "TRACE A WORD" : word.uppercased())
+                .font(word.isEmpty ? SR.Text.label(14) : SR.Text.hero(32))
+                .tracking(word.isEmpty ? 1.6 : 3)
+                .foregroundStyle(word.isEmpty ? Color.white.opacity(0.6) : (had ? Color.white.opacity(0.5) : Color.white))
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                .frame(maxWidth: .infinity)
+            if word.count >= Rules.minLength && !had {
+                Text("+\(Rules.points(word))")
+                    .font(SR.Text.figure(20))
+                    .foregroundStyle(PlayTablePaint.gold)
+                    .transition(.scale.combined(with: .opacity))
+            } else if had {
+                Text("HAVE IT")
+                    .font(SR.Text.label())
+                    .tracking(1)
+                    .foregroundStyle(Color.white.opacity(0.7))
             }
-            .frame(maxWidth: .infinity, minHeight: 48)
-            Rectangle().fill(SR.line).frame(height: 1.5)
         }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, minHeight: 60)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(LinearGradient(colors: [Color(hex: 0x8C5A33), Color(hex: 0x5E3A1E)], startPoint: .top, endPoint: .bottom))
+                .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 3)
+        )
+        .modifier(PlayTableShake(animatableData: CGFloat(shakes)))
+        .srAnimation(.linear(duration: 0.4), value: shakes)
+        .srAnimation(.snappy(duration: 0.18), value: word)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(word.isEmpty ? "Your word, empty" : "Your word, \(word)")
         .accessibilityIdentifier("offline-boggle-word")
@@ -154,22 +195,27 @@ struct OfflineBoggleView: View {
     private var controls: some View {
         HStack(spacing: 10) {
             Button {
-                trace.delete()
                 SRHaptic.select()
+                turns = (turns + 1) % 4
             } label: {
-                SRButtonLabel(title: "Delete", icon: "delete.left", fill: true)
+                Image(systemName: "rotate.right")
+                    .font(SR.Text.title(20))
+                    .frame(width: PlayTableMetrics.bigLabel, height: PlayTableMetrics.bigLabel)
             }
             .srButton(.regular)
             .controlSize(.large)
+            .disabled(!trace.isEmpty)
+            .accessibilityLabel("Turn the board")
+            .accessibilityHint("Gives the dice a quarter turn on your phone, for a fresh look.")
+            .accessibilityIdentifier("offline-boggle-turn")
+            PlayTableButton(title: "Delete", icon: "delete.left", weight: .regular, haptic: .select) {
+                trace.delete()
+            }
             .disabled(trace.isEmpty)
             .accessibilityIdentifier("offline-boggle-delete")
-            Button {
+            PlayTableButton(title: "Enter", icon: "return", haptic: .none) {
                 submit()
-            } label: {
-                SRButtonLabel(title: "Enter", icon: "return", fill: true)
             }
-            .srButton(.prominent)
-            .controlSize(.large)
             .disabled(trace.path.count < 2)
             .accessibilityIdentifier("offline-boggle-enter")
         }
@@ -184,8 +230,13 @@ struct OfflineBoggleView: View {
                 .multilineTextAlignment(.center)
         } else if let last = view.mine?.first {
             Label("\(last.word.uppercased()) +\(last.points)", systemImage: "checkmark.circle.fill")
-                .font(SR.Text.bodyMedium(15))
+                .font(SR.Text.title(16))
                 .foregroundStyle(SR.good)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(SR.good.opacity(0.14)))
+                .id(last.word)
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
                 .accessibilityIdentifier("offline-boggle-landed")
         } else {
             Text("Drag through touching letters, then lift. \(Rules.minLength)+ letters, a point a letter past two.")
@@ -205,16 +256,22 @@ struct OfflineBoggleView: View {
         let word = BoggleRules.word(path, grid: grid)
         if word.count < Rules.minLength {
             note = "Words need at least \(Rules.minLength) letters."
-            SRHaptic.bad()
+            refuse()
             return
         }
         if view.mine?.contains(where: { $0.word == word }) == true {
             note = "You already have that one."
-            SRHaptic.bad()
+            refuse()
             return
         }
+        SRHaptic.tap()
         note = nil
         context.send(.word(path: path))
+    }
+
+    private func refuse() {
+        SRHaptic.bad()
+        shakes += 1
     }
 
     // MARK: - The board
@@ -230,20 +287,17 @@ struct OfflineBoggleView: View {
 
     private func board(_ grid: [String]) -> some View {
         GeometryReader { geo in
-            let side = BoggleRules.tileSide(width: geo.size.width - 12, size: Rules.size, gap: Self.gap)
+            let side = BoggleRules.tileSide(width: geo.size.width - 24, size: Rules.size, gap: Self.gap)
             let boardSide = side * CGFloat(Rules.size) + Self.gap * CGFloat(Rules.size - 1)
-            dice(grid, side: side)
-                .frame(width: boardSide, height: boardSide)
-                .padding(6)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(SR.accentDeep)
-                        .shadow(color: SR.ink.opacity(0.18), radius: 8, y: 4)
-                )
-                .frame(maxWidth: .infinity)
+            OfflineBoggleTray(cornerRadius: 22) {
+                dice(grid, side: side)
+                    .frame(width: boardSide, height: boardSide)
+                    .padding(12)
+            }
+            .frame(maxWidth: .infinity)
         }
         .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: 420)
+        .frame(maxWidth: 440)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("offline-boggle-board")
@@ -252,39 +306,55 @@ struct OfflineBoggleView: View {
     private func dice(_ grid: [String], side: CGFloat) -> some View {
         let n = Rules.size
         return ZStack(alignment: .topLeading) {
-            VStack(spacing: Self.gap) {
-                ForEach(0..<n, id: \.self) { row in
-                    HStack(spacing: Self.gap) {
-                        ForEach(0..<n, id: \.self) { column in
-                            let tile = row * n + column
-                            die(tile, face: tile < grid.count ? grid[tile] : "", side: side)
-                        }
-                    }
-                }
+            ForEach(0..<(n * n), id: \.self) { tile in
+                die(tile, face: tile < grid.count ? grid[tile] : "", side: side)
+                    .position(centre(of: tile, side: side))
             }
             traceLine(side: side)
                 .allowsHitTesting(false)
         }
+        .srAnimation(.spring(response: 0.45, dampingFraction: 0.8), value: turns)
         .contentShape(Rectangle())
         .highPriorityGesture(drag(side: side), including: interactive ? .all : .subviews)
     }
 
+    /// Where a die sits now: its place after this phone's quarter turns.
     private func centre(of tile: Int, side: CGFloat) -> CGPoint {
-        let (row, column) = BoggleRules.cell(tile, size: Rules.size)
+        let shown = BoggleRules.displayed(tile, size: Rules.size, turns: turns)
+        let (row, column) = BoggleRules.cell(shown, size: Rules.size)
         let pitch = side + Self.gap
         return CGPoint(x: CGFloat(column) * pitch + side / 2, y: CGFloat(row) * pitch + side / 2)
     }
 
-    /// The trace, as one line through the centres of its dice.
+    /// The die under a point, by what is drawn there.
+    private func tile(at point: CGPoint, side: CGFloat, reach: CGFloat = 0.42) -> Int? {
+        guard let shown = BoggleRules.tile(at: point, size: Rules.size, side: side, gap: Self.gap, reach: reach) else {
+            return nil
+        }
+        return BoggleRules.tile(atDisplay: shown, size: Rules.size, turns: turns)
+    }
+
+    /// The trace, as a glowing line through the centres of its dice, with a
+    /// bead on each die it passes.
     private func traceLine(side: CGFloat) -> some View {
         let points = path.map { centre(of: $0, side: side) }
-        return Path { line in
+        let tone = interactive ? Color(hex: 0xB79BFF) : Color(hex: 0x6FE3DF)
+        let width = max(8, side * 0.2)
+        let line = Path { line in
             guard let first = points.first else { return }
             line.move(to: first)
             for point in points.dropFirst() { line.addLine(to: point) }
         }
-        .stroke(interactive ? SR.accent.opacity(0.55) : SR.accentInk.opacity(0.6),
-                style: StrokeStyle(lineWidth: max(8, side * 0.22), lineCap: .round, lineJoin: .round))
+        return ZStack {
+            line.stroke(tone.opacity(0.35), style: StrokeStyle(lineWidth: width * 1.9, lineCap: .round, lineJoin: .round))
+            line.stroke(tone.opacity(0.85), style: StrokeStyle(lineWidth: width * 0.7, lineCap: .round, lineJoin: .round))
+            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                Circle()
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: width * 0.6, height: width * 0.6)
+                    .position(point)
+            }
+        }
     }
 
     private func die(_ tile: Int, face: String, side: CGFloat) -> some View {
@@ -292,22 +362,12 @@ struct OfflineBoggleView: View {
         let isLit = at != nil
         let last = interactive && tile == path.last
         let text = BoggleRules.display(face)
-        return ZStack {
-            RoundedRectangle(cornerRadius: side * 0.2, style: .continuous)
-                .fill(isLit ? (interactive ? SR.accent : SR.accentInk) : SR.paper)
-                .shadow(color: SR.ink.opacity(isLit ? 0 : 0.22), radius: 0, x: 0, y: 2)
-            RoundedRectangle(cornerRadius: side * 0.2, style: .continuous)
-                .strokeBorder(last ? SR.paper : SR.ink.opacity(0.08), lineWidth: last ? 3 : 1)
-            Text(text.isEmpty ? " " : text)
-                .font(SR.Text.display(text.count > 1 ? side * 0.4 : side * 0.52))
-                .foregroundStyle(isLit ? SR.paper : SR.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.4)
-                .padding(.horizontal, 3)
+        let state: PlayTableTileState = isLit ? (interactive ? (last ? .tracedLast : .traced) : .shown) : .ready
+        return OfflineBoggleDieRoll(index: tile) {
+            PlayTableLetterTile(letter: text, side: side * 0.93, state: state, die: true)
         }
         .frame(width: side, height: side)
-        .scaleEffect(last ? 1.06 : 1)
-        .animation(.snappy(duration: 0.12), value: last)
+        .srAnimation(.snappy(duration: 0.12), value: state)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(at.map { "\(text), letter \($0 + 1) of your word" } ?? text)
         .accessibilityAddTraits(interactive ? .isButton : [])
@@ -328,11 +388,10 @@ struct OfflineBoggleView: View {
                 if touchStart == nil {
                     // The first touch must land on a die; a wider reach, so a
                     // fingertip on its edge still counts.
-                    touchStart = BoggleRules.tile(at: value.startLocation, size: Rules.size, side: side,
-                                                  gap: Self.gap, reach: 0.72)
+                    touchStart = tile(at: value.startLocation, side: side, reach: 0.72)
                 }
                 guard let start = touchStart,
-                      let tile = BoggleRules.tile(at: value.location, size: Rules.size, side: side, gap: Self.gap),
+                      let tile = tile(at: value.location, side: side),
                       tile != start || dragging else { return }
                 if !dragging {
                     dragging = true
@@ -439,5 +498,58 @@ struct OfflineBoggleView: View {
             OfflineWordScoreRow(id: row.id, name: row.name, detail: row.words == 1 ? "1 word" : "\(row.words) words",
                                 score: row.score, away: row.away, ready: revealed && row.ready)
         }
+    }
+}
+
+/// The plastic tray the dice sit in: a deep violet moulding with a lighter
+/// rim and a shadow inside, so the dice look sunk into it.
+struct OfflineBoggleTray<Content: View>: View {
+    let cornerRadius: CGFloat
+    let content: Content
+
+    init(cornerRadius: CGFloat, @ViewBuilder content: () -> Content) {
+        self.cornerRadius = cornerRadius
+        self.content = content()
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                ZStack {
+                    shape.fill(LinearGradient(colors: [Color(hex: 0x4A2FA8), Color(hex: 0x25145E)],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing))
+                    shape.strokeBorder(Color.white.opacity(0.22), lineWidth: 2)
+                    shape.inset(by: 6).stroke(Color.black.opacity(0.25), lineWidth: 4)
+                }
+                .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 6)
+            )
+    }
+}
+
+/// A die tumbling into the tray the first time the board is shown: a short,
+/// staggered drop and turn, once. Under Reduce Motion it is simply there.
+struct OfflineBoggleDieRoll<Content: View>: View {
+    let index: Int
+    let content: Content
+    @State private var settled = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(index: Int, @ViewBuilder content: () -> Content) {
+        self.index = index
+        self.content = content()
+    }
+
+    var body: some View {
+        let down = settled || reduceMotion
+        return content
+            .scaleEffect(down ? 1 : 0.45)
+            .rotationEffect(.degrees(down ? 0 : PlayTableMath.tilt(index, range: 40)))
+            .opacity(down ? 1 : 0)
+            .onAppear {
+                guard !reduceMotion, !settled else { return }
+                let delay = PlayTableMath.stagger(index: index, step: 0.035, cap: 0.6)
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.62).delay(delay)) { settled = true }
+            }
     }
 }

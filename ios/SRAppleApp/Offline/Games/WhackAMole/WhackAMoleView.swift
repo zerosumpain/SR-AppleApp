@@ -11,11 +11,21 @@ import UIKit
 /// time, and drops it at `downAt`. A whack is measured from that frame to the
 /// touch, here, and only the milliseconds are sent — the host gives a mole to
 /// the lowest time, so the slower link never loses a race it won.
+///
+/// The overhaul (2026-10-29) dug the holes in a lawn: a real mole (snout,
+/// eyes, teeth) pops up out of the ground, the golden one shines, the bomb
+/// has a lit fuse, a whack lands a hammer and a "+1", a bomb flashes the
+/// field red, the time runs as a ring with 3-2-1 before the moles come, and
+/// this phone's best score is kept.
 struct WhackAMoleView: View {
     let context: OfflineGameContext<WhackAMoleRules>
     @StateObject private var field = WhackAMoleField()
     /// Moles I have whacked, shown at once rather than after the host's echo.
     @State private var whacked: Set<Int> = []
+    @State private var bombFlash = false
+    @State private var best: NearbyPlayBestOutcome?
+    @State private var burstToken = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     private var view: WhackAMoleRules.PlayerView { context.view }
 
@@ -28,8 +38,17 @@ struct WhackAMoleView: View {
         }
         .onAppear { follow() }
         .onChange(of: view.moles) { _, _ in follow() }
-        .onChange(of: view.phase) { _, _ in follow() }
+        .onChange(of: view.phase) { _, new in
+            follow()
+            settled(new)
+        }
         .onChange(of: context.clock) { _, _ in follow() }
+        .onChange(of: scenePhase) { _, new in
+            // The display link has nothing to show in the background.
+            // `new` is passed in, not read back from the environment, so a
+            // stale phase can never keep the field from starting again.
+            if new == .active { follow(active: true) } else { field.stop() }
+        }
         .onDisappear { field.stop() }
     }
 
@@ -40,17 +59,28 @@ struct WhackAMoleView: View {
             header
             GeometryReader { geo in
                 let side = max(0, min(geo.size.width, geo.size.height, 420))
-                let cell = side / CGFloat(WhackAMoleRules.columns)
-                VStack(spacing: 0) {
-                    ForEach(0..<3, id: \.self) { row in
-                        HStack(spacing: 0) {
-                            ForEach(0..<3, id: \.self) { column in
-                                hole(row * WhackAMoleRules.columns + column, cell: cell)
+                let inner = max(0, side - 16)
+                let cell = inner / CGFloat(WhackAMoleRules.columns)
+                ZStack {
+                    WhackAMoleLawn()
+                        .equatable()
+                    VStack(spacing: 0) {
+                        ForEach(0..<3, id: \.self) { row in
+                            HStack(spacing: 0) {
+                                ForEach(0..<3, id: \.self) { column in
+                                    hole(row * WhackAMoleRules.columns + column, cell: cell)
+                                }
                             }
                         }
                     }
+                    .frame(width: inner, height: inner)
+                    RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                        .fill(Color(hex: 0xE5383B).opacity(bombFlash ? 0.35 : 0))
+                        .allowsHitTesting(false)
+                    leadIn(side: side)
                 }
                 .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .accessibilityIdentifier("offline-whack-a-mole-field")
@@ -63,55 +93,69 @@ struct WhackAMoleView: View {
         .srGround(.warm)
     }
 
-    /// The lead-in countdown, then the time left and my points.
+    /// 3, 2, 1 over the lawn until the moles come.
+    @ViewBuilder
+    private func leadIn(side: CGFloat) -> some View {
+        if context.clock.now() < view.startsAt {
+            NearbyPlayCountdownHero(clock: context.clock, until: view.startsAt,
+                                    size: max(24, side * 0.3), tone: Color.white)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// The ring for the time left (or to the start), my points, and what to
+    /// do. Redraws only until time is up.
     private var header: some View {
-        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+        let lastInstant = max(view.startsAt, view.endsAt)
+        let end = Date().addingTimeInterval(max(0, lastInstant - context.clock.now()))
+        return TimelineView(NearbyPlayFiniteSchedule(end: end, step: 0.25)) { _ in
             let leadIn = context.clock.now() < view.startsAt
             let secondsLeft = context.clock.secondsLeft(until: leadIn ? view.startsAt : view.endsAt)
             let clockLabel: String = leadIn ? "Moles in \(secondsLeft) seconds" : "\(secondsLeft) seconds left"
             let pointsLabel: String = isPlayer ? "You have \(myScore) points" : "You are watching this match"
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(leadIn ? "GET READY" : "TIME LEFT")
-                            .font(SR.Text.label())
-                            .tracking(SR.inkKickerTracking)
-                            .foregroundStyle(SR.accent)
-                            .lineLimit(1)
-                        Text("\(secondsLeft)")
+            HStack(alignment: .center, spacing: 12) {
+                NearbyPlayClockRing(clock: context.clock, until: leadIn ? view.startsAt : view.endsAt,
+                                    total: leadIn ? WhackAMoleRules.leadIn : WhackAMoleRules.duration,
+                                    size: 56, tone: leadIn ? SR.inkMuted : SR.good, urgentBelow: 10,
+                                    ticks: isPlayer && !leadIn)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(clockLabel)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(leadIn ? "GET READY" : "TIME LEFT")
+                        .font(SR.Text.label())
+                        .tracking(SR.inkKickerTracking)
+                        .foregroundStyle(SR.accent)
+                        .lineLimit(1)
+                    Text(instruction(leadIn: leadIn))
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("offline-whack-a-mole-instruction")
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(isPlayer ? "POINTS" : "WATCHING")
+                        .font(SR.Text.label())
+                        .tracking(SR.inkKickerTracking)
+                        .foregroundStyle(SR.inkMuted)
+                        .lineLimit(1)
+                    if isPlayer {
+                        Text("\(myScore)")
                             .font(SR.Text.figure(34))
-                            .foregroundStyle(SR.ink)
+                            .foregroundStyle(myScore < 0 ? SR.error : SR.ink)
                             .monospacedDigit()
                             .lineLimit(1)
+                            .contentTransition(.numericText(value: Double(myScore)))
+                            .nearbyPlayBump(myScore, scale: 1.12)
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(clockLabel)
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(isPlayer ? "YOUR POINTS" : "WATCHING")
-                            .font(SR.Text.label())
-                            .tracking(SR.inkKickerTracking)
-                            .foregroundStyle(SR.inkMuted)
-                            .lineLimit(1)
-                        if isPlayer {
-                            Text("\(myScore)")
-                                .font(SR.Text.figure(34))
-                                .foregroundStyle(myScore < 0 ? SR.error : SR.ink)
-                                .monospacedDigit()
-                                .lineLimit(1)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(pointsLabel)
                 }
-                Text(instruction(leadIn: leadIn))
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("offline-whack-a-mole-instruction")
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(pointsLabel)
             }
+            .padding(SR.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .srGlassCard(.paper)
         }
     }
 
@@ -121,27 +165,44 @@ struct WhackAMoleView: View {
         return "Whack the moles — golden is 3, bombs cost 2."
     }
 
-    /// One hole: the mound, whatever is in it, and the touch surface on top.
+    /// One hole: the dirt, whatever is in it rising out of the ground, the
+    /// front lip of the hole, and the touch surface on top.
     private func hole(_ index: Int, cell: CGFloat) -> some View {
         let mole = upMole(in: index)
         let settled = settledMole(in: index)
         let size = cell * 0.84
+        let showing = mole.map { settled?.id != $0.id } ?? false
         return ZStack {
-            Circle()
-                .fill(SR.ink.opacity(0.14))
-                .overlay { Circle().stroke(SR.line, lineWidth: 1) }
-                .frame(width: size, height: size)
-            if let mole, settled?.id != mole.id {
-                if whackedByMe(mole) {
-                    Image(systemName: "hammer.fill")
-                        .font(.system(size: size * 0.32, weight: .bold))
-                        .foregroundStyle(SR.inkMuted)
-                } else {
-                    WhackAMoleCritter(kind: mole.kind, size: size * 0.78)
-                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+            // The hole itself.
+            Ellipse()
+                .fill(RadialGradient(colors: [Color(hex: 0x1E120A), Color(hex: 0x4A2E18)],
+                                     center: .center, startRadius: 0, endRadius: size * 0.5))
+                .frame(width: size, height: size * 0.42)
+                .offset(y: size * 0.24)
+            // What pops out, clipped to the ground so it rises from the hole.
+            ZStack(alignment: .bottom) {
+                if let mole, showing {
+                    if whackedByMe(mole) {
+                        WhackAMoleWhacked(points: mole.kind.points, size: size)
+                            .transition(.scale(scale: 0.5).combined(with: .opacity))
+                    } else {
+                        WhackAMoleCritter(kind: mole.kind, size: size * 0.78)
+                            .transition(.move(edge: .bottom))
+                    }
                 }
-            } else if let settled {
+            }
+            .frame(width: size, height: size * 0.86, alignment: .bottom)
+            .clipShape(WhackAMoleHoleMask())
+            .offset(y: -size * 0.02)
+            // The front lip of the hole, over the critter's base.
+            Ellipse()
+                .strokeBorder(Color(hex: 0x8A5A2B), lineWidth: max(2, size * 0.05))
+                .frame(width: size, height: size * 0.42)
+                .offset(y: size * 0.24)
+            if !showing, let settled {
                 settledMark(settled, size: size)
+                    .offset(y: -size * 0.08)
+                    .transition(.scale.combined(with: .opacity))
             }
             if isPlayer && view.phase == .playing {
                 TapSurface(label: holeLabel(index, mole: mole)) { touched(hole: index, at: $0) }
@@ -151,6 +212,7 @@ struct WhackAMoleView: View {
         }
         .frame(width: cell, height: cell)
         .animation(.easeOut(duration: 0.08), value: mole?.id)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: mole.map { whackedByMe($0) } ?? false)
     }
 
     /// Who got a settled mole: their initial, or my −2 for a bomb.
@@ -159,16 +221,19 @@ struct WhackAMoleView: View {
         if let taker = mole.takenBy {
             VStack(spacing: 2) {
                 OfflineInitial(name: context.name(of: taker), size: size * 0.42, tone: seatColour(taker))
+                    .overlay { Circle().strokeBorder(Color.white.opacity(0.8), lineWidth: 2) }
                 Text(mole.kind == .golden ? "+3" : "+1")
-                    .font(.system(size: size * 0.16, weight: .bold, design: .rounded))
-                    .foregroundStyle(SR.inkSecondary)
+                    .font(.system(size: size * 0.18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .shadow(color: Color.black.opacity(0.4), radius: 2, x: 0, y: 1)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(taker == context.me ? "You" : context.name(of: taker)) took it")
         } else if mole.kind == .bomb && mole.bombed.contains(context.me) {
             Text("−2")
-                .font(.system(size: size * 0.26, weight: .heavy, design: .rounded))
-                .foregroundStyle(SR.error)
+                .font(.system(size: size * 0.3, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0xFFD6D6))
+                .shadow(color: Color(hex: 0xB3261E), radius: 4, x: 0, y: 0)
                 .accessibilityLabel("You hit a bomb, minus 2")
         }
     }
@@ -186,16 +251,18 @@ struct WhackAMoleView: View {
 
     private var timeUp: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: "Time's up", title: resultTitle)
-                WhackAMoleScores(rows: view.rows.sorted { $0.score > $1.score }, me: context.me, large: true)
-                if view.phase == .timeUp {
-                    HStack(spacing: 8) {
-                        Text("Final table in")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                        OfflineCountdown(clock: context.clock, until: view.resultUntil, font: SR.Text.mono(), tone: SR.inkMuted)
+            VStack(alignment: .leading, spacing: 18) {
+                NearbyPlayBanner(kicker: "Time's up", title: resultTitle, mine: view.champions == [context.me],
+                                 mark: .symbol("hammer.fill")) {
+                    if view.phase == .timeUp {
+                        NearbyPlayBannerClock(clock: context.clock, until: view.resultUntil,
+                                              total: WhackAMoleRules.resultPause, mine: false)
+                            .accessibilityLabel("Final table soon")
                     }
+                }
+                WhackAMoleScores(rows: view.rows.sorted { $0.score > $1.score }, me: context.me, large: true)
+                if let best {
+                    NearbyPlayBestLine(outcome: best, value: myScore, format: { "\($0) pts" })
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -203,6 +270,7 @@ struct WhackAMoleView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay { NearbyPlayBurst(token: burstToken) }
         .accessibilityIdentifier("offline-whack-a-mole-result")
     }
 
@@ -246,11 +314,23 @@ struct WhackAMoleView: View {
     // MARK: - Acting
 
     /// Hand the field this view's moles, or rest it once time is up.
-    private func follow() {
-        if view.phase == .playing {
+    private func follow(active: Bool? = nil) {
+        if view.phase == .playing && (active ?? (scenePhase == .active)) {
             field.follow(view.moles, clock: context.clock)
         } else {
             field.stop()
+        }
+    }
+
+    /// Time is up: cheer a win, keep a best.
+    private func settled(_ phase: WhackAMoleRules.Phase) {
+        guard phase != .playing else { return }
+        if view.champions.contains(context.me) && burstToken == 0 {
+            burstToken += 1
+            SRHaptic.ok()
+        }
+        if best == nil, isPlayer {
+            best = NearbyPlayBestBook.record(WhackAMoleRules.info.id, value: myScore, rule: .higher)
         }
     }
 
@@ -261,42 +341,168 @@ struct WhackAMoleView: View {
         // anyway, not a whack; let it pass rather than throw a refusal.
         guard let ms = field.reactionMs(mole: mole.id, touchedAt: timestamp), OfflineReaction.counts(ms) else { return }
         whacked.insert(mole.id)
-        if mole.kind == .bomb { SRHaptic.bad() } else { SRHaptic.ok() }
+        if mole.kind == .bomb {
+            SRHaptic.bad()
+            withAnimation(.easeOut(duration: 0.08)) { bombFlash = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                withAnimation(.easeOut(duration: 0.3)) { bombFlash = false }
+            }
+        } else {
+            SRHaptic.ok()
+        }
         context.send(.whack(mole: mole.id, ms: ms))
     }
 }
 
-/// A mole, a golden mole or a bomb popping out of its hole.
+/// The lawn the holes are dug in: a sunny green with tufts of grass, drawn
+/// once per size.
+struct WhackAMoleLawn: View, Equatable {
+    var body: some View {
+        Canvas { context, size in
+            let rect = CGRect(origin: .zero, size: size)
+            context.fill(Path(rect), with: .linearGradient(
+                Gradient(colors: [Color(hex: 0x7BCB52), Color(hex: 0x3E8E2F)]),
+                startPoint: CGPoint(x: size.width / 2, y: 0), endPoint: CGPoint(x: size.width / 2, y: size.height)))
+            var tufts = Path()
+            let step: CGFloat = 26
+            var row = 0
+            var y: CGFloat = 14
+            while y < size.height {
+                var x: CGFloat = row % 2 == 0 ? 10 : 23
+                while x < size.width {
+                    tufts.move(to: CGPoint(x: x - 3, y: y + 4))
+                    tufts.addLine(to: CGPoint(x: x - 1, y: y - 2))
+                    tufts.move(to: CGPoint(x: x, y: y + 4))
+                    tufts.addLine(to: CGPoint(x: x + 1, y: y - 4))
+                    tufts.move(to: CGPoint(x: x + 3, y: y + 4))
+                    tufts.addLine(to: CGPoint(x: x + 4, y: y - 1))
+                    x += step
+                }
+                y += step
+                row += 1
+            }
+            context.stroke(tufts, with: .color(Color(hex: 0x2E6B22).opacity(0.35)), lineWidth: 1.5)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// The mask that makes a critter rise out of the ground: everything above
+/// the hole's middle, and the round of the hole below it.
+struct WhackAMoleHoleMask: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let ground = rect.maxY - rect.height * 0.2
+        path.addRect(CGRect(x: rect.minX - rect.width, y: rect.minY - rect.height, width: rect.width * 3,
+                            height: ground - rect.minY + rect.height))
+        path.addEllipse(in: CGRect(x: rect.minX, y: ground - rect.height * 0.2, width: rect.width, height: rect.height * 0.4))
+        return path
+    }
+}
+
+/// A mole, a golden mole or a bomb popping out of its hole. Drawn, not a
+/// symbol: a mole has a snout and teeth.
 struct WhackAMoleCritter: View {
     let kind: WhackAMoleRules.Kind
     let size: CGFloat
 
     var body: some View {
-        ZStack {
-            Circle().fill(fill)
-            Image(systemName: symbol)
-                .font(.system(size: size * 0.46, weight: .bold))
-                .foregroundStyle(SR.paper)
+        Group {
+            switch kind {
+            case .mole: mole(fur: [Color(hex: 0x9A6B47), Color(hex: 0x5E3A22)])
+            case .golden: mole(fur: [Color(hex: 0xFFE07A), Color(hex: 0xD99A0B)])
+            case .bomb: bomb
+            }
         }
         .frame(width: size, height: size)
-        .shadow(color: SR.ink.opacity(0.18), radius: 4, y: 2)
         .accessibilityHidden(true)
     }
 
-    private var fill: Color {
-        switch kind {
-        case .mole: return SR.accentDeep
-        case .golden: return SR.warn
-        case .bomb: return SR.ink
+    private func mole(fur: [Color]) -> some View {
+        ZStack {
+            // Head and body.
+            RoundedRectangle(cornerRadius: size * 0.45, style: .continuous)
+                .fill(LinearGradient(colors: fur, startPoint: .top, endPoint: .bottom))
+                .frame(width: size * 0.82, height: size * 0.98)
+                .offset(y: size * 0.12)
+            // Eyes.
+            HStack(spacing: size * 0.18) {
+                Circle().fill(Color(hex: 0x1A1A1A)).frame(width: size * 0.1, height: size * 0.1)
+                Circle().fill(Color(hex: 0x1A1A1A)).frame(width: size * 0.1, height: size * 0.1)
+            }
+            .offset(y: -size * 0.12)
+            // Snout, nose and teeth.
+            Ellipse()
+                .fill(Color(hex: 0xF2C9A0))
+                .frame(width: size * 0.42, height: size * 0.28)
+                .offset(y: size * 0.06)
+            Ellipse()
+                .fill(Color(hex: 0xE66A7F))
+                .frame(width: size * 0.16, height: size * 0.1)
+                .offset(y: -size * 0.02)
+            HStack(spacing: size * 0.01) {
+                Rectangle().fill(Color.white).frame(width: size * 0.06, height: size * 0.08)
+                Rectangle().fill(Color.white).frame(width: size * 0.06, height: size * 0.08)
+            }
+            .offset(y: size * 0.15)
+            if kind == .golden {
+                Image(systemName: "sparkles")
+                    .font(.system(size: size * 0.28, weight: .bold))
+                    .foregroundStyle(Color.white)
+                    .offset(x: size * 0.32, y: -size * 0.32)
+            }
         }
+        .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 2)
     }
 
-    private var symbol: String {
-        switch kind {
-        case .mole: return "pawprint.fill"
-        case .golden: return "star.fill"
-        case .bomb: return "flame.fill"
+    private var bomb: some View {
+        ZStack {
+            Circle()
+                .fill(RadialGradient(colors: [Color(hex: 0x5A5F6E), Color(hex: 0x14161C)],
+                                     center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: size * 0.5))
+                .frame(width: size * 0.78, height: size * 0.78)
+                .offset(y: size * 0.1)
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color(hex: 0x3A3F4B))
+                .frame(width: size * 0.18, height: size * 0.12)
+                .offset(y: -size * 0.3)
+            Path { path in
+                path.move(to: CGPoint(x: size * 0.5, y: size * 0.14))
+                path.addQuadCurve(to: CGPoint(x: size * 0.7, y: size * 0.02), control: CGPoint(x: size * 0.52, y: 0))
+            }
+            .stroke(Color(hex: 0xC8A46A), lineWidth: max(1.5, size * 0.04))
+            Image(systemName: "sparkle")
+                .font(.system(size: size * 0.24, weight: .bold))
+                .foregroundStyle(Color(hex: 0xFFD166))
+                .position(x: size * 0.72, y: size * 0.02)
+            Text("!")
+                .font(.system(size: size * 0.34, weight: .black, design: .rounded))
+                .foregroundStyle(Color(hex: 0xFF6B6B))
+                .offset(y: size * 0.1)
         }
+        .frame(width: size, height: size)
+        .shadow(color: Color.black.opacity(0.3), radius: 3, x: 0, y: 2)
+    }
+}
+
+/// A whack landing: the hammer and the points, while the mole is still up.
+struct WhackAMoleWhacked: View {
+    let points: Int
+    let size: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "hammer.fill")
+                .font(.system(size: size * 0.34, weight: .bold))
+                .foregroundStyle(Color.white)
+                .rotationEffect(.degrees(-30))
+            Text(points > 0 ? "+\(points)" : "−\(abs(points))")
+                .font(.system(size: size * 0.22, weight: .heavy, design: .rounded))
+                .foregroundStyle(points > 0 ? Color(hex: 0xFFF3B0) : Color(hex: 0xFFD6D6))
+        }
+        .shadow(color: Color.black.opacity(0.45), radius: 3, x: 0, y: 1)
+        .frame(width: size, height: size * 0.8)
+        .accessibilityHidden(true)
     }
 }
 
@@ -312,6 +518,14 @@ struct WhackAMoleScores: View {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if large && index > 0 { Divider().overlay(SR.divider) }
                 HStack(spacing: 8) {
+                    if large {
+                        NearbyPlayPlaceDisc(place: index + 1)
+                    } else {
+                        Circle()
+                            .fill(OfflineSeatColour.of(index))
+                            .frame(width: 10, height: 10)
+                            .accessibilityHidden(true)
+                    }
                     Text(row.id == me ? "You" : row.name)
                         .font(large ? SR.Text.title() : SR.Text.bodyMedium(15))
                         .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
@@ -325,36 +539,22 @@ struct WhackAMoleScores: View {
                     }
                     Spacer(minLength: 6)
                     Text("\(row.score)")
-                        .font(large ? SR.Text.display(20) : SR.Text.mono(15))
+                        .font(large ? SR.Text.display(22) : SR.Text.title(16))
                         .foregroundStyle(row.score < 0 ? SR.error : SR.ink)
                         .monospacedDigit()
                         .frame(minWidth: 26, alignment: .trailing)
                         .fixedSize()
                 }
-                .frame(minHeight: large ? SR.tapTarget : 0)
+                .frame(minHeight: large ? 52 : 0)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(row.id == me ? "You" : row.name), \(row.score) points\(row.away ? ", left" : "")")
             }
         }
-        .padding(.horizontal, large ? SR.cardPadding : 0)
-        .padding(.vertical, large ? 6 : 0)
-        .modifier(WhackAMoleCardIf(on: large))
+        .padding(.horizontal, SR.cardPadding)
+        .padding(.vertical, large ? 6 : 10)
+        .srGlassCard(.paper)
         .frame(maxWidth: 420)
         .accessibilityIdentifier("offline-whack-a-mole-scores")
-    }
-}
-
-/// The glass card round the final scores only.
-private struct WhackAMoleCardIf: ViewModifier {
-    let on: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if on {
-            content.srGlassCard(.paper)
-        } else {
-            content
-        }
     }
 }
 

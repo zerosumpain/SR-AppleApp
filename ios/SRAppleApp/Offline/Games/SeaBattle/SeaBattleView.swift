@@ -17,6 +17,12 @@ import SwiftUI
 ///
 /// Only your own phone is ever sent your ships; other grids show nothing but
 /// shots and the ships that have sunk.
+///
+/// The overhaul (2026-10-29) put the grids on open sea: ships are drawn as
+/// hulls with a bow and a stern rather than grey squares, a miss is a
+/// splash, a hit burns, a sunk ship is a wreck (on enemy grids too, so you
+/// can see what went down), the aim is a gold crosshair, and "Hit!",
+/// "Miss" and "Sunk!" pop with the right buzz.
 struct SeaBattleView: View {
     let context: OfflineGameContext<SeaBattleRules>
     /// My edited layout, shown until the host's view echoes it back.
@@ -31,13 +37,18 @@ struct SeaBattleView: View {
     @State private var waiting = false
     /// I have told the host my phone is back after being marked away.
     @State private var sentBack = false
+    @State private var callout = ""
+    @State private var calloutTone: Color = SR.accentDeep
+    @State private var calloutIcon: String?
+    @State private var calloutToken = 0
+    @State private var burstToken = 0
 
     private var view: SeaBattleRules.PlayerView { context.view }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                SRPageHeader(kicker: kicker, title: title, strap: strap)
+            VStack(alignment: .leading, spacing: 16) {
+                banner
                 switch view.phase {
                 case .placing:
                     placingSection
@@ -50,6 +61,12 @@ struct SeaBattleView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay {
+            ZStack {
+                NearbyPlayBurst(token: burstToken)
+                NearbyPlayCallout(text: callout, icon: calloutIcon, tone: calloutTone, token: calloutToken, hold: 1.2)
+            }
+        }
         .onAppear { comeBackIfAway() }
         .onChange(of: view) { _, _ in
             waiting = false
@@ -62,7 +79,12 @@ struct SeaBattleView: View {
             draft = nil
             aimed = nil
             if new == .done {
-                if view.winner == context.me { SRHaptic.ok() } else if view.winner != nil { SRHaptic.bad() }
+                if view.winner == context.me {
+                    SRHaptic.ok()
+                    burstToken += 1
+                } else if view.winner != nil {
+                    SRHaptic.bad()
+                }
             }
         }
         .onChange(of: view.turnNumber) { _, _ in
@@ -77,6 +99,7 @@ struct SeaBattleView: View {
             guard let shot = new, view.phase != .placing else { return }
             if shot.target == context.me && shot.hit { SRHaptic.bad() }
             if shot.shooter == context.me && shot.sunk != nil { SRHaptic.ok() }
+            popShot(shot)
         }
         .onChange(of: context.refusal) { _, new in
             if new != nil {
@@ -165,19 +188,72 @@ struct SeaBattleView: View {
         }
     }
 
+    private func seatTone(_ id: String?) -> Color {
+        guard let id, let board = view.boards.first(where: { $0.id == id }) else { return SR.accent }
+        return OfflineSeatColour.of(board.seat)
+    }
+
+    // MARK: - The top
+
+    private var bannerMark: NearbyPlayMark {
+        switch view.phase {
+        case .placing: return .symbol("ferry.fill")
+        case .firing: return view.turnPlayer.map { NearbyPlayMark.person(context.name(of: $0)) } ?? .symbol("scope")
+        case .done, .over: return .symbol("trophy.fill")
+        }
+    }
+
+    private var bannerMine: Bool {
+        switch view.phase {
+        case .placing: return canPlace
+        case .firing: return myTurn
+        case .done, .over: return view.winner == context.me
+        }
+    }
+
+    private var banner: some View {
+        NearbyPlayBanner(kicker: kicker, title: title, strap: strap, mine: bannerMine,
+                         tone: seatTone(view.turnPlayer), mark: bannerMark) {
+            bannerClock
+        }
+    }
+
+    @ViewBuilder
+    private var bannerClock: some View {
+        switch view.phase {
+        case .placing:
+            NearbyPlayBannerClock(clock: context.clock, until: view.placeEndsAt,
+                                  total: SeaBattleRules.placeSeconds, mine: canPlace)
+                .accessibilityLabel("Ships sail soon")
+                .accessibilityIdentifier("offline-sea-battle-place-clock")
+        case .firing:
+            NearbyPlayBannerClock(clock: context.clock, until: view.turnEndsAt,
+                                  total: SeaBattleRules.turnSeconds, mine: myTurn)
+        case .done:
+            NearbyPlayBannerClock(clock: context.clock, until: view.doneUntil,
+                                  total: SeaBattleRules.donePause, mine: false)
+                .accessibilityLabel("Results soon")
+        case .over:
+            EmptyView()
+        }
+    }
+
     // MARK: - Placing
 
     @ViewBuilder
     private var placingSection: some View {
-        clockBar(text: "Ships sail in", until: view.placeEndsAt, identifier: "offline-sea-battle-place-clock")
         if playing, let mine = myBoard {
-            SeaBattleGrid(
-                size: view.size,
-                squares: squares(for: mine, fleet: myFleet, chosen: canPlace ? chosenShip : nil),
-                aimed: nil,
-                accessibilityName: "Your grid",
-                onTap: { placeTap($0) }
-            )
+            NearbyPlayFelt(tone: .ocean, padding: 8) {
+                SeaBattleGrid(
+                    size: view.size,
+                    squares: squares(for: mine, fleet: myFleet, chosen: canPlace ? chosenShip : nil),
+                    hulls: hullMarks(fleet: myFleet, sunk: []),
+                    chosenShip: canPlace ? chosenShip : nil,
+                    aimed: nil,
+                    accessibilityName: "Your grid",
+                    onTap: { placeTap($0) }
+                )
+            }
             .accessibilityIdentifier("offline-sea-battle-my-grid")
             if canPlace {
                 shipPicker
@@ -187,81 +263,69 @@ struct SeaBattleView: View {
         readinessCard
     }
 
-    /// The four ships as buttons, two to a row.
+    /// The four ships as buttons, two to a row, each with its hull drawn.
     private var shipPicker: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             ForEach(Array(view.fleetNames.enumerated()), id: \.offset) { index, name in
-                let length = view.fleetLengths.indices.contains(index) ? view.fleetLengths[index] : 0
-                Button {
-                    SRHaptic.select()
-                    chosenShip = index
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(name)
-                            .font(SR.Text.bodyMedium(15))
-                            .foregroundStyle(chosenShip == index ? SR.paper : SR.ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                        Spacer(minLength: 4)
-                        Text(String(repeating: "■", count: length))
-                            .font(.system(size: 9))
-                            .foregroundStyle(chosenShip == index ? SR.paper : SR.inkSecondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(maxWidth: .infinity, minHeight: SR.tapTarget)
-                    .background(
-                        RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
-                            .fill(chosenShip == index ? SR.accent : SR.ink.opacity(0.06))
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(name), \(length) squares")
-                .accessibilityAddTraits(chosenShip == index ? .isSelected : [])
-                .accessibilityIdentifier("offline-sea-battle-ship-\(index)")
+                shipButton(index, name: name)
             }
         }
+    }
+
+    private func shipButton(_ index: Int, name: String) -> some View {
+        let length = view.fleetLengths.indices.contains(index) ? view.fleetLengths[index] : 0
+        let picked = chosenShip == index
+        let shape = RoundedRectangle(cornerRadius: NearbyPlayMetrics.radius, style: .continuous)
+        return Button {
+            SRHaptic.select()
+            chosenShip = index
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(name)
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(picked ? SR.paper : SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                SeaBattleShipIcon(length: length, tone: picked ? SR.paper : SR.inkSecondary)
+                    .frame(height: 12)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+            .background(shape.fill(picked ? SR.accentDeep : SR.surface))
+            .overlay(shape.strokeBorder(picked ? SR.accentDeep : SR.line, lineWidth: 1))
+            .contentShape(shape)
+        }
+        .buttonStyle(SRPressStyle())
+        .accessibilityLabel("\(name), \(length) squares")
+        .accessibilityAddTraits(picked ? .isSelected : [])
+        .accessibilityIdentifier("offline-sea-battle-ship-\(index)")
     }
 
     private var placeControls: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                Button {
+                NearbyPlayButton(title: "Rotate", icon: "rotate.right", kind: .secondary, enabled: chosenShip != nil) {
                     rotate()
-                } label: {
-                    SRButtonLabel(title: "Rotate", icon: "rotate.right", fill: true)
                 }
-                .srButton(.regular)
-                .controlSize(.large)
-                .disabled(chosenShip == nil)
-                .accessibilityIdentifier("offline-sea-battle-rotate")
                 .accessibilityLabel(chosenShip.map { "Rotate the \(shipName($0))" } ?? "Rotate")
+                .accessibilityIdentifier("offline-sea-battle-rotate")
 
-                Button {
+                NearbyPlayButton(title: "Shuffle", icon: "shuffle", kind: .secondary) {
                     SRHaptic.tap()
                     draft = nil
                     context.send(.shuffle)
-                } label: {
-                    SRButtonLabel(title: "Shuffle", icon: "shuffle", fill: true)
                 }
-                .srButton(.regular)
-                .controlSize(.large)
-                .accessibilityIdentifier("offline-sea-battle-shuffle")
                 .accessibilityLabel("Shuffle: place my ships at random")
+                .accessibilityIdentifier("offline-sea-battle-shuffle")
             }
-            Button {
+            NearbyPlayButton(title: "Ready", icon: "checkmark", kind: .primary, minHeight: 64) {
                 SRHaptic.ok()
                 waiting = true
                 context.send(.ready)
-            } label: {
-                SRButtonLabel(title: "Ready", icon: "checkmark", fill: true)
             }
-            .srButton(.prominent)
-            .controlSize(.large)
-            .accessibilityIdentifier("offline-sea-battle-ready")
             .accessibilityLabel("Ready: lock my fleet in")
+            .accessibilityIdentifier("offline-sea-battle-ready")
         }
     }
 
@@ -271,10 +335,7 @@ struct SeaBattleView: View {
             ForEach(Array(view.boards.enumerated()), id: \.element.id) { index, board in
                 if index > 0 { Divider().overlay(SR.divider) }
                 HStack(spacing: 10) {
-                    Circle()
-                        .fill(OfflineSeatColour.of(board.seat))
-                        .frame(width: 12, height: 12)
-                        .accessibilityHidden(true)
+                    OfflineInitial(name: board.name, size: 30, tone: OfflineSeatColour.of(board.seat))
                     Text(who(board.id))
                         .font(SR.Text.bodyMedium(15))
                         .foregroundStyle(board.away ? SR.inkMuted : SR.ink)
@@ -287,11 +348,11 @@ struct SeaBattleView: View {
                         .lineLimit(1)
                         .fixedSize()
                     Image(systemName: board.ready ? "checkmark.circle.fill" : "circle.dashed")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(SR.Text.title(17))
                         .foregroundStyle(board.ready ? SR.good : SR.inkMuted)
                         .accessibilityHidden(true)
                 }
-                .frame(minHeight: 40)
+                .frame(minHeight: 48)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(who(board.id)), \(board.away ? "left the game" : (board.ready ? "ready" : "still placing"))")
             }
@@ -307,13 +368,12 @@ struct SeaBattleView: View {
     @ViewBuilder
     private var battleSection: some View {
         if view.phase == .firing, let turn = view.turnPlayer {
-            clockBar(text: turnText(turn), until: view.turnEndsAt, identifier: "offline-sea-battle-turn")
+            shotsLine(turn)
         }
         if let line = lastShotText {
-            Text(line)
-                .font(SR.Text.secondary())
-                .foregroundStyle(SR.inkSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            NearbyPlayBubble(text: line, icon: lastShotIcon)
+                .id(line)
+                .transition(.opacity)
                 .accessibilityIdentifier("offline-sea-battle-last-shot")
         }
         fleetPicker
@@ -322,13 +382,17 @@ struct SeaBattleView: View {
                 SRSectionLabel(text: board.id == context.me ? "Your waters" : "\(board.name)'s waters",
                                trailing: board.sunk.isEmpty ? nil : "\(board.sunk.count) sunk")
                     .lineLimit(1)
-                SeaBattleGrid(
-                    size: view.size,
-                    squares: squares(for: board, fleet: board.id == context.me ? view.myFleet : nil, chosen: nil),
-                    aimed: canFire(at: board) ? aimed : nil,
-                    accessibilityName: board.id == context.me ? "Your grid" : "\(board.name)'s grid",
-                    onTap: { aim($0, at: board) }
-                )
+                NearbyPlayFelt(tone: .ocean, padding: 8) {
+                    SeaBattleGrid(
+                        size: view.size,
+                        squares: squares(for: board, fleet: board.id == context.me ? view.myFleet : nil, chosen: nil),
+                        hulls: hullMarks(fleet: board.id == context.me ? (view.myFleet ?? []) : [], sunk: board.sunk),
+                        chosenShip: nil,
+                        aimed: canFire(at: board) ? aimed : nil,
+                        accessibilityName: board.id == context.me ? "Your grid" : "\(board.name)'s grid",
+                        onTap: { aim($0, at: board) }
+                    )
+                }
                 .accessibilityIdentifier("offline-sea-battle-grid")
                 if let sunk = sunkSummary(board) {
                     Text(sunk)
@@ -340,6 +404,32 @@ struct SeaBattleView: View {
             }
             if canFire(at: board) { fireControls(board) }
         }
+    }
+
+    /// "Your shot · 2 of 3" with a pip per shot.
+    private func shotsLine(_ turn: String) -> some View {
+        let shot = min(view.shotsThisTurn + 1, view.maxShots)
+        return HStack(spacing: 10) {
+            Text(turnText(turn))
+                .font(SR.Text.bodyMedium(15))
+                .foregroundStyle(SR.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 6)
+            HStack(spacing: 5) {
+                ForEach(0..<max(1, view.maxShots), id: \.self) { index in
+                    Image(systemName: index < shot ? "circle.fill" : "circle")
+                        .font(SR.Text.label(12))
+                        .foregroundStyle(index < view.shotsThisTurn ? SR.inkGhost : SR.accent)
+                }
+            }
+            .accessibilityHidden(true)
+        }
+        .padding(.horizontal, SR.cardPadding)
+        .frame(minHeight: SR.tapTarget)
+        .srGlassCard(.paper)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("offline-sea-battle-turn")
     }
 
     private func turnText(_ turn: String) -> String {
@@ -374,27 +464,35 @@ struct SeaBattleView: View {
     }
 
     private func fleetRow(_ board: SeaBattleRules.Board) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: shownBoard?.id == board.id ? "largecircle.fill.circle" : "circle")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(shownBoard?.id == board.id ? SR.accent : SR.inkMuted)
-            Circle()
-                .fill(OfflineSeatColour.of(board.seat))
-                .frame(width: 10, height: 10)
-            Text(board.id == context.me ? "Your fleet" : board.name)
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(board.out ? SR.inkMuted : SR.ink)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if view.turnPlayer == board.id {
-                Image(systemName: "scope")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(SR.accent)
-            }
-            if view.winner == board.id {
-                Image(systemName: "crown.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(SR.accent)
+        let shown = shownBoard?.id == board.id
+        return HStack(spacing: 10) {
+            OfflineInitial(name: board.name, size: 32, tone: board.out ? SR.inkGhost : OfflineSeatColour.of(board.seat))
+                .overlay { Circle().strokeBorder(shown ? SR.accent : Color.clear, lineWidth: 2.5).padding(-3) }
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(board.id == context.me ? "Your fleet" : board.name)
+                        .font(SR.Text.bodyMedium(15))
+                        .foregroundStyle(board.out ? SR.inkMuted : SR.ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if view.turnPlayer == board.id {
+                        Image(systemName: "scope")
+                            .font(SR.Text.label(13))
+                            .foregroundStyle(SR.accent)
+                    }
+                    if view.winner == board.id {
+                        Image(systemName: "crown.fill")
+                            .font(SR.Text.label(13))
+                            .foregroundStyle(SR.warn)
+                    }
+                }
+                HStack(spacing: 4) {
+                    ForEach(0..<max(0, min(board.shipsLeft, 6)), id: \.self) { _ in
+                        SeaBattleShipIcon(length: 3, tone: SR.inkSecondary)
+                            .frame(width: 22, height: 7)
+                    }
+                }
+                .accessibilityHidden(true)
             }
             Spacer(minLength: 6)
             Text(fleetStatus(board))
@@ -402,8 +500,12 @@ struct SeaBattleView: View {
                 .foregroundStyle(board.out ? SR.error : SR.inkSecondary)
                 .lineLimit(1)
                 .fixedSize()
+            Image(systemName: shown ? "eye.fill" : "chevron.right")
+                .font(SR.Text.label(13))
+                .foregroundStyle(shown ? SR.accent : SR.inkGhost)
+                .accessibilityHidden(true)
         }
-        .frame(minHeight: SR.tapTarget)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
     }
 
@@ -445,28 +547,20 @@ struct SeaBattleView: View {
 
     private func fireControls(_ board: SeaBattleRules.Board) -> some View {
         HStack(spacing: 10) {
-            Button {
+            NearbyPlayButton(title: aimed.map { "Fire at \(SeaBattleRules.coordinate($0))" } ?? "Fire",
+                             icon: "scope", kind: .danger, enabled: aimed != nil, minHeight: 64) {
                 if let cell = aimed { fire(cell, at: board) }
-            } label: {
-                SRButtonLabel(title: "Fire", icon: "scope", fill: true)
             }
-            .srButton(.prominent)
-            .controlSize(.large)
-            .disabled(aimed == nil)
-            .accessibilityIdentifier("offline-sea-battle-fire")
             .accessibilityLabel(aimed.map { "Fire at \(SeaBattleRules.coordinate($0)) on \(whose(board.id)) grid" } ?? "Fire")
+            .accessibilityIdentifier("offline-sea-battle-fire")
 
-            Button {
+            NearbyPlayButton(title: "Clear", icon: "xmark", kind: .secondary, enabled: aimed != nil, minHeight: 64) {
                 SRHaptic.select()
                 aimed = nil
-            } label: {
-                SRButtonLabel(title: "Clear", fill: true)
             }
-            .srButton(.regular)
-            .controlSize(.large)
-            .disabled(aimed == nil)
-            .accessibilityIdentifier("offline-sea-battle-clear")
+            .frame(maxWidth: 130)
             .accessibilityLabel("Clear the aimed square")
+            .accessibilityIdentifier("offline-sea-battle-clear")
         }
     }
 
@@ -485,31 +579,13 @@ struct SeaBattleView: View {
         return "\(opening) and sank the \(sunk.lowercased())."
     }
 
-    // MARK: - Shared
-
-    private func clockBar(text: String, until: Double, identifier: String) -> some View {
-        HStack(spacing: 10) {
-            Text(text)
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.ink)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 6)
-            Image(systemName: "timer")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(SR.inkSecondary)
-                .accessibilityHidden(true)
-            OfflineCountdown(clock: context.clock, until: until, font: SR.Text.display(22),
-                             tone: myTurn ? SR.accent : SR.ink)
-                .fixedSize()
-        }
-        .padding(.horizontal, SR.cardPadding)
-        .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
-        .srGlassCard(.paper)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(identifier)
+    private var lastShotIcon: String {
+        guard let shot = view.lastShot else { return "scope" }
+        if shot.sunk != nil { return "flame.fill" }
+        return shot.hit ? "burst.fill" : "drop.fill"
     }
+
+    // MARK: - Shared
 
     private func shipName(_ index: Int) -> String {
         view.fleetNames.indices.contains(index) ? view.fleetNames[index].lowercased() : "ship"
@@ -534,6 +610,45 @@ struct SeaBattleView: View {
             for cell in ship.cells where out.indices.contains(cell) { out[cell] = .sunk }
         }
         return out
+    }
+
+    /// The hull each ship square belongs to: my own fleet, and every sunk
+    /// ship (whose squares everyone has been shown).
+    private func hullMarks(fleet: [SeaBattleRules.Placement], sunk: [SeaBattleRules.Sunk]) -> [Int: SeaBattleHullMark] {
+        var ships: [[Int]] = fleet.enumerated().map { pair -> [Int] in
+            SeaBattleRules.cells(of: pair.element, ship: pair.offset) ?? []
+        }
+        let offset = ships.count
+        ships += sunk.map { $0.cells.sorted() }
+        var marks = SeaBattleHull.marks(ships: ships, size: view.size)
+        // Sunk wrecks are numbered after the fleet so a pick never lands on one.
+        for (cell, mark) in marks where mark.ship >= offset {
+            marks[cell] = SeaBattleHullMark(part: mark.part, across: mark.across, ship: -1)
+        }
+        return marks
+    }
+
+    // MARK: - Moments
+
+    private func popShot(_ shot: SeaBattleRules.LastShot) {
+        let mine = shot.shooter == context.me
+        let atMe = shot.target == context.me
+        guard mine || atMe else { return }
+        if let sunk = shot.sunk {
+            callout = mine ? "Sunk the \(sunk.lowercased())!" : "They sank your \(sunk.lowercased())"
+            calloutIcon = "flame.fill"
+            calloutTone = mine ? SR.good : SR.error
+            if mine { burstToken += 1 }
+        } else if shot.hit {
+            callout = mine ? "Hit! Go again" : "You've been hit"
+            calloutIcon = "burst.fill"
+            calloutTone = mine ? Color(hex: 0xE4572E) : SR.error
+        } else {
+            callout = mine ? "Splash — a miss" : "They missed"
+            calloutIcon = "drop.fill"
+            calloutTone = Color(hex: 0x1C7C99)
+        }
+        calloutToken += 1
     }
 
     // MARK: - Acting
@@ -650,12 +765,71 @@ enum SeaBattleSquare: Equatable {
     }
 }
 
-/// An 8 × 8 grid with row letters and column numbers, sized from the width
-/// it is given: the square side is the width over nine-and-a-bit squares,
-/// and the aspect ratio fixes the height, so it never runs off a phone.
+/// A ship as a little hull of `length` segments, for the pickers.
+struct SeaBattleShipIcon: View {
+    let length: Int
+    let tone: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let segment = geo.size.width / CGFloat(max(1, length))
+            HStack(spacing: 0) {
+                ForEach(0..<max(1, length), id: \.self) { index in
+                    SeaBattleHullShape(part: SeaBattleHull.parts(count: max(1, length))[index], across: true,
+                                       radius: geo.size.height / 2)
+                        .fill(tone)
+                        .frame(width: segment, height: geo.size.height)
+                        .overlay(alignment: .trailing) {
+                            if index < length - 1 {
+                                Rectangle().fill(Color.black.opacity(0.15)).frame(width: 1)
+                            }
+                        }
+                }
+            }
+        }
+        .frame(maxWidth: 80)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One square's piece of a hull: rounded at the bow and the stern, square
+/// where it joins the next square of the same ship.
+struct SeaBattleHullShape: Shape {
+    let part: SeaBattleHullPart
+    let across: Bool
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(radius, min(rect.width, rect.height) / 2)
+        var tl: CGFloat = 0, bl: CGFloat = 0, br: CGFloat = 0, tr: CGFloat = 0
+        switch part {
+        case .single:
+            tl = r; bl = r; br = r; tr = r
+        case .start:
+            if across { tl = r; bl = r } else { tl = r; tr = r }
+        case .end:
+            if across { tr = r; br = r } else { bl = r; br = r }
+        case .middle:
+            break
+        }
+        return UnevenRoundedRectangle(topLeadingRadius: tl, bottomLeadingRadius: bl,
+                                      bottomTrailingRadius: br, topTrailingRadius: tr,
+                                      style: .continuous).path(in: rect)
+    }
+}
+
+/// An 8 × 8 grid of sea with row letters and column numbers, sized from the
+/// width it is given: the square side is the width over nine-and-a-bit
+/// squares, and the aspect ratio fixes the height, so it never runs off a
+/// phone. Ships are hulls across their squares; shots are splashes, fires
+/// and wrecks. Fixed colours: it is the sea, the same in light and dark.
 struct SeaBattleGrid: View {
     let size: Int
     let squares: [SeaBattleSquare]
+    /// The hull piece each ship square shows, by square.
+    var hulls: [Int: SeaBattleHullMark] = [:]
+    /// The ship picked for moving, drawn in the accent.
+    var chosenShip: Int? = nil
     let aimed: Int?
     /// "Your grid", "Ann's grid".
     let accessibilityName: String
@@ -674,8 +848,8 @@ struct SeaBattleGrid: View {
                     Color.clear.frame(width: unit * Self.rim, height: unit * Self.rim)
                     ForEach(0..<n, id: \.self) { col in
                         Text("\(col + 1)")
-                            .font(.system(size: max(8, unit * 0.32), weight: .semibold, design: .monospaced))
-                            .foregroundStyle(SR.inkMuted)
+                            .font(.system(size: max(8, unit * 0.32), weight: .semibold, design: .rounded))
+                            .foregroundStyle(NearbyPlayFeltInk.secondary)
                             .frame(width: unit, height: unit * Self.rim)
                     }
                 }
@@ -683,8 +857,8 @@ struct SeaBattleGrid: View {
                 ForEach(0..<n, id: \.self) { row in
                     HStack(spacing: 0) {
                         Text(SeaBattleGrid.letter(row))
-                            .font(.system(size: max(8, unit * 0.32), weight: .semibold, design: .monospaced))
-                            .foregroundStyle(SR.inkMuted)
+                            .font(.system(size: max(8, unit * 0.32), weight: .semibold, design: .rounded))
+                            .foregroundStyle(NearbyPlayFeltInk.secondary)
                             .frame(width: unit * Self.rim, height: unit)
                             .accessibilityHidden(true)
                         ForEach(0..<n, id: \.self) { col in
@@ -714,18 +888,20 @@ struct SeaBattleGrid: View {
             onTap(index)
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: unit * 0.14, style: .continuous)
-                    .fill(fill(kind))
-                glyph(kind, unit: unit)
+                Rectangle()
+                    .fill(Color.white.opacity(0.05))
+                    .overlay { Rectangle().strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5) }
+                content(kind, index: index, unit: unit)
                 if isAimed {
                     RoundedRectangle(cornerRadius: unit * 0.14, style: .continuous)
-                        .strokeBorder(SR.accent, lineWidth: max(2, unit * 0.09))
+                        .strokeBorder(NearbyPlayFeltInk.gold, lineWidth: max(2, unit * 0.09))
+                        .padding(unit * 0.04)
                     Image(systemName: "scope")
-                        .font(.system(size: unit * 0.5, weight: .bold))
-                        .foregroundStyle(SR.accent)
+                        .font(.system(size: unit * 0.56, weight: .bold))
+                        .foregroundStyle(NearbyPlayFeltInk.gold)
+                        .shadow(color: Color.black.opacity(0.4), radius: 2, x: 0, y: 1)
                 }
             }
-            .padding(unit * 0.05)
             .frame(width: unit, height: unit)
             .contentShape(Rectangle())
         }
@@ -734,34 +910,81 @@ struct SeaBattleGrid: View {
         .accessibilityIdentifier("offline-sea-battle-square-\(index)")
     }
 
-    private func fill(_ kind: SeaBattleSquare) -> Color {
+    @ViewBuilder
+    private func content(_ kind: SeaBattleSquare, index: Int, unit: CGFloat) -> some View {
         switch kind {
-        case .water: return SR.ink.opacity(0.06)
-        case .ship: return SR.ink.opacity(0.45)
-        case .chosen: return SR.accent
-        case .miss: return SR.ink.opacity(0.06)
-        case .hit: return SR.error
-        case .sunk: return SR.ink
+        case .water:
+            EmptyView()
+        case .miss:
+            ZStack {
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.65), lineWidth: max(1, unit * 0.06))
+                    .frame(width: unit * 0.56, height: unit * 0.56)
+                Circle()
+                    .fill(Color.white.opacity(0.85))
+                    .frame(width: unit * 0.18, height: unit * 0.18)
+            }
+        case .ship, .chosen:
+            hull(index: index, unit: unit, fill: kind == .chosen ? SeaBattleGrid.chosenHull : SeaBattleGrid.steelHull)
+        case .hit:
+            ZStack {
+                if hulls[index] != nil {
+                    hull(index: index, unit: unit, fill: SeaBattleGrid.damagedHull)
+                } else {
+                    Circle()
+                        .fill(RadialGradient(colors: [Color(hex: 0xFFD166), Color(hex: 0xE4572E)],
+                                             center: .center, startRadius: 0, endRadius: unit * 0.4))
+                        .frame(width: unit * 0.74, height: unit * 0.74)
+                }
+                Image(systemName: "flame.fill")
+                    .font(.system(size: unit * 0.44, weight: .bold))
+                    .foregroundStyle(Color(hex: 0xFFF3D6))
+                    .shadow(color: Color(hex: 0xE4572E), radius: 3, x: 0, y: 0)
+            }
+        case .sunk:
+            ZStack {
+                if hulls[index] != nil {
+                    hull(index: index, unit: unit, fill: SeaBattleGrid.wreckHull)
+                } else {
+                    RoundedRectangle(cornerRadius: unit * 0.14, style: .continuous)
+                        .fill(SeaBattleGrid.wreckHull)
+                        .padding(unit * 0.08)
+                }
+                Image(systemName: "xmark")
+                    .font(.system(size: unit * 0.36, weight: .heavy))
+                    .foregroundStyle(Color(hex: 0xFF8A80))
+            }
         }
     }
 
-    @ViewBuilder
-    private func glyph(_ kind: SeaBattleSquare, unit: CGFloat) -> some View {
-        switch kind {
-        case .miss:
-            Circle()
-                .fill(SR.inkMuted)
-                .frame(width: unit * 0.22, height: unit * 0.22)
-        case .hit:
-            Image(systemName: "flame.fill")
-                .font(.system(size: unit * 0.42, weight: .bold))
-                .foregroundStyle(SR.paper)
-        case .sunk:
-            Image(systemName: "xmark")
-                .font(.system(size: unit * 0.4, weight: .bold))
-                .foregroundStyle(SR.paper)
-        case .water, .ship, .chosen:
-            EmptyView()
-        }
+    /// A ship square's piece of hull, inset only across the ship so the
+    /// pieces join into one boat along it.
+    private func hull(index: Int, unit: CGFloat, fill: LinearGradient) -> some View {
+        let mark = hulls[index] ?? SeaBattleHullMark(part: .single, across: true, ship: -1)
+        let thin = unit * 0.16
+        let end = unit * 0.06
+        let leading: CGFloat = mark.across ? ((mark.part == .start || mark.part == .single) ? end : 0) : thin
+        let trailing: CGFloat = mark.across ? ((mark.part == .end || mark.part == .single) ? end : 0) : thin
+        let top: CGFloat = mark.across ? thin : ((mark.part == .start || mark.part == .single) ? end : 0)
+        let bottom: CGFloat = mark.across ? thin : ((mark.part == .end || mark.part == .single) ? end : 0)
+        return SeaBattleHullShape(part: mark.part, across: mark.across, radius: unit * 0.4)
+            .fill(fill)
+            .overlay {
+                SeaBattleHullShape(part: mark.part, across: mark.across, radius: unit * 0.4)
+                    .stroke(Color.black.opacity(0.25), lineWidth: 0.75)
+            }
+            .padding(.leading, leading)
+            .padding(.trailing, trailing)
+            .padding(.top, top)
+            .padding(.bottom, bottom)
     }
+
+    static let steelHull = LinearGradient(colors: [Color(hex: 0xC3CDD9), Color(hex: 0x6E7B90)],
+                                          startPoint: .top, endPoint: .bottom)
+    static let chosenHull = LinearGradient(colors: [Color(hex: 0xA48BFF), Color(hex: 0x5B3FD9)],
+                                           startPoint: .top, endPoint: .bottom)
+    static let damagedHull = LinearGradient(colors: [Color(hex: 0x9C6B5A), Color(hex: 0x5A3328)],
+                                            startPoint: .top, endPoint: .bottom)
+    static let wreckHull = LinearGradient(colors: [Color(hex: 0x3B4150), Color(hex: 0x1C1F28)],
+                                          startPoint: .top, endPoint: .bottom)
 }

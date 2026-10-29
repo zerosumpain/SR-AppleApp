@@ -34,6 +34,20 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-30-games-overhaul", when: "October 2026", title: "Nine new games", items: [
+            WhatsNewItem(icon: "steeringwheel", title: "Car Racer+",
+                         detail: "A proper racing game. Tyres that grip and slide, gears, weight that shifts as you brake, and gravel that punishes a mistake. Race a season against rivals, win prize money and spend it upgrading your car."),
+            WhatsNewItem(icon: "figure.golf", title: "Mini Golf, Pinball, Tilt Maze and Orbit",
+                         detail: "Eighteen holes of crazy golf to pass round, a full pinball table you nudge by shaking the phone, a wooden maze you tilt, and gravity puzzles that fling a probe round the planets."),
+            WhatsNewItem(icon: "suit.spade.fill", title: "Solitaire, 2048, Minesweeper and Snake",
+                         detail: "The classics, on a new Puzzles shelf. Unlimited undo and deals you can always win in Solitaire, three board sizes in 2048, a first dig that's always safe in Minesweeper, and mazes to unlock in Snake."),
+            WhatsNewItem(icon: "sparkles", title: "Every game, made over",
+                         detail: "The Games page has a picture for every game and a big jump-back-in card. Every game has bigger buttons, clearer turns, how-to-play cards, animation and your bests, with confetti when you win."),
+            WhatsNewItem(icon: "wifi.slash", title: "Play nearby, made over",
+                         detail: "Real card tables, rolling dice, dropping discs, a ring that shows whose turn it is, and a podium at the end."),
+            WhatsNewItem(icon: "pause.circle", title: "Pause the race",
+                         detail: "Car Race on one phone now pauses from the race menu or when you leave the app, and Lander pauses too."),
+        ]),
         WhatsNewRelease(id: "2026-10-29-jkai-overhaul", when: "October 2026", title: "jkai, everywhere", items: [
             WhatsNewItem(icon: "arrow.triangle.2.circlepath", title: "Pick up where it left off",
                          detail: "Close the app mid-answer and jkai keeps going. Open it again, here or on the website, and the reply carries on. If it is still working somewhere else, it says so.",

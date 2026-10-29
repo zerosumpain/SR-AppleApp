@@ -11,6 +11,12 @@ import SwiftUI
 /// (`FireworksRules.knownText`), so the offline show looks like the site's.
 /// A hint is built in two taps — a player's Hint, then a colour or number —
 /// and the cards it would point at light up before it is sent.
+///
+/// The show itself is a night sky: each colour's firework is drawn as a
+/// burst that grows with its stack, and when a card is played onto it the
+/// burst goes off — a second of sparks, then still again. Hint tokens are a
+/// row of blue counters and misfires a row of fuses, so what is left reads
+/// without counting.
 struct OfflineFireworksView: View {
     let context: OfflineGameContext<OfflineFireworksRules>
     /// The player a hint is being put together for.
@@ -57,6 +63,12 @@ struct OfflineFireworksView: View {
             picked = nil
             if myTurn { SRHaptic.tap() }
         }
+        .onChange(of: view.score) { old, new in
+            if new > old { SRHaptic.ok() }
+        }
+        .onChange(of: view.misfires) { old, new in
+            if new > old { SRHaptic.bad() }
+        }
         .onChange(of: view.phase) { _, new in
             guard new == .done else { return }
             if view.ending == .misfires { SRHaptic.bad() } else { SRHaptic.ok() }
@@ -91,6 +103,10 @@ struct OfflineFireworksView: View {
 
     private func who(_ id: String) -> String { id == context.me ? "You" : context.name(of: id) }
 
+    private func tone(of id: String) -> Color {
+        OfflineSeatColour.of(view.seats.firstIndex { $0.id == id } ?? 0)
+    }
+
     private var kicker: String {
         "Fireworks · Turn \(view.turnNumber) · \(view.deck) in the deck"
     }
@@ -120,98 +136,107 @@ struct OfflineFireworksView: View {
 
     // MARK: - The turn and the tokens
 
+    @ViewBuilder
     private var turnBar: some View {
-        HStack(spacing: 10) {
-            if let turn = view.turnPlayer {
-                OfflineInitial(name: context.name(of: turn), size: 28,
-                               tone: OfflineSeatColour.of(view.seats.firstIndex { $0.id == turn } ?? 0))
-                Text(turn == context.me ? "Your turn" : "\(context.name(of: turn)) is thinking")
-                    .font(SR.Text.bodyMedium(15))
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+        if let turn = view.turnPlayer {
+            PlayTableTurnStrip(text: turn == context.me ? "Hint, play or drop" : "\(context.name(of: turn)) is thinking",
+                               mine: turn == context.me, clock: context.clock, until: view.turnEndsAt,
+                               total: Rules.turnSeconds, tone: tone(of: turn)) {
+                OfflineInitial(name: context.name(of: turn), size: 40, tone: tone(of: turn))
             }
-            Spacer(minLength: 6)
-            Image(systemName: "timer")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(SR.inkSecondary)
-                .accessibilityHidden(true)
-            OfflineCountdown(clock: context.clock, until: view.turnEndsAt, font: SR.Text.display(22),
-                             tone: myTurn ? SR.accent : SR.ink)
-                .fixedSize()
+            .accessibilityIdentifier("offline-fireworks-turn")
         }
-        .padding(.horizontal, SR.cardPadding)
-        .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
-        .srGlassCard(.paper)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("offline-fireworks-turn")
     }
 
     private var counters: some View {
-        HStack(spacing: 8) {
-            counter("lightbulb.fill", "\(view.hints)/\(Rules.maxHints)", "hints", tone: view.hints == 0 ? SR.error : SR.ink)
-            counter("flame.fill", "\(view.misfires)/\(Rules.maxMisfires)", "misfires",
-                    tone: view.misfires >= Rules.maxMisfires - 1 ? SR.error : SR.ink)
-            counter("sparkles", "\(view.score)/\(Rules.maxScore)", "score", tone: SR.accent)
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                counterLabel("Hints", "\(view.hints)/\(Rules.maxHints)", tone: view.hints == 0 ? SR.error : SR.ink)
+                OfflineFireworksTokens(filled: view.hints, total: Rules.maxHints)
+                counterLabel("Misfires", "\(view.misfires)/\(Rules.maxMisfires)",
+                             tone: view.misfires >= Rules.maxMisfires - 1 ? SR.error : SR.ink)
+                OfflineFireworksFuses(burnt: view.misfires, total: Rules.maxMisfires)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 2) {
+                Text("\(view.score)")
+                    .font(SR.Text.hero(40))
+                    .foregroundStyle(SR.accent)
+                    .srNumeric(Double(view.score))
+                Text("OF \(Rules.maxScore)")
+                    .font(SR.Text.label(11))
+                    .tracking(1)
+                    .foregroundStyle(SR.inkMuted)
+            }
+            .frame(minWidth: 84)
         }
-        .accessibilityElement(children: .combine)
+        .padding(SR.cardPadding)
+        .srGlassCard(.paper)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("hints \(view.hints)/\(Rules.maxHints), misfires \(view.misfires)/\(Rules.maxMisfires), score \(view.score)/\(Rules.maxScore)")
         .accessibilityIdentifier("offline-fireworks-counters")
     }
 
-    private func counter(_ icon: String, _ value: String, _ label: String, tone: Color) -> some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(tone)
-                    .accessibilityHidden(true)
-                Text(value)
-                    .font(SR.Text.figure(20))
-                    .foregroundStyle(tone)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-            }
+    private func counterLabel(_ label: String, _ value: String, tone: Color) -> some View {
+        HStack(spacing: 6) {
             Text(label.uppercased())
-                .font(SR.Text.label(10))
+                .font(SR.Text.label(11))
+                .tracking(1)
                 .foregroundStyle(SR.inkMuted)
-                .lineLimit(1)
+            Text(value)
+                .font(SR.Text.mono(13))
+                .foregroundStyle(tone)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .srGlassCard(.paper)
-        .accessibilityLabel("\(label) \(value)")
     }
 
     // MARK: - The fireworks
 
     private var stacks: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .bottom, spacing: 6) {
             ForEach(Array(Rules.colours.enumerated()), id: \.offset) { index, colour in
-                let top = view.stacks.indices.contains(index) ? view.stacks[index] : 0
-                VStack(spacing: 2) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(FireworksPaint.fill(colour).opacity(top > 0 ? 1 : 0.22))
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(SR.ink.opacity(0.22), lineWidth: 1)
-                        Text(top > 0 ? "\(top)" : "–")
-                            .font(SR.Text.figure(24))
-                            .foregroundStyle(top > 0 ? FireworksPaint.ink(colour) : SR.inkMuted)
-                    }
-                    .aspectRatio(0.8, contentMode: .fit)
-                    Text(FireworksPaint.tag(colour))
-                        .font(SR.Text.label(9))
-                        .foregroundStyle(SR.inkMuted)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(colour.capitalized) firework: \(top == 0 ? "not started" : "up to \(top)")")
+                stackColumn(index, colour)
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .fill(LinearGradient(colors: [Color(hex: 0x0B1030), Color(hex: 0x1D1650)], startPoint: .top, endPoint: .bottom))
+                .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 4)
+        )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("offline-fireworks-stacks")
+    }
+
+    /// One colour's column: its burst in the sky, its stack card and its tag.
+    private func stackColumn(_ index: Int, _ colour: String) -> some View {
+        let top: Int = view.stacks.indices.contains(index) ? view.stacks[index] : 0
+        let figureTone: Color = top > 0 ? FireworksPaint.ink(colour) : Color.white.opacity(0.6)
+        let spoken: String = top == 0 ? "not started" : "up to \(top)"
+        return VStack(spacing: 6) {
+            OfflineFireworksBurst(colour: colour, level: top, levels: Rules.ranks.count)
+                .frame(height: 76)
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(FireworksPaint.fill(colour).opacity(top > 0 ? 1 : 0.22))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                Text(top > 0 ? "\(top)" : "–")
+                    .font(SR.Text.figure(22))
+                    .foregroundStyle(figureTone)
+                    .contentTransition(.numericText())
+            }
+            .aspectRatio(0.8, contentMode: .fit)
+            .srAnimation(.spring(response: 0.3, dampingFraction: 0.6), value: top)
+            Text(FireworksPaint.tag(colour))
+                .font(SR.Text.label(9))
+                .foregroundStyle(Color.white.opacity(0.75))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(colour.capitalized) firework: \(spoken)")
     }
 
     // MARK: - Everyone else's hands
@@ -225,9 +250,11 @@ struct OfflineFireworksView: View {
         let targeted = target == seat.id
         let lit = targeted ? choice.map { Rules.touched(by: $0, in: seat.hand) } ?? [] : []
         let isTurn = view.turnPlayer == seat.id
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                OfflineInitial(name: seat.name, size: 26, tone: isTurn ? SR.accent : SR.accentInk)
+        let seatTone = tone(of: seat.id)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                OfflineInitial(name: seat.name, size: 32, tone: seatTone)
+                    .overlay(Circle().strokeBorder(isTurn ? seatTone : Color.clear, lineWidth: 2.5).padding(-4))
                 Text(seat.name)
                     .font(SR.Text.title())
                     .foregroundStyle(seat.left ? SR.inkMuted : SR.ink)
@@ -241,7 +268,7 @@ struct OfflineFireworksView: View {
                     Text("PLAYING")
                         .font(SR.Text.label())
                         .tracking(1)
-                        .foregroundStyle(SR.accent)
+                        .foregroundStyle(seatTone)
                 }
                 Spacer(minLength: 4)
                 if canAct && !seat.left && !seat.hand.isEmpty {
@@ -251,10 +278,12 @@ struct OfflineFireworksView: View {
                         choice = nil
                         target = targeted ? nil : seat.id
                     } label: {
-                        Text(targeted ? "Cancel" : "Hint")
+                        Label(targeted ? "Cancel" : "Hint", systemImage: targeted ? "xmark" : "lightbulb.fill")
                             .font(SR.Text.bodyMedium(15))
+                            .frame(minHeight: PlayTableMetrics.bigLabel)
                     }
                     .srButton(targeted ? .regular : .prominent)
+                    .controlSize(.large)
                     .disabled(view.hints == 0)
                     .accessibilityLabel(targeted ? "Cancel the hint for \(seat.name)" : "Give \(seat.name) a hint")
                     .accessibilityIdentifier("offline-fireworks-hint-\(seat.id)")
@@ -278,6 +307,10 @@ struct OfflineFireworksView: View {
             }
         }
         .padding(SR.cardPadding)
+        .background(
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .fill(isTurn ? seatTone.opacity(0.08) : Color.clear)
+        )
         .srGlassCard(.paper)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("offline-fireworks-hand-\(seat.id)")
@@ -298,23 +331,22 @@ struct OfflineFireworksView: View {
     private var hintComposer: some View {
         let hand = targetSeat?.hand ?? []
         let choices = Rules.possibleHintChoices(for: hand)
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 12) {
             SRSectionLabel(text: "Hint for \(targetSeat?.name ?? "them")")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 8)], spacing: 8) {
                 ForEach(choices, id: \.self) { option in
                     hintChip(option)
                 }
             }
-            Button { sendHint() } label: {
-                SRButtonLabel(title: sendTitle(hand), icon: "lightbulb.fill", fill: true)
+            PlayTableButton(title: sendTitle(hand), icon: "lightbulb.fill") {
+                sendHint()
             }
-            .srButton(.prominent)
-            .controlSize(.large)
             .disabled(choice == nil || !canAct || view.hints == 0)
             .accessibilityIdentifier("offline-fireworks-send-hint")
         }
         .padding(SR.cardPadding)
         .srGlassCard(.paper)
+        .transition(.scale(scale: 0.95).combined(with: .opacity))
         .accessibilityIdentifier("offline-fireworks-hint-composer")
     }
 
@@ -339,20 +371,22 @@ struct OfflineFireworksView: View {
                 if let c = swatch(option) {
                     Circle()
                         .fill(FireworksPaint.fill(c))
-                        .frame(width: 14, height: 14)
+                        .frame(width: 18, height: 18)
                         .overlay(Circle().strokeBorder(SR.ink.opacity(0.3), lineWidth: 1))
                 }
                 Text(option.spoken)
-                    .font(SR.Text.bodyMedium(15))
+                    .font(SR.Text.title(16))
                     .foregroundStyle(on ? SR.paper : SR.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            .frame(maxWidth: .infinity, minHeight: 40)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(on ? SR.accent : SR.paper))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(SR.line, lineWidth: 1))
+            .frame(maxWidth: .infinity, minHeight: PlayTableMetrics.bigButton)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(on ? SR.accent : SR.paper))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(on ? Color.clear : SR.line, lineWidth: 1))
+            .scaleEffect(on ? 1.04 : 1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
+        .srAnimation(.snappy(duration: 0.18), value: on)
         .accessibilityLabel("Hint \(option.spoken)")
         .accessibilityAddTraits(on ? .isSelected : [])
     }
@@ -360,7 +394,7 @@ struct OfflineFireworksView: View {
     // MARK: - My hand
 
     private func myHand(_ me: Rules.Seat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             SRSectionLabel(text: "Your cards", trailing: "facing away")
             HStack(alignment: .top, spacing: 6) {
                 ForEach(Array(me.hand.enumerated()), id: \.element.id) { index, card in
@@ -378,27 +412,21 @@ struct OfflineFireworksView: View {
             }
             if canAct, let picked {
                 HStack(spacing: 10) {
-                    Button {
+                    PlayTableButton(title: "Play", icon: "sparkle", haptic: .none) {
                         send(.play(turn: view.turnNumber, card: picked))
-                    } label: {
-                        SRButtonLabel(title: "Play", icon: "sparkle", fill: true)
                     }
-                    .srButton(.prominent)
-                    .controlSize(.large)
                     .accessibilityIdentifier("offline-fireworks-play")
-                    Button {
+                    PlayTableButton(title: "Drop", icon: "trash", weight: .regular, haptic: .none) {
                         send(.discard(turn: view.turnNumber, card: picked))
-                    } label: {
-                        SRButtonLabel(title: "Drop", icon: "trash", fill: true)
                     }
-                    .srButton(.regular)
-                    .controlSize(.large)
                     .disabled(view.hints >= Rules.maxHints)
                     .accessibilityLabel(view.hints >= Rules.maxHints ? "Drop — not while every hint token is in" : "Drop for a hint token")
                     .accessibilityIdentifier("offline-fireworks-drop")
                 }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .srAnimation(.snappy(duration: 0.22), value: picked)
         .padding(SR.cardPadding)
         .srGlassCard(.paper)
         .accessibilityIdentifier("offline-fireworks-mine")
@@ -407,13 +435,20 @@ struct OfflineFireworksView: View {
     // MARK: - What happened
 
     private var logCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             SRSectionLabel(text: "Lately")
-            ForEach(Array(view.log.enumerated().reversed()), id: \.offset) { _, entry in
-                Text(Rules.logLine(entry, name: who))
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(entry.ok == false ? SR.error : SR.ink)
-                    .fixedSize(horizontal: false, vertical: true)
+            ForEach(Array(view.log.enumerated().reversed()), id: \.offset) { index, entry in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: entry.ok == false ? "flame.fill" : "sparkle")
+                        .font(SR.Text.label(12))
+                        .foregroundStyle(entry.ok == false ? SR.error : SR.accent)
+                        .accessibilityHidden(true)
+                    Text(Rules.logLine(entry, name: who))
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(entry.ok == false ? SR.error : SR.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .opacity(index == view.log.count - 1 ? 1 : 0.8)
             }
         }
         .padding(SR.cardPadding)
@@ -423,22 +458,30 @@ struct OfflineFireworksView: View {
     }
 
     private var discardsCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             SRSectionLabel(text: "Discards", trailing: "\(view.discards.count)")
             ForEach(Rules.colours, id: \.self) { colour in
                 let ranks = view.discards.filter { $0.colour == colour }.map(\.rank).sorted()
                 if !ranks.isEmpty {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(FireworksPaint.fill(colour))
-                            .frame(width: 12, height: 12)
-                            .overlay(Circle().strokeBorder(SR.ink.opacity(0.3), lineWidth: 1))
-                        Text("\(colour.capitalized): " + ranks.map(String.init).joined(separator: " "))
-                            .font(SR.Text.mono(13))
-                            .foregroundStyle(SR.ink)
-                            .lineLimit(1)
+                    HStack(spacing: 4) {
+                        ForEach(Array(ranks.enumerated()), id: \.offset) { _, rank in
+                            Text("\(rank)")
+                                .font(SR.Text.label(12))
+                                .foregroundStyle(FireworksPaint.ink(colour))
+                                .frame(width: 22, height: 28)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        .fill(FireworksPaint.fill(colour))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        .strokeBorder(SR.ink.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                        Spacer(minLength: 0)
                     }
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(colour.capitalized): " + ranks.map(String.init).joined(separator: " "))
                 }
             }
         }
@@ -471,5 +514,129 @@ struct OfflineFireworksView: View {
         SRHaptic.tap()
         waiting = true
         context.send(action)
+    }
+}
+
+/// Hint tokens as a row of blue counters: filled ones are still to spend.
+struct OfflineFireworksTokens: View {
+    let filled: Int
+    let total: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<max(total, 0), id: \.self) { index in
+                Circle()
+                    .fill(index < filled ? Color(hex: 0x2F6FE0) : Color.clear)
+                    .overlay(Circle().strokeBorder(Color(hex: 0x2F6FE0).opacity(index < filled ? 0 : 0.5), lineWidth: 1.5))
+                    .overlay(
+                        Circle()
+                            .fill(Color.white.opacity(index < filled ? 0.35 : 0))
+                            .padding(4)
+                            .offset(x: -2, y: -2)
+                    )
+                    .frame(width: 18, height: 18)
+            }
+        }
+        .srAnimation(.spring(response: 0.3, dampingFraction: 0.6), value: filled)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Misfires as fuses: a burnt one for each misfire.
+struct OfflineFireworksFuses: View {
+    let burnt: Int
+    let total: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<max(total, 0), id: \.self) { index in
+                Image(systemName: index < burnt ? "flame.fill" : "flame")
+                    .font(SR.Text.title(17))
+                    .foregroundStyle(index < burnt ? SR.error : SR.inkGhost)
+                    .scaleEffect(index < burnt ? 1.1 : 1)
+            }
+        }
+        .srAnimation(.spring(response: 0.3, dampingFraction: 0.5), value: burnt)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One colour's firework in the night sky: a burst that grows with the
+/// stack. When the stack goes up it goes off — sparks flying out for about a
+/// second on one animation timeline, which then stops. Still under Reduce
+/// Motion.
+struct OfflineFireworksBurst: View {
+    let colour: String
+    let level: Int
+    /// The most a stack can reach.
+    let levels: Int
+    @State private var firedAt: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let burstSeconds: Double = 1.1
+
+    var body: some View {
+        let tone = colour == FireworksRules.prism ? Color.white : FireworksPaint.fill(colour)
+        let level = self.level
+        let levels = self.levels
+        let fired = firedAt
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: fired == nil)) { timeline in
+            Canvas { context, size in
+                let age = fired.map { timeline.date.timeIntervalSince($0) } ?? -1
+                OfflineFireworksBurst.paint(in: &context, size: size, tone: tone, level: level, levels: levels, age: age)
+            }
+        }
+        .onChange(of: level) { old, new in
+            guard new > old, !reduceMotion else { return }
+            firedAt = Date()
+        }
+        .task(id: firedAt) {
+            guard firedAt != nil else { return }
+            try? await Task.sleep(nanoseconds: UInt64(Self.burstSeconds * 1_000_000_000))
+            if !Task.isCancelled { firedAt = nil }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// The still burst, and — while `age` is within a burst — sparks flying
+    /// out and fading.
+    static func paint(in context: inout GraphicsContext, size: CGSize, tone: Color, level: Int, levels: Int, age: Double) {
+        let centre = CGPoint(x: size.width / 2, y: size.height * 0.45)
+        let reach = min(size.width, size.height) / 2
+        guard level > 0 else {
+            let r: CGFloat = 2.5
+            context.fill(Path(ellipseIn: CGRect(x: centre.x - r, y: size.height - 8, width: r * 2, height: r * 2)),
+                         with: .color(tone.opacity(0.5)))
+            return
+        }
+        let strength = CGFloat(level) / CGFloat(max(levels, 1))
+        let radius = reach * (0.35 + 0.6 * strength)
+        let rays = 6 + level * 2
+        var lines = Path()
+        for ray in 0..<rays {
+            let angle = Double(ray) / Double(rays) * 2 * .pi
+            let inner = radius * 0.25
+            lines.move(to: CGPoint(x: centre.x + CGFloat(cos(angle)) * inner, y: centre.y + CGFloat(sin(angle)) * inner))
+            lines.addLine(to: CGPoint(x: centre.x + CGFloat(cos(angle)) * radius, y: centre.y + CGFloat(sin(angle)) * radius))
+        }
+        context.stroke(lines, with: .color(tone.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        let core = radius * 0.18
+        context.fill(Path(ellipseIn: CGRect(x: centre.x - core, y: centre.y - core, width: core * 2, height: core * 2)),
+                     with: .color(Color.white.opacity(0.9)))
+        guard age >= 0, age < burstSeconds else { return }
+        let t = age / burstSeconds
+        let fly = CGFloat(t) * reach * 1.1
+        let fade = 1 - t
+        for spark in 0..<18 {
+            let angle = Double(spark) / 18 * 2 * .pi + 0.2
+            let drop = CGFloat(t * t) * reach * 0.4
+            let point = CGPoint(x: centre.x + CGFloat(cos(angle)) * fly, y: centre.y + CGFloat(sin(angle)) * fly + drop)
+            let r: CGFloat = 2.6
+            context.fill(Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)),
+                         with: .color(tone.opacity(fade)))
+        }
+        let flash = radius * CGFloat(0.4 + t)
+        context.stroke(Path(ellipseIn: CGRect(x: centre.x - flash, y: centre.y - flash, width: flash * 2, height: flash * 2)),
+                       with: .color(Color.white.opacity(0.5 * fade)), lineWidth: 2)
     }
 }

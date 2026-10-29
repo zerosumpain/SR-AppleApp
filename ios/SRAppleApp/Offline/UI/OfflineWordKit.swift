@@ -17,16 +17,21 @@ struct OfflineWordClock: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "timer")
-                .font(.system(size: 17, weight: .semibold))
+            Image(systemName: until == nil ? "timer" : "stopwatch.fill")
+                .font(SR.Text.title(17))
                 .foregroundStyle(SR.accent)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(SR.accent.opacity(0.14)))
                 .accessibilityHidden(true)
-            Text(label)
-                .font(SR.Text.bodyMedium(15))
-                .foregroundStyle(SR.inkSecondary)
-                .lineLimit(1)
-            if let until {
-                OfflineCountdown(clock: clock, until: until, font: SR.Text.figure(24), tone: tone)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(label.uppercased())
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.inkMuted)
+                    .lineLimit(1)
+                if let until {
+                    OfflineCountdown(clock: clock, until: until, font: SR.Text.figure(28), tone: tone)
+                }
             }
             Spacer(minLength: 8)
             if let chip {
@@ -34,8 +39,10 @@ struct OfflineWordClock: View {
             }
         }
         .padding(.horizontal, SR.cardPadding)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
+        .frame(minHeight: 64)
         .srGlassCard(.paper)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -66,36 +73,7 @@ struct OfflineWordScores: View {
             VStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     if index > 0 { Divider().overlay(SR.divider) }
-                    HStack(spacing: 12) {
-                        OfflineInitial(name: row.name, size: 28,
-                                       tone: OfflineSeatColour.of(players.firstIndex { $0.id == row.id } ?? 0))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row.id == me ? "\(row.name) (you)" : row.name)
-                                .font(SR.Text.title(16))
-                                .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Text(row.away ? "\(row.detail) · left" : row.detail)
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkMuted)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 8)
-                        if row.ready {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(SR.good)
-                                .accessibilityLabel("ready")
-                        }
-                        if let score = row.score {
-                            Text("\(score)")
-                                .font(SR.Text.figure(22))
-                                .foregroundStyle(SR.ink)
-                                .fixedSize()
-                        }
-                    }
-                    .frame(minHeight: SR.tapTarget)
-                    .padding(.vertical, 4)
-                    .accessibilityElement(children: .combine)
+                    scoreRow(row)
                 }
             }
             .padding(.horizontal, SR.cardPadding)
@@ -103,6 +81,62 @@ struct OfflineWordScores: View {
             .srGlassCard(.paper)
             .accessibilityIdentifier(id)
         }
+    }
+
+    /// The best score on the table, when anyone has scored at all.
+    private var top: Int? {
+        let best = rows.compactMap(\.score).max()
+        return (best ?? 0) > 0 ? best : nil
+    }
+
+    private func scoreRow(_ row: OfflineWordScoreRow) -> some View {
+        let leading = top != nil && row.score == top
+        let mine = row.id == me
+        return HStack(spacing: 12) {
+            OfflineInitial(name: row.name, size: 32,
+                           tone: OfflineSeatColour.of(players.firstIndex { $0.id == row.id } ?? 0))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(mine ? "\(row.name) (you)" : row.name)
+                        .font(SR.Text.title(16))
+                        .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if leading {
+                        Image(systemName: "crown.fill")
+                            .font(SR.Text.label())
+                            .foregroundStyle(OfflineMedal.colours(1).base)
+                            .accessibilityLabel("leading")
+                    }
+                }
+                Text(row.away ? "\(row.detail) · left" : row.detail)
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if row.ready {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(SR.Text.title(18))
+                    .foregroundStyle(SR.good)
+                    .accessibilityLabel("ready")
+            }
+            if let score = row.score {
+                Text("\(score)")
+                    .font(SR.Text.figure(24))
+                    .foregroundStyle(leading ? SR.accent : SR.ink)
+                    .fixedSize()
+                    .srNumeric(Double(score))
+            }
+        }
+        .frame(minHeight: 52)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+                .fill(mine ? SR.accent.opacity(0.1) : Color.clear)
+        )
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -126,8 +160,11 @@ struct OfflineWordChips: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], alignment: .leading, spacing: 8) {
             ForEach(chips) { chip in
                 if let pick {
-                    Button { pick(chip.id) } label: { face(chip) }
-                        .buttonStyle(.plain)
+                    Button {
+                        SRHaptic.select()
+                        pick(chip.id)
+                    } label: { face(chip) }
+                        .buttonStyle(SRPressStyle())
                         .accessibilityHint("Shows it on the board")
                         .accessibilityAddTraits(chip.lit ? .isSelected : [])
                 } else {
@@ -161,6 +198,8 @@ struct OfflineWordChips: View {
                 .fill(chip.lit ? SR.accentInk : Color.clear)
         )
         .srGlassCard(chip.lit ? .clear : .paper, radius: SR.Glass.innerRadius + 2)
+        .scaleEffect(chip.lit ? 1.03 : 1)
+        .srAnimation(.snappy(duration: 0.2), value: chip.lit)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(chip.spoken)
@@ -182,13 +221,14 @@ struct OfflineWordContinue: View {
                 action()
             } label: {
                 SRButtonLabel(title: ready ? "Waiting" : "See the table", icon: ready ? "hourglass" : "list.number", fill: true)
+                    .frame(minHeight: OfflineKitMetrics.bigLabel)
             }
             .srButton(.prominent)
             .controlSize(.large)
             .disabled(ready)
             .accessibilityIdentifier(id)
             if ready, !waitingOn.isEmpty {
-                Text("Waiting for \(waitingOn.joined(separator: ", ")).")
+                Label("Waiting for \(waitingOn.joined(separator: ", ")).", systemImage: "hourglass")
                     .font(SR.Text.secondary())
                     .foregroundStyle(SR.inkMuted)
                     .multilineTextAlignment(.center)

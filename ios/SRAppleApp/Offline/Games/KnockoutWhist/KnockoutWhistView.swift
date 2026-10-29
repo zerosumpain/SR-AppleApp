@@ -7,23 +7,33 @@ import SwiftUI
 /// sends one action at a time. On my turn the cards I may play are bright and
 /// the rest dimmed — so "follow suit if you can" is shown rather than
 /// explained — and tapping one plays it. When I took the most tricks, the
-/// next hand opens with four suit buttons to name trumps. A player who is
-/// knocked out keeps watching with an empty hand.
+/// next hand opens with four big suit tiles to name trumps, each saying how
+/// many of that suit I hold. A player who is knocked out keeps watching with
+/// an empty hand.
+///
+/// The overhaul (2026-10-29) put the trick on green baize with everyone sat
+/// along the top, trumps as a medallion in the corner, the cards landing
+/// as they are played, and "Your trick!" (or who took it) popping up.
 struct KnockoutWhistView: View {
     let context: OfflineGameContext<KnockoutWhistRules>
     /// An action has gone to the host and its answer has not come back yet,
     /// so a double tap sends once. Any new view clears it.
     @State private var waiting = false
+    @State private var callout = ""
+    @State private var calloutTone: Color = SR.accentDeep
+    @State private var calloutIcon: String?
+    @State private var calloutToken = 0
+    @State private var burstToken = 0
 
     private var view: KnockoutWhistRules.PlayerView { context.view }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: kicker, title: title, strap: strap)
-                seats
+            VStack(alignment: .leading, spacing: 18) {
+                banner
                 switch view.phase {
                 case .choosingTrump:
+                    table
                     if view.chooser == context.me {
                         suitPicker
                     } else {
@@ -42,8 +52,20 @@ struct KnockoutWhistView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay {
+            ZStack {
+                NearbyPlayBurst(token: burstToken)
+                NearbyPlayCallout(text: callout, icon: calloutIcon, tone: calloutTone, token: calloutToken)
+            }
+        }
         .onChange(of: view) { _, _ in
             waiting = false
+        }
+        .onChange(of: view.turnPlayer) { _, new in
+            if new == context.me && view.phase == .playing { SRHaptic.tap() }
+        }
+        .onChange(of: view.phase) { _, new in
+            reactToPhase(new)
         }
         .onChange(of: context.refusal) { _, new in
             if new != nil {
@@ -73,8 +95,15 @@ struct KnockoutWhistView: View {
 
     private var myTurn: Bool { view.phase == .playing && view.turnPlayer == context.me }
 
+    private var myChoice: Bool { view.phase == .choosingTrump && view.chooser == context.me }
+
     private func who(_ id: String) -> String {
         id == context.me ? "You" : context.name(of: id)
+    }
+
+    private func seatTone(_ id: String?) -> Color {
+        guard let id, let index = view.seats.firstIndex(where: { $0.id == id }) else { return SR.accent }
+        return OfflineSeatColour.of(index)
     }
 
     private var kicker: String {
@@ -140,63 +169,142 @@ struct KnockoutWhistView: View {
         mySeat?.out == true ? "You've been knocked out — watch the rest." : "You are watching this game."
     }
 
-    // MARK: - The players
+    // MARK: - The top
 
-    private var seats: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(view.seats.enumerated()), id: \.element.id) { index, seat in
-                if index > 0 { Divider().overlay(SR.divider) }
-                HStack(spacing: 10) {
-                    OfflineInitial(name: seat.name, size: 28,
-                                   tone: seat.out ? SR.inkGhost : OfflineSeatColour.of(index))
-                    Text(seat.id == context.me ? "You" : seat.name)
-                        .font(SR.Text.bodyMedium(15))
-                        .strikethrough(seat.out, color: SR.inkMuted)
-                        .foregroundStyle(seat.out ? SR.inkMuted : SR.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if isActing(seat.id) {
-                        Image(systemName: "arrowtriangle.left.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    Spacer(minLength: 6)
-                    Text(seatStatus(seat))
-                        .font(SR.Text.mono(13))
-                        .foregroundStyle(SR.inkSecondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                    Text("\(seat.tricks)")
-                        .font(SR.Text.mono(15))
-                        .foregroundStyle(seat.out ? SR.inkMuted : SR.ink)
-                        .frame(minWidth: 24, alignment: .trailing)
-                        .fixedSize()
-                }
-                .frame(minHeight: 40)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(seatLabel(seat))
-            }
+    private var bannerMark: NearbyPlayMark {
+        switch view.phase {
+        case .choosingTrump:
+            return view.chooser.map { NearbyPlayMark.person(context.name(of: $0)) } ?? .symbol("suit.spade.fill")
+        case .playing:
+            return view.turnPlayer.map { NearbyPlayMark.person(context.name(of: $0)) } ?? .symbol("suit.spade.fill")
+        case .trickWon:
+            return .symbol("hand.raised.fill")
+        case .handOver:
+            return .symbol("list.number")
+        case .over:
+            return .symbol("trophy.fill")
         }
-        .padding(.horizontal, SR.cardPadding)
-        .padding(.vertical, 6)
-        .srGlassCard(.paper)
-        .accessibilityIdentifier("offline-knockout-whist-seats")
     }
 
-    /// The seat whose move the table is waiting for.
-    private func isActing(_ id: String) -> Bool {
-        (view.phase == .playing && view.turnPlayer == id) || (view.phase == .choosingTrump && view.chooser == id)
+    private var bannerTone: Color {
+        switch view.phase {
+        case .choosingTrump: return seatTone(view.chooser)
+        case .playing: return seatTone(view.turnPlayer)
+        case .trickWon: return seatTone(view.trickWinner)
+        case .handOver, .over: return SR.accent
+        }
     }
+
+    private var banner: some View {
+        NearbyPlayBanner(kicker: kicker, title: title, strap: strap, mine: myTurn || myChoice,
+                         tone: bannerTone, mark: bannerMark) {
+            bannerClock
+        }
+    }
+
+    @ViewBuilder
+    private var bannerClock: some View {
+        switch view.phase {
+        case .playing:
+            NearbyPlayBannerClock(clock: context.clock, until: view.turnEndsAt,
+                                  total: KnockoutWhistRules.turnSeconds, mine: myTurn)
+        case .choosingTrump:
+            NearbyPlayBannerClock(clock: context.clock, until: view.turnEndsAt,
+                                  total: KnockoutWhistRules.chooseSeconds, mine: myChoice)
+        case .handOver:
+            NearbyPlayBannerClock(clock: context.clock, until: view.pauseUntil,
+                                  total: KnockoutWhistRules.resultPause, mine: false)
+                .accessibilityLabel(view.champion == nil ? "Next hand soon" : "Results soon")
+        case .trickWon, .over:
+            EmptyView()
+        }
+    }
+
+    // MARK: - The table
 
     private func cardsText(_ count: Int) -> String {
         count == 1 ? "1 card" : "\(count) cards"
     }
 
-    private func seatStatus(_ seat: KnockoutWhistRules.Seat) -> String {
-        if seat.away { return "left" }
-        if seat.out { return "out" }
-        return cardsText(seat.cards)
+    private var stripSeats: [NearbyPlaySeat] {
+        view.seats.enumerated().map { pair -> NearbyPlaySeat in
+            let seat = pair.element
+            let acting = isActing(seat.id)
+            let status: String = seat.away ? "left" : (seat.out ? "out" : cardsText(seat.cards))
+            return NearbyPlaySeat(
+                id: seat.id, name: seat.name, tone: OfflineSeatColour.of(pair.offset),
+                isMe: seat.id == context.me, acting: acting, faded: seat.out || seat.away,
+                badge: seat.out || seat.away ? nil : "\(seat.tricks)",
+                detail: status,
+                mark: view.trickWinner == seat.id && view.phase == .trickWon ? "hand.raised.fill" : nil,
+                spoken: seatLabel(seat)
+            )
+        }
+    }
+
+    /// The baize: everyone along the top, trumps in the corner, the trick in
+    /// the middle.
+    private var table: some View {
+        NearbyPlayFelt(tone: .baize) {
+            VStack(alignment: .leading, spacing: 14) {
+                NearbyPlaySeatStrip(seats: stripSeats)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("offline-knockout-whist-seats")
+                HStack(alignment: .center, spacing: 12) {
+                    trumpMedallion
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("TRUMPS")
+                            .font(SR.Text.label())
+                            .tracking(1.4)
+                            .foregroundStyle(NearbyPlayFeltInk.secondary)
+                        Text(view.trump.map { $0.name.capitalized } ?? "Not yet named")
+                            .font(SR.Text.title())
+                            .foregroundStyle(NearbyPlayFeltInk.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text("Number on each face: tricks won")
+                            .font(SR.Text.mono(12))
+                            .foregroundStyle(NearbyPlayFeltInk.faint)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    Spacer(minLength: 0)
+                    if let card = view.trumpCard {
+                        OfflineCardFace(card: card, width: 40)
+                            .rotationEffect(.degrees(8))
+                            .accessibilityLabel("Trump card: \(card.name)")
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(view.trump.map { "Trumps are \($0.name)" } ?? "Trumps not yet named")
+                if view.phase != .choosingTrump {
+                    trickRow
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("offline-knockout-whist-table")
+    }
+
+    /// A disc with the trump suit, red or black, glowing gold.
+    private var trumpMedallion: some View {
+        ZStack {
+            Circle()
+                .fill(Color(hex: 0xFFFDF8))
+            Circle()
+                .strokeBorder(NearbyPlayFeltInk.gold, lineWidth: 3)
+            Text(view.trump?.symbol ?? "?")
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(view.trump?.isRed == true ? Color(hex: 0xCF2236) : Color(hex: 0x1F1D2B))
+        }
+        .frame(width: 54, height: 54)
+        .shadow(color: NearbyPlayFeltInk.gold.opacity(view.trump == nil ? 0 : 0.5), radius: 8, x: 0, y: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// The seat whose move the table is waiting for.
+    private func isActing(_ id: String) -> Bool {
+        (view.phase == .playing && view.turnPlayer == id) || (view.phase == .choosingTrump && view.chooser == id)
     }
 
     private func seatLabel(_ seat: KnockoutWhistRules.Seat) -> String {
@@ -213,95 +321,65 @@ struct KnockoutWhistView: View {
         return parts.joined(separator: ", ")
     }
 
-    // MARK: - The table
-
-    private var table: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                trumpBadge
-                Spacer(minLength: 6)
-                if myTurn {
-                    OfflineCountdown(clock: context.clock, until: view.turnEndsAt,
-                                     font: SR.Text.mono(13), tone: SR.inkMuted)
-                }
-            }
-            trickRow
-        }
-        .padding(SR.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper)
-        .accessibilityIdentifier("offline-knockout-whist-table")
-    }
-
-    private var trumpBadge: some View {
-        HStack(spacing: 10) {
-            if let card = view.trumpCard {
-                OfflineCardFace(card: card, width: 34)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text("TRUMPS")
-                    .font(SR.Text.label(12))
-                    .tracking(1.4)
-                    .foregroundStyle(SR.inkMuted)
-                if let trump = view.trump {
-                    HStack(spacing: 6) {
-                        Text(trump.symbol)
-                            .font(.system(size: 24))
-                            .foregroundStyle(trump.isRed ? SR.error : SR.ink)
-                        Text(trump.name)
-                            .font(SR.Text.title())
-                            .foregroundStyle(SR.ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                } else {
-                    Text("not yet named")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkSecondary)
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(view.trump.map { "Trumps are \($0.name)" } ?? "Trumps not yet named")
-    }
-
     /// The trick: up to five cards, each over its player's name, sized from
-    /// the width so five always fit.
+    /// the width so five always fit. Each card lands as it is played.
     private var trickRow: some View {
-        let maxCard: CGFloat = 56
-        let labelHeight: CGFloat = 20
+        let maxCard: CGFloat = 62
+        let labelHeight: CGFloat = 22
         return GeometryReader { geo in
             let spacing: CGFloat = 8
             let slots = CGFloat(max(1, min(5, view.seats.count)))
             let width = max(24, min(maxCard, (geo.size.width - spacing * (slots - 1)) / slots))
             if view.trick.isEmpty {
-                Text(trickPrompt)
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: width * 0.12, style: .continuous)
+                        .strokeBorder(NearbyPlayFeltInk.faint, style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                        .frame(width: width, height: width * OfflineCardMetrics.aspect)
+                    Text(trickPrompt)
+                        .font(SR.Text.bodyMedium(15))
+                        .foregroundStyle(NearbyPlayFeltInk.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 HStack(alignment: .top, spacing: spacing) {
                     ForEach(Array(view.trick.enumerated()), id: \.offset) { _, played in
-                        VStack(spacing: 4) {
-                            OfflineCardFace(card: played.card, width: width,
-                                            selected: view.phase == .trickWon && played.playerId == view.trickWinner)
-                            Text(played.playerId == context.me ? "You" : context.name(of: played.playerId))
-                                .font(SR.Text.mono(12))
-                                .foregroundStyle(SR.inkSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(width: width)
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(who(played.playerId)) played the \(played.card.name)")
+                        trickCard(played, width: width)
+                            .transition(.asymmetric(insertion: .scale(scale: 0.5).combined(with: .opacity),
+                                                    removal: .opacity))
                     }
                     Spacer(minLength: 0)
                 }
             }
         }
-        .frame(height: maxCard * OfflineCardMetrics.aspect + labelHeight)
+        .frame(height: maxCard * OfflineCardMetrics.aspect + labelHeight + 6)
+        .srAnimation(.spring(response: 0.35, dampingFraction: 0.7), value: view.trick.count)
         .accessibilityIdentifier("offline-knockout-whist-trick")
+    }
+
+    private func trickCard(_ played: KnockoutWhistRules.Played, width: CGFloat) -> some View {
+        let winner = view.phase == .trickWon && played.playerId == view.trickWinner
+        return VStack(spacing: 4) {
+            OfflineCardFace(card: played.card, width: width, selected: winner)
+                .offset(y: winner ? -4 : 0)
+            HStack(spacing: 2) {
+                if winner {
+                    Image(systemName: "crown.fill")
+                        .font(SR.Text.label(12))
+                        .foregroundStyle(NearbyPlayFeltInk.gold)
+                        .accessibilityHidden(true)
+                }
+                Text(played.playerId == context.me ? "You" : context.name(of: played.playerId))
+                    .font(SR.Text.mono(12))
+                    .foregroundStyle(winner ? NearbyPlayFeltInk.gold : NearbyPlayFeltInk.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(width: width)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(who(played.playerId)) played the \(played.card.name)\(winner ? ", winning" : "")")
     }
 
     private var trickPrompt: String {
@@ -312,17 +390,16 @@ struct KnockoutWhistView: View {
     // MARK: - Naming trumps
 
     private var choosingNote: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "hourglass")
+                .font(SR.Text.title(18))
                 .foregroundStyle(SR.inkMuted)
                 .accessibilityHidden(true)
             Text(view.chooser.map { "\(context.name(of: $0)) is choosing trumps" } ?? "Trumps are being chosen")
-                .font(SR.Text.secondary())
+                .font(SR.Text.bodyMedium(15))
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 6)
-            OfflineCountdown(clock: context.clock, until: view.turnEndsAt,
-                             font: SR.Text.mono(13), tone: SR.inkMuted)
+            Spacer(minLength: 0)
         }
         .padding(SR.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -331,45 +408,71 @@ struct KnockoutWhistView: View {
         .accessibilityIdentifier("offline-knockout-whist-choosing")
     }
 
-    /// Four suits as a two-by-two grid, so the buttons stay wide on any phone.
+    /// Four suits as a two-by-two grid of big tiles, each with how many of
+    /// that suit I hold — the thing the choice rests on.
     private var suitPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                SRSectionLabel(text: "Name trumps")
-                Spacer(minLength: 6)
-                OfflineCountdown(clock: context.clock, until: view.turnEndsAt,
-                                 font: SR.Text.mono(13), tone: SR.inkMuted)
-            }
+            SRSectionLabel(text: "Name trumps")
             ForEach([[OfflineSuit.clubs, .diamonds], [.hearts, .spades]], id: \.self) { row in
                 HStack(spacing: 10) {
                     ForEach(row) { suit in
-                        Button {
-                            SRHaptic.ok()
-                            send(.chooseTrump(hand: view.hand, suit: suit))
-                        } label: {
-                            SRButtonLabel(title: "\(suit.symbol) \(suit.name)", fill: true)
-                        }
-                        .srButton(.regular)
-                        .controlSize(.large)
-                        .disabled(waiting)
-                        .accessibilityLabel("Make \(suit.name) trumps")
-                        .accessibilityIdentifier("offline-knockout-whist-suit-\(suit.rawValue)")
+                        suitTile(suit)
                     }
                 }
             }
         }
     }
 
+    private func suitTile(_ suit: OfflineSuit) -> some View {
+        let held = view.myCards.filter { $0.suit == suit }.count
+        let shape = RoundedRectangle(cornerRadius: NearbyPlayMetrics.radius, style: .continuous)
+        let ink = suit.isRed ? Color(hex: 0xCF2236) : Color(hex: 0x1F1D2B)
+        return Button {
+            SRHaptic.ok()
+            send(.chooseTrump(hand: view.hand, suit: suit))
+        } label: {
+            HStack(spacing: 10) {
+                Text(suit.symbol)
+                    .font(.system(size: 40, weight: .bold))
+                    .foregroundStyle(ink)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(suit.name.capitalized)
+                        .font(SR.Text.title(17))
+                        .foregroundStyle(Color(hex: 0x1F1D2B))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(held == 1 ? "You hold 1" : "You hold \(held)")
+                        .font(SR.Text.mono(12))
+                        .foregroundStyle(Color(hex: 0x4A4760))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 76)
+            .background(shape.fill(Color(hex: 0xFFFDF8)))
+            .overlay(shape.strokeBorder(held >= 3 ? NearbyPlayFeltInk.gold : Color.black.opacity(0.14), lineWidth: held >= 3 ? 3 : 1))
+            .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
+            .contentShape(shape)
+        }
+        .buttonStyle(SRPressStyle())
+        .disabled(waiting)
+        .opacity(waiting ? 0.5 : 1)
+        .accessibilityLabel("Make \(suit.name) trumps, you hold \(held)")
+        .accessibilityIdentifier("offline-knockout-whist-suit-\(suit.rawValue)")
+    }
+
     // MARK: - My hand
 
     private var myHand: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SRSectionLabel(text: "Your hand", trailing: cardsText(view.myCards.count))
+            SRSectionLabel(text: myTurn ? "Your hand · tap a bright card" : "Your hand",
+                           trailing: cardsText(view.myCards.count))
             Group {
                 if myTurn {
                     OfflineHand(
                         cards: view.myCards,
-                        cardWidth: 64,
+                        cardWidth: 66,
                         playable: waiting ? Set<String>() : Set(view.playable),
                         onTap: { card in tapped(card) }
                     )
@@ -377,7 +480,7 @@ struct KnockoutWhistView: View {
                     // Between turns — and while naming trumps, when the cards
                     // are what the choice rests on — the hand is drawn at full
                     // strength rather than dimmed as unplayable.
-                    OfflineHand(cards: view.myCards, cardWidth: 64)
+                    OfflineHand(cards: view.myCards, cardWidth: 66)
                 }
             }
             .accessibilityIdentifier("offline-knockout-whist-hand")
@@ -392,51 +495,59 @@ struct KnockoutWhistView: View {
             VStack(spacing: 0) {
                 ForEach(Array(view.seats.enumerated()), id: \.element.id) { index, seat in
                     if index > 0 { Divider().overlay(SR.divider) }
-                    HStack(spacing: 10) {
-                        Text(seat.id == context.me ? "You" : seat.name)
-                            .font(SR.Text.title())
-                            .foregroundStyle(seat.out ? SR.inkMuted : SR.ink)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if seat.id == view.champion {
-                            Image(systemName: "crown.fill")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(SR.accent)
-                                .accessibilityHidden(true)
-                        }
-                        Spacer(minLength: 8)
-                        Text(resultStatus(seat))
-                            .font(SR.Text.mono(13))
-                            .foregroundStyle(view.knockedOut.contains(seat.id) ? SR.error : SR.inkSecondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                        Text("\(seat.tricks)")
-                            .font(SR.Text.display(20))
-                            .foregroundStyle(SR.ink)
-                            .frame(minWidth: 28, alignment: .trailing)
-                            .fixedSize()
-                    }
-                    .frame(minHeight: SR.tapTarget)
-                    .padding(.vertical, 4)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(resultLabel(seat))
+                    resultRow(seat, index: index)
                 }
             }
             .padding(.horizontal, SR.cardPadding)
             .padding(.vertical, 6)
             .srGlassCard(.paper)
-
-            if view.phase == .handOver {
-                HStack(spacing: 8) {
-                    Text(view.champion == nil ? "Next hand in" : "Results in")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                    OfflineCountdown(clock: context.clock, until: view.pauseUntil,
-                                     font: SR.Text.mono(), tone: SR.inkMuted)
-                }
-            }
         }
         .accessibilityIdentifier("offline-knockout-whist-result")
+    }
+
+    private func resultRow(_ seat: KnockoutWhistRules.Seat, index: Int) -> some View {
+        let status = resultStatus(seat)
+        let tone = statusTone(seat)
+        return HStack(spacing: 10) {
+            OfflineInitial(name: seat.name, size: 32, tone: seat.out ? SR.inkGhost : OfflineSeatColour.of(index))
+            Text(seat.id == context.me ? "You" : seat.name)
+                .font(SR.Text.title())
+                .foregroundStyle(seat.out ? SR.inkMuted : SR.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if seat.id == view.champion {
+                Image(systemName: "crown.fill")
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(SR.warn)
+                    .accessibilityHidden(true)
+            }
+            Spacer(minLength: 8)
+            Text(status.uppercased())
+                .font(SR.Text.label(12))
+                .tracking(0.8)
+                .foregroundStyle(tone)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(tone.opacity(0.12)))
+                .fixedSize()
+            Text("\(seat.tricks)")
+                .font(SR.Text.display(22))
+                .foregroundStyle(SR.ink)
+                .frame(minWidth: 28, alignment: .trailing)
+                .fixedSize()
+        }
+        .frame(minHeight: 52)
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(resultLabel(seat))
+    }
+
+    private func statusTone(_ seat: KnockoutWhistRules.Seat) -> Color {
+        if seat.id == view.champion { return SR.good }
+        if view.knockedOut.contains(seat.id) { return SR.error }
+        if seat.id == view.nextChooser { return SR.accent }
+        return SR.inkSecondary
     }
 
     private func resultStatus(_ seat: KnockoutWhistRules.Seat) -> String {
@@ -453,6 +564,43 @@ struct KnockoutWhistView: View {
         parts.append(seat.tricks == 1 ? "1 trick" : "\(seat.tricks) tricks")
         parts.append(resultStatus(seat))
         return parts.joined(separator: ", ")
+    }
+
+    // MARK: - Moments
+
+    private func reactToPhase(_ phase: KnockoutWhistRules.Phase) {
+        switch phase {
+        case .trickWon:
+            guard let winner = view.trickWinner else { return }
+            if winner == context.me {
+                SRHaptic.ok()
+                pop("Your trick!", icon: "hand.raised.fill", tone: SR.good)
+            } else {
+                pop("\(context.name(of: winner)) takes it", icon: "hand.raised.fill", tone: SR.accentDeep)
+            }
+        case .handOver, .over:
+            if view.champion == context.me {
+                SRHaptic.ok()
+                burstToken += 1
+                pop("You win!", icon: "crown.fill", tone: SR.good)
+            } else if view.knockedOut.contains(context.me) {
+                SRHaptic.bad()
+                pop("Knocked out", icon: "xmark.circle.fill", tone: SR.error)
+            } else if stillIn && phase == .handOver {
+                pop("Through!", icon: "checkmark.circle.fill", tone: SR.good)
+            }
+        case .choosingTrump:
+            if view.chooser == context.me { SRHaptic.tap() }
+        case .playing:
+            break
+        }
+    }
+
+    private func pop(_ text: String, icon: String?, tone: Color) {
+        callout = text
+        calloutIcon = icon
+        calloutTone = tone
+        calloutToken += 1
     }
 
     // MARK: - Acting

@@ -1,30 +1,40 @@
 import SwiftUI
 
-/// Old Maid on one phone: whose turn it is, the face-down fan to draw from
+/// Old Maid on one phone: whose turn it is, the face-down cards to draw from
 /// when it is mine, what the last draw did, my own hand, and the table.
 ///
 /// The view never changes the game. Tapping a face-down card sends one draw
 /// with that card's position and waits for the host's next view; the card I
-/// tapped sits raised until the host answers. The fan is a grid of card
-/// backs sized from the width available, so even a full hand of thirteen
-/// stays on a 375pt screen with every card big enough to tap.
+/// tapped sits raised until the host answers. The cards to draw from are a
+/// grid of backs sized from the width available, so even a full hand of
+/// thirteen stays on a 375pt screen with every card big enough to tap.
+///
+/// The overhaul (2026-10-29) put the draw on a plum velvet table — who is
+/// drawing from whom, face to face, with the cards between them — turns the
+/// drawn card over with a flip, pops "Pair!" (or the dreaded queen), and
+/// ends on the odd queen under a ribbon with the loser's name.
 struct OldMaidView: View {
     let context: OfflineGameContext<OldMaidRules>
     /// The turn number I last drew on, so a double tap sends once.
     @State private var sentTurn: Int?
     /// The position I tapped, raised until the host's view arrives.
     @State private var picked: Int?
+    @State private var callout = ""
+    @State private var calloutTone: Color = SR.accentDeep
+    @State private var calloutIcon: String?
+    @State private var calloutToken = 0
+    @State private var burstToken = 0
 
     private var view: OldMaidRules.PlayerView { context.view }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
+            VStack(alignment: .leading, spacing: 18) {
                 status
                 if view.phase != .playing {
                     finale
-                } else if myTurn, let target = view.target {
-                    fanSection(target)
+                } else {
+                    drawTable
                 }
                 if let note = view.lastDraw, view.phase == .playing {
                     lastDrawCard(note)
@@ -39,10 +49,30 @@ struct OldMaidView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay {
+            ZStack {
+                NearbyPlayBurst(token: burstToken)
+                NearbyPlayCallout(text: callout, icon: calloutIcon, tone: calloutTone, token: calloutToken)
+            }
+        }
         .accessibilityIdentifier("offline-old-maid")
         .onChange(of: view.turnNumber) { _, _ in
             sentTurn = nil
             picked = nil
+            if myTurn { SRHaptic.tap() }
+        }
+        .onChange(of: view.lastDraw) { _, new in
+            guard let new else { return }
+            react(to: new)
+        }
+        .onChange(of: view.phase) { _, new in
+            guard new != .playing else { return }
+            if view.loser == context.me {
+                SRHaptic.bad()
+            } else if mySeat != nil {
+                SRHaptic.ok()
+                burstToken += 1
+            }
         }
         .onChange(of: context.refusal) { _, new in
             guard new != nil else { return }
@@ -62,25 +92,35 @@ struct OldMaidView: View {
         id == context.me ? "You" : context.name(of: id)
     }
 
+    private func seatTone(_ id: String?) -> Color {
+        guard let id, let index = view.seats.firstIndex(where: { $0.id == id }) else { return SR.accent }
+        return OfflineSeatColour.of(index)
+    }
+
     private var status: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SRPageHeader(kicker: kicker, title: headline, strap: instruction)
-            if view.phase == .playing {
-                HStack(spacing: 8) {
-                    Image(systemName: "timer")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(SR.inkMuted)
-                        .accessibilityHidden(true)
-                    Text(myTurn ? "Your time" : "Turn time")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                    OfflineCountdown(clock: context.clock, until: view.turnEndsAt, font: SR.Text.mono(), tone: SR.inkMuted)
-                    Spacer(minLength: 0)
-                }
-                .accessibilityElement(children: .combine)
-            }
+        NearbyPlayBanner(kicker: kicker, title: headline, strap: instruction, mine: myTurn,
+                         tone: seatTone(view.turn), mark: bannerMark) {
+            bannerClock
         }
         .accessibilityIdentifier("offline-old-maid-status")
+    }
+
+    @ViewBuilder
+    private var bannerClock: some View {
+        if view.phase == .playing {
+            NearbyPlayBannerClock(clock: context.clock, until: view.turnEndsAt,
+                                  total: OldMaidRules.turnSeconds, mine: myTurn)
+        } else if view.phase == .finale {
+            NearbyPlayBannerClock(clock: context.clock, until: view.finaleUntil,
+                                  total: OldMaidRules.finalePause, mine: false)
+                .accessibilityLabel("Standings soon")
+        }
+    }
+
+    private var bannerMark: NearbyPlayMark {
+        if view.phase != .playing { return .symbol("crown.fill") }
+        guard let turn = view.turn else { return .symbol("suit.heart.fill") }
+        return .person(context.name(of: turn))
     }
 
     private var kicker: String {
@@ -119,12 +159,78 @@ struct OldMaidView: View {
         return "Wait for your turn. Pairs go down by themselves."
     }
 
-    // MARK: - Drawing
+    // MARK: - The draw
+
+    /// The velvet: the drawer and the one drawn from, face to face, and the
+    /// face-down cards between them — buttons when the draw is mine.
+    private var drawTable: some View {
+        NearbyPlayFelt(tone: .plum) {
+            VStack(spacing: 14) {
+                faceOff
+                if let target = view.target, view.targetCards > 0 {
+                    if myTurn {
+                        fanSection(target)
+                    } else {
+                        watchFan
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Sam → Ann": who is drawing from whom.
+    private var faceOff: some View {
+        HStack(spacing: 10) {
+            person(view.turn, caption: "drawing")
+            Image(systemName: "arrow.left")
+                .font(SR.Text.display(22))
+                .foregroundStyle(NearbyPlayFeltInk.gold)
+                .accessibilityHidden(true)
+            person(view.target, caption: view.targetCards == 1 ? "1 card" : "\(view.targetCards) cards")
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(faceOffLabel)
+    }
+
+    private var faceOffLabel: String {
+        guard let turn = view.turn, let target = view.target else { return "Waiting for the table" }
+        return "\(who(turn)) drawing from \(target == context.me ? "you" : context.name(of: target))"
+    }
+
+    private func person(_ id: String?, caption: String) -> some View {
+        VStack(spacing: 4) {
+            if let id {
+                OfflineInitial(name: context.name(of: id), size: 48, tone: seatTone(id))
+                    .overlay { Circle().strokeBorder(Color.white.opacity(0.5), lineWidth: 2) }
+                Text(who(id))
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(NearbyPlayFeltInk.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else {
+                Circle().fill(NearbyPlayFeltInk.chip).frame(width: 48, height: 48)
+                Text("—")
+                    .font(SR.Text.title(15))
+                    .foregroundStyle(NearbyPlayFeltInk.faint)
+            }
+            Text(caption)
+                .font(SR.Text.mono(12))
+                .foregroundStyle(NearbyPlayFeltInk.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
 
     private func fanSection(_ target: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SRSectionLabel(text: "Draw from \(context.name(of: target))", trailing: cardsText(view.targetCards))
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: SR.tapTarget, maximum: 64), spacing: 8)], spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("PICK ONE OF \(context.name(of: target).uppercased())'S CARDS")
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(NearbyPlayFeltInk.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 52, maximum: 68), spacing: 8)], spacing: 12) {
                 ForEach(0..<view.targetCards, id: \.self) { position in
                     backButton(position, of: view.targetCards, from: target)
                 }
@@ -132,12 +238,24 @@ struct OldMaidView: View {
             .padding(.top, 6)
             .accessibilityIdentifier("offline-old-maid-fan")
         }
-        .padding(SR.cardPadding)
-        .srGlassCard(.paper)
+    }
+
+    /// The same backs, small and still, for everyone watching the draw.
+    private var watchFan: some View {
+        let count = min(view.targetCards, 13)
+        return HStack(spacing: -22) {
+            ForEach(0..<count, id: \.self) { index in
+                OfflineCardBack(width: 40)
+                    .rotationEffect(.degrees((Double(index) - Double(count - 1) / 2) * 3))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
     }
 
     private func backButton(_ position: Int, of count: Int, from target: String) -> some View {
         let raised = picked == position
+        let tilt = Double((position % 3) - 1) * 3
         return Button {
             draw(position)
         } label: {
@@ -151,13 +269,18 @@ struct OldMaidView: View {
                 .overlay {
                     if raised {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(SR.ink, lineWidth: 2.5)
+                            .strokeBorder(NearbyPlayFeltInk.gold, lineWidth: 3)
                     }
                 }
-                .offset(y: raised ? -6 : 0)
+                .rotationEffect(.degrees(raised ? 0 : tilt))
+                .offset(y: raised ? -10 : 0)
+                .shadow(color: raised ? NearbyPlayFeltInk.gold.opacity(0.6) : Color.black.opacity(0.2),
+                        radius: raised ? 10 : 3, x: 0, y: raised ? 6 : 2)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .disabled(sentTurn == view.turnNumber)
+        .srAnimation(.spring(response: 0.3, dampingFraction: 0.6), value: raised)
         .accessibilityLabel("Card \(position + 1) of \(count), face down")
         .accessibilityHint("Draws this card from \(context.name(of: target)).")
         .accessibilityIdentifier("offline-old-maid-card-\(position)")
@@ -175,17 +298,20 @@ struct OldMaidView: View {
 
     private func lastDrawCard(_ note: OldMaidRules.DrawNote) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            if let pair = note.pair, pair.count == 2 {
-                HStack(spacing: -18) {
-                    OfflineCardFace(card: pair[0], width: 44)
-                    OfflineCardFace(card: pair[1], width: 44)
+            Group {
+                if let pair = note.pair, pair.count == 2 {
+                    HStack(spacing: -18) {
+                        OfflineCardFace(card: pair[0], width: 44)
+                            .rotationEffect(.degrees(-6))
+                        OfflineCardFace(card: pair[1], width: 44)
+                            .rotationEffect(.degrees(6))
+                    }
+                    .fixedSize()
+                } else {
+                    NearbyPlayFlipCard(card: note.card, width: 44)
                 }
-                .fixedSize()
-            } else if let card = note.card {
-                OfflineCardFace(card: card, width: 44)
-            } else {
-                OfflineCardBack(width: 44)
             }
+            .accessibilityHidden(true)
             Text(drawSentence(note))
                 .font(SR.Text.bodyMedium(15))
                 .foregroundStyle(SR.ink)
@@ -222,32 +348,47 @@ struct OldMaidView: View {
     // MARK: - The end
 
     private var finale: some View {
-        VStack(spacing: 14) {
-            if let card = view.oldMaidCard {
-                OfflineCardFace(card: card, width: 84)
-            } else {
-                OfflineCardBack(width: 84)
-            }
-            Text(view.oldMaidCard == nil ? "Game over" : "The odd queen")
-                .font(SR.Text.title())
-                .foregroundStyle(SR.ink)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.6)
-            if view.phase == .finale {
-                HStack(spacing: 8) {
-                    Text("Standings in")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                    OfflineCountdown(clock: context.clock, until: view.finaleUntil, font: SR.Text.mono(), tone: SR.inkMuted)
+        NearbyPlayFelt(tone: .plum) {
+            VStack(spacing: 14) {
+                ZStack(alignment: .bottom) {
+                    Group {
+                        if let card = view.oldMaidCard {
+                            OfflineCardFace(card: card, width: 96)
+                        } else {
+                            OfflineCardBack(width: 96)
+                        }
+                    }
+                    .rotationEffect(.degrees(-4))
+                    .shadow(color: Color.black.opacity(0.35), radius: 10, x: 0, y: 6)
+                    Text(view.oldMaidCard == nil ? "GAME OVER" : "OLD MAID")
+                        .font(SR.Text.label(14))
+                        .tracking(2)
+                        .foregroundStyle(Color(hex: 0x4A0F2E))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(NearbyPlayFeltInk.gold))
+                        .offset(y: 14)
                 }
-                .accessibilityElement(children: .combine)
+                .padding(.bottom, 14)
+                .accessibilityHidden(true)
+                Text(finaleLine)
+                    .font(SR.Text.title())
+                    .foregroundStyle(NearbyPlayFeltInk.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.6)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
-        .frame(maxWidth: .infinity)
-        .padding(SR.cardPadding)
-        .srGlassCard(.paper)
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("offline-old-maid-finale")
+    }
+
+    private var finaleLine: String {
+        guard view.oldMaidCard != nil else { return "Game over" }
+        guard let loser = view.loser else { return "The odd queen" }
+        return loser == context.me ? "The odd queen stayed with you" : "The odd queen stayed with \(context.name(of: loser))"
     }
 
     // MARK: - My hand
@@ -255,14 +396,14 @@ struct OldMaidView: View {
     private func handSection(_ hand: [OfflineCard]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SRSectionLabel(text: "Your hand", trailing: cardsText(hand.count))
-            OfflineHand(cards: hand, cardWidth: 56)
+            OfflineHand(cards: hand, cardWidth: 60)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Your hand: " + hand.map(\.name).joined(separator: ", "))
                 .accessibilityIdentifier("offline-old-maid-hand")
             if hand.contains(where: { $0.rank == 12 }) && view.phase == .playing {
-                Text("You hold a queen. If it never pairs, it's the Old Maid.")
+                Label("You hold a queen. If it never pairs, it's the Old Maid.", systemImage: "exclamationmark.triangle.fill")
                     .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkMuted)
+                    .foregroundStyle(SR.warn)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -290,7 +431,8 @@ struct OldMaidView: View {
         let isTurn = view.turn == seat.id
         let isTarget = view.target == seat.id
         return HStack(spacing: 10) {
-            OfflineInitial(name: seat.name, size: 28, tone: OfflineSeatColour.of(index))
+            OfflineInitial(name: seat.name, size: 32, tone: OfflineSeatColour.of(index))
+                .overlay { Circle().strokeBorder(isTurn ? SR.accent : Color.clear, lineWidth: 2.5).padding(-3) }
             VStack(alignment: .leading, spacing: 2) {
                 Text(seat.id == context.me ? "You" : seat.name)
                     .font(SR.Text.bodyMedium(16))
@@ -306,24 +448,26 @@ struct OldMaidView: View {
             Spacer(minLength: 8)
             if seat.safe {
                 Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(SR.Text.title(17))
                     .foregroundStyle(SR.good)
                     .accessibilityHidden(true)
             } else if view.loser == seat.id {
                 Image(systemName: "crown.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(SR.Text.title(17))
                     .foregroundStyle(SR.error)
                     .accessibilityHidden(true)
             }
             Text("\(seat.cards)")
-                .font(SR.Text.display(20))
+                .font(SR.Text.display(22))
                 .foregroundStyle(SR.ink)
+                .contentTransition(.numericText(value: Double(seat.cards)))
                 .frame(minWidth: 26, alignment: .trailing)
                 .fixedSize()
                 .accessibilityHidden(true)
         }
-        .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
+        .frame(minHeight: 52)
+        .padding(.vertical, 2)
+        .srAnimation(.snappy(duration: 0.25), value: seat)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(who(seat.id)), \(seatDetail(seat, isTurn: isTurn, isTarget: isTarget))")
         .accessibilityIdentifier("offline-old-maid-seat-\(seat.id)")
@@ -344,6 +488,30 @@ struct OldMaidView: View {
         let pairs = seat.pairs == 1 ? "1 pair" : "\(seat.pairs) pairs"
         parts.append(pairs)
         return parts.joined(separator: " · ")
+    }
+
+    // MARK: - Moments
+
+    private func react(to note: OldMaidRules.DrawNote) {
+        if note.drawer == context.me {
+            if note.pair != nil {
+                SRHaptic.ok()
+                pop("Pair! Down they go", icon: "rectangle.on.rectangle", tone: SR.good)
+            } else if note.card?.rank == 12 {
+                SRHaptic.bad()
+                pop("Oh no — a queen!", icon: "crown.fill", tone: SR.error)
+            }
+        } else if note.from == context.me && note.card?.rank == 12 {
+            SRHaptic.ok()
+            pop("They took your queen!", icon: "hand.thumbsup.fill", tone: SR.good)
+        }
+    }
+
+    private func pop(_ text: String, icon: String?, tone: Color) {
+        callout = text
+        calloutIcon = icon
+        calloutTone = tone
+        calloutToken += 1
     }
 
     // MARK: - Words

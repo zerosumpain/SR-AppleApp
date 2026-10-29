@@ -11,6 +11,11 @@ import UIKit
 /// tile is its own `TapSurface`, so the touch keeps its hardware timestamp).
 /// Each cleared tile is reported with the stopwatch so far and my misses, and
 /// the host's view only ever moves my run forward, never back.
+///
+/// The overhaul (2026-10-29) made the lit tile glow, flashes a cleared tile
+/// green and a missed one red (with a shake), counts 3-2-1 in big bumping
+/// digits, runs everyone's progress as coloured lanes, stops the stopwatch's
+/// redraws the moment I finish, and keeps this phone's quickest run.
 struct ReflexGridView: View {
     let context: OfflineGameContext<ReflexGridRules>
     @StateObject private var go = OfflineStimulus()
@@ -22,6 +27,12 @@ struct ReflexGridView: View {
     @State private var lastMs = 0
     /// A dark tile I just tapped, flashed red for a moment.
     @State private var flash: Int?
+    /// The tile I just cleared, flashed green for a moment.
+    @State private var hit: Int?
+    @State private var shakes = 0
+    @State private var best: NearbyPlayBestOutcome?
+    @State private var burstToken = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     private var view: ReflexGridRules.PlayerView { context.view }
 
@@ -36,10 +47,16 @@ struct ReflexGridView: View {
             catchUp()
             arm()
         }
-        .onChange(of: view.phase) { _, _ in arm() }
+        .onChange(of: view.phase) { _, new in
+            arm()
+            settled(new)
+        }
         .onChange(of: view.startsAt) { _, _ in arm() }
         .onChange(of: context.clock) { _, _ in arm() }
         .onChange(of: view.mine) { _, _ in catchUp() }
+        .onChange(of: scenePhase) { _, new in
+            if new == .active { arm() }
+        }
         .onDisappear { go.reset() }
     }
 
@@ -59,9 +76,13 @@ struct ReflexGridView: View {
         .srGround(.warm)
     }
 
+    /// My stopwatch runs only while I am racing; finished or waiting, the
+    /// timeline is paused and nothing redraws.
+    private var running: Bool { isPlayer && go.shown && !finished && view.phase == .racing }
+
     /// What to do now, and my stopwatch (time plus penalties).
     private var header: some View {
-        TimelineView(.periodic(from: .now, by: 0.05)) { _ in
+        TimelineView(.animation(minimumInterval: 0.05, paused: !running)) { _ in
             let total = myTotalMs()
             let timeLabel: String = isPlayer ? "Your time, \(ReflexGridRules.seconds(total))" : "Watching"
             let tilesLabel: String = isPlayer ? "\(cleared) of \(view.runLength) tiles" : "Watching"
@@ -71,10 +92,10 @@ struct ReflexGridView: View {
                         Text(kicker)
                             .font(SR.Text.label())
                             .tracking(SR.inkKickerTracking)
-                            .foregroundStyle(SR.accent)
+                            .foregroundStyle(finished ? SR.good : SR.accent)
                             .lineLimit(1)
                         Text(ReflexGridRules.seconds(total))
-                            .font(SR.Text.figure(34))
+                            .font(SR.Text.figure(38))
                             .foregroundStyle(SR.ink)
                             .monospacedDigit()
                             .lineLimit(1)
@@ -91,23 +112,32 @@ struct ReflexGridView: View {
                             .foregroundStyle(SR.inkMuted)
                             .lineLimit(1)
                         Text("\(isPlayer ? cleared : 0)/\(view.runLength)")
-                            .font(SR.Text.figure(34))
+                            .font(SR.Text.figure(38))
                             .foregroundStyle(SR.ink)
                             .monospacedDigit()
                             .lineLimit(1)
                             .fixedSize()
+                            .nearbyPlayBump(cleared, scale: 1.08)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(tilesLabel)
                 }
-                Text(instruction)
-                    .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("offline-reflex-grid-instruction")
+                HStack(spacing: 8) {
+                    if misses > 0 {
+                        NearbyPlayStat(icon: "xmark.octagon.fill",
+                                       text: "+\(ReflexGridRules.seconds(misses * view.penaltyMs))")
+                    }
+                    Text(instruction)
+                        .font(SR.Text.secondary())
+                        .foregroundStyle(SR.inkSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("offline-reflex-grid-instruction")
+                }
             }
+            .padding(SR.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .srGlassCard(.paper)
         }
     }
 
@@ -134,7 +164,8 @@ struct ReflexGridView: View {
             let side = max(0, min(geo.size.width, geo.size.height, 420))
             let columns = max(1, view.columns)
             let gap: CGFloat = 8
-            let cell = max(0, (side - gap * CGFloat(columns - 1)) / CGFloat(columns))
+            let inner = max(0, side - 20)
+            let cell = max(0, (inner - gap * CGFloat(columns - 1)) / CGFloat(columns))
             VStack(spacing: gap) {
                 ForEach(0..<columns, id: \.self) { row in
                     HStack(spacing: gap) {
@@ -144,7 +175,14 @@ struct ReflexGridView: View {
                     }
                 }
             }
+            .padding(10)
             .frame(width: side, height: side)
+            .background(
+                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(hex: 0x1D2140), Color(hex: 0x0E1028)],
+                                         startPoint: .top, endPoint: .bottom))
+            )
+            .modifier(NearbyPlayShake(travel: 7, animatableData: CGFloat(shakes)))
             .overlay { countdown(side: side) }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -155,40 +193,36 @@ struct ReflexGridView: View {
     /// 3, 2, 1 over the dark grid until GO shows.
     @ViewBuilder
     private func countdown(side: CGFloat) -> some View {
-        if !go.shown {
-            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-                let left = context.clock.secondsLeft(until: view.startsAt)
-                let shown: String = left > 0 ? "\(left)" : "GO"
-                let spoken: String = left > 0 ? "Starting in \(left)" : "Go"
-                Text(shown)
-                    .font(.system(size: max(24, side * 0.32), weight: .heavy, design: .rounded))
-                    .foregroundStyle(SR.ink.opacity(0.75))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.4)
-                    .accessibilityLabel(spoken)
-            }
-            .allowsHitTesting(false)
+        if !go.shown && view.phase == .racing {
+            NearbyPlayCountdownHero(clock: context.clock, until: view.startsAt,
+                                    size: max(24, side * 0.34), tone: Color.white)
+                .allowsHitTesting(false)
         }
     }
 
-    /// One tile: lit, dark, or flashing red after a miss — with its own touch surface.
+    /// One tile: lit, dark, flashing green after a hit or red after a miss —
+    /// with its own touch surface.
     private func tile(_ index: Int, cell: CGFloat) -> some View {
         let lit = litTile == index
         let missed = flash == index
-        let radius = max(4, cell * 0.16)
+        let justHit = hit == index
+        let radius = max(4, cell * 0.2)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return ZStack {
             ZStack {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(lit ? SR.accent : (missed ? SR.error : SR.ink.opacity(0.10)))
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .stroke(lit ? SR.accentDeep : SR.line, lineWidth: 1)
+                shape.fill(tileFill(lit: lit, missed: missed, cleared: justHit))
                 if lit {
+                    shape.fill(RadialGradient(colors: [Color.white.opacity(0.45), Color.white.opacity(0)],
+                                              center: .center, startRadius: 0, endRadius: cell * 0.6))
                     Image(systemName: "bolt.fill")
-                        .font(.system(size: max(8, cell * 0.34), weight: .bold))
-                        .foregroundStyle(SR.paper)
+                        .font(.system(size: max(8, cell * 0.38), weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .shadow(color: Color.black.opacity(0.25), radius: 2, x: 0, y: 1)
                 }
+                shape.strokeBorder(lit ? Color.white.opacity(0.7) : Color.white.opacity(0.08), lineWidth: lit ? 2 : 1)
             }
+            .shadow(color: lit ? Color(hex: 0x7C5CFF).opacity(0.8) : Color.clear, radius: cell * 0.2, x: 0, y: 0)
+            .scaleEffect(lit ? 1.04 : (missed ? 0.94 : 1))
             .accessibilityHidden(true)
             if canTap {
                 TapSurface(label: tileLabel(index, lit: lit)) { touched(tile: index, at: $0) }
@@ -197,6 +231,14 @@ struct ReflexGridView: View {
             }
         }
         .frame(width: cell, height: cell)
+    }
+
+    /// Fixed colours: the board is a dark panel in both modes.
+    private func tileFill(lit: Bool, missed: Bool, cleared: Bool) -> Color {
+        if lit { return Color(hex: 0x7C5CFF) }
+        if missed { return Color(hex: 0xE5383B) }
+        if cleared { return Color(hex: 0x1FA463) }
+        return Color.white.opacity(0.07)
     }
 
     private func tileLabel(_ index: Int, lit: Bool) -> String {
@@ -208,16 +250,18 @@ struct ReflexGridView: View {
 
     private var result: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: "Race over", title: resultTitle)
-                ReflexGridTimes(rows: view.rows, me: context.me, winners: view.winners, runLength: view.runLength)
-                if view.phase == .result {
-                    HStack(spacing: 8) {
-                        Text("Final table in")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                        OfflineCountdown(clock: context.clock, until: view.resultUntil, font: SR.Text.mono(), tone: SR.inkMuted)
+            VStack(alignment: .leading, spacing: 18) {
+                NearbyPlayBanner(kicker: "Race over", title: resultTitle, mine: view.winners == [context.me],
+                                 mark: .symbol("flag.checkered")) {
+                    if view.phase == .result {
+                        NearbyPlayBannerClock(clock: context.clock, until: view.resultUntil,
+                                              total: ReflexGridRules.resultPause, mine: false)
+                            .accessibilityLabel("Final table soon")
                     }
+                }
+                ReflexGridTimes(rows: view.rows, me: context.me, winners: view.winners, runLength: view.runLength)
+                if let best, let mine = myRow?.totalMs {
+                    NearbyPlayBestLine(outcome: best, value: mine, format: NearbyPlayBestMath.seconds(fromMs:))
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -225,6 +269,7 @@ struct ReflexGridView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay { NearbyPlayBurst(token: burstToken) }
         .accessibilityIdentifier("offline-reflex-grid-result")
     }
 
@@ -235,6 +280,8 @@ struct ReflexGridView: View {
     }
 
     // MARK: - Reading the view
+
+    private var myRow: ReflexGridRules.Row? { view.rows.first { $0.id == context.me } }
 
     /// I am racing in this match and still here (not a spectator).
     private var isPlayer: Bool {
@@ -274,6 +321,18 @@ struct ReflexGridView: View {
         }
     }
 
+    /// The race is over: cheer a win, keep my time as a best.
+    private func settled(_ phase: ReflexGridRules.Phase) {
+        guard phase != .racing else { return }
+        if view.winners.contains(context.me) && burstToken == 0 {
+            burstToken += 1
+            SRHaptic.ok()
+        }
+        if best == nil, isPlayer, let total = myRow?.totalMs {
+            best = NearbyPlayBestBook.record(ReflexGridRules.info.id, value: total, rule: .lower)
+        }
+    }
+
     /// The host's word on my run only moves it forward (after a rejoin, say).
     private func catchUp() {
         guard let mine = view.mine else { return }
@@ -291,6 +350,7 @@ struct ReflexGridView: View {
             misses += 1
             flash = index
             SRHaptic.bad()
+            withAnimation(.linear(duration: 0.3)) { shakes += 1 }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                 if flash == index { flash = nil }
             }
@@ -302,12 +362,16 @@ struct ReflexGridView: View {
         guard ms >= step * ReflexGridRules.minTileMs, ms >= lastMs else { return }
         cleared = step
         lastMs = ms
+        hit = index
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if hit == index { hit = nil }
+        }
         if step >= view.runLength { SRHaptic.ok() } else { SRHaptic.tap() }
         context.send(.tile(step: step, ms: ms, misses: misses))
     }
 }
 
-/// Everybody's progress as one row each — name, bar, tiles — so five racers
+/// Everybody's progress as one lane each — name, bar, tiles — so five racers
 /// fit a 375pt phone: the name truncates and the bar takes what is left.
 struct ReflexGridProgress: View {
     let rows: [ReflexGridRules.Row]
@@ -317,33 +381,54 @@ struct ReflexGridProgress: View {
     let runLength: Int
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { seat, row in
-                let count = row.id == me ? max(row.cleared, myCleared ?? row.cleared) : row.cleared
-                HStack(spacing: 8) {
-                    Text(row.id == me ? "You" : row.name)
-                        .font(SR.Text.bodyMedium(15))
-                        .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(width: 84, alignment: .leading)
-                    ProgressView(value: Double(min(count, runLength)), total: Double(max(1, runLength)))
-                        .progressViewStyle(.linear)
-                        .tint(OfflineSeatColour.of(seat))
-                        .frame(maxWidth: .infinity)
-                    Text(status(row, count: count))
-                        .font(SR.Text.mono(13))
-                        .foregroundStyle(row.finished ? SR.ink : SR.inkSecondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-                .frame(minHeight: 22)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(label(row, count: count))
+                lane(row, seat: seat)
             }
         }
+        .padding(SR.cardPadding)
         .frame(maxWidth: 420)
+        .srGlassCard(.paper)
         .accessibilityIdentifier("offline-reflex-grid-progress")
+    }
+
+    private func lane(_ row: ReflexGridRules.Row, seat: Int) -> some View {
+        let count = row.id == me ? max(row.cleared, myCleared ?? row.cleared) : row.cleared
+        let fraction = CGFloat(min(count, runLength)) / CGFloat(max(1, runLength))
+        let tone = OfflineSeatColour.of(seat)
+        return HStack(spacing: 8) {
+            Text(row.id == me ? "You" : row.name)
+                .font(SR.Text.bodyMedium(15))
+                .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 72, alignment: .leading)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(SR.ink.opacity(0.08))
+                    Capsule()
+                        .fill(LinearGradient(colors: [tone.opacity(0.7), tone], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(12, geo.size.width * fraction))
+                    if row.finished {
+                        Image(systemName: "flag.checkered")
+                            .font(SR.Text.label(12))
+                            .foregroundStyle(SR.ink)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .padding(.trailing, 4)
+                    }
+                }
+            }
+            .frame(height: 14)
+            .srAnimation(.snappy(duration: 0.2), value: count)
+            Text(status(row, count: count))
+                .font(SR.Text.mono(13))
+                .foregroundStyle(row.finished ? SR.ink : SR.inkSecondary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .frame(minHeight: 24)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label(row, count: count))
     }
 
     private func status(_ row: ReflexGridRules.Row, count: Int) -> String {
@@ -360,7 +445,8 @@ struct ReflexGridProgress: View {
     }
 }
 
-/// The race's times, quickest first; those who did not finish after them.
+/// The race's times, quickest first with places; those who did not finish
+/// after them.
 struct ReflexGridTimes: View {
     let rows: [ReflexGridRules.Row]
     let me: String
@@ -372,6 +458,7 @@ struct ReflexGridTimes: View {
             ForEach(Array(sorted.enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Divider().overlay(SR.divider) }
                 HStack(spacing: 10) {
+                    NearbyPlayPlaceDisc(place: row.totalMs == nil ? 0 : index + 1)
                     Text(row.id == me ? "You" : row.name)
                         .font(SR.Text.title())
                         .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
@@ -379,26 +466,27 @@ struct ReflexGridTimes: View {
                         .truncationMode(.tail)
                     if winners.contains(row.id) {
                         Image(systemName: "crown.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(SR.accent)
+                            .font(SR.Text.title(15))
+                            .foregroundStyle(SR.warn)
                             .accessibilityLabel("Fastest")
                     }
                     Spacer(minLength: 8)
                     if row.misses > 0 {
                         Text(missText(row.misses))
                             .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
+                            .foregroundStyle(SR.error)
                             .lineLimit(1)
                             .fixedSize()
                     }
                     Text(time(row))
-                        .font(SR.Text.mono(15))
+                        .font(SR.Text.title(16))
+                        .monospacedDigit()
                         .foregroundStyle(winners.contains(row.id) ? SR.accent : SR.inkSecondary)
                         .lineLimit(1)
                         .fixedSize()
                 }
-                .frame(minHeight: SR.tapTarget)
-                .padding(.vertical, 4)
+                .frame(minHeight: 52)
+                .padding(.vertical, 2)
                 .accessibilityElement(children: .combine)
             }
         }

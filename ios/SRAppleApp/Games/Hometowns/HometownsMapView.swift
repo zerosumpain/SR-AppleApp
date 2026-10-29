@@ -56,18 +56,52 @@ struct HometownsMapView: View {
                 HometownsWebView(store: store, url: url)
                     .overlay {
                         if !store.pageReady && store.pageError == nil {
-                            ProgressView().tint(SR.accent)
+                            loading
                         }
                     }
             } else {
-                ProgressView().tint(SR.accent).frame(maxWidth: .infinity, maxHeight: .infinity)
+                loading
             }
         }
+    }
+
+    /// While the page boots: the drawn town, faded, under "Drawing your town…",
+    /// so the first second is a town and not a blank square.
+    private var loading: some View {
+        ZStack {
+            HometownsMapStandIn(town: store.town)
+                .opacity(0.5)
+                .accessibilityHidden(true)
+            HStack(spacing: 10) {
+                ProgressView().tint(SR.accent)
+                Text(store.level == .kid ? "Drawing your town…" : "Drawing the map…")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkSecondary)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .srGlass(.paper, in: Capsule())
+            .accessibilityElement(children: .combine)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
+        .accessibilityIdentifier("hometowns-map-loading")
     }
 
     @ViewBuilder private var errorCard: some View {
         if let error = store.pageError {
             VStack(spacing: 12) {
+                Image(systemName: "map.fill")
+                    .font(SR.Text.title(26))
+                    .foregroundStyle(SR.accent)
+                    .frame(width: 64, height: 64)
+                    .background(Circle().fill(SR.accent.opacity(0.14)))
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(SR.Text.title(18))
+                            .foregroundStyle(SR.warn)
+                    }
+                    .accessibilityHidden(true)
                 Text("The map couldn't load")
                     .font(SR.Text.title())
                     .foregroundStyle(SR.ink)
@@ -77,16 +111,18 @@ struct HometownsMapView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 Button {
+                    SRHaptic.tap()
                     store.pageError = nil
                     store.pageLoading()
                     if let url = store.pageURL { store.webView?.load(URLRequest(url: url)) }
                 } label: {
-                    SRButtonLabel(title: "Try again", icon: "arrow.clockwise")
+                    HometownsBigLabel(title: "Try again", icon: "arrow.clockwise", fill: true)
                 }
                 .srButton(.prominent)
                 .accessibilityIdentifier("hometowns-map-retry")
             }
             .padding(SR.gutter)
+            .frame(maxWidth: 380)
             .srGlassCard(.paper)
             .padding(SR.gutter)
         }
@@ -221,39 +257,186 @@ struct HometownsWebView: UIViewRepresentable {
     }
 }
 
-/// A demo's map: a few drawn blocks on the ground, so a screenshot has a town
-/// in it without a request to the internet.
+/// A demo's map, and the backdrop while the real page boots: a hamlet drawn
+/// in isometric blocks — the County Road, a lane, homes with pitched roofs,
+/// farms in rows, a pond and trees — so a screenshot has a town in it without
+/// a request to the internet. Static: drawn once per size, nothing animates.
 struct HometownsMapStandIn: View {
     let town: HometownsTown?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let dark = colorScheme == .dark
         Canvas { context, size in
-            let ground = Color(red: 0xE8 / 255, green: 0xE4 / 255, blue: 0xD4 / 255)
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(ground))
-            let tile = max(10, min(size.width, size.height) / 18)
-            let centre = CGPoint(x: size.width / 2, y: size.height * 0.48)
-            func diamond(_ x: Int, _ y: Int) -> Path {
-                let cx = centre.x + CGFloat(x - y) * tile
-                let cy = centre.y + CGFloat(x + y) * tile / 2
-                var p = Path()
-                p.move(to: CGPoint(x: cx, y: cy - tile / 2))
-                p.addLine(to: CGPoint(x: cx + tile, y: cy))
-                p.addLine(to: CGPoint(x: cx, y: cy + tile / 2))
-                p.addLine(to: CGPoint(x: cx - tile, y: cy))
-                p.closeSubpath()
-                return p
-            }
-            // The County Road coming in, a lane, and the first homes and farms.
-            for y in -6...6 { context.fill(diamond(0, y), with: .color(Color(white: 0.62))) }
-            for x in 1...5 { context.fill(diamond(x, 0), with: .color(Color(white: 0.72))) }
-            let homes = Color(red: 0.86, green: 0.55, blue: 0.42)
-            let farms = Color(red: 0.62, green: 0.74, blue: 0.40)
-            for x in 1...4 { for y in [-2, -1, 1, 2] { context.fill(diamond(x, y), with: .color(homes)) } }
-            for x in 1...2 { context.fill(diamond(x, 4), with: .color(farms)) }
-            context.fill(diamond(-2, -1), with: .color(Color(red: 0.40, green: 0.62, blue: 0.80)))
+            HometownsMapStandIn.draw(in: context, size: size, dark: dark)
         }
         .accessibilityLabel("A drawing of \(town?.name ?? "a town")")
         .accessibilityIdentifier("hometowns-map-standin")
+    }
+
+    /// One tile of the grid: its centre on screen.
+    private struct Grid {
+        let centre: CGPoint
+        let tile: CGFloat
+
+        func point(_ x: Int, _ y: Int) -> CGPoint {
+            CGPoint(x: centre.x + CGFloat(x - y) * tile, y: centre.y + CGFloat(x + y) * tile / 2)
+        }
+
+        func diamond(_ x: Int, _ y: Int, lift: CGFloat = 0, inset: CGFloat = 0) -> Path {
+            let c = point(x, y)
+            let w = tile * (1 - inset)
+            let h = tile / 2 * (1 - inset)
+            var p = Path()
+            p.move(to: CGPoint(x: c.x, y: c.y - h - lift))
+            p.addLine(to: CGPoint(x: c.x + w, y: c.y - lift))
+            p.addLine(to: CGPoint(x: c.x, y: c.y + h - lift))
+            p.addLine(to: CGPoint(x: c.x - w, y: c.y - lift))
+            p.closeSubpath()
+            return p
+        }
+    }
+
+    private static func quad(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> Path {
+        var p = Path()
+        p.move(to: a)
+        p.addLine(to: b)
+        p.addLine(to: c)
+        p.addLine(to: d)
+        p.closeSubpath()
+        return p
+    }
+
+    static func draw(in context: GraphicsContext, size: CGSize, dark: Bool) {
+        let ground = dark ? Color(hex: 0x2C3127) : Color(hex: 0xE8E4D4)
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(ground))
+        let tile: CGFloat = max(10, min(size.width, size.height) / 18)
+        let grid = Grid(centre: CGPoint(x: size.width / 2, y: size.height * 0.46), tile: tile)
+
+        // A soft meadow under the hamlet.
+        let meadow = CGRect(x: grid.centre.x - tile * 9, y: grid.centre.y - tile * 3.2, width: tile * 18, height: tile * 9.5)
+        context.fill(Path(ellipseIn: meadow), with: .color(dark ? Color(hex: 0x34402C) : Color(hex: 0xD5DDB4)))
+
+        // The County Road, a lane off it, and their centre lines.
+        let road = dark ? Color(hex: 0x5A5D60) : Color(hex: 0x9C9A94)
+        let lane = dark ? Color(hex: 0x6A6C6E) : Color(hex: 0xB5B2A9)
+        for y in -7...7 { context.fill(grid.diamond(0, y), with: .color(road)) }
+        for x in 1...6 { context.fill(grid.diamond(x, 0), with: .color(lane)) }
+        var line = Path()
+        line.move(to: grid.point(0, -7))
+        line.addLine(to: grid.point(0, 7))
+        context.stroke(line, with: .color(Color.white.opacity(dark ? 0.35 : 0.7)),
+                       style: StrokeStyle(lineWidth: max(1, tile * 0.08), dash: [tile * 0.3, tile * 0.3]))
+
+        // A pond, back left.
+        context.fill(grid.diamond(-3, -1), with: .color(Color(hex: 0x4F93C9)))
+        context.fill(grid.diamond(-2, -2), with: .color(Color(hex: 0x4F93C9)))
+        context.fill(grid.diamond(-3, -2), with: .color(Color(hex: 0x5BA0D4)))
+        context.fill(grid.diamond(-3, -2, inset: 0.6), with: .color(Color.white.opacity(0.45)))
+
+        // Farms in rows, front right.
+        for x in 1...3 {
+            for y in 4...5 {
+                context.fill(grid.diamond(x, y), with: .color(Color(hex: 0x9CBF5A)))
+                let c = grid.point(x, y)
+                for k in -1...1 {
+                    var row = Path()
+                    let off = CGFloat(k) * tile * 0.3
+                    row.move(to: CGPoint(x: c.x - tile * 0.5 + off, y: c.y - tile * 0.25 + off / 2))
+                    row.addLine(to: CGPoint(x: c.x + tile * 0.5 + off, y: c.y + tile * 0.25 + off / 2))
+                    context.stroke(row, with: .color(Color(hex: 0x6E9440)), lineWidth: max(1, tile * 0.07))
+                }
+            }
+        }
+
+        // Homes, back to front so the nearer ones overlap the farther.
+        var homes: [(Int, Int)] = []
+        for x in 1...5 { for y in [-2, -1, 1, 2] { homes.append((x, y)) } }
+        var trees: [(Int, Int)] = [(-2, 2), (-3, 3), (-1, 4), (5, -4), (6, 3), (-4, -4), (3, -4), (7, 1)]
+        trees.sort { $0.0 + $0.1 < $1.0 + $1.1 }
+        homes.sort { $0.0 + $0.1 < $1.0 + $1.1 }
+        let walls = [Color(hex: 0xE9DCC6), Color(hex: 0xF1E6D2), Color(hex: 0xE3D3BB)]
+        let roofs = [Color(hex: 0xC0563C), Color(hex: 0xA94A33), Color(hex: 0x8E5A3C), Color(hex: 0x3E6E8E)]
+        var t = 0
+        var h = 0
+        for depth in -8...10 {
+            while t < trees.count && trees[t].0 + trees[t].1 == depth {
+                tree(context, grid, trees[t].0, trees[t].1)
+                t += 1
+            }
+            while h < homes.count && homes[h].0 + homes[h].1 == depth {
+                let (x, y) = homes[h]
+                let pick = abs(x * 7 + y * 3)
+                house(context, grid, x, y, wall: walls[pick % walls.count], roof: roofs[pick % roofs.count])
+                h += 1
+            }
+        }
+
+        // The signpost where the lane meets the County Road.
+        let sign = grid.point(0, 0)
+        context.fill(Path(CGRect(x: sign.x - tile * 0.05, y: sign.y - tile * 1.1, width: tile * 0.1, height: tile * 1.1)),
+                     with: .color(Color(hex: 0x6B4E33)))
+        context.fill(Path(roundedRect: CGRect(x: sign.x - tile * 0.05, y: sign.y - tile * 1.15, width: tile * 0.8, height: tile * 0.32),
+                          cornerRadius: tile * 0.06), with: .color(Color(hex: 0xF2C230)))
+    }
+
+    /// A house on tile (x, y): two lit walls and a pitched roof.
+    private static func house(_ context: GraphicsContext, _ grid: Grid, _ x: Int, _ y: Int, wall: Color, roof: Color) {
+        let tile = grid.tile
+        let c = grid.point(x, y)
+        let w = tile * 0.78
+        let d = tile * 0.39
+        let lift = tile * 0.55
+        let left = CGPoint(x: c.x - w, y: c.y)
+        let front = CGPoint(x: c.x, y: c.y + d)
+        let right = CGPoint(x: c.x + w, y: c.y)
+        let back = CGPoint(x: c.x, y: c.y - d)
+        func up(_ p: CGPoint, _ by: CGFloat) -> CGPoint { CGPoint(x: p.x, y: p.y - by) }
+        // Walls: the left face in shade, the right face lit.
+        context.fill(quad(left, front, up(front, lift), up(left, lift)), with: .color(wall))
+        context.fill(quad(left, front, up(front, lift), up(left, lift)), with: .color(Color.black.opacity(0.16)))
+        context.fill(quad(front, right, up(right, lift), up(front, lift)), with: .color(wall))
+        // A door on the lit face.
+        let door = CGPoint(x: (front.x + right.x) / 2, y: (front.y + right.y) / 2)
+        let doorW: CGFloat = tile * 0.08
+        let doorA = CGPoint(x: door.x - doorW, y: door.y + tile * 0.04)
+        let doorB = CGPoint(x: door.x + doorW, y: door.y - tile * 0.04)
+        let doorC = CGPoint(x: door.x + doorW, y: door.y - tile * 0.3)
+        let doorD = CGPoint(x: door.x - doorW, y: door.y - tile * 0.22)
+        context.fill(quad(doorA, doorB, doorC, doorD), with: .color(Color(hex: 0x6B4E33)))
+        // The roof: a ridge over the middle, parallel to the left face, raised
+        // above the walls. The back slope first, then the gable over the lit
+        // wall, then the near slope in shade over both.
+        let roofHeight = tile * 0.42
+        let ridgeBack = up(CGPoint(x: (left.x + back.x) / 2, y: (left.y + back.y) / 2), lift + roofHeight)
+        let ridgeFront = up(CGPoint(x: (front.x + right.x) / 2, y: (front.y + right.y) / 2), lift + roofHeight)
+        context.fill(quad(up(back, lift), up(right, lift), ridgeFront, ridgeBack), with: .color(roof))
+        var gable = Path()
+        gable.move(to: up(front, lift))
+        gable.addLine(to: up(right, lift))
+        gable.addLine(to: ridgeFront)
+        gable.closeSubpath()
+        context.fill(gable, with: .color(wall))
+        context.fill(quad(up(left, lift), up(front, lift), ridgeFront, ridgeBack), with: .color(roof))
+        context.fill(quad(up(left, lift), up(front, lift), ridgeFront, ridgeBack), with: .color(Color.black.opacity(0.2)))
+        var ridge = Path()
+        ridge.move(to: ridgeBack)
+        ridge.addLine(to: ridgeFront)
+        context.stroke(ridge, with: .color(Color.white.opacity(0.3)), lineWidth: max(1, tile * 0.05))
+    }
+
+    /// A round tree on tile (x, y), with its shadow.
+    private static func tree(_ context: GraphicsContext, _ grid: Grid, _ x: Int, _ y: Int) {
+        let tile = grid.tile
+        let c = grid.point(x, y)
+        context.fill(Path(ellipseIn: CGRect(x: c.x - tile * 0.55, y: c.y - tile * 0.18, width: tile * 1.1, height: tile * 0.4)),
+                     with: .color(Color.black.opacity(0.12)))
+        context.fill(Path(CGRect(x: c.x - tile * 0.07, y: c.y - tile * 0.55, width: tile * 0.14, height: tile * 0.55)),
+                     with: .color(Color(hex: 0x6B4E33)))
+        let crown = CGRect(x: c.x - tile * 0.5, y: c.y - tile * 1.45, width: tile, height: tile)
+        context.fill(Path(ellipseIn: crown), with: .color(Color(hex: 0x4E8A4C)))
+        context.fill(Path(ellipseIn: crown.insetBy(dx: tile * 0.2, dy: tile * 0.2).offsetBy(dx: -tile * 0.1, dy: -tile * 0.1)),
+                     with: .color(Color(hex: 0x67A562)))
     }
 }
 

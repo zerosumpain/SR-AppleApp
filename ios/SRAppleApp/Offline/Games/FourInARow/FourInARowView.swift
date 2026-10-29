@@ -5,14 +5,19 @@ import SwiftUI
 ///
 /// The board is sized from the width it is given, so the 9 × 7 board for
 /// three or four players still fits a 375-point phone with spaces about 36
-/// points across. A tap on a column picks it and shows a faint disc where
-/// yours would land; Drop (or a second tap on the same column) sends it, so
-/// a mis-tap costs nothing.
+/// points across. A tap on a column picks it and holds your disc over it,
+/// with a faint one where it would land; Drop (or a second tap on the same
+/// column) sends it, so a mis-tap costs nothing.
 ///
 /// Each player's discs have their own colour AND their own marker (a dot, a
 /// cross, a triangle, a square), so the board still reads for someone who
 /// cannot tell the colours apart. VoiceOver reads the board column by
 /// column, bottom up, and each column offers "Drop a disc here" as an action.
+///
+/// The board is the classic upright frame: a blue plate with round holes,
+/// drawn over the discs, so a dropped disc falls behind it — glimpsed through
+/// each hole on the way down — and lands with a bounce and a tap. The winning
+/// four are ringed in gold.
 struct FourInARowView: View {
     let context: OfflineGameContext<FourInARowRules>
     /// The column picked but not yet dropped into.
@@ -27,7 +32,7 @@ struct FourInARowView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 SRPageHeader(kicker: kicker, title: title, strap: strap)
                 if view.phase == .playing { turnBar }
                 FourInARowBoard(
@@ -61,7 +66,7 @@ struct FourInARowView: View {
         }
         .onChange(of: view.turnNumber) { _, _ in
             selected = nil
-            if view.turnPlayer == context.me, view.lastMove?.playerId != context.me { SRHaptic.tap() }
+            if view.turnPlayer == context.me, view.lastMove?.playerId != context.me { SRHaptic.select() }
         }
         .onChange(of: view.phase) { _, new in
             guard new == .done else { return }
@@ -153,55 +158,30 @@ struct FourInARowView: View {
 
     // MARK: - The turn
 
+    @ViewBuilder
     private var turnBar: some View {
-        HStack(spacing: 10) {
-            if let turn = view.turnPlayer, let seat = view.seats.first(where: { $0.id == turn }) {
-                FourInARowDisc(seat: seat.seat, size: 28)
-                    .accessibilityHidden(true)
-                Text(turn == context.me ? "Your disc" : "\(seat.name) is choosing")
-                    .font(SR.Text.bodyMedium(15))
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+        if let turn = view.turnPlayer, let seat = view.seats.first(where: { $0.id == turn }) {
+            PlayTableTurnStrip(text: turn == context.me ? "Your disc" : "\(seat.name) is choosing",
+                               mine: turn == context.me, clock: context.clock, until: view.turnEndsAt,
+                               total: FourInARowRules.turnSeconds, tone: OfflineSeatColour.of(seat.seat)) {
+                FourInARowDisc(seat: seat.seat, size: 40)
             }
-            Spacer(minLength: 6)
-            Image(systemName: "timer")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(SR.inkSecondary)
-                .accessibilityHidden(true)
-            OfflineCountdown(clock: context.clock, until: view.turnEndsAt, font: SR.Text.display(22),
-                             tone: myTurn ? SR.accent : SR.ink)
-                .fixedSize()
+            .accessibilityIdentifier("offline-four-in-a-row-turn")
         }
-        .padding(.horizontal, SR.cardPadding)
-        .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
-        .srGlassCard(.paper)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("offline-four-in-a-row-turn")
     }
 
     private var dropControls: some View {
         HStack(spacing: 10) {
-            Button {
+            PlayTableButton(title: "Drop", icon: "arrow.down", haptic: .none) {
                 if let column = selected { drop(column) }
-            } label: {
-                SRButtonLabel(title: "Drop", icon: "arrow.down", fill: true)
             }
-            .srButton(.prominent)
-            .controlSize(.large)
             .disabled(selected == nil)
             .accessibilityIdentifier("offline-four-in-a-row-drop")
             .accessibilityLabel(selected.map { "Drop a disc in column \($0 + 1)" } ?? "Drop")
 
-            Button {
-                SRHaptic.select()
+            PlayTableButton(title: "Clear", weight: .regular, haptic: .select) {
                 selected = nil
-            } label: {
-                SRButtonLabel(title: "Clear", fill: true)
             }
-            .srButton(.regular)
-            .controlSize(.large)
             .disabled(selected == nil)
             .accessibilityIdentifier("offline-four-in-a-row-clear")
             .accessibilityLabel("Clear the picked column")
@@ -214,49 +194,61 @@ struct FourInARowView: View {
         VStack(spacing: 0) {
             ForEach(Array(view.seats.enumerated()), id: \.element.id) { index, seat in
                 if index > 0 { Divider().overlay(SR.divider) }
-                HStack(spacing: 10) {
-                    FourInARowDisc(seat: seat.seat, size: 26)
-                        .opacity(seat.away ? 0.45 : 1)
-                    Text(seat.id == context.me ? "You" : seat.name)
-                        .font(SR.Text.bodyMedium(15))
-                        .foregroundStyle(seat.away ? SR.inkMuted : SR.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if view.turnPlayer == seat.id {
-                        Image(systemName: "arrowtriangle.left.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    if view.winner == seat.id {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    Spacer(minLength: 6)
-                    if seat.away {
-                        Text("left")
-                            .font(SR.Text.mono(13))
-                            .foregroundStyle(SR.inkSecondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    Text("\(discCount(seat.seat))")
-                        .font(SR.Text.mono(15))
-                        .foregroundStyle(SR.ink)
-                        .frame(minWidth: 30, alignment: .trailing)
-                        .fixedSize()
-                }
-                .frame(minHeight: 40)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(seatLabel(seat))
+                seatRow(seat)
             }
         }
         .padding(.horizontal, SR.cardPadding)
         .padding(.vertical, 6)
         .srGlassCard(.paper)
         .accessibilityIdentifier("offline-four-in-a-row-players")
+    }
+
+    private func seatRow(_ seat: FourInARowRules.Seat) -> some View {
+        let turn = view.turnPlayer == seat.id && view.phase == .playing
+        let tone = OfflineSeatColour.of(seat.seat)
+        return HStack(spacing: 12) {
+            FourInARowDisc(seat: seat.seat, size: 34)
+                .opacity(seat.away ? 0.45 : 1)
+                .overlay(Circle().strokeBorder(turn ? tone : Color.clear, lineWidth: 2.5).padding(-4))
+            Text(seat.id == context.me ? "You" : seat.name)
+                .font(SR.Text.bodyMedium(16))
+                .foregroundStyle(seat.away ? SR.inkMuted : SR.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if turn {
+                Text("CHOOSING")
+                    .font(SR.Text.label(10))
+                    .tracking(0.8)
+                    .foregroundStyle(tone)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(tone.opacity(0.14)))
+                    .accessibilityHidden(true)
+            }
+            if view.winner == seat.id {
+                Image(systemName: "crown.fill")
+                    .font(SR.Text.label(14))
+                    .foregroundStyle(Color(hex: 0xE0A21C))
+                    .accessibilityHidden(true)
+            }
+            Spacer(minLength: 6)
+            if seat.away {
+                Text("left")
+                    .font(SR.Text.mono(13))
+                    .foregroundStyle(SR.inkSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            Text("\(discCount(seat.seat))")
+                .font(SR.Text.figure(17))
+                .foregroundStyle(SR.ink)
+                .frame(minWidth: 30, alignment: .trailing)
+                .fixedSize()
+                .srNumeric(Double(discCount(seat.seat)))
+        }
+        .frame(minHeight: 52)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(seatLabel(seat))
     }
 
     private func discCount(_ seat: Int) -> Int {
@@ -312,9 +304,19 @@ struct FourInARowView: View {
     }
 }
 
-/// The board: a plate of round spaces, one tappable column per button, with
-/// a pointer over the picked column, a faint disc where it would land, the
-/// last disc ringed in the accent colour and the winning line ringed in ink.
+/// The frame's colours: the same in both appearances, as the toy is.
+enum FourInARowPaint {
+    static let plateLight = Color(hex: 0x2F62D9)
+    static let plateDeep = Color(hex: 0x173C9E)
+    static let holeRim = Color(hex: 0x0E2A75)
+    static let backing = Color(hex: 0x0B1A47)
+    static let win = Color(hex: 0xF5C451)
+}
+
+/// The board: one tappable column per button holding the discs, with the
+/// blue plate drawn over them (holes cut out, so it never takes a tap), my
+/// disc held over the picked column, a faint disc where it would land, the
+/// last disc ringed and the winning line ringed in gold.
 ///
 /// Sized from the width it is given — the space side is the smaller of the
 /// width over the columns and the height over the rows — and the aspect
@@ -331,9 +333,9 @@ struct FourInARowBoard: View {
     let onDrop: (Int) -> Void
 
     /// The plate's border, in spaces.
-    private static let inset: CGFloat = 0.2
-    /// The pointer row above the columns, in spaces.
-    private static let pointer: CGFloat = 0.6
+    private static let inset: CGFloat = 0.22
+    /// The row above the plate where a picked disc is held, in spaces.
+    private static let pointer: CGFloat = 0.95
 
     private var cols: Int { max(view.cols, 1) }
     private var rows: Int { max(view.rows, 1) }
@@ -344,9 +346,16 @@ struct FourInARowBoard: View {
 
     var body: some View {
         GeometryReader { geo in
-            let unit = max(1, min(geo.size.width / (CGFloat(cols) + 2 * Self.inset),
-                                  geo.size.height / (CGFloat(rows) + Self.pointer + 2 * Self.inset)))
-            VStack(spacing: 0) {
+            let across: CGFloat = CGFloat(cols) + 2 * Self.inset
+            let down: CGFloat = CGFloat(rows) + Self.pointer + 2 * Self.inset
+            let unit: CGFloat = max(1, min(geo.size.width / across, geo.size.height / down))
+            let plateHeight = unit * (CGFloat(rows) + 2 * Self.inset)
+            let plateWidth = unit * (CGFloat(cols) + 2 * Self.inset)
+            ZStack(alignment: .bottom) {
+                // The dark behind the holes.
+                RoundedRectangle(cornerRadius: unit * 0.3, style: .continuous)
+                    .fill(FourInARowPaint.backing)
+                    .frame(width: plateWidth, height: plateHeight)
                 HStack(spacing: 0) {
                     ForEach(0..<cols, id: \.self) { col in
                         column(col, unit: unit)
@@ -354,20 +363,17 @@ struct FourInARowBoard: View {
                 }
                 .padding(.horizontal, unit * Self.inset)
                 .padding(.bottom, unit * Self.inset)
-                .background(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: unit * 0.3, style: .continuous)
-                        .fill(SR.ink.opacity(0.08))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: unit * 0.3, style: .continuous)
-                                .strokeBorder(SR.line, lineWidth: 1)
-                        )
-                        .frame(height: unit * (CGFloat(rows) + 2 * Self.inset))
-                }
+                FourInARowPlate(view: view, selected: selected, unit: unit,
+                                inset: Self.inset, pointer: Self.pointer)
+                    .frame(width: plateWidth, height: plateHeight)
+                    .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 5)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
         }
         .aspectRatio(aspect, contentMode: .fit)
-        .frame(maxWidth: 440)
+        .frame(maxWidth: 460)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Board, \(cols) columns by \(rows) rows")
@@ -383,10 +389,10 @@ struct FourInARowBoard: View {
         } label: {
             VStack(spacing: 0) {
                 ZStack {
-                    if selected == col {
-                        Image(systemName: "arrowtriangle.down.fill")
-                            .font(.system(size: unit * 0.4, weight: .bold))
-                            .foregroundStyle(mySeat.map { OfflineSeatColour.of($0) } ?? SR.accent)
+                    if selected == col, let seat = mySeat {
+                        FourInARowDisc(seat: seat, size: unit * 0.78)
+                            .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 3)
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
                 }
                 .frame(width: unit, height: unit * (Self.pointer + Self.inset))
@@ -398,6 +404,7 @@ struct FourInARowBoard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .srAnimation(.spring(response: 0.3, dampingFraction: 0.7), value: selected)
         .accessibilityLabel(columnLabel(col, landing: landing))
         .accessibilityHint(interactive && landing != nil ? "Double-tap to pick this column, then double-tap again to drop." : "")
         .accessibilityAddTraits(selected == col ? .isSelected : [])
@@ -415,25 +422,18 @@ struct FourInARowBoard: View {
         let owner = view.grid.indices.contains(index) ? view.grid[index] : -1
         let isLast = view.lastMove.map { $0.row == row && $0.column == col } ?? false
         ZStack {
-            Circle()
-                .fill(SR.paper)
-            Circle()
-                .strokeBorder(SR.line, lineWidth: 1)
             if owner >= 0 {
-                FourInARowDisc(seat: owner, size: unit * 0.78)
+                if isLast {
+                    FourInARowFallingDisc(seat: owner, size: unit * 0.82,
+                                          fall: unit * (CGFloat(row) + 1.1), rows: row + 1)
+                } else {
+                    FourInARowDisc(seat: owner, size: unit * 0.82)
+                }
             } else if ghost, let seat = mySeat {
-                FourInARowDisc(seat: seat, size: unit * 0.78)
+                FourInARowDisc(seat: seat, size: unit * 0.82)
                     .opacity(0.35)
             }
-            if view.winningCells.contains(index) {
-                Circle()
-                    .strokeBorder(SR.ink, lineWidth: max(2, unit * 0.09))
-            } else if isLast {
-                Circle()
-                    .strokeBorder(SR.accent, lineWidth: max(1.5, unit * 0.06))
-            }
         }
-        .padding(unit * 0.05)
         .frame(width: unit, height: unit)
     }
 
@@ -471,22 +471,94 @@ struct FourInARowBoard: View {
     }
 }
 
-/// One player's disc: their seat colour with their seat's marker on it, so
-/// discs differ in shape as well as colour.
+/// The blue plate with its holes, drawn over the discs: one `Canvas`, the
+/// holes cut with an even-odd fill, then the rims, a light down the picked
+/// column, the last disc's ring and the winning four in gold.
+struct FourInARowPlate: View {
+    let view: FourInARowRules.PlayerView
+    let selected: Int?
+    let unit: CGFloat
+    let inset: CGFloat
+    let pointer: CGFloat
+
+    var body: some View {
+        let cols = max(view.cols, 1)
+        let rows = max(view.rows, 1)
+        let unit = self.unit
+        let inset = self.inset
+        let winning = Set(view.winningCells)
+        let last = view.lastMove
+        let selected = self.selected
+        return Canvas { context, size in
+            let radius = unit * 0.43
+            func centre(_ row: Int, _ col: Int) -> CGPoint {
+                CGPoint(x: unit * inset + (CGFloat(col) + 0.5) * unit,
+                        y: unit * inset + (CGFloat(row) + 0.5) * unit)
+            }
+            func hole(_ row: Int, _ col: Int, grow: CGFloat) -> CGRect {
+                let c = centre(row, col)
+                let r = radius + grow
+                return CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
+            }
+            var plate = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: unit * 0.3, style: .continuous)
+            for row in 0..<rows {
+                for col in 0..<cols {
+                    plate.addEllipse(in: hole(row, col, grow: 0))
+                }
+            }
+            context.fill(plate,
+                         with: .linearGradient(Gradient(colors: [FourInARowPaint.plateLight, FourInARowPaint.plateDeep]),
+                                               startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)),
+                         style: FillStyle(eoFill: true))
+            var rims = Path()
+            for row in 0..<rows {
+                for col in 0..<cols {
+                    rims.addEllipse(in: hole(row, col, grow: 0))
+                }
+            }
+            context.stroke(rims, with: .color(FourInARowPaint.holeRim), lineWidth: max(1, unit * 0.05))
+            if let selected, selected < cols {
+                let x = unit * inset + CGFloat(selected) * unit
+                let band = CGRect(x: x + unit * 0.04, y: unit * 0.05, width: unit * 0.92, height: size.height - unit * 0.1)
+                context.fill(Path(roundedRect: band, cornerRadius: unit * 0.4), with: .color(Color.white.opacity(0.12)))
+            }
+            if let last, winning.isEmpty {
+                context.stroke(Path(ellipseIn: hole(last.row, last.column, grow: unit * 0.02)),
+                               with: .color(Color.white.opacity(0.85)), lineWidth: max(1.5, unit * 0.06))
+            }
+            for index in winning {
+                let row = index / cols
+                let col = index % cols
+                context.stroke(Path(ellipseIn: hole(row, col, grow: unit * 0.03)),
+                               with: .color(FourInARowPaint.win), lineWidth: max(2.5, unit * 0.1))
+            }
+        }
+    }
+}
+
+/// One player's disc: their seat colour, lit like a plastic counter, with
+/// their seat's marker on it, so discs differ in shape as well as colour.
 struct FourInARowDisc: View {
     let seat: Int
     let size: CGFloat
 
     var body: some View {
-        Circle()
-            .fill(OfflineSeatColour.of(seat))
-            .overlay(
-                Image(systemName: Self.symbol(seat))
-                    .font(.system(size: size * 0.4, weight: .heavy))
-                    .foregroundStyle(SR.paper)
-            )
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        let tone = OfflineSeatColour.of(seat)
+        return ZStack {
+            Circle()
+                .fill(tone)
+            Circle()
+                .fill(RadialGradient(colors: [Color.white.opacity(0.45), Color.white.opacity(0)],
+                                     center: UnitPoint(x: 0.32, y: 0.28), startRadius: 0, endRadius: size * 0.55))
+            Circle()
+                .strokeBorder(Color.black.opacity(0.18), lineWidth: max(1, size * 0.07))
+                .padding(size * 0.12)
+            Image(systemName: Self.symbol(seat))
+                .font(.system(size: size * 0.36, weight: .heavy))
+                .foregroundStyle(Color.white.opacity(0.92))
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 
     /// The marker for a seat: dot, cross, triangle, square (then star).
@@ -509,5 +581,34 @@ struct FourInARowDisc: View {
         case 3: return "square"
         default: return "star"
         }
+    }
+}
+
+/// The newest disc: it falls from above the plate into its space, bounces
+/// once and lands with a tap. Once, when it first appears; simply there
+/// under Reduce Motion.
+struct FourInARowFallingDisc: View {
+    let seat: Int
+    let size: CGFloat
+    /// How far above its space it starts, in points.
+    let fall: CGFloat
+    /// How many rows it falls, for the timing.
+    let rows: Int
+    @State private var landed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let down = landed || reduceMotion
+        return FourInARowDisc(seat: seat, size: size)
+            .offset(y: down ? 0 : -fall)
+            .onAppear {
+                guard !reduceMotion, !landed else { return }
+                let seconds = PlayTableMath.dropSeconds(rows: rows)
+                withAnimation(.spring(response: seconds * 1.5, dampingFraction: 0.58)) { landed = true }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    SRHaptic.tap()
+                }
+            }
     }
 }
