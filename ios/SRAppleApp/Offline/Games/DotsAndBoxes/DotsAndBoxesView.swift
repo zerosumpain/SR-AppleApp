@@ -282,24 +282,36 @@ struct DotsAndBoxesBoard: View {
     private static let margin: CGFloat = 0.3
 
     var body: some View {
-        GeometryReader { geo in
-            board(Metrics(size: geo.size, rows: view.rows, cols: view.cols))
+        let label: String = "Board, \(view.rows) rows of \(view.cols) boxes"
+        return GeometryReader { (geo: GeometryProxy) -> AnyView in
+            AnyView(board(Metrics(size: geo.size, rows: view.rows, cols: view.cols)))
         }
-        .aspectRatio((CGFloat(view.cols) + 2 * Self.margin) / (CGFloat(view.rows) + 2 * Self.margin), contentMode: .fit)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(DotsAndBoxesPaint.paper)
-                .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
-        )
+        .aspectRatio(aspect, contentMode: .fit)
+        .background(paperCard)
+        .overlay(paperEdge)
         .frame(maxWidth: 440)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Board, \(view.rows) rows of \(view.cols) boxes")
+        .accessibilityLabel(label)
         .accessibilityIdentifier("offline-dots-and-boxes-board")
+    }
+
+    /// Width over height of the board, margins included.
+    private var aspect: CGFloat {
+        let across: CGFloat = CGFloat(view.cols) + 2 * Self.margin
+        let down: CGFloat = CGFloat(view.rows) + 2 * Self.margin
+        return across / down
+    }
+
+    private var paperCard: some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(DotsAndBoxesPaint.paper)
+            .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
+    }
+
+    private var paperEdge: some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
     }
 
     // MARK: - Reading the board
