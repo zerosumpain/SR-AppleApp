@@ -283,49 +283,7 @@ struct DotsAndBoxesBoard: View {
 
     var body: some View {
         GeometryReader { geo in
-            let metrics = Metrics(size: geo.size, rows: view.rows, cols: view.cols)
-            ZStack(alignment: .topLeading) {
-                Canvas { canvas, size in
-                    paint(canvas, size: size, metrics)
-                }
-                .contentShape(Rectangle())
-                .gesture(
-                    SpatialTapGesture().onEnded { value in
-                        guard interactive, let line = metrics.line(near: value.location, isOpen: isOpen) else { return }
-                        onPick(line)
-                    }
-                )
-                .accessibilityHidden(true)
-
-                ForEach(wonBoxes, id: \.self) { box in
-                    DotsAndBoxesPop(tone: lastTone, side: metrics.unit)
-                        .position(metrics.centre(row: box / max(view.cols, 1), col: box % max(view.cols, 1)))
-                        .id("\(view.turnNumber)-\(box)")
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-
-                ForEach(0..<(view.rows * view.cols), id: \.self) { index in
-                    let row = index / view.cols
-                    let col = index % view.cols
-                    Rectangle()
-                        .fill(Color.white.opacity(0.001))
-                        .frame(width: metrics.unit, height: metrics.unit)
-                        .position(metrics.centre(row: row, col: col))
-                        .allowsHitTesting(false)
-                        .accessibilityElement()
-                        .accessibilityLabel(boxLabel(row: row, col: col))
-                        .accessibilityHint(interactive ? "Swipe up or down to pick an open side to draw." : "")
-                        .accessibilityActions {
-                            if interactive {
-                                ForEach(Array(openSides(row: row, col: col).enumerated()), id: \.offset) { _, side in
-                                    Button("Draw the \(side.name) side") { onDraw(side.line) }
-                                }
-                            }
-                        }
-                        .accessibilityIdentifier("offline-dots-and-boxes-box-\(row)-\(col)")
-                }
-            }
+            board(Metrics(size: geo.size, rows: view.rows, cols: view.cols))
         }
         .aspectRatio((CGFloat(view.cols) + 2 * Self.margin) / (CGFloat(view.rows) + 2 * Self.margin), contentMode: .fit)
         .background(
@@ -380,6 +338,66 @@ struct DotsAndBoxesBoard: View {
     private func sides(row: Int, col: Int) -> [(name: String, line: DotsAndBoxesRules.Line)] {
         let lines = DotsAndBoxesRules.sides(row: row, col: col)
         return zip(["top", "bottom", "left", "right"], lines).map { (name: $0.0, line: $0.1) }
+    }
+
+    /// The drawn board, the pops for boxes just won and one VoiceOver cell per
+    /// box. Split out of `body` so the type checker takes it a piece at a time.
+    private func board(_ metrics: Metrics) -> some View {
+        ZStack(alignment: .topLeading) {
+            drawing(metrics)
+            pops(metrics)
+            cells(metrics)
+        }
+    }
+
+    private func drawing(_ metrics: Metrics) -> some View {
+        Canvas { canvas, size in
+            paint(canvas, size: size, metrics)
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            SpatialTapGesture().onEnded { value in
+                guard interactive, let line = metrics.line(near: value.location, isOpen: isOpen) else { return }
+                onPick(line)
+            }
+        )
+        .accessibilityHidden(true)
+    }
+
+    private func pops(_ metrics: Metrics) -> some View {
+        let cols = max(view.cols, 1)
+        return ForEach(wonBoxes, id: \.self) { box in
+            DotsAndBoxesPop(tone: lastTone, side: metrics.unit)
+                .position(metrics.centre(row: box / cols, col: box % cols))
+                .id("\(view.turnNumber)-\(box)")
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func cells(_ metrics: Metrics) -> some View {
+        ForEach(0..<(view.rows * view.cols), id: \.self) { index in
+            cell(row: index / view.cols, col: index % view.cols, metrics: metrics)
+        }
+    }
+
+    private func cell(row: Int, col: Int, metrics: Metrics) -> some View {
+        let sides: [(name: String, line: DotsAndBoxesRules.Line)] = interactive ? openSides(row: row, col: col) : []
+        let hint: String = interactive ? "Swipe up or down to pick an open side to draw." : ""
+        return Rectangle()
+            .fill(Color.white.opacity(0.001))
+            .frame(width: metrics.unit, height: metrics.unit)
+            .position(metrics.centre(row: row, col: col))
+            .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityLabel(boxLabel(row: row, col: col))
+            .accessibilityHint(hint)
+            .accessibilityActions {
+                ForEach(0..<sides.count, id: \.self) { i in
+                    Button("Draw the \(sides[i].name) side") { onDraw(sides[i].line) }
+                }
+            }
+            .accessibilityIdentifier("offline-dots-and-boxes-box-\(row)-\(col)")
     }
 
     private func openSides(row: Int, col: Int) -> [(name: String, line: DotsAndBoxesRules.Line)] {
