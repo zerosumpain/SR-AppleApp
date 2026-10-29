@@ -19,6 +19,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
     case word
     case party
     case physics
+    case puzzle
     case strategy
     case outdoor
 
@@ -31,6 +32,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         case .strategy: return "Strategy & board"
         case .quick: return "Quick & arcade"
         case .physics: return "Physics"
+        case .puzzle: return "Puzzles & cards"
         case .outdoor: return "Outdoor"
         }
     }
@@ -43,6 +45,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         case .strategy: return "Strategy"
         case .quick: return "Quick"
         case .physics: return "Physics"
+        case .puzzle: return "Puzzles"
         case .outdoor: return "Outdoor"
         }
     }
@@ -54,6 +57,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         case .strategy: return "crown.fill"
         case .quick: return "bolt.fill"
         case .physics: return "scope"
+        case .puzzle: return "puzzlepiece.fill"
         case .outdoor: return "tree.fill"
         }
     }
@@ -66,6 +70,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         case .strategy: return "Think ahead. Some last an evening, some for weeks."
         case .quick: return "A minute or two. Fast hands, quick heads."
         case .physics: return "Tilt, roll and race: things that move."
+        case .puzzle: return "On your own, at your own pace. Cards, numbers and logic."
         case .outdoor: return "Off the sofa and out of the door."
         }
     }
@@ -105,6 +110,15 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         // Played on this phone, never a room (the physics games' own branch).
         "lander": .physics,
         "car-race": .physics,
+        "car-racer-plus": .physics,
+        "mini-golf": .physics,
+        "pinball": .physics,
+        "tilt-maze": .physics,
+        "orbit": .physics,
+        "solitaire": .puzzle,
+        "merge-2048": .puzzle,
+        "minesweeper": .puzzle,
+        "snake": .quick,
         "manhunt": .outdoor,
     ]
 }

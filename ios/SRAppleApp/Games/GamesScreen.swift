@@ -393,7 +393,7 @@ struct GamesScreen: View {
     /// `playsOnPhone`) is sent to its own screen instead, and counted as
     /// played (`store.recordPlay`), since no room will ever count it.
     private func open(_ kind: GameKind) {
-        // Lander and Car Race play on this phone, with no room to start.
+        // The physics games and the puzzles play on this phone, with no room to start.
         if kind.playsOnPhone {
             store.recordPlay(kind.rawValue)
             router.push(PhysicsGameRef(kind: kind), on: .games)
@@ -434,6 +434,7 @@ extension GameCategory {
         case .strategy: return SR.Hue.trips
         case .quick: return SR.Hue.games
         case .physics: return SR.Hue.flows
+        case .puzzle: return SR.Hue.wildmind
         case .outdoor: return SR.Hue.steps
         }
     }
