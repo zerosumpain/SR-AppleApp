@@ -15,6 +15,17 @@ final class CarRaceNearbyTests: XCTestCase {
         XCTAssertEqual(OfflineRulesAudit.problems(Rules.self), [])
     }
 
+    /// A phone a build behind knows only the first three tracks: a race
+    /// nearby must never draw a newer one.
+    func testARaceNearbyIsOnATrackEveryPhoneKnows() {
+        XCTAssertEqual(CarTrack.nearby.map(\.id), ["paddock", "riverside", "quarry"])
+        for seed in 0..<40 {
+            var rng = OfflineRNG(seed: UInt64(seed))
+            let state = CarRaceNearbyRules.start(players: [OfflinePlayer(id: "a", name: "A")], now: 0, rng: &rng)
+            XCTAssertTrue(CarTrack.nearby.contains { $0.id == state.trackId }, state.trackId)
+        }
+    }
+
     func testARaceStartsOnTheGridAfterACountdown() throws {
         var (state, rng) = started()
         let track = try XCTUnwrap(CarTrack.named(state.trackId))

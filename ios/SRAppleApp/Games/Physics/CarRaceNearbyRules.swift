@@ -41,6 +41,7 @@ enum CarRaceNearbyRules: OfflineGameRules {
         howToPlay: [
             "Hold your phone like a steering wheel and tilt it to steer.",
             "The car accelerates by itself; hold Brake for the bends, and to drift.",
+            "Hold Boost for a burst of speed down the straights. It refills as you drive, and faster while you drift.",
             "Three laps. The lap only counts going the right way round.",
             "Cars bump off each other. One that fades out has gone quiet on the link for a moment, and you drive straight through it.",
             "First home wins. Everyone else has \(Int(finishGrace)) seconds to finish."
@@ -102,7 +103,7 @@ enum CarRaceNearbyRules: OfflineGameRules {
     // MARK: - Rules
 
     static func start(players: [OfflinePlayer], now: Double, rng: inout OfflineRNG) -> State {
-        let track = rng.pick(CarTrack.all) ?? .paddock
+        let track = rng.pick(CarTrack.nearby) ?? .paddock
         let racers = players.enumerated().map { seat, player -> Racer in
             let slot = track.grid(seat)
             return Racer(id: player.id, name: player.name, seat: seat, x: slot.at.x, y: slot.at.y, heading: slot.heading)

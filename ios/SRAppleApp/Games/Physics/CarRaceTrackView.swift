@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The race drawn from above: grass, the circuit with red-and-white kerbs and
-/// a chequered line, the other cars and my own, and a map of the whole lap in
-/// the corner.
+/// The race drawn from above: the ground (grass, water, sand, snow or city),
+/// the scenery beside the road, the circuit with its kerbs and a chequered
+/// line, the other cars and my own, and a map of the whole lap in the corner.
 ///
 /// The camera rides behind my car with the road pointing up the screen, so
 /// tilting right always turns right whichever way the track runs. The world
@@ -20,7 +20,7 @@ struct CarRaceTrackView: View {
         Canvas(rendersAsynchronously: false) { context, size in
             scene.draw(in: context, size: size)
         }
-        .background(CarRaceScene.grass)
+        .background(CarRaceScene.ground(driver.track.scenery))
         .accessibilityElement()
         .accessibilityLabel(label)
         .accessibilityIdentifier("car-race-track")
@@ -41,7 +41,7 @@ struct CarRaceTrackView: View {
         }
         let car = driver.car
         cars.append(CarRaceScene.Car(at: car.position, heading: car.heading, colour: colour(seat),
-                                     smoke: car.drifting, mine: true))
+                                     smoke: car.drifting, boost: car.boosting, mine: true))
         return CarRaceScene(track: driver.track, road: driver.road, focus: car.position,
                             heading: driver.cameraHeading, cars: cars)
     }
@@ -59,6 +59,8 @@ struct CarRaceScene {
         var ghost = false
         /// Tyre smoke: the car is drifting.
         var smoke = false
+        /// Flames from the exhaust: the car is boosting.
+        var boost = false
         /// The camera's own car: ringed on the map.
         var mine = false
     }
@@ -77,8 +79,58 @@ struct CarRaceScene {
     var mapSize: Double = 92
 
     static let grass = Color(red: 0.33, green: 0.52, blue: 0.29)
-    private static let tarmac = Color(red: 0.24, green: 0.25, blue: 0.27)
-    private static let kerbRed = Color(red: 0.86, green: 0.18, blue: 0.16)
+    /// The boost: the flames, and the Boost pad lit.
+    static let flame = Color(red: 1.0, green: 0.55, blue: 0.12)
+    private static let flameCore = Color(red: 1.0, green: 0.88, blue: 0.35)
+
+    /// What the world is painted with on a scenery's track.
+    struct Palette {
+        let ground: Color
+        let tarmac: Color
+        /// The kerb's two colours, alternating.
+        let kerb: Color
+        let kerbStripe: Color
+        /// A band either side of the road, under the kerb: sand, a pavement. Nil for none.
+        let verge: Color?
+        /// The scenery's shades, picked by each prop's `shade`.
+        let props: [Color]
+    }
+
+    static func palette(_ scenery: CarScenery) -> Palette {
+        let tarmac = Color(red: 0.24, green: 0.25, blue: 0.27)
+        let red = Color(red: 0.86, green: 0.18, blue: 0.16)
+        switch scenery {
+        case .meadow:
+            return Palette(ground: grass, tarmac: tarmac, kerb: red, kerbStripe: .white, verge: nil, props: [])
+        case .harbour:
+            return Palette(ground: Color(red: 0.16, green: 0.42, blue: 0.60), tarmac: tarmac, kerb: red, kerbStripe: .white,
+                           verge: Color(red: 0.86, green: 0.78, blue: 0.58),
+                           props: [.white, Color(red: 0.95, green: 0.93, blue: 0.86), Color(red: 0.86, green: 0.26, blue: 0.20)])
+        case .forest:
+            return Palette(ground: Color(red: 0.22, green: 0.38, blue: 0.20), tarmac: tarmac, kerb: red, kerbStripe: .white,
+                           verge: nil,
+                           props: [Color(red: 0.11, green: 0.27, blue: 0.13), Color(red: 0.15, green: 0.33, blue: 0.15),
+                                   Color(red: 0.20, green: 0.40, blue: 0.17)])
+        case .desert:
+            return Palette(ground: Color(red: 0.84, green: 0.66, blue: 0.43), tarmac: Color(red: 0.30, green: 0.28, blue: 0.27),
+                           kerb: Color(red: 0.93, green: 0.45, blue: 0.13), kerbStripe: .white, verge: nil,
+                           props: [Color(red: 0.62, green: 0.42, blue: 0.27), Color(red: 0.70, green: 0.50, blue: 0.32),
+                                   Color(red: 0.36, green: 0.52, blue: 0.29)])
+        case .snow:
+            return Palette(ground: Color(red: 0.93, green: 0.95, blue: 0.97), tarmac: Color(red: 0.30, green: 0.32, blue: 0.36),
+                           kerb: Color(red: 0.18, green: 0.40, blue: 0.80), kerbStripe: .white, verge: nil,
+                           props: [Color(red: 0.12, green: 0.30, blue: 0.22), Color(red: 0.16, green: 0.36, blue: 0.26)])
+        case .city:
+            return Palette(ground: Color(red: 0.20, green: 0.21, blue: 0.24), tarmac: Color(red: 0.16, green: 0.16, blue: 0.18),
+                           kerb: Color(red: 0.96, green: 0.80, blue: 0.14), kerbStripe: Color(red: 0.12, green: 0.12, blue: 0.12),
+                           verge: Color(red: 0.50, green: 0.50, blue: 0.52),
+                           props: [Color(red: 0.42, green: 0.36, blue: 0.40), Color(red: 0.55, green: 0.33, blue: 0.27),
+                                   Color(red: 0.36, green: 0.42, blue: 0.50), Color(red: 0.62, green: 0.58, blue: 0.50)])
+        }
+    }
+
+    /// The ground behind everything, for the view's background.
+    static func ground(_ scenery: CarScenery) -> Color { palette(scenery).ground }
 
     /// The track's middle line as a closed path, built once per race.
     static func road(for track: CarTrack) -> Path {
@@ -101,10 +153,15 @@ struct CarRaceScene {
         world.translateBy(x: -focus.x, y: -focus.y)
 
         let width = track.width
-        world.stroke(road, with: .color(.white), style: StrokeStyle(lineWidth: width + 2.4, lineJoin: .round))
-        world.stroke(road, with: .color(Self.kerbRed),
+        let paint = Self.palette(track.scenery)
+        if let verge = paint.verge {
+            world.stroke(road, with: .color(verge), style: StrokeStyle(lineWidth: width + track.verge * 2, lineJoin: .round))
+        }
+        drawProps(in: world, paint: paint, size: size, scale: scale)
+        world.stroke(road, with: .color(paint.kerbStripe), style: StrokeStyle(lineWidth: width + 2.4, lineJoin: .round))
+        world.stroke(road, with: .color(paint.kerb),
                      style: StrokeStyle(lineWidth: width + 2.4, lineJoin: .round, dash: [3, 3]))
-        world.stroke(road, with: .color(Self.tarmac), style: StrokeStyle(lineWidth: width, lineJoin: .round))
+        world.stroke(road, with: .color(paint.tarmac), style: StrokeStyle(lineWidth: width, lineJoin: .round))
         world.stroke(road, with: .color(.white.opacity(0.35)), style: StrokeStyle(lineWidth: 0.3, dash: [4, 6]))
         drawLine(in: world)
 
@@ -132,11 +189,80 @@ struct CarRaceScene {
         }
     }
 
+    /// The scenery near the camera: trees, rocks, pines, boats or buildings,
+    /// each with a soft shadow to the lower right so it stands off the ground.
+    private func drawProps(in context: GraphicsContext, paint: Palette, size: CGSize, scale: Double) {
+        guard !paint.props.isEmpty, scale > 0 else { return }
+        let shadow = Color.black.opacity(0.22)
+        // Only what the camera can see: each prop turned into the picture's
+        // own frame (metres right of and below the car) and kept if it is in it.
+        let halfWide = Double(size.width) / 2 / scale
+        let above = Double(size.height) * 0.68 / scale, below = Double(size.height) * 0.32 / scale
+        let turn = -heading - .pi / 2
+        for prop in track.props {
+            let seen = (prop.at - focus).rotated(by: turn)
+            let r0 = prop.size * 1.5
+            guard abs(seen.x) < halfWide + r0, seen.y > -above - r0, seen.y < below + r0 else { continue }
+            let colour = paint.props[min(paint.props.count - 1, Int(prop.shade * Double(paint.props.count)))]
+            let r = prop.size
+            switch track.scenery {
+            case .meadow:
+                break
+            case .forest, .snow:
+                // A tree from above: a canopy and a lighter crown — on snow, a cap of snow.
+                let canopy = Path(ellipseIn: CGRect(x: prop.at.x - r, y: prop.at.y - r, width: r * 2, height: r * 2))
+                context.fill(canopy.offsetBy(dx: r * 0.3, dy: r * 0.3), with: .color(shadow))
+                context.fill(canopy, with: .color(colour))
+                let crown = r * 0.45
+                context.fill(Path(ellipseIn: CGRect(x: prop.at.x - crown - r * 0.15, y: prop.at.y - crown - r * 0.15,
+                                                    width: crown * 2, height: crown * 2)),
+                             with: .color(track.scenery == .snow ? .white.opacity(0.85) : .white.opacity(0.12)))
+            case .desert:
+                // A rock, squashed along its own `turn`; the last shade, green,
+                // is a round scrubby bush instead.
+                var c = context
+                c.translateBy(x: prop.at.x, y: prop.at.y)
+                c.rotate(by: .radians(prop.turn))
+                let bush = prop.shade * Double(paint.props.count) >= Double(paint.props.count - 1)
+                let rock = Path(ellipseIn: bush ? CGRect(x: -r * 0.7, y: -r * 0.7, width: r * 1.4, height: r * 1.4)
+                                                : CGRect(x: -r, y: -r * 0.7, width: r * 2, height: r * 1.4))
+                c.fill(rock.offsetBy(dx: r * 0.25, dy: r * 0.25), with: .color(shadow))
+                c.fill(rock, with: .color(colour))
+            case .harbour:
+                // A boat at anchor: a hull pointing along `turn`, and a deck.
+                var c = context
+                c.translateBy(x: prop.at.x, y: prop.at.y)
+                c.rotate(by: .radians(prop.turn))
+                let hull = Path(roundedRect: CGRect(x: -r * 1.6, y: -r * 0.6, width: r * 3.2, height: r * 1.2),
+                                cornerRadius: r * 0.55)
+                c.fill(hull.offsetBy(dx: r * 0.2, dy: r * 0.3), with: .color(shadow))
+                c.fill(hull, with: .color(colour))
+                c.fill(Path(roundedRect: CGRect(x: -r * 0.6, y: -r * 0.35, width: r * 1.1, height: r * 0.7),
+                            cornerRadius: r * 0.15), with: .color(Color(red: 0.55, green: 0.40, blue: 0.28)))
+            case .city:
+                // A block from above: its roof, a shadow, and a skylight.
+                let roof = Path(CGRect(x: prop.at.x - r, y: prop.at.y - r, width: r * 2, height: r * 2))
+                context.fill(roof.offsetBy(dx: r * 0.25, dy: r * 0.25), with: .color(.black.opacity(0.35)))
+                context.fill(roof, with: .color(colour))
+                context.stroke(roof, with: .color(.white.opacity(0.15)), lineWidth: 0.3)
+                context.fill(Path(CGRect(x: prop.at.x - r * 0.35, y: prop.at.y - r * 0.35, width: r * 0.7, height: r * 0.7)),
+                             with: .color(Color(red: 1.0, green: 0.85, blue: 0.45).opacity(prop.shade < 0.5 ? 0.7 : 0.25)))
+            }
+        }
+    }
+
     private func drawCar(in context: GraphicsContext, _ car: Car) {
         var c = context
         c.translateBy(x: car.at.x, y: car.at.y)
         c.rotate(by: .radians(car.heading))
         if car.ghost { c.opacity = 0.55 }
+        if car.boost {
+            // Two flames out of the back, a bright core in each.
+            for dy in [-0.5, 0.5] {
+                c.fill(Path(ellipseIn: CGRect(x: -4.4, y: dy - 0.42, width: 2.6, height: 0.84)), with: .color(Self.flame))
+                c.fill(Path(ellipseIn: CGRect(x: -3.5, y: dy - 0.22, width: 1.5, height: 0.44)), with: .color(Self.flameCore))
+            }
+        }
         if car.smoke {
             for (dx, dy) in [(-2.8, -1.0), (-2.8, 1.0), (-4.2, 0.0)] {
                 c.fill(Path(ellipseIn: CGRect(x: dx - 0.8, y: dy - 0.8, width: 1.6, height: 1.6)), with: .color(.white.opacity(0.45)))
