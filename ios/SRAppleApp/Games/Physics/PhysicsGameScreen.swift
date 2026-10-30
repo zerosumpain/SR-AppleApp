@@ -17,7 +17,7 @@ extension GameKind {
     /// The games played on this phone, offline, rather than in a room on the site.
     static let onPhone: Set<GameKind> = [
         .lander, .carRace, .carRacerPlus, .miniGolf, .pinball, .tiltMaze, .orbit,
-        .solitaire, .merge2048, .minesweeper, .snake,
+        .solitaire, .merge2048, .minesweeper, .snake, .skyHopper,
     ]
 
     /// Played on this phone, offline, rather than in a room on the site.
@@ -54,6 +54,8 @@ struct PhysicsGameScreen: View {
             MinesweeperScreen()
         case .snake:
             SnakeScreen()
+        case .skyHopper:
+            SkyHopperScreen()
         default:
             LanderScreen()
         }
