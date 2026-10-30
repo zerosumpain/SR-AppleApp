@@ -12,12 +12,24 @@ import UIKit
 /// a swipe is timed from that frame to the instant it was recognised, here.
 /// Only the milliseconds and the direction are sent, so a slow link never
 /// costs anybody points.
+///
+/// The overhaul (2026-10-29) paints the panel by what it asks — blue for an
+/// arrow, red for "the opposite", violet to hold still, green or red for the
+/// verdict — lands each prompt with a pop, keeps a streak, makes the arrows
+/// big thumb buttons, and runs the window as a bar that stops redrawing the
+/// moment it closes (the panel no longer polls ten times a second while
+/// idle). This phone's best score is kept.
 struct SwipeSaysView: View {
     let context: OfflineGameContext<SwipeSaysRules>
     @StateObject private var stimulus = OfflineStimulus()
     /// My answer to the open prompt, shown at once rather than after the host's echo.
     @State private var local: SwipeSaysRules.Answer?
     @State private var localNumber = 0
+    /// Good answers in a row, counted on this phone.
+    @State private var streak = 0
+    @State private var best: NearbyPlayBestOutcome?
+    @State private var burstToken = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     /// A swipe this long (host clock) before a prompt is due is taken as a
     /// late swipe at the last one and ignored, not as jumping the gun.
@@ -34,8 +46,20 @@ struct SwipeSaysView: View {
         }
         .onAppear { arm() }
         .onChange(of: view.number) { _, _ in arm() }
-        .onChange(of: view.phase) { _, _ in arm() }
+        .onChange(of: view.phase) { _, new in
+            arm()
+            settled(new)
+        }
         .onChange(of: context.clock) { _, _ in arm() }
+        // Keyed on the prompt that has just closed, not on the answer itself:
+        // two holds in a row are equal answers, and must still both count.
+        .onChange(of: view.lastNumber) { _, number in
+            guard number != nil, playing else { return }
+            if let last = view.myLast, SwipeSaysPanel.good(last) { streak += 1 } else { streak = 0 }
+        }
+        .onChange(of: scenePhase) { _, new in
+            if new == .active { arm() }
+        }
         .onDisappear { stimulus.reset() }
     }
 
@@ -50,14 +74,25 @@ struct SwipeSaysView: View {
                     .foregroundStyle(SR.inkMuted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                if streak >= 2 && playing {
+                    NearbyPlayStat(icon: "flame.fill", text: "×\(streak)")
+                        .nearbyPlayBump(streak)
+                        .accessibilityLabel("\(streak) in a row")
+                }
                 Spacer(minLength: 8)
                 if playing {
-                    Text("\(myScore) pts")
-                        .font(SR.Text.mono(14))
+                    Text("\(myScore)")
+                        .font(SR.Text.figure(26))
                         .foregroundStyle(SR.ink)
+                        .contentTransition(.numericText(value: Double(myScore)))
+                        .srAnimation(.snappy, value: myScore)
                         .lineLimit(1)
                         .fixedSize()
                         .accessibilityLabel("Your score, \(myScore) points")
+                    Text("pts")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .accessibilityHidden(true)
                 }
             }
             arena
@@ -79,21 +114,30 @@ struct SwipeSaysView: View {
         .srGround(.warm)
     }
 
-    /// The prompt panel, which is also where the swipes land.
+    /// The prompt panel, which is also where the swipes land. It redraws on
+    /// its own only until the open prompt's window closes.
     private var arena: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
-                .fill(SR.ink)
-            TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+        let closesIn = max(0, view.closesAt - context.clock.now())
+        let end = Date().addingTimeInterval(closesIn + 0.05)
+        return ZStack {
+            TimelineView(NearbyPlayFiniteSchedule(end: end, step: 0.1)) { _ in
+                let current = face
                 GeometryReader { geo in
                     let side = max(0, min(geo.size.width, geo.size.height))
-                    SwipeSaysPanel(face: face, side: side)
-                        .frame(width: geo.size.width, height: geo.size.height)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                            .fill(LinearGradient(colors: SwipeSaysPanel.colours(current), startPoint: .top, endPoint: .bottom))
+                        SwipeSaysPanel(face: current, side: side)
+                            .id(SwipeSaysPanel.key(current, number: view.number))
+                            .transition(SwipeSaysPanel.landing(current))
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .animation(.spring(response: 0.26, dampingFraction: 0.62), value: SwipeSaysPanel.key(current, number: view.number))
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label(for: current))
             }
             .allowsHitTesting(false)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(arenaLabel)
             .accessibilityIdentifier("offline-swipe-says-prompt")
 
             if playing {
@@ -105,22 +149,26 @@ struct SwipeSaysView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous))
-        .frame(maxWidth: 420, minHeight: 160, maxHeight: .infinity)
+        .overlay {
+            RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+        }
+        .frame(maxWidth: 420, minHeight: 170, maxHeight: .infinity)
     }
 
-    /// How much of the open prompt's window is left, as a bar.
+    /// How much of the open prompt's window is left, as a bar that runs only
+    /// while there is a window to run.
+    @ViewBuilder
     private var timeBar: some View {
-        TimelineView(.periodic(from: .now, by: 0.05)) { _ in
-            let fraction = windowLeft()
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(SR.line)
-                    Capsule()
-                        .fill(fraction < 0.3 ? SR.error : SR.accent)
-                        .frame(width: max(0, geo.size.width * fraction))
-                }
+        Group {
+            if view.phase == .playing, stimulus.shown, myAnswer == nil {
+                NearbyPlayClockBar(clock: context.clock, until: view.closesAt,
+                                   total: max(0.001, view.closesAt - view.showAt), height: 8)
+            } else {
+                Capsule()
+                    .fill(view.phase == .playing && myAnswer == nil ? SR.accent : SR.ink.opacity(0.1))
+                    .frame(height: 8)
             }
-            .frame(height: 6)
         }
         .frame(maxWidth: 420)
         .accessibilityHidden(true)
@@ -131,22 +179,28 @@ struct SwipeSaysView: View {
     private var arrowButtons: some View {
         HStack(spacing: 8) {
             ForEach(SwipeSaysRules.Direction.allCases, id: \.self) { direction in
-                Button {
-                    swiped(direction, at: CACurrentMediaTime())
-                } label: {
-                    Image(systemName: Self.symbol(direction))
-                        .font(.system(size: 22, weight: .bold))
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(SR.ink)
-                .srGlassCard(.paper, radius: SR.Glass.innerRadius, interactive: true)
-                .accessibilityLabel("Swipe \(direction.word)")
-                .accessibilityIdentifier("offline-swipe-says-\(direction.rawValue)")
+                arrowButton(direction)
             }
         }
         .frame(maxWidth: 420)
+    }
+
+    private func arrowButton(_ direction: SwipeSaysRules.Direction) -> some View {
+        let shape = RoundedRectangle(cornerRadius: NearbyPlayMetrics.radius, style: .continuous)
+        return Button {
+            swiped(direction, at: CACurrentMediaTime())
+        } label: {
+            Image(systemName: Self.symbol(direction))
+                .font(SR.Text.display(26))
+                .foregroundStyle(SR.ink)
+                .frame(maxWidth: .infinity, minHeight: 60)
+                .background(shape.fill(SR.surface))
+                .overlay(shape.strokeBorder(SR.line, lineWidth: 1))
+                .contentShape(shape)
+        }
+        .buttonStyle(SRPressStyle())
+        .accessibilityLabel("Swipe \(direction.word)")
+        .accessibilityIdentifier("offline-swipe-says-\(direction.rawValue)")
     }
 
     // MARK: - What the panel shows
@@ -185,7 +239,7 @@ struct SwipeSaysView: View {
         return .waiting(view.number == 1 ? "Get ready" : "Ready…")
     }
 
-    private var arenaLabel: String {
+    private func label(for face: SwipeSaysPanel.Face) -> String {
         switch face {
         case .prompt(let prompt): return prompt.instruction
         case .answered(let answer), .result(let answer): return Self.verdictText(answer)
@@ -202,29 +256,24 @@ struct SwipeSaysView: View {
         return "Arrow: swipe that way. Red: the opposite. Circle: hold still."
     }
 
-    /// The share of the open prompt's window still left, 0…1 (full until it shows).
-    private func windowLeft() -> CGFloat {
-        guard view.phase == .playing, stimulus.shown, myAnswer == nil else {
-            return view.phase == .playing && myAnswer == nil ? 1 : 0
-        }
-        let total = max(0.001, view.closesAt - view.showAt)
-        let left = (view.closesAt - context.clock.now()) / total
-        return CGFloat(min(1, max(0, left)))
-    }
-
     // MARK: - Finished
 
     private var finishedScreen: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: "All \(view.total) prompts", title: finishedTitle)
+            VStack(alignment: .leading, spacing: 18) {
+                NearbyPlayBanner(kicker: "All \(view.total) prompts", title: finishedTitle,
+                                 mine: view.champions == [context.me], mark: .symbol("trophy.fill"))
                 SwipeSaysFinalTable(rows: view.rows, me: context.me, champions: view.champions)
+                if let best {
+                    NearbyPlayBestLine(outcome: best, value: myScore, format: { "\($0) pts" })
+                }
             }
             .padding(.horizontal, SR.gutter)
             .padding(.top, 4)
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay { NearbyPlayBurst(token: burstToken) }
         .accessibilityIdentifier("offline-swipe-says-final")
     }
 
@@ -247,6 +296,18 @@ struct SwipeSaysView: View {
             stimulus.arm(at: view.showAt, clock: context.clock)
         } else {
             stimulus.reset()
+        }
+    }
+
+    /// The last prompt is done: cheer a win, keep a best.
+    private func settled(_ phase: SwipeSaysRules.Phase) {
+        guard phase != .playing else { return }
+        if view.champions.contains(context.me) && burstToken == 0 {
+            burstToken += 1
+            SRHaptic.ok()
+        }
+        if best == nil, playing {
+            best = NearbyPlayBestBook.record(SwipeSaysRules.info.id, value: myScore, rule: .higher)
         }
     }
 
@@ -296,6 +357,8 @@ struct SwipeSaysView: View {
 
 /// What the prompt panel draws: the prompt itself, a verdict, or a word
 /// while the next one is on its way. Sized from `side`, never from content.
+/// Everything on it is white: the panel's colours are fixed and dark enough
+/// to carry it in both modes.
 struct SwipeSaysPanel: View {
     enum Face {
         case prompt(SwipeSaysRules.Prompt)
@@ -313,24 +376,24 @@ struct SwipeSaysPanel: View {
             case .prompt(let prompt):
                 promptGlyph(prompt)
             case .answered(let answer), .result(let answer):
-                Image(systemName: good(answer) ? "checkmark.circle.fill" : "xmark.circle.fill")
+                Image(systemName: SwipeSaysPanel.good(answer) ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .font(.system(size: max(24, side * 0.32), weight: .bold))
-                    .foregroundStyle(good(answer) ? SR.goodOnDark : SR.errorOnDark)
+                    .foregroundStyle(Color.white)
                 Text(headline(answer))
-                    .font(SR.Text.display(26))
-                    .foregroundStyle(SR.paper)
+                    .font(SR.Text.display(28))
+                    .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                 if let ms = answer.ms, answer.verdict == .right {
                     Text("\(ms) ms")
                         .font(SR.Text.mono(15))
-                        .foregroundStyle(SR.paper.opacity(0.75))
+                        .foregroundStyle(Color.white.opacity(0.85))
                         .lineLimit(1)
                 }
             case .waiting(let text):
                 Text(text)
                     .font(SR.Text.hero(40))
-                    .foregroundStyle(SR.paper.opacity(0.85))
+                    .foregroundStyle(Color.white.opacity(0.88))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.4)
@@ -343,30 +406,34 @@ struct SwipeSaysPanel: View {
     private func promptGlyph(_ prompt: SwipeSaysRules.Prompt) -> some View {
         if let direction = prompt.direction {
             Image(systemName: SwipeSaysView.symbol(direction))
-                .font(.system(size: max(24, side * 0.5), weight: .black))
-                .foregroundStyle(prompt.red ? SR.errorOnDark : SR.paper)
+                .font(.system(size: max(24, side * 0.52), weight: .black))
+                .foregroundStyle(Color.white)
+                .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
             if prompt.red {
                 Text("OPPOSITE")
-                    .font(SR.Text.label(14))
+                    .font(SR.Text.label(15))
                     .tracking(SR.inkKickerTracking)
-                    .foregroundStyle(SR.errorOnDark)
+                    .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.black.opacity(0.25)))
             }
         } else {
-            Image(systemName: "circle")
-                .font(.system(size: max(24, side * 0.5), weight: .black))
-                .foregroundStyle(SR.accent)
+            Image(systemName: "circle.circle")
+                .font(.system(size: max(24, side * 0.52), weight: .black))
+                .foregroundStyle(Color.white)
             Text("HOLD STILL")
-                .font(SR.Text.label(14))
+                .font(SR.Text.label(15))
                 .tracking(SR.inkKickerTracking)
-                .foregroundStyle(SR.accent)
+                .foregroundStyle(Color.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
     }
 
-    private func good(_ answer: SwipeSaysRules.Answer) -> Bool {
+    static func good(_ answer: SwipeSaysRules.Answer) -> Bool {
         answer.verdict == .right || answer.verdict == .held
     }
 
@@ -377,6 +444,40 @@ struct SwipeSaysPanel: View {
         case .tooSoon: return "Too soon"
         case .tooSlow: return "Too slow"
         case .missed: return "Missed"
+        }
+    }
+
+    /// The panel's colours for what it shows. Fixed, dark enough for white.
+    static func colours(_ face: Face) -> [Color] {
+        switch face {
+        case .prompt(let prompt):
+            if prompt.isCircle { return [Color(hex: 0x7C5CFF), Color(hex: 0x4B2FC2)] }
+            return prompt.red ? [Color(hex: 0xE5484D), Color(hex: 0xA3162A)] : [Color(hex: 0x2F80ED), Color(hex: 0x1747A6)]
+        case .answered(let answer), .result(let answer):
+            return good(answer) ? [Color(hex: 0x1FA463), Color(hex: 0x0C6B3C)] : [Color(hex: 0xC92A2A), Color(hex: 0x7A1414)]
+        case .waiting:
+            return [Color(hex: 0x262B4F), Color(hex: 0x141831)]
+        }
+    }
+
+    /// How a face lands. A prompt is at full strength from its first frame
+    /// — it only shrinks into place — because the swipe is timed from that
+    /// frame; a verdict or a wait may fade in.
+    static func landing(_ face: Face) -> AnyTransition {
+        if case .prompt = face {
+            return AnyTransition.asymmetric(insertion: AnyTransition.scale(scale: 1.15), removal: AnyTransition.identity)
+        }
+        return AnyTransition.asymmetric(insertion: AnyTransition.scale(scale: 0.6).combined(with: AnyTransition.opacity),
+                                        removal: AnyTransition.identity)
+    }
+
+    /// What changed, for the pop: a new prompt, a verdict, a wait.
+    static func key(_ face: Face, number: Int) -> String {
+        switch face {
+        case .prompt: return "prompt-\(number)"
+        case .answered: return "answered-\(number)"
+        case .result: return "result-\(number)"
+        case .waiting(let text): return "waiting-\(text)"
         }
     }
 }
@@ -391,6 +492,10 @@ struct SwipeSaysScoreStrip: View {
         VStack(spacing: 4) {
             ForEach(SwipeSaysScoreStrip.ranked(rows)) { row in
                 HStack(spacing: 8) {
+                    Circle()
+                        .fill(OfflineSeatColour.of(rows.firstIndex { $0.id == row.id } ?? 0))
+                        .frame(width: 10, height: 10)
+                        .accessibilityHidden(true)
                     Text(row.id == me ? "You" : row.name)
                         .font(SR.Text.bodyMedium(15))
                         .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
@@ -398,7 +503,7 @@ struct SwipeSaysScoreStrip: View {
                         .truncationMode(.tail)
                     if row.answered {
                         Image(systemName: "hand.point.up.fill")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(SR.Text.label(12))
                             .foregroundStyle(SR.inkMuted)
                             .accessibilityLabel("Answered")
                     }
@@ -411,7 +516,8 @@ struct SwipeSaysScoreStrip: View {
                             .fixedSize()
                     }
                     Text(row.away ? "left" : "\(row.score)")
-                        .font(SR.Text.mono(15))
+                        .font(SR.Text.title(15))
+                        .monospacedDigit()
                         .foregroundStyle(SR.ink)
                         .frame(minWidth: 40, alignment: .trailing)
                         .fixedSize()
@@ -444,7 +550,7 @@ struct SwipeSaysScoreStrip: View {
     }
 }
 
-/// The final totals, after the last prompt, with a crown on the winner.
+/// The final totals, after the last prompt, with places and a crown.
 struct SwipeSaysFinalTable: View {
     let rows: [SwipeSaysRules.Row]
     let me: String
@@ -455,6 +561,7 @@ struct SwipeSaysFinalTable: View {
             ForEach(Array(SwipeSaysScoreStrip.ranked(rows).enumerated()), id: \.element.id) { index, row in
                 if index > 0 { Divider().overlay(SR.divider) }
                 HStack(spacing: 10) {
+                    NearbyPlayPlaceDisc(place: index + 1)
                     Text(row.id == me ? "You" : row.name)
                         .font(SR.Text.title())
                         .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
@@ -462,20 +569,20 @@ struct SwipeSaysFinalTable: View {
                         .truncationMode(.tail)
                     if champions.contains(row.id) {
                         Image(systemName: "crown.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(SR.accent)
+                            .font(SR.Text.title(15))
+                            .foregroundStyle(SR.warn)
                             .accessibilityLabel("Winner")
                     }
                     Spacer(minLength: 8)
                     Text("\(row.score)")
-                        .font(SR.Text.display(20))
+                        .font(SR.Text.display(22))
                         .foregroundStyle(SR.ink)
                         .lineLimit(1)
                         .fixedSize()
                         .accessibilityLabel("\(row.score) points")
                 }
-                .frame(minHeight: SR.tapTarget)
-                .padding(.vertical, 4)
+                .frame(minHeight: 52)
+                .padding(.vertical, 2)
                 .accessibilityElement(children: .combine)
             }
         }

@@ -211,6 +211,7 @@ struct ParentSettingsSheet: View {
                         .font(SR.Text.label(13))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
+                        .frame(minHeight: 36)
                 }
                 .srButton(.regular)
                 .accessibilityLabel("\(title): \(option.0)")

@@ -197,6 +197,62 @@ final class LanderLogicTests: XCTestCase {
         XCTAssertGreaterThan(LanderRules.points(level: 1, fuelLeft: 50, offset: 0, padHalfWidth: 20, gentle: false), centre)
     }
 
+    func testTheScoreBreakdownAddsUpToThePoints() {
+        for (level, fuel, offset, gentle) in [(1, 100.0, 0.0, true), (3, 12.4, 7.5, false), (9, 0.0, 20.0, true)] {
+            let parts = LanderRules.score(level: level, fuelLeft: fuel, offset: offset, padHalfWidth: 20, gentle: gentle)
+            XCTAssertEqual(parts.total, LanderRules.points(level: level, fuelLeft: fuel, offset: offset,
+                                                           padHalfWidth: 20, gentle: gentle))
+            XCTAssertEqual(parts.base, 100 * level)
+            XCTAssertEqual(parts.gentle, gentle ? LanderRules.gentleBonus : 0)
+        }
+        var flight = flatFlight(y: 52.3)
+        touchdown(&flight, vy: -0.6)
+        guard case .landed(let landing) = flight.outcome else { return XCTFail("expected a landing") }
+        let parts = landing.breakdown(level: 1, padHalfWidth: flight.terrain.padWidth / 2)
+        XCTAssertEqual(parts.total, landing.points)
+        XCTAssertEqual(parts.fuel, 200)
+        XCTAssertEqual(parts.precision, 30)
+        XCTAssertEqual(parts.stars, 3)
+        XCTAssertEqual(LanderRules.score(level: 1, fuelLeft: 5, offset: 19, padHalfWidth: 20, gentle: false).stars, 1)
+        XCTAssertEqual(LanderRules.score(level: 1, fuelLeft: 5, offset: 19, padHalfWidth: 20, gentle: true).stars, 2)
+        XCTAssertEqual(LanderRules.score(level: 1, fuelLeft: 5, offset: 2, padHalfWidth: 20, gentle: false).stars, 2)
+    }
+
+    // MARK: - Warnings
+
+    func testWarningsAreQuietHighUpAndOverThePad() {
+        var flight = flatFlight(y: 200)
+        flight.craft.vy = -12
+        flight.craft.angle = 0.4
+        XCTAssertEqual(flight.warnings, [], "high up, speed and lean are the pilot's business")
+        flight.craft.y = 60
+        flight.craft.vy = -0.5
+        flight.craft.angle = 0
+        XCTAssertEqual(flight.warnings, [])
+        XCTAssertTrue(flight.overPad)
+    }
+
+    func testWarningsNearTheGroundSayWhatWouldCrash() {
+        var flight = flatFlight(y: 62)
+        flight.craft.vy = -4
+        flight.craft.vx = 3
+        flight.craft.angle = 0.3
+        XCTAssertEqual(flight.warnings, [.tooFast, .leaning, .sliding])
+        var off = flatFlight(x: 100, y: 62)
+        off.craft.vy = -0.5
+        XCTAssertEqual(off.warnings, [.offPad])
+        XCTAssertFalse(off.overPad)
+        XCTAssertTrue(LanderWarning.allCases.allSatisfy { !$0.words.isEmpty && !$0.symbol.isEmpty })
+    }
+
+    func testLowFuelWarnsAnywhereAndTheEndIsQuiet() {
+        var flight = flatFlight(y: 300, fuel: 10)
+        XCTAssertEqual(flight.fuelShare, 10 / LanderLevel.make(1).fuel, accuracy: 1e-9)
+        XCTAssertEqual(flight.warnings, [.lowFuel])
+        flight.outcome = .crashed(.tooFast)
+        XCTAssertEqual(flight.warnings, [])
+    }
+
     // MARK: - A run
 
     func testARunAddsLandingsAndEndsOnACrash() {

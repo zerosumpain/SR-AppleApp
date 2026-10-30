@@ -13,11 +13,18 @@ struct InspectorSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
-                    SRPageHeader(kicker: kicker, title: card.title, strap: card.who)
+                    HStack(alignment: .center, spacing: 14) {
+                        badge
+                        SRPageHeader(kicker: kicker, title: card.title, strap: card.who)
+                    }
                     if let mood = card.mood {
                         Label(mood, systemImage: "face.smiling")
                             .font(SR.Text.bodyMedium(15))
                             .foregroundStyle(SR.inkSecondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .srGlassCard(.paper, radius: SR.Glass.innerRadius)
                     }
                     if !card.wants.isEmpty {
                         VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -27,6 +34,10 @@ struct InspectorSheet: View {
                                     .font(SR.Text.secondary())
                                     .foregroundStyle(SR.ink)
                                     .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(HometownsSpeechBubble().fill(SR.ink.opacity(0.05)))
                             }
                         }
                     }
@@ -51,6 +62,32 @@ struct InspectorSheet: View {
         }
         .presentationDetents([.medium, .large])
         .accessibilityIdentifier("hometowns-inspector")
+    }
+
+    /// The tile's kind as a coloured block with its symbol: a zone in its
+    /// colour, anything else in the accent.
+    private var badge: some View {
+        let zone = ["homes", "shops", "leisure", "industry", "offices", "farms"].contains(card.kind)
+        return Image(systemName: zone ? HometownsZoneStyle.icon(card.kind) : (card.kind == "road" ? "road.lanes" : "mappin.and.ellipse"))
+            .font(SR.Text.title(24))
+            .foregroundStyle(Color.white)
+            .frame(width: 60, height: 60)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(zone ? HometownsZoneStyle.colour(card.kind) : SR.accent)
+            )
+            .overlay(alignment: .bottomTrailing) {
+                if let level = card.level {
+                    Text("\(level)")
+                        .font(SR.Text.label(12))
+                        .foregroundStyle(SR.ink)
+                        .frame(minWidth: 20, minHeight: 20)
+                        .background(Circle().fill(SR.paper))
+                        .overlay(Circle().stroke(SR.line, lineWidth: 1))
+                        .offset(x: 6, y: 6)
+                }
+            }
+            .accessibilityHidden(true)
     }
 
     /// "Homes · level 2 · ££".
@@ -103,10 +140,11 @@ struct InspectorSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let plan = card.growPlan, !plan.isEmpty {
                 Button {
+                    SRHaptic.tap()
                     store.dropGhost(plan)
                     dismiss()
                 } label: {
-                    SRButtonLabel(title: store.level == .kid ? "Show me" : "Plan it", icon: "wand.and.stars")
+                    HometownsBigLabel(title: store.level == .kid ? "Show me" : "Plan it", icon: "wand.and.stars", fill: true)
                 }
                 .srButton(.prominent)
                 .accessibilityIdentifier("hometowns-inspect-grow")

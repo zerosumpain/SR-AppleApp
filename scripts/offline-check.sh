@@ -78,7 +78,7 @@ while IFS= read -r file; do
   mkdir -p "$WORK/Sources/SRAppleApp/$(dirname "$rel")"
   cp "$file" "$WORK/Sources/SRAppleApp/$rel"
   compiled=$((compiled + 1))
-done < <(find "$OFFLINE/Games" -name '*Logic.swift' 2>/dev/null | sort)
+done < <(find "$OFFLINE/Games" "$OFFLINE/UI" -name '*Logic.swift' 2>/dev/null | sort)
 
 # Everything else under Offline/ (views, links, the session): parse only.
 while IFS= read -r file; do

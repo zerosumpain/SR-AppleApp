@@ -78,30 +78,50 @@ private struct GameLobbyStrip: View {
 
     // MARK: - An open lobby
 
+    /// The game's badge, who and what in two short lines, the answer (Join
+    /// or Open) as a solid button, and a full-size cross to put it away.
+    /// In the game's own shelf colour, so a Chess lobby and a Boggle invite
+    /// look like the tiles they came from.
     private func offer(_ lobby: LobbyBannerCandidate) -> some View {
-        HStack(spacing: 10) {
+        let hue = GamesArt.hue(lobby.game)
+        return HStack(spacing: 8) {
             Button { go(lobby) } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: GameKind(rawValue: lobby.game)?.icon ?? "gamecontroller.fill")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(SR.Hue.games.base)
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(SR.Hue.games.onFill.opacity(0.92)))
+                    Image(systemName: GamesArt.icon(lobby.game))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(hue.base)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(hue.onFill.opacity(0.94)))
                         .accessibilityHidden(true)
-                    Text(lobby.line)
-                        .font(SR.Text.bodyMedium(15))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(lobby.action)
-                        .font(SR.Text.title(14))
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 30)
-                        .background(Capsule().fill(SR.Hue.games.onFill.opacity(0.22)))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(kicker(lobby).uppercased())
+                            .font(SR.Text.label(12))
+                            .tracking(1)
+                            .opacity(0.85)
+                            .lineLimit(1)
+                        Text(lobby.line)
+                            .font(SR.Text.bodyMedium(15))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Group {
+                        if store.busy == lobby.roomId {
+                            ProgressView().tint(hue.base)
+                        } else {
+                            Text(lobby.action)
+                                .font(SR.Text.title(15))
+                        }
+                    }
+                    .foregroundStyle(hue.base)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 36)
+                    .background(Capsule().fill(hue.onFill))
                 }
+                .frame(minHeight: SR.tapTarget)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SRPressStyle())
             .disabled(store.busy == lobby.roomId)
             .accessibilityLabel("\(lobby.line). \(lobby.action)")
             .accessibilityIdentifier("lobby-banner-open")
@@ -111,22 +131,34 @@ private struct GameLobbyStrip: View {
                 withAnimation(.snappy) { store.dismissBanner(lobby.roomId) }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .frame(width: SR.tapTarget, height: 36)
+                    .font(.system(size: 13, weight: .bold))
+                    .frame(width: SR.tapTarget, height: SR.tapTarget)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Hide this lobby")
             .accessibilityIdentifier("lobby-banner-dismiss")
         }
-        .foregroundStyle(SR.Hue.games.onFill)
-        .padding(.leading, SR.gutter - 4)
-        .padding(.vertical, 6)
+        .foregroundStyle(hue.onFill)
+        .padding(.leading, SR.gutter - 6)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity)
-        .background(SR.Hue.games.gradient.ignoresSafeArea(edges: .top))
+        .background {
+            ZStack {
+                hue.gradient
+                RadialGradient(colors: [Color.white.opacity(0.22), Color.clear],
+                               center: .topLeading, startRadius: 0, endRadius: 260)
+            }
+            .ignoresSafeArea(edges: .top)
+        }
         .transition(.move(edge: .top).combined(with: .opacity))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lobby-banner")
+    }
+
+    /// What kind of news it is, above the line that says whose.
+    private func kicker(_ lobby: LobbyBannerCandidate) -> String {
+        lobby.kind == .invite ? "Game invite" : "Lobby open"
     }
 
     /// Join an invite and open its room, or open a lobby I am already in.
@@ -142,8 +174,10 @@ private struct GameLobbyStrip: View {
             }
             Task {
                 if await store.join(invite) {
+                    SRHaptic.ok()
                     router.openGame(invite.roomId, game: invite.game)
                 } else {
+                    SRHaptic.bad()
                     // Gone or refused: the Games page says why (`store.message`).
                     router.show(.games)
                 }
@@ -167,8 +201,8 @@ private struct GameLobbyStrip: View {
                 store.closedNote = nil
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .frame(width: SR.tapTarget, height: 36)
+                    .font(.system(size: 13, weight: .bold))
+                    .frame(width: SR.tapTarget, height: SR.tapTarget)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

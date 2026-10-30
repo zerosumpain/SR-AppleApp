@@ -8,30 +8,36 @@ import SwiftUI
 /// answer, so a double tap never turns two cards. The grid sizes its cells
 /// from the width it is given — four or five columns of square cards — so it
 /// fits a 375-point phone with room to spare.
+///
+/// The overhaul (2026-10-29) laid the grid on a midnight felt, made every
+/// card turn over with a real flip (and back again on a miss), edged a taken
+/// pair in the taker's colour with their initial, sat the players along the
+/// top, and pops "Pair!" with a burst when you find one.
 struct MemoryPairsView: View {
     let context: OfflineGameContext<MemoryPairsRules>
     /// The card I have just tapped, until the host's next view says what it is.
     @State private var pending: Int?
     /// I have told the host my phone is back after being marked away.
     @State private var sentBack = false
+    @State private var callout = ""
+    @State private var calloutTone: Color = SR.accentDeep
+    @State private var calloutIcon: String?
+    @State private var calloutToken = 0
+    @State private var burstToken = 0
 
     private var view: MemoryPairsRules.PlayerView { context.view }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
-                SRPageHeader(kicker: kicker, title: title, strap: strap)
+            VStack(alignment: .leading, spacing: 16) {
+                banner
                 if let line = lastText {
-                    Text(line)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    NearbyPlayBubble(text: line, icon: lastIcon)
+                        .id(line)
+                        .transition(.opacity)
                         .accessibilityIdentifier("offline-memory-pairs-last")
                 }
-                grid
-                if view.phase == .choosing {
-                    turnClock
-                }
+                board
                 seats
             }
             .padding(.horizontal, SR.gutter)
@@ -39,18 +45,23 @@ struct MemoryPairsView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay {
+            ZStack {
+                NearbyPlayBurst(token: burstToken)
+                NearbyPlayCallout(text: callout, icon: calloutIcon, tone: calloutTone, token: calloutToken, hold: 1.1)
+            }
+        }
         .onAppear { comeBackIfAway() }
         .onChange(of: view) { _, _ in
             pending = nil
             comeBackIfAway()
         }
+        .onChange(of: view.turnPlayer) { _, new in
+            if new == context.me && playing { SRHaptic.tap() }
+        }
         .onChange(of: view.last) { _, new in
-            guard let new, new.playerId == context.me else { return }
-            switch new.kind {
-            case .matched: SRHaptic.ok()
-            case .missed: SRHaptic.tap()
-            case .timedOut: SRHaptic.bad()
-            }
+            guard let new else { return }
+            react(to: new)
         }
         .onChange(of: context.refusal) { _, new in
             if new != nil {
@@ -79,6 +90,10 @@ struct MemoryPairsView: View {
 
     private func who(_ id: String) -> String {
         id == context.me ? "You" : context.name(of: id)
+    }
+
+    private func seatTone(_ id: String) -> Color {
+        OfflineSeatColour.of(view.seats.firstIndex { $0.id == id } ?? 0)
     }
 
     private var kicker: String {
@@ -124,17 +139,61 @@ struct MemoryPairsView: View {
         }
     }
 
+    private var lastIcon: String {
+        switch view.last?.kind {
+        case .matched?: return "checkmark.circle.fill"
+        case .timedOut?: return "timer"
+        default: return "arrow.uturn.backward.circle.fill"
+        }
+    }
+
+    // MARK: - The top
+
+    private var bannerMark: NearbyPlayMark {
+        switch view.phase {
+        case .choosing, .showing: return .person(context.name(of: view.turnPlayer))
+        case .finale, .over: return .symbol("trophy.fill")
+        }
+    }
+
+    private var banner: some View {
+        NearbyPlayBanner(kicker: kicker, title: title, strap: strap,
+                         mine: myTurn && (view.phase == .choosing || view.phase == .showing),
+                         tone: seatTone(view.turnPlayer), mark: bannerMark) {
+            bannerClock
+        }
+    }
+
+    @ViewBuilder
+    private var bannerClock: some View {
+        switch view.phase {
+        case .choosing:
+            NearbyPlayBannerClock(clock: context.clock, until: view.turnEndsAt,
+                                  total: MemoryPairsRules.turnTime, mine: myTurn)
+                .accessibilityIdentifier("offline-memory-pairs-clock")
+        case .finale:
+            NearbyPlayBannerClock(clock: context.clock, until: view.finaleUntil,
+                                  total: MemoryPairsRules.finalePause, mine: false)
+                .accessibilityLabel("Results soon")
+        case .showing, .over:
+            EmptyView()
+        }
+    }
+
     // MARK: - The grid
 
-    private var grid: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: max(view.columns, 1))
-        return LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(view.cards) { card in
-                cell(card)
+    private var board: some View {
+        NearbyPlayFelt(tone: .navy, padding: 12) {
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: max(view.columns, 1))
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(view.cards) { card in
+                    cell(card)
+                }
             }
+            .frame(maxWidth: 440)
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: 440)
-        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("offline-memory-pairs-grid")
     }
 
@@ -147,9 +206,10 @@ struct MemoryPairsView: View {
             flip(card)
         } label: {
             MemoryPairsCardFace(card: card, ownerTone: ownerTone(card.owner),
+                                ownerName: card.owner.map { context.name(of: $0) },
                                 pending: pending == card.index, live: canFlip(card))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .disabled(!canFlip(card))
         .accessibilityLabel(label(card))
         .accessibilityHint(canFlip(card) ? "Turns this card over." : "")
@@ -171,60 +231,32 @@ struct MemoryPairsView: View {
         return "\(place), \(picture), face up"
     }
 
-    private var turnClock: some View {
-        HStack(spacing: 8) {
-            Text(myTurn ? "Your turn ends in" : "Turn ends in")
-                .font(SR.Text.mono())
-                .foregroundStyle(SR.inkMuted)
-                .lineLimit(1)
-            OfflineCountdown(clock: context.clock, until: view.turnEndsAt, font: SR.Text.mono(), tone: SR.inkMuted)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("offline-memory-pairs-clock")
-    }
-
     // MARK: - The players
 
     private var seats: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(view.seats.enumerated()), id: \.element.id) { index, seat in
-                if index > 0 { Divider().overlay(SR.divider) }
-                HStack(spacing: 10) {
-                    OfflineInitial(name: seat.name, size: 28, tone: OfflineSeatColour.of(index))
-                    Text(seat.id == context.me ? "You" : seat.name)
-                        .font(SR.Text.bodyMedium(15))
-                        .foregroundStyle(seat.away ? SR.inkMuted : SR.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if view.turnPlayer == seat.id && (view.phase == .choosing || view.phase == .showing) {
-                        Image(systemName: "arrowtriangle.left.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    Spacer(minLength: 6)
-                    if seat.away {
-                        Text("left")
-                            .font(SR.Text.mono(13))
-                            .foregroundStyle(SR.inkMuted)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    Text("\(seat.pairs)")
-                        .font(SR.Text.mono(15))
-                        .foregroundStyle(SR.ink)
-                        .frame(minWidth: 30, alignment: .trailing)
-                        .fixedSize()
-                }
-                .frame(minHeight: 40)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(seatLabel(seat))
-            }
+        NearbyPlaySeatStrip(seats: stripSeats, onFelt: false, avatar: 38)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+            .srGlassCard(.paper)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("offline-memory-pairs-seats")
+    }
+
+    private var stripSeats: [NearbyPlaySeat] {
+        view.seats.enumerated().map { pair -> NearbyPlaySeat in
+            let seat = pair.element
+            let acting = view.turnPlayer == seat.id && (view.phase == .choosing || view.phase == .showing)
+            let champion = (view.phase == .finale || view.phase == .over) && view.champions.contains(seat.id)
+            return NearbyPlaySeat(
+                id: seat.id, name: seat.name, tone: OfflineSeatColour.of(pair.offset),
+                isMe: seat.id == context.me, acting: acting, faded: seat.away,
+                badge: "\(seat.pairs)",
+                detail: seat.away ? "left" : (seat.pairs == 1 ? "1 pair" : "\(seat.pairs) pairs"),
+                mark: champion ? "crown.fill" : nil,
+                markTone: SR.warn,
+                spoken: seatLabel(seat)
+            )
         }
-        .padding(.horizontal, SR.cardPadding)
-        .padding(.vertical, 6)
-        .srGlassCard(.paper)
-        .accessibilityIdentifier("offline-memory-pairs-seats")
     }
 
     private func seatLabel(_ seat: MemoryPairsRules.Seat) -> String {
@@ -235,6 +267,34 @@ struct MemoryPairsView: View {
             parts.append("their turn")
         }
         return parts.joined(separator: ", ")
+    }
+
+    // MARK: - Moments
+
+    private func react(to last: MemoryPairsRules.Last) {
+        let mine = last.playerId == context.me
+        switch last.kind {
+        case .matched:
+            if mine {
+                SRHaptic.ok()
+                burstToken += 1
+            }
+            pop(mine ? "Pair!" : "\(context.name(of: last.playerId)) found a pair", icon: "sparkles",
+                tone: mine ? SR.good : SR.accentDeep)
+        case .missed:
+            if mine { SRHaptic.tap() }
+            pop("No match", icon: "arrow.uturn.backward", tone: SR.inkSecondary)
+        case .timedOut:
+            if mine { SRHaptic.bad() }
+            pop("Time's up", icon: "timer", tone: SR.error)
+        }
+    }
+
+    private func pop(_ text: String, icon: String?, tone: Color) {
+        callout = text
+        calloutIcon = icon
+        calloutTone = tone
+        calloutToken += 1
     }
 
     // MARK: - Acting
@@ -260,45 +320,126 @@ struct MemoryPairsView: View {
     }
 }
 
-/// One square card in the Pairs grid: a dark back while face down, the
+/// One square card in the Pairs grid: a patterned back while face down, the
 /// picture on paper while face up, and a faded picture edged in the taker's
-/// colour once the pair is taken. Square, and as wide as its grid column.
+/// colour (with their initial) once the pair is taken. It turns over with a
+/// flip each way. Square, and as wide as its grid column.
 struct MemoryPairsCardFace: View {
     let card: MemoryPairsRules.Card
     /// The colour of the seat that took this card, if anyone has.
     let ownerTone: Color?
+    /// The name of whoever took it, for the initial on the corner.
+    var ownerName: String? = nil
     /// I have just tapped it and the host has not answered yet.
     let pending: Bool
     /// I may tap it now.
     let live: Bool
 
+    /// The picture last shown, kept while the card turns face down again so
+    /// the face does not go blank half way through the flip.
+    @State private var shown: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        MemoryPairsTurn(angle: card.symbol == nil ? 180 : 0, symbol: card.symbol ?? shown,
+                        taken: card.owner != nil, ownerTone: ownerTone, ownerName: ownerName,
+                        pending: pending, live: live)
+            .aspectRatio(1, contentMode: .fit)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .animation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.78), value: card.symbol == nil)
+            .animation(SRMotion.settle, value: card.owner)
+            .onAppear { if let symbol = card.symbol { shown = symbol } }
+            .onChange(of: card.symbol) { _, new in
+                if let new { shown = new }
+            }
+    }
+}
+
+/// The card's two sides on one turning axis. `angle` 0 is face up, 180 is
+/// face down; SwiftUI animates it, and the side that shows flips at 90.
+struct MemoryPairsTurn: View, Animatable {
+    var angle: Double
+    let symbol: Int?
+    let taken: Bool
+    let ownerTone: Color?
+    let ownerName: String?
+    let pending: Bool
+    let live: Bool
+
+    var animatableData: Double {
+        get { angle }
+        set { angle = newValue }
+    }
+
+    var body: some View {
+        let showingFace = angle < 90
         ZStack {
-            if let symbol = card.symbol {
-                shape.fill(card.owner == nil ? SR.paper : SR.surface)
+            front
+                .opacity(showingFace ? 1 : 0)
+            back
+                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                .opacity(showingFace ? 0 : 1)
+        }
+        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.45)
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+    }
+
+    private var front: some View {
+        ZStack {
+            shape.fill(Color(hex: 0xFFFDF8))
+            if let symbol {
                 Image(systemName: MemoryPairsRules.symbolName(symbol))
                     .resizable()
                     .scaledToFit()
                     .foregroundStyle(OfflineSeatColour.of(symbol))
                     .padding(12)
-                    .opacity(card.owner == nil ? 1 : 0.4)
-                shape.strokeBorder(ownerTone ?? SR.accent, lineWidth: card.owner == nil ? 2.5 : 2)
-                    .opacity(card.owner == nil ? 1 : 0.7)
-            } else {
-                shape.fill(SR.ink.opacity(pending ? 0.7 : (live ? 1 : 0.85)))
-                Image(systemName: "questionmark")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(SR.paper.opacity(0.28))
-                    .padding(18)
-                if pending {
-                    shape.strokeBorder(SR.accent, lineWidth: 2.5)
-                }
+                    .opacity(taken ? 0.45 : 1)
+            }
+            shape.strokeBorder(ownerTone ?? SR.accent, lineWidth: taken ? 3 : 2.5)
+            if taken, let ownerName {
+                OfflineInitial(name: ownerName, size: 20, tone: ownerTone ?? SR.accent)
+                    .padding(4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
-        .aspectRatio(1, contentMode: .fit)
-        .contentShape(shape)
-        .animation(SRMotion.settle, value: card)
+        .shadow(color: (ownerTone ?? Color.black).opacity(taken ? 0.35 : 0.15), radius: taken ? 6 : 3, x: 0, y: 2)
+    }
+
+    private var back: some View {
+        ZStack {
+            shape.fill(LinearGradient(colors: [SR.accent, SR.accentDeep], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Canvas { context, size in
+                MemoryPairsTurn.lattice(in: &context, size: size)
+            }
+            .padding(6)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            Image(systemName: "questionmark")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color.white.opacity(live ? 0.6 : 0.3))
+                .padding(20)
+            shape.strokeBorder(pending ? NearbyPlayFeltInk.gold : Color.white.opacity(live ? 0.55 : 0.2),
+                               lineWidth: pending ? 3 : 1.5)
+        }
+        .opacity(live || pending ? 1 : 0.82)
+        .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 2)
+    }
+
+    /// The diamond lattice on a card's back.
+    static func lattice(in context: inout GraphicsContext, size: CGSize) {
+        let step = max(5, size.width / 5)
+        var path = Path()
+        var x: CGFloat = -size.height
+        while x < size.width + size.height {
+            path.move(to: CGPoint(x: x, y: 0))
+            path.addLine(to: CGPoint(x: x + size.height, y: size.height))
+            path.move(to: CGPoint(x: x + size.height, y: 0))
+            path.addLine(to: CGPoint(x: x, y: size.height))
+            x += step
+        }
+        context.stroke(path, with: .color(Color.white.opacity(0.18)), lineWidth: max(0.5, size.width * 0.02))
     }
 }

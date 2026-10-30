@@ -8,6 +8,11 @@ import SwiftUI
 /// them, then lay them as the rank shown — honest or not. When anybody else
 /// lays cards, two buttons appear for a few seconds: call Cheat!, or believe
 /// them. A call turns the cards over for everyone and says who took the pile.
+///
+/// Everyone sits along the seat rail with a fan of their cards; the pile is a
+/// dropped heap on the felt beside a placard of the rank to claim. The call
+/// window is a draining ring and a big red CHEAT! button; a call turns the
+/// laid cards over one by one and stamps the verdict — TRUE or LIAR!
 struct CheatView: View {
     let context: OfflineGameContext<CheatRules>
     /// Card ids raised to be laid, at most four.
@@ -17,13 +22,18 @@ struct CheatView: View {
     @State private var waiting = false
     /// "I'm back" has been sent for this absence, so it goes once.
     @State private var sentBack = false
+    /// The page's content width, for sizing cards.
+    @State private var width: CGFloat = 335
 
     private var view: CheatRules.PlayerView { context.view }
 
+    private var handCardWidth: CGFloat { max(56, min(80, width / 4.6)) }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: SR.sectionGap) {
+            VStack(alignment: .leading, spacing: 18) {
                 SRPageHeader(kicker: kicker, title: title, strap: strap)
+                if view.phase == .play { turnStrip }
                 seats
                 table
                 if view.phase == .challenge, view.canCall {
@@ -36,6 +46,13 @@ struct CheatView: View {
                     myHand
                 }
             }
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { width = geo.size.width }
+                        .onChange(of: geo.size.width) { _, new in width = new }
+                }
+            )
             .padding(.horizontal, SR.gutter)
             .padding(.top, 4)
             .padding(.bottom, 28)
@@ -48,6 +65,9 @@ struct CheatView: View {
         }
         .onChange(of: view.turn) { _, _ in
             selected = []
+        }
+        .onChange(of: myTurn) { _, mine in
+            if mine { SRHaptic.select() }
         }
         .onChange(of: view.reveal) { _, new in
             guard let new else { return }
@@ -87,6 +107,10 @@ struct CheatView: View {
 
     private func who(_ id: String) -> String {
         id == context.me ? "You" : context.name(of: id)
+    }
+
+    private func tone(of id: String) -> Color {
+        OfflineSeatColour.of(view.seats.firstIndex { $0.id == id } ?? 0)
     }
 
     private var rankWord: String { CheatRules.rankName(view.rank) }
@@ -155,47 +179,45 @@ struct CheatView: View {
         return "\(name) laid \(claimText(last))."
     }
 
+    // MARK: - The turn
+
+    private var turnStrip: some View {
+        let turn = view.turnPlayer
+        return PlayTableTurnStrip(text: myTurn ? "Lay \(rankWord)" : "\(context.name(of: turn)) is laying \(rankWord)",
+                                  mine: myTurn, clock: context.clock, until: view.turnEndsAt,
+                                  total: CheatRules.turnSeconds, tone: tone(of: turn)) {
+            OfflineInitial(name: context.name(of: turn), size: 40, tone: tone(of: turn))
+        }
+        .accessibilityIdentifier("offline-cheat-turn")
+    }
+
     // MARK: - The players
 
     private var seats: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(view.seats.enumerated()), id: \.element.id) { index, seat in
-                if index > 0 { Divider().overlay(SR.divider) }
-                HStack(spacing: 10) {
-                    OfflineInitial(name: seat.name, size: 28, tone: OfflineSeatColour.of(index))
-                    Text(seat.id == context.me ? "You" : seat.name)
-                        .font(SR.Text.bodyMedium(15))
-                        .foregroundStyle(seat.away ? SR.inkMuted : SR.ink)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if view.phase == .play, view.turnPlayer == seat.id {
-                        Image(systemName: "arrowtriangle.left.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(SR.accent)
-                            .accessibilityHidden(true)
-                    }
-                    if view.phase == .challenge, seat.passed {
-                        Image(systemName: "hand.thumbsup.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(SR.good)
-                            .accessibilityHidden(true)
-                    }
-                    Spacer(minLength: 6)
-                    Text(seat.away ? "left" : cardsText(seat.cards))
-                        .font(SR.Text.mono(13))
-                        .foregroundStyle(seat.cards <= 2 && !seat.away ? SR.warn : SR.inkSecondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-                .frame(minHeight: 40)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(seatLabel(seat))
-            }
-        }
-        .padding(.horizontal, SR.cardPadding)
-        .padding(.vertical, 6)
-        .srGlassCard(.paper)
-        .accessibilityIdentifier("offline-cheat-seats")
+        PlayTableSeatRail(seats: Array(view.seats.enumerated()).map { pod($0.offset, $0.element) })
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("offline-cheat-seats")
+    }
+
+    private func pod(_ index: Int, _ seat: CheatRules.Seat) -> PlayTableSeat {
+        let won = view.winner == seat.id
+        let passed = view.phase == .challenge && seat.passed
+        let mark: String? = won ? "crown.fill" : (passed ? "hand.thumbsup.fill" : nil)
+        let markTone: Color = won ? Color(hex: 0xE0A21C) : SR.good
+        return PlayTableSeat(
+            id: seat.id,
+            label: seat.id == context.me ? "You" : seat.name,
+            initialOf: seat.name,
+            tone: OfflineSeatColour.of(index),
+            detail: seat.away ? "left" : cardsText(seat.cards),
+            cards: seat.away ? 0 : seat.cards,
+            turn: view.phase == .play && view.turnPlayer == seat.id,
+            away: seat.away,
+            mark: mark,
+            markTone: markTone,
+            warn: seat.cards <= 2 && !seat.away,
+            spoken: seatLabel(seat)
+        )
     }
 
     private func seatLabel(_ seat: CheatRules.Seat) -> String {
@@ -209,57 +231,73 @@ struct CheatView: View {
     // MARK: - The table
 
     private var table: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 18) {
-                VStack(spacing: 6) {
-                    OfflineCardBack(width: 60)
-                        .opacity(view.pileCount > 0 ? 1 : 0.3)
+                VStack(spacing: 8) {
+                    PlayTablePile(count: view.pileCount, cardWidth: 58)
                     Text("\(view.pileCount) down")
                         .font(SR.Text.mono(12))
-                        .foregroundStyle(SR.inkMuted)
+                        .foregroundStyle(PlayTablePaint.onFeltMuted)
                         .lineLimit(1)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("The pile, \(cardsText(view.pileCount)) face down")
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(view.phase == .play ? "LAY" : "CLAIMED")
-                        .font(SR.Text.label(12))
-                        .tracking(1.4)
-                        .foregroundStyle(SR.inkMuted)
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(CheatRules.rankText(claimRank))
-                            .font(SR.Text.hero(40))
-                            .foregroundStyle(SR.ink)
-                            .lineLimit(1)
-                            .fixedSize()
-                        Text(CheatRules.rankName(claimRank))
-                            .font(SR.Text.title())
-                            .foregroundStyle(SR.inkSecondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                    }
-                    if let deadline = countdownDeadline {
-                        OfflineCountdown(clock: context.clock, until: deadline,
-                                         font: SR.Text.mono(13), tone: SR.inkMuted)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(claimLabel)
+                claimPlacard
                 Spacer(minLength: 0)
             }
             if let line = lastPlayText {
                 Text(line)
                     .font(SR.Text.secondary())
-                    .foregroundStyle(SR.inkSecondary)
+                    .foregroundStyle(PlayTablePaint.onFelt)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("offline-cheat-last-play")
             }
         }
-        .padding(SR.cardPadding)
+        .padding(SR.cardPadding + 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .srGlassCard(.paper)
+        .playTableFelt()
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("offline-cheat-table")
+    }
+
+    /// The rank to lay (or that was claimed), as a big card-like placard,
+    /// with the call window's ring beside it.
+    private var claimPlacard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(view.phase == .play ? "LAY" : "CLAIMED")
+                .font(SR.Text.label(12))
+                .tracking(1.4)
+                .foregroundStyle(PlayTablePaint.onFeltMuted)
+            HStack(alignment: .center, spacing: 12) {
+                Text(CheatRules.rankText(claimRank))
+                    .font(SR.Text.hero(40))
+                    .foregroundStyle(PlayTablePaint.cardInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .frame(width: 64, height: 80)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(PlayTablePaint.cardPaper)
+                            .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 2)
+                    )
+                    .contentTransition(.numericText())
+                    .srAnimation(.snappy(duration: 0.3), value: claimRank)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(CheatRules.rankName(claimRank).capitalized)
+                        .font(SR.Text.title())
+                        .foregroundStyle(PlayTablePaint.onFelt)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    if view.phase == .challenge {
+                        PlayTableClockRing(clock: context.clock, until: view.challengeEndsAt,
+                                           total: CheatRules.challengeSeconds, size: 36, onFelt: true)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(claimLabel)
     }
 
     /// The rank on the table: the one to lay now, or the one the last play claimed.
@@ -273,14 +311,6 @@ struct CheatView: View {
         return view.phase == .play ? "Lay \(word)" : "Claimed \(word)"
     }
 
-    private var countdownDeadline: Double? {
-        switch view.phase {
-        case .play: return myTurn ? view.turnEndsAt : nil
-        case .challenge: return view.challengeEndsAt
-        case .reveal, .won, .over: return nil
-        }
-    }
-
     // MARK: - Calling
 
     private var challengeButtons: some View {
@@ -289,38 +319,58 @@ struct CheatView: View {
                 SRHaptic.tap()
                 if let last = view.lastPlay { send(.call(turn: last.turn)) }
             } label: {
-                SRButtonLabel(title: "Cheat!", icon: "exclamationmark.bubble.fill", fill: true)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.bubble.fill")
+                    Text("CHEAT!")
+                        .tracking(1.2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .font(SR.Text.display(22))
+                .foregroundStyle(Color.white)
+                .frame(maxWidth: .infinity, minHeight: 64)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(LinearGradient(colors: [Color(hex: 0xEF4A4F), Color(hex: 0xB21E28)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .shadow(color: Color(hex: 0xB21E28).opacity(0.45), radius: 10, x: 0, y: 5)
+                )
+                .contentShape(Rectangle())
             }
-            .srButton(.prominent)
-            .controlSize(.large)
+            .buttonStyle(SRPressStyle())
             .disabled(waiting)
+            .layoutPriority(1)
             .accessibilityLabel("Call cheat")
             .accessibilityIdentifier("offline-cheat-call")
 
-            Button {
-                SRHaptic.tap()
+            PlayTableButton(title: "Believe", icon: "hand.thumbsup", weight: .regular) {
                 if let last = view.lastPlay { send(.pass(turn: last.turn)) }
-            } label: {
-                SRButtonLabel(title: "Believe", icon: "hand.thumbsup", fill: true)
             }
-            .srButton(.regular)
-            .controlSize(.large)
             .disabled(waiting)
             .accessibilityLabel("Believe them and let it go")
             .accessibilityIdentifier("offline-cheat-pass")
         }
+        .transition(.scale(scale: 0.9).combined(with: .opacity))
     }
 
     private func revealCard(_ reveal: CheatRules.Reveal) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SRSectionLabel(text: "\(who(reveal.callerId)) called Cheat!",
-                           trailing: reveal.truthful ? "true" : "a lie")
+        let width = max(48, min(66, (self.width - 2 * SR.cardPadding - 24) / 4))
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                ForEach(Array(reveal.cards.enumerated()), id: \.offset) { _, card in
-                    OfflineCardFace(card: card, width: 56, selected: card.rank == reveal.rank)
-                        .opacity(card.rank == reveal.rank ? 1 : 0.75)
+                SRSectionLabel(text: "\(who(reveal.callerId)) called Cheat!",
+                               trailing: reveal.truthful ? "true" : "a lie")
+            }
+            ZStack(alignment: .topTrailing) {
+                HStack(spacing: 8) {
+                    ForEach(Array(reveal.cards.enumerated()), id: \.offset) { index, card in
+                        CheatFlipCard(card: card, width: width, honest: card.rank == reveal.rank,
+                                      delay: PlayTableMath.stagger(index: index, step: 0.18, cap: 0.8))
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                PlayTableStamp(text: reveal.truthful ? "True" : "Liar!", tone: reveal.truthful ? SR.good : SR.error, size: 24)
+                    .padding(.top, 8)
+                    .accessibilityHidden(true)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Turned over: " + reveal.cards.map(\.name).joined(separator: ", "))
@@ -354,7 +404,7 @@ struct CheatView: View {
                            trailing: myTurn && !selected.isEmpty ? "\(selected.count) of 4 picked" : cardsText(view.myCards.count))
             OfflineHand(
                 cards: view.myCards,
-                cardWidth: 60,
+                cardWidth: handCardWidth,
                 selected: selected,
                 playable: myTurn && !waiting ? nil : Set<String>(),
                 onTap: { card in toggle(card) }
@@ -362,15 +412,10 @@ struct CheatView: View {
             .accessibilityIdentifier("offline-cheat-hand")
 
             if myTurn {
-                Button {
-                    SRHaptic.ok()
+                PlayTableButton(title: playTitle, icon: "rectangle.stack.fill", haptic: .ok) {
                     let cards = view.myCards.filter { selected.contains($0.id) }
                     send(.play(turn: view.turn, cards: cards))
-                } label: {
-                    SRButtonLabel(title: playTitle, icon: "rectangle.stack.fill", fill: true)
                 }
-                .srButton(.prominent)
-                .controlSize(.large)
                 .disabled(selected.isEmpty || waiting)
                 .accessibilityLabel(playLabel)
                 .accessibilityIdentifier("offline-cheat-play")
@@ -415,5 +460,52 @@ struct CheatView: View {
     private func send(_ action: CheatRules.Action) {
         waiting = true
         context.send(action)
+    }
+}
+
+/// A laid card turned over after a call: face down, then over it goes after
+/// `delay`. The claimed rank's cards are ringed; the rest — the lies — dim.
+struct CheatFlipCard: View {
+    let card: OfflineCard
+    let width: CGFloat
+    let honest: Bool
+    let delay: Double
+    @State private var turned: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        CheatFlipFace(progress: reduceMotion ? 1 : turned, card: card, width: width, honest: honest)
+            .onAppear {
+                guard !reduceMotion, turned < 1 else { return }
+                withAnimation(.easeInOut(duration: 0.45).delay(delay)) { turned = 1 }
+            }
+    }
+}
+
+/// The two sides of a turning card: its back until half way, then its face.
+/// Animatable, so the swap happens exactly edge-on.
+struct CheatFlipFace: View, Animatable {
+    var progress: Double
+    let card: OfflineCard
+    let width: CGFloat
+    let honest: Bool
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let showFace = progress >= 0.5
+        let angle = showFace ? (progress - 1) * 180 : progress * 180
+        return Group {
+            if showFace {
+                OfflineCardFace(card: card, width: width, selected: honest)
+                    .opacity(honest ? 1 : 0.8)
+            } else {
+                OfflineCardBack(width: width)
+            }
+        }
+        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
     }
 }

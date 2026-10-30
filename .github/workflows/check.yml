@@ -211,7 +211,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.ios == 'true'
     runs-on: macos-26
-    timeout-minutes: 30
+    # 45, not 30: on 2026-10-30 the games overhaul's nine new games ran a
+    # slow runner past 30 minutes in dsymutil, where a quick one took 20.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen

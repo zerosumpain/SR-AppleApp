@@ -12,6 +12,13 @@ struct PeopleSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     static let faces = ["workers", "professionals", "families", "retirees", "students"]
+
+    /// Grey cloud, amber, green: the same steps as the mood face.
+    static func moodColour(_ mood: Double) -> Color {
+        if mood >= 65 { return SR.good }
+        if mood >= 45 { return Color(hex: 0xD9A441) }
+        return Color(hex: 0x8C8A86)
+    }
     static let stars = ["jobs", "homes", "tax", "schools", "health", "safety", "fun", "culture", "nature", "around", "buzz"]
 
     var body: some View {
@@ -57,23 +64,31 @@ struct PeopleSheet: View {
                         if index > 0 { Divider().overlay(SR.divider) }
                         HStack(spacing: 12) {
                             Image(systemName: HometownsText.moodSymbol(happy[index]))
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(happy[index] >= 45 ? SR.good : SR.inkMuted)
-                                .frame(width: 26)
-                            Text(store.say("face.\(face)"))
-                                .font(SR.Text.title())
-                                .foregroundStyle(SR.ink)
-                            Spacer(minLength: 8)
-                            Text(HometownsText.people(n))
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkSecondary)
-                            if store.level == .adult {
-                                Text("\(Int(happy[index].rounded())) happy")
-                                    .font(SR.Text.mono())
-                                    .foregroundStyle(SR.inkMuted)
+                                .font(SR.Text.title(20))
+                                .foregroundStyle(Color.white)
+                                .frame(width: 38, height: 38)
+                                .background(Circle().fill(Self.moodColour(happy[index])))
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(store.say("face.\(face)"))
+                                        .font(SR.Text.title())
+                                        .foregroundStyle(SR.ink)
+                                    Spacer(minLength: 8)
+                                    Text(HometownsText.people(n))
+                                        .font(SR.Text.mono())
+                                        .foregroundStyle(SR.inkSecondary)
+                                    if store.level == .adult {
+                                        Text("\(Int(happy[index].rounded())) happy")
+                                            .font(SR.Text.mono())
+                                            .foregroundStyle(SR.inkMuted)
+                                    }
+                                }
+                                HometownsHappyBar(value: happy[index])
                             }
                         }
-                        .frame(minHeight: SR.tapTarget)
+                        .padding(.vertical, 8)
+                        .frame(minHeight: 56)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("hometowns-face-\(face)")
                     }
@@ -210,23 +225,71 @@ struct PeopleSheet: View {
                     .foregroundStyle(SR.inkMuted)
             }
             ForEach(d.townTalk) { talk in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(store.say("talk.say", ["pct": .number(talk.pct / 100)]))
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.accentInk)
-                    Text(store.say("talk.\(talk.key)"))
-                        .font(SR.Text.bodyMedium(15))
-                        .foregroundStyle(SR.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Button { store.readAloud(store.say("talk.\(talk.key)")) } label: { Image(systemName: "speaker.wave.2") }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(SR.inkMuted)
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(store.say("talk.\(talk.key)"))
+                            .font(SR.Text.bodyMedium(15))
+                            .foregroundStyle(SR.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(SR.line)
+                                    Capsule().fill(SR.accent)
+                                        .frame(width: max(4, geo.size.width * CGFloat(max(0, min(1, talk.pct / 100)))))
+                                }
+                            }
+                            .frame(height: 5)
+                            .accessibilityHidden(true)
+                            Text(store.say("talk.say", ["pct": .number(talk.pct / 100)]))
+                                .font(SR.Text.mono())
+                                .foregroundStyle(SR.accentInk)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    Button { store.readAloud(store.say("talk.\(talk.key)")) } label: { HometownsIconLabel(icon: "speaker.wave.2.fill") }
+                        .buttonStyle(SRPressStyle())
+                        .foregroundStyle(SR.inkSecondary)
                         .accessibilityLabel("Read aloud")
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(HometownsSpeechBubble().fill(SR.ink.opacity(0.05)))
                 .accessibilityIdentifier("hometowns-talk-\(talk.key)")
             }
         }
+    }
+}
+
+/// A face's happiness, 0–100, as a short bar in the mood's colour.
+struct HometownsHappyBar: View {
+    let value: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(SR.line)
+                Capsule()
+                    .fill(PeopleSheet.moodColour(value))
+                    .frame(width: max(5, geo.size.width * CGFloat(max(0, min(1, value / 100)))))
+            }
+        }
+        .frame(height: 6)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A rounded bubble with a tail on its lower left, for Town Talk.
+struct HometownsSpeechBubble: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path(roundedRect: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - 6)),
+                        cornerRadius: 14, style: .continuous)
+        path.move(to: CGPoint(x: rect.minX + 18, y: rect.maxY - 6))
+        path.addLine(to: CGPoint(x: rect.minX + 14, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + 30, y: rect.maxY - 6))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -239,8 +302,8 @@ struct HometownsStars: View {
             ForEach(0..<5, id: \.self) { i in
                 let v = halves - Double(i)
                 Image(systemName: v >= 1 ? "star.fill" : v >= 0.5 ? "star.leadinghalf.filled" : "star")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(SR.accent)
+                    .font(SR.Text.label(13))
+                    .foregroundStyle(Color(hex: 0xE0A030))
             }
         }
         .accessibilityHidden(true)

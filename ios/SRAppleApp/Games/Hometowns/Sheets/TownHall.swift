@@ -153,24 +153,42 @@ struct TownHallSheet: View {
         }
     }
 
+    /// A tax dial: its name and rate, a gauge across its range (amber past
+    /// the middle, where people start to mind), and big − and + keys.
     private func dial(_ title: String, value: Int, range: ClosedRange<Int>, id: String, set: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .font(SR.Text.title())
-                .foregroundStyle(SR.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            Text(HometownsText.rate(value))
-                .font(SR.Text.title().monospacedDigit())
-                .foregroundStyle(SR.accentInk)
-                .accessibilityHidden(true)
-            Stepper(title, value: Binding(get: { value }, set: { set(min(range.upperBound, max(range.lowerBound, $0))) }),
-                    in: range, step: step)
-                .labelsHidden()
-                .onChange(of: value) { _, _ in SRHaptic.select() }
+        let span = Double(max(1, range.upperBound - range.lowerBound))
+        let share = Double(value - range.lowerBound) / span
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(title)
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Text(HometownsText.rate(value))
+                    .font(SR.Text.figure(22))
+                    .foregroundStyle(SR.accentInk)
+                    .srNumeric(Double(value))
+                    .accessibilityHidden(true)
+            }
+            HStack(spacing: 10) {
+                stepKey("minus", enabled: value > range.lowerBound) { set(max(range.lowerBound, value - step)) }
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(SR.line)
+                        Capsule()
+                            .fill(share > 0.5 ? SR.warn : SR.good)
+                            .frame(width: max(8, geo.size.width * CGFloat(max(0, min(1, share)))))
+                    }
+                }
+                .frame(height: 8)
+                .srAnimation(.snappy, value: value)
+                stepKey("plus", enabled: value < range.upperBound) { set(min(range.upperBound, value + step)) }
+            }
         }
+        .onChange(of: value) { _, _ in SRHaptic.select() }
         .frame(minHeight: SR.tapTarget)
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
         // One adjustable element (swipe up or down), said as "Homes tax, 9%":
         // a Stepper folded into a combined element is not reliably adjustable.
         .accessibilityElement(children: .ignore)
@@ -184,6 +202,20 @@ struct TownHallSheet: View {
             }
         }
         .accessibilityIdentifier("hometowns-tax-\(id)")
+    }
+
+    /// A round − or + key, thumb-sized.
+    private func stepKey(_ icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(SR.Text.title(18))
+                .foregroundStyle(enabled ? SR.ink : SR.inkGhost)
+                .frame(width: 56, height: 56)
+                .background(Circle().fill(SR.ink.opacity(enabled ? 0.08 : 0.04)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(SRPressStyle())
+        .disabled(!enabled)
     }
 
     // MARK: Funding

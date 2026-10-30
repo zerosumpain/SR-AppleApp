@@ -46,6 +46,16 @@ enum GameKind: String, CaseIterable, Identifiable {
     // Played on this phone, offline: never a room on the site (Games/Physics/).
     case lander
     case carRace = "car-race"
+    case carRacerPlus = "car-racer-plus"
+    case miniGolf = "mini-golf"
+    case pinball
+    case tiltMaze = "tilt-maze"
+    case orbit
+    // Played on this phone too, but not physics: cards, puzzles and an arcade classic.
+    case solitaire
+    case merge2048 = "merge-2048"
+    case minesweeper
+    case snake
 
     var id: String { rawValue }
 
@@ -73,6 +83,15 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .hometowns: return "Hometowns"
         case .lander: return "Lander"
         case .carRace: return "Car Race"
+        case .carRacerPlus: return "Car Racer+"
+        case .miniGolf: return "Mini Golf"
+        case .pinball: return "Pinball"
+        case .tiltMaze: return "Tilt Maze"
+        case .orbit: return "Orbit"
+        case .solitaire: return "Solitaire"
+        case .merge2048: return "2048"
+        case .minesweeper: return "Minesweeper"
+        case .snake: return "Snake"
         }
     }
 
@@ -101,6 +120,15 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .hometowns: return "Build a town each around Kingsport. A year a day."
         case .lander: return "Tilt to steer, hold to burn. Land softly on the pad."
         case .carRace: return "Tilt to steer round the track. Race your ghost or the family."
+        case .carRacerPlus: return "Real driving: grip, gears and weight. Race a season and upgrade your car."
+        case .miniGolf: return "Drag back to aim, let go to putt. Eighteen holes."
+        case .pinball: return "Flip, nudge and light up the table."
+        case .tiltMaze: return "Tilt the phone to roll the ball home. Mind the holes."
+        case .orbit: return "Launch a probe and let gravity swing it home."
+        case .solitaire: return "The classic patience game. Build every suit up from the ace."
+        case .merge2048: return "Slide the tiles. Matching numbers merge. Reach 2048."
+        case .minesweeper: return "Clear the field. The numbers tell you where the mines are."
+        case .snake: return "Eat, grow, and don't bite your own tail."
         }
     }
 
@@ -149,8 +177,26 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Everyone builds a town of their own around Kingsport, and the county keeps going for months. Lay roads, paint homes and shops, and watch people move in. A game year passes every real day, towns grow while you're away, and the family settles up each evening. On your own is a real game too."
         case .lander:
             return "Bring a little craft down onto the landing pad. Tilt the phone to lean, hold a finger down to fire the engine, and touch down slowly and upright before the fuel runs out. Each landing opens a harder level. Plays offline."
+        case .carRacerPlus:
+            return "A deeper race game. Tyres that grip and slide, gears to change, weight that shifts under braking, and grass and gravel that punish a mistake. Race a season of real-feeling circuits against rivals, earn prize money and spend it on engine, tyres, brakes, suspension and aero. Plays offline."
+        case .miniGolf:
+            return "Eighteen holes of crazy golf: slopes, bumpers, windmills and water. Drag back from the ball to aim, let go to putt, and get round in as few strokes as you can. Pass the phone round for up to four. Plays offline."
+        case .pinball:
+            return "A full pinball table. Tap the left or right of the screen to flip, shake the phone to nudge, and light the lanes, bumpers and ramps for the multiplier. Three balls. Plays offline."
+        case .tiltMaze:
+            return "A wooden labyrinth in your hand. Tilt the phone to roll the marble to the goal without dropping it down a hole. Every maze is a little harder, and the clock is on. Plays offline."
+        case .orbit:
+            return "Drag to aim and set the power, then launch a probe through a field of planets. Gravity bends its path: slingshot round a moon and into the target, collecting stars on the way. Plays offline."
+        case .solitaire:
+            return "Klondike patience, the one everyone knows. Tap or drag cards to move them, build down in alternate colours, and send every suit up from ace to king. Draw one or three. Plays offline."
+        case .merge2048:
+            return "Swipe to slide every tile. Two tiles with the same number merge into one worth double. Plan ahead, keep your biggest tile in a corner, and reach 2048 before the board fills up. Plays offline."
+        case .minesweeper:
+            return "A field with mines hidden in it. Tap a square to clear it; the number says how many mines touch it. Hold to plant a flag. Clear every safe square to win. Plays offline."
+        case .snake:
+            return "The old phone classic. Swipe to turn, eat the apples to grow, and don't run into the walls or your own tail. It speeds up as you grow. Plays offline."
         case .carRace:
-            return "A top-down race round three circuits. Tilt to steer, brake into the bends and drift out of them. Race your own best ghost, pass the phone round for up to four, or race phone to phone nearby. Plays offline."
+            return "A top-down race round eight circuits. Tilt to steer, brake into the bends, drift out of them and hold Boost on the straights. Race your own best ghost, pass the phone round for up to four, or race phone to phone nearby. Plays offline."
         }
     }
 
@@ -178,6 +224,15 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .hometowns: return "building.2.fill"
         case .lander: return "moon.fill"
         case .carRace: return "car.fill"
+        case .carRacerPlus: return "steeringwheel"
+        case .miniGolf: return "figure.golf"
+        case .pinball: return "circle.circle.fill"
+        case .tiltMaze: return "square.grid.3x3.square"
+        case .orbit: return "globe.europe.africa.fill"
+        case .solitaire: return "suit.spade.fill"
+        case .merge2048: return "square.grid.2x2.fill"
+        case .minesweeper: return "flag.fill"
+        case .snake: return "arrow.turn.down.right"
         }
     }
 }
@@ -263,6 +318,10 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         // Played on this phone: a lander's levels climb, a race picks its track.
         case (.lander, _): return "Each landing opens a harder level."
         case (.carRace, _): return "Pick a track and how many laps."
+        // The rest are played on this phone and set their own levels in the game.
+        case (.carRacerPlus, _), (.miniGolf, _), (.pinball, _), (.tiltMaze, _), (.orbit, _),
+             (.solitaire, _), (.merge2048, _), (.minesweeper, _), (.snake, _):
+            return "Played on this phone. Pick a level in the game."
         }
     }
 

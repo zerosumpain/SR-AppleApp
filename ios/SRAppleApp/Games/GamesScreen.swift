@@ -4,15 +4,20 @@ import UIKit
 /// The Games tab: invitations waiting, rooms I am in, and a game to start.
 ///
 /// A shelf of games rather than one game's front door. The rooms and invites
-/// lead; then the three doors (the leaderboard, play nearby, Marbler); then
-/// the games, as tiles in the Home page's colours (John, 2026-10-27: "prettier
-/// design like on the home page"), the ones this phone plays most first and
-/// the rest on shelves by kind, with a filter and a search (`GamesShelf`). At
-/// the foot, the family's ideas for games to come. A tile opens the new-game
-/// sheet already set to that game.
+/// lead — they are somebody waiting on me. Then the play half: a hero card
+/// (the game this phone plays most, else one of the new ones, a different one
+/// each day), the three doors (the leaderboard, play nearby, Marbler), the
+/// search, the rest of the most played as a strip of small cards, and the
+/// games on shelves by kind, each tile in its shelf's colour with the game's
+/// own picture drawn on it (John, 2026-10-27: "prettier design like on the
+/// home page"). At the foot, the family's ideas for games to come. A tile
+/// opens the new-game sheet already set to that game, or — for a game played
+/// on this phone — the game itself.
 ///
 /// The filter strip is pinned over the page, not stacked above it, so the
-/// page scrolls behind it and the `sr.` bar the way Health's does.
+/// page scrolls behind it and the `sr.` bar the way Health's does. Beside the
+/// shelves it has two quick filters of its own: the games this phone plays by
+/// itself, and the ones played in a room with the family.
 struct GamesScreen: View {
     @ObservedObject var store: GamesStore
     @EnvironmentObject private var router: Router
@@ -20,14 +25,17 @@ struct GamesScreen: View {
     /// The game whose tile was tapped; the sheet opens on it.
     @State private var starting: GameKind?
     /// The shelf the strip holds the page to: a category's raw value,
-    /// `GamesShelf.favouritesFilter`, or nil for every game.
+    /// `GamesShelf.favouritesFilter`, one of `GamesPagePlan`'s quick filters,
+    /// or nil for every game.
     @State private var filter: String?
     @State private var query = ""
     /// A parent's Close, waiting on the confirmation dialog.
     @State private var closing: GameOpenLobby?
-    /// A game tile's height: Home's tile unit, a little shorter, scaling with the text.
-    @ScaledMetric(relativeTo: .body) private var tileHeight: CGFloat = 156
-    @ScaledMetric(relativeTo: .body) private var doorHeight: CGFloat = 96
+    /// A game tile's height: Home's tile unit, scaling with the text.
+    @ScaledMetric(relativeTo: .body) private var tileHeight: CGFloat = 164
+    @ScaledMetric(relativeTo: .body) private var doorHeight: CGFloat = 100
+    @ScaledMetric(relativeTo: .body) private var heroHeight: CGFloat = 212
+    @ScaledMetric(relativeTo: .body) private var shortcutSide: CGFloat = 124
 
     private static let gap: CGFloat = 14
 
@@ -43,9 +51,35 @@ struct GamesScreen: View {
         GamesShelf.favourites(offeredGames.map(\.rawValue), usage: store.usage, now: Date())
     }
 
+    /// A quick filter is the page's own, not a shelf `GamesShelf` knows.
+    private var quickFilter: Bool {
+        filter == GamesPagePlan.phoneFilter || filter == GamesPagePlan.familyFilter
+    }
+
     private var shelves: [GamesShelf.Section] {
-        GamesShelf.sections(games: offeredGames.map(\.rawValue), text: searchText, usage: store.usage, now: Date(),
-                            filter: filter, query: query)
+        let sections = GamesShelf.sections(games: offeredGames.map(\.rawValue), text: searchText, usage: store.usage,
+                                           now: Date(), filter: quickFilter ? nil : filter, query: query)
+        // A search looks through every game, whatever the filter.
+        guard quickFilter, query.isEmpty else { return sections }
+        let onPhone = filter == GamesPagePlan.phoneFilter
+        let keep = Set(offeredGames.filter { $0.playsOnPhone == onPhone }.map(\.rawValue))
+        return GamesPagePlan.narrow(sections, keep: keep)
+    }
+
+    /// The hero card's game, on the unfiltered page only.
+    private var spotlight: (kind: GameKind, reason: GamesSpotlightReason)? {
+        guard filter == nil, query.isEmpty else { return nil }
+        guard let pick = GamesPagePlan.spotlight(games: offeredGames.map(\.rawValue), favourites: favourites,
+                                                 usage: store.usage, now: Date()),
+              let kind = GameKind(rawValue: pick.game) else { return nil }
+        return (kind, pick.reason)
+    }
+
+    /// The most played after the hero's, as a strip of small cards.
+    private var recentGames: [GameKind] {
+        guard filter == nil, query.isEmpty else { return [] }
+        let hero = spotlight?.kind.rawValue
+        return favourites.filter { $0 != hero }.compactMap(GameKind.init(rawValue:))
     }
 
     /// The strip under the bar: what is waiting (a jump), then the shelves (a
@@ -57,6 +91,8 @@ struct GamesScreen: View {
         if !store.rooms.isEmpty { out.append(SRChip(id: "rooms", title: "Your games", icon: "play.circle.fill", count: store.rooms.count)) }
         out.append(SRChip(id: "all", title: "All games", icon: "square.grid.2x2.fill"))
         if !favourites.isEmpty { out.append(SRChip(id: GamesShelf.favouritesFilter, title: "Most played", icon: "star.fill")) }
+        out.append(SRChip(id: GamesPagePlan.phoneFilter, title: "On this phone", icon: "iphone"))
+        out.append(SRChip(id: GamesPagePlan.familyFilter, title: "With family", icon: "person.2.fill"))
         for category in GamesShelf.categories(offeredGames.map(\.rawValue)) {
             out.append(SRChip(id: category.rawValue, title: category.chip, icon: category.icon))
         }
@@ -69,87 +105,16 @@ struct GamesScreen: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: SR.sectionGap) {
-                    // No page title: the tab says Games. The one honest
-                    // sentence about delivery.
-                    Text("Invites reach phones with the app open.")
-                        .font(SR.Text.mono())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("games-delivery-note")
-
-                    if !store.invites.isEmpty {
-                        section("Invitations", trailing: "\(store.invites.count)", id: "games-invites") {
-                            ForEach(store.invites) { invite in
-                                GameInviteCard(
-                                    invite: invite,
-                                    busy: store.busy == invite.roomId,
-                                    join: {
-                                        Task {
-                                            if await store.join(invite) {
-                                                router.push(GameRoomRef(id: invite.roomId, game: invite.game), on: .games)
-                                            }
-                                        }
-                                    },
-                                    decline: { Task { await store.decline(invite) } }
-                                )
-                            }
-                        }
-                    }
-
-                    if !store.rooms.isEmpty {
-                        section("Your games", trailing: yourMovesLabel, id: "games-rooms") {
-                            // My move first, then the most recently changed — a
-                            // game played over days comes back here to resume.
-                            ForEach(store.yourGames) { room in
-                                // A Button onto the tab's path, not a NavigationLink:
-                                // the link under an interactive glass card never
-                                // received the tap in CI; a Button over the same
-                                // glass (the Tap Duel card) does.
-                                Button {
-                                    SRHaptic.tap()
-                                    router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
-                                } label: {
-                                    GameRoomRow(room: room, serverNow: { store.serverNow() })
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("games-room-\(room.id)")
-                            }
-                        }
-                    }
-
-                    if store.isParent && !store.openLobbies.isEmpty {
-                        section("Open lobbies", trailing: "Parent", id: "games-open-lobbies") {
-                            ForEach(store.openLobbies) { lobby in
-                                GameOpenLobbyRow(lobby: lobby, busy: store.busy == lobby.id) { closing = lobby }
-                            }
-                        }
-                    }
-
+                    deliveryNote
+                    invitesSection
+                    roomsSection
+                    openLobbiesSection
+                    playHeader
+                    heroCard
                     doors
-
-                    VStack(alignment: .leading, spacing: SR.cardGap) {
-                        SRSectionLabel(text: "Play", trailing: playTrailing)
-                        searchField
-                    }
-                    .id("games-play")
-
-                    // The favourites lead the page only when it shows everything.
-                    if filter == nil && query.isEmpty && !favourites.isEmpty {
-                        shelf(GamesShelf.Section(id: "favourites", title: "Most played on this phone", games: favourites),
-                              idPrefix: "games-top")
-                    }
-
-                    if shelves.isEmpty {
-                        Text(emptyShelf)
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                            .accessibilityIdentifier("games-shelf-empty")
-                    } else {
-                        ForEach(shelves) { section in
-                            shelf(section, idPrefix: "games-new")
-                        }
-                    }
-
+                    searchField
+                    recentStrip
+                    shelvesSection
                     GameSuggestionsSection()
                         .id("games-ideas")
                 }
@@ -176,9 +141,6 @@ struct GamesScreen: View {
         .srRefreshable { await store.load() }
         .onAppear { store.setWatching(true) }
         .onDisappear { store.setWatching(false) }
-        .overlay {
-            if store.loading && store.lobby == nil { ProgressView().tint(SR.accent) }
-        }
         .overlay(alignment: .bottom) {
             if let message = store.message { SRBanner(text: message) }
         }
@@ -222,6 +184,177 @@ struct GamesScreen: View {
         }
     }
 
+    // MARK: - The top
+
+    /// The one honest sentence about delivery — and, while the first read is
+    /// out, that it is happening (the shelves below never wait for it).
+    private var deliveryNote: some View {
+        HStack(spacing: 8) {
+            if store.loading && store.lobby == nil {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(SR.accent)
+                    .accessibilityHidden(true)
+                Text("Checking for invites…")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+            } else {
+                Image(systemName: "bell.badge")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(SR.inkMuted)
+                    .accessibilityHidden(true)
+                // No page title: the tab says Games.
+                Text("Invites reach phones with the app open.")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("games-delivery-note")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var invitesSection: some View {
+        if !store.invites.isEmpty {
+            section("Invitations", trailing: "\(store.invites.count)", id: "games-invites") {
+                ForEach(store.invites) { invite in
+                    GameInviteCard(
+                        invite: invite,
+                        busy: store.busy == invite.roomId,
+                        serverNow: { store.serverNow() },
+                        join: {
+                            Task {
+                                if await store.join(invite) {
+                                    SRHaptic.ok()
+                                    router.push(GameRoomRef(id: invite.roomId, game: invite.game), on: .games)
+                                } else {
+                                    SRHaptic.bad()
+                                }
+                            }
+                        },
+                        decline: { Task { await store.decline(invite) } }
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var roomsSection: some View {
+        if !store.rooms.isEmpty {
+            section("Your games", trailing: yourMovesLabel, id: "games-rooms") {
+                // My move first, then the most recently changed — a game
+                // played over days comes back here to resume.
+                ForEach(store.yourGames) { room in
+                    // A Button onto the tab's path, not a NavigationLink: the
+                    // link under an interactive glass card never received the
+                    // tap in CI; a Button over the same glass does.
+                    Button {
+                        SRHaptic.tap()
+                        router.push(GameRoomRef(id: room.id, game: room.game), on: .games)
+                    } label: {
+                        GameRoomRow(room: room, serverNow: { store.serverNow() })
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("games-room-\(room.id)")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var openLobbiesSection: some View {
+        if store.isParent && !store.openLobbies.isEmpty {
+            section("Open lobbies", trailing: "Parent", id: "games-open-lobbies") {
+                ForEach(store.openLobbies) { lobby in
+                    GameOpenLobbyRow(lobby: lobby, busy: store.busy == lobby.id) { closing = lobby }
+                }
+            }
+        }
+    }
+
+    // MARK: - Play
+
+    private var playHeader: some View {
+        SRSectionLabel(text: "Play", trailing: playTrailing)
+            .id("games-play")
+    }
+
+    @ViewBuilder
+    private var heroCard: some View {
+        if let hero = spotlight {
+            Button {
+                SRHaptic.tap()
+                open(hero.kind)
+            } label: {
+                GamesHeroCard(kind: hero.kind, kicker: hero.reason.kicker)
+                    .frame(height: typeSize.isAccessibilitySize ? nil : heroHeight)
+            }
+            .buttonStyle(SRPressStyle())
+            .accessibilityIdentifier("games-hero")
+        }
+    }
+
+    /// The rest of the most played, a strip of small cards to swipe along.
+    @ViewBuilder
+    private var recentStrip: some View {
+        let recent = recentGames
+        if !recent.isEmpty {
+            VStack(alignment: .leading, spacing: SR.cardGap) {
+                SRSectionLabel(text: "Most played on this phone", trailing: "\(recent.count)")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(recent) { kind in
+                            shortcut(kind)
+                        }
+                    }
+                    .padding(.horizontal, SR.gutter)
+                    .padding(.vertical, 10)
+                }
+                .padding(.horizontal, -SR.gutter)
+            }
+            .id("games-shelf-favourites")
+        }
+    }
+
+    private func shortcut(_ kind: GameKind) -> some View {
+        Button {
+            SRHaptic.tap()
+            open(kind)
+        } label: {
+            // Capped: at the largest text sizes a card the scaled width would
+            // be wider than a small phone.
+            GamesShortcutTile(kind: kind)
+                .frame(width: min(shortcutSide, 220), height: min(shortcutSide, 220) * 0.86)
+        }
+        .buttonStyle(SRPressStyle())
+        .accessibilityIdentifier("games-top-\(kind.rawValue)")
+    }
+
+    @ViewBuilder
+    private var shelvesSection: some View {
+        let sections = shelves
+        if sections.isEmpty {
+            SREmpty(
+                title: emptyTitle,
+                icon: query.isEmpty ? "square.grid.2x2" : "magnifyingglass",
+                message: query.isEmpty ? "Try another shelf." : "Try another word — a game's name, or what it's like.",
+                actionLabel: "Show every game",
+                action: {
+                    withAnimation(.snappy) {
+                        query = ""
+                        filter = nil
+                    }
+                }
+            )
+            .accessibilityIdentifier("games-shelf-empty")
+        } else {
+            ForEach(sections) { section in
+                shelf(section, idPrefix: "games-new")
+            }
+        }
+    }
+
     // MARK: - The strip
 
     private func choose(_ chip: SRChip, proxy: ScrollViewProxy) {
@@ -243,8 +376,8 @@ struct GamesScreen: View {
         }
     }
 
-    private var emptyShelf: String {
-        query.isEmpty ? "Nothing on this shelf yet." : "No game matches “\(query)”."
+    private var emptyTitle: String {
+        query.isEmpty ? "Nothing on this shelf yet" : "No game matches “\(query)”"
     }
 
     private static func closingMessage(_ lobby: GameOpenLobby) -> String {
@@ -254,6 +387,8 @@ struct GamesScreen: View {
     private var playTrailing: String? {
         if !query.isEmpty { return nil }
         if filter == GamesShelf.favouritesFilter { return "Most played" }
+        if filter == GamesPagePlan.phoneFilter { return "On this phone" }
+        if filter == GamesPagePlan.familyFilter { return "With family" }
         if let category = filter.flatMap(GameCategory.init(rawValue:)) { return category.chip }
         return "\(offeredGames.count) games"
     }
@@ -261,24 +396,26 @@ struct GamesScreen: View {
     // MARK: - Search
 
     private var searchField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(SR.inkMuted)
                 .accessibilityHidden(true)
             TextField("Find a game", text: $query)
-                .font(SR.Text.body())
+                .font(SR.Text.body(17))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .accessibilityIdentifier("games-search")
             if !query.isEmpty {
                 Button {
+                    SRHaptic.select()
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(SR.inkGhost)
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(SR.inkMuted)
+                        .frame(width: SR.tapTarget, height: SR.tapTarget)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -286,8 +423,9 @@ struct GamesScreen: View {
                 .accessibilityIdentifier("games-search-clear")
             }
         }
-        .padding(.horizontal, 14)
-        .frame(minHeight: SR.tapTarget)
+        .padding(.leading, 16)
+        .padding(.trailing, 4)
+        .frame(minHeight: 52)
         .srGlassCard(.paper)
     }
 
@@ -337,26 +475,22 @@ struct GamesScreen: View {
 
     // MARK: - Shelves
 
-    /// One shelf: its name and line, then its games two by two (one a row at
-    /// the largest text sizes, where two would cut every name).
+    /// One shelf: its badge, name and line, then its games two by two (one a
+    /// row at the largest text sizes, where two would cut every name).
     private func shelf(_ section: GamesShelf.Section, idPrefix: String) -> some View {
         let kinds = section.games.compactMap(GameKind.init(rawValue:))
         let perRow = typeSize.isAccessibilitySize ? 1 : 2
         let rows = stride(from: 0, to: kinds.count, by: perRow).map { Array(kinds[$0..<min($0 + perRow, kinds.count)]) }
-        return VStack(alignment: .leading, spacing: SR.cardGap) {
-            VStack(alignment: .leading, spacing: 2) {
-                SRSectionLabel(text: section.title, trailing: "\(kinds.count)")
-                if let line = section.line {
-                    Text(line)
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+        let now = Date()
+        return VStack(alignment: .leading, spacing: SR.cardGap + 2) {
+            GamesShelfHeader(section: section, count: kinds.count)
             VStack(spacing: Self.gap) {
                 ForEach(rows, id: \.first) { row in
                     HStack(spacing: Self.gap) {
-                        ForEach(row) { kind in tile(kind, idPrefix: idPrefix) }
+                        ForEach(row) { kind in
+                            tile(kind, idPrefix: idPrefix,
+                                 isNew: GamesPagePlan.isNew(kind.rawValue, usage: store.usage, now: now))
+                        }
                         // A shelf with an odd count keeps its last tile square.
                         if row.count < perRow { Color.clear.frame(maxWidth: .infinity) }
                     }
@@ -374,16 +508,16 @@ struct GamesScreen: View {
         .id("games-shelf-\(section.id)")
     }
 
-    private func tile(_ kind: GameKind, idPrefix: String) -> some View {
+    private func tile(_ kind: GameKind, idPrefix: String, isNew: Bool) -> some View {
         Button {
             SRHaptic.tap()
             open(kind)
         } label: {
-            GameTile(kind: kind)
+            GameTile(kind: kind, isNew: isNew)
         }
         .buttonStyle(SRPressStyle())
-        // Tap Duel keeps the id it shipped with; the favourites row has its own
-        // ids, so a test looking for a game's tile finds the one on its shelf.
+        // Tap Duel keeps the id it shipped with, so a test looking for a
+        // game's tile finds the one on its shelf.
         .accessibilityIdentifier(idPrefix == "games-new" && kind == .tapDuel ? "games-new" : "\(idPrefix)-\(kind.rawValue)")
     }
 
@@ -393,7 +527,7 @@ struct GamesScreen: View {
     /// `playsOnPhone`) is sent to its own screen instead, and counted as
     /// played (`store.recordPlay`), since no room will ever count it.
     private func open(_ kind: GameKind) {
-        // Lander and Car Race play on this phone, with no room to start.
+        // The physics games and the puzzles play on this phone, with no room to start.
         if kind.playsOnPhone {
             store.recordPlay(kind.rawValue)
             router.push(PhysicsGameRef(kind: kind), on: .games)
@@ -434,40 +568,79 @@ extension GameCategory {
         case .strategy: return SR.Hue.trips
         case .quick: return SR.Hue.games
         case .physics: return SR.Hue.flows
+        case .puzzle: return SR.Hue.wildmind
         case .outdoor: return SR.Hue.steps
         }
     }
 }
 
+/// A shelf's heading: its colour and icon, its name and line, and how many.
+struct GamesShelfHeader: View {
+    let section: GamesShelf.Section
+    let count: Int
+
+    private var category: GameCategory? { GameCategory(rawValue: section.id) }
+
+    var body: some View {
+        let hue: SR.Hue = category?.hue ?? SR.Hue.games
+        let icon: String = category?.icon ?? (section.id == "search" ? "magnifyingglass" : "star.fill")
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(hue.onFill)
+                .frame(width: 38, height: 38)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hue.gradient))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(section.title)
+                    .font(SR.Text.title(19))
+                    .foregroundStyle(SR.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let line = section.line {
+                    Text(line)
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            Text("\(count)")
+                .font(SR.Text.mono(13))
+                .foregroundStyle(SR.inkSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(hue.wash))
+                .accessibilityLabel(count == 1 ? "1 game" : "\(count) games")
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
 /// One game's tile on a shelf: Home's vivid tile — its shelf's gradient with
-/// a sheen, light type, a soft coloured shadow — with the game's mark, name
-/// and line.
+/// a sheen, light type, a soft coloured shadow — with the game's own picture
+/// drawn behind its mark, name and line, and a chip saying how it is played.
 struct GameTile: View {
     let kind: GameKind
+    /// One of the new games, not yet played here: a NEW badge.
+    var isNew: Bool = false
 
     private var category: GameCategory { GameCategory.of(kind.rawValue) }
 
     var body: some View {
         let hue = category.hue
         let shape = RoundedRectangle(cornerRadius: HomeTileFrame<EmptyView>.corner, style: .continuous)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
                 Image(systemName: kind.icon)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(hue.base)
-                    .frame(width: 38, height: 38)
-                    .background(Circle().fill(hue.onFill.opacity(0.92)))
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(hue.onFill.opacity(0.94)))
+                    .shadow(color: Color.black.opacity(0.12), radius: 3, y: 1)
                     .accessibilityHidden(true)
                 Spacer(minLength: 4)
-                Text(category.chip.uppercased())
-                    .font(SR.Text.label(12))
-                    .tracking(1)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(hue.onFill.opacity(0.22)))
-                    .accessibilityHidden(true)
+                badge(hue)
             }
             Spacer(minLength: 0)
             Text(kind.title)
@@ -477,7 +650,7 @@ struct GameTile: View {
                 .fixedSize(horizontal: false, vertical: true)
             Text(kind.line)
                 .font(SR.Text.secondary(13))
-                .opacity(0.9)
+                .opacity(0.92)
                 .lineLimit(2)
                 .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: false, vertical: true)
@@ -485,20 +658,143 @@ struct GameTile: View {
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .foregroundStyle(hue.onFill)
-        .background {
-            ZStack {
-                hue.gradient
-                // A sheen top-left: the gradient alone reads as flat paint.
-                RadialGradient(colors: [.white.opacity(0.28), .clear], center: .topLeading, startRadius: 0, endRadius: 200)
-            }
-        }
+        .background { GamesTileBackdrop(game: kind.rawValue, hue: hue, symbolSide: 84) }
         .clipShape(shape)
-        .overlay(shape.strokeBorder(.white.opacity(0.22), lineWidth: 1))
+        .overlay(shape.strokeBorder(Color.white.opacity(0.22), lineWidth: 1))
         .shadow(color: hue.base.opacity(0.26), radius: 12, y: 5)
         .contentShape(shape)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(kind.title). \(kind.line)")
-        .accessibilityHint("Starts a new game")
+        .accessibilityLabel(spoken)
+        .accessibilityHint(kind.playsOnPhone ? "Opens the game" : "Sets up a new game")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var spoken: String {
+        let how = GamesPagePlan.playersLine(kind.rawValue, onPhone: kind.playsOnPhone)
+        return "\(kind.title)\(isNew ? ", new" : ""). \(kind.line) \(how)."
+    }
+
+    /// NEW, or how it is played: the phone on its own, or a room of 2–5.
+    @ViewBuilder
+    private func badge(_ hue: SR.Hue) -> some View {
+        if isNew {
+            Text("NEW")
+                .font(SR.Text.label(12))
+                .tracking(1.2)
+                .foregroundStyle(hue.base)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(hue.onFill))
+        } else {
+            HStack(spacing: 4) {
+                Image(systemName: kind.playsOnPhone ? "iphone" : "person.2.fill")
+                    .font(.system(size: 10, weight: .bold))
+                if !kind.playsOnPhone {
+                    Text(GamesPagePlan.playersChip(kind.rawValue, onPhone: false))
+                        .font(SR.Text.label(12))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(hue.onFill.opacity(0.22)))
+        }
+    }
+}
+
+/// The big card at the head of the games: the one this phone plays most, or
+/// one of the new ones, with its picture large and one button's worth of
+/// invitation to play it.
+struct GamesHeroCard: View {
+    let kind: GameKind
+    let kicker: String
+
+    var body: some View {
+        let hue = GameCategory.of(kind.rawValue).hue
+        let shape = RoundedRectangle(cornerRadius: SR.Glass.radius + 4, style: .continuous)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(kicker.uppercased())
+                .font(SR.Text.label(12))
+                .tracking(SR.kickerTracking)
+                .opacity(0.9)
+            Spacer(minLength: 0)
+            Text(kind.title)
+                .font(SR.Text.hero(32))
+                .tracking(-0.5)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(kind.line)
+                .font(SR.Text.secondary(15))
+                .opacity(0.94)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.trailing, 40)
+            playCapsule(hue)
+                .padding(.top, 6)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .foregroundStyle(hue.onFill)
+        .background { GamesTileBackdrop(game: kind.rawValue, hue: hue, symbolSide: 150) }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
+        .shadow(color: hue.base.opacity(0.32), radius: 18, y: 8)
+        .contentShape(shape)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(kicker). \(kind.title). \(kind.line)")
+        .accessibilityHint(kind.playsOnPhone ? "Opens the game" : "Sets up a new game")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private func playCapsule(_ hue: SR.Hue) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: kind.playsOnPhone ? "play.fill" : "person.2.fill")
+                .font(.system(size: 14, weight: .bold))
+            Text(kind.playsOnPhone ? "Play now" : "Set up a game")
+                .font(SR.Text.title(16))
+                .lineLimit(1)
+        }
+        .foregroundStyle(hue.base)
+        .padding(.horizontal, 20)
+        .frame(minHeight: 50)
+        .background(Capsule().fill(hue.onFill))
+        .shadow(color: Color.black.opacity(0.14), radius: 6, y: 3)
+    }
+}
+
+/// A small card on the most-played strip: the game's colour, mark and name.
+struct GamesShortcutTile: View {
+    let kind: GameKind
+
+    var body: some View {
+        let hue = GameCategory.of(kind.rawValue).hue
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: kind.icon)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(hue.base)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(hue.onFill.opacity(0.94)))
+                .accessibilityHidden(true)
+            Spacer(minLength: 0)
+            Text(kind.title)
+                .font(SR.Text.title(16))
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .foregroundStyle(hue.onFill)
+        .background { GamesTileBackdrop(game: kind.rawValue, hue: hue, symbolSide: 64) }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.22), lineWidth: 1))
+        .shadow(color: hue.base.opacity(0.24), radius: 8, y: 4)
+        .contentShape(shape)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(kind.title)
+        .accessibilityHint(kind.playsOnPhone ? "Opens the game" : "Sets up a new game")
         .accessibilityAddTraits(.isButton)
     }
 }
@@ -514,10 +810,11 @@ struct GameDoorTile: View {
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
         VStack(alignment: .leading, spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(hue.onFill)
+                .frame(width: 34, height: 34)
                 .background(Circle().fill(hue.gradient))
+                .shadow(color: hue.base.opacity(0.3), radius: 4, y: 2)
                 .accessibilityHidden(true)
             Spacer(minLength: 0)
             Text(title)
@@ -534,6 +831,12 @@ struct GameDoorTile: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background {
+            // A wash of the door's colour under the glass, so the three read
+            // as three places rather than three grey panels.
+            LinearGradient(colors: [hue.wash, Color.clear], startPoint: .top, endPoint: .bottom)
+                .clipShape(shape)
+        }
         .srGlass(.paper, in: shape, interactive: true)
         .contentShape(shape)
     }
@@ -549,11 +852,7 @@ struct GameOpenLobbyRow: View {
     var body: some View {
         SRCard {
             HStack(spacing: 12) {
-                Image(systemName: GameKind(rawValue: lobby.game)?.icon ?? "gamecontroller")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(SR.accent)
-                    .frame(width: 28)
-                    .accessibilityHidden(true)
+                GameArtBadge(game: lobby.game, side: 40)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(SR.Text.title())
@@ -576,6 +875,7 @@ struct GameOpenLobbyRow: View {
                     }
                 }
                 .srButton(.regular)
+                .controlSize(.large)
                 .disabled(busy)
                 .accessibilityLabel("Close \(lobby.hostName)’s \(GameNames.title(lobby.game)) lobby")
                 .accessibilityIdentifier("games-close-\(lobby.id)")
@@ -600,55 +900,113 @@ struct GameOpenLobbyRow: View {
     }
 }
 
-/// An invitation: who, how hard, who else — Join or Decline.
+/// An invitation: the game's badge, who asked, how hard, who else, how long
+/// it stays open — and Join or Decline, big enough for a thumb.
 struct GameInviteCard: View {
     let invite: GameInvite
     let busy: Bool
+    /// The server's clock, for "Closes in 2:41".
+    var serverNow: () -> Double? = { nil }
     let join: () -> Void
     let decline: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
         SRCard(accented: true) {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(invite.hostName) invited you to \(GameNames.title(invite.game))")
-                        .font(SR.Text.title())
-                        .foregroundStyle(SR.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let about = invite.about {
-                        Text(about)
-                            .font(SR.Text.bodyMedium(15))
-                            .foregroundStyle(SR.accentInk)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("games-invite-about-\(invite.roomId)")
-                    }
-                    Text("\(GameDifficulty.label(for: invite.difficulty)) · \(GameNames.list(invite.players))")
-                        .font(SR.Text.secondary())
-                        .foregroundStyle(SR.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 14) {
+                    GameArtBadge(game: invite.game, side: 54)
+                    heading
                 }
-                HStack(spacing: 10) {
-                    Button { SRHaptic.tap(); join() } label: {
-                        SRButtonLabel(title: "Join", icon: "play.fill", fill: true)
-                    }
-                    .srButton(.prominent)
-                    .controlSize(.large)
-                    .accessibilityIdentifier("games-invite-join-\(invite.roomId)")
-                    Button { decline() } label: {
-                        SRButtonLabel(title: "Decline", fill: true)
-                    }
-                    .srButton(.regular)
-                    .controlSize(.large)
-                    .accessibilityIdentifier("games-invite-decline-\(invite.roomId)")
-                }
-                .disabled(busy)
+                closes
+                buttons
             }
         }
         .accessibilityIdentifier("games-invite-\(invite.roomId)")
     }
+
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(invite.hostName) invited you".uppercased())
+                .font(SR.Text.label())
+                .tracking(1.2)
+                .foregroundStyle(SR.accent)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(GameNames.title(invite.game))
+                .font(SR.Text.display(22))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let about = invite.about {
+                Text(about)
+                    .font(SR.Text.bodyMedium(15))
+                    .foregroundStyle(SR.accentInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("games-invite-about-\(invite.roomId)")
+            }
+            Text("\(GameDifficulty.label(for: invite.difficulty)) · \(GameNames.list(invite.players))")
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        // Not combined: the quiz's "about" line keeps its own id for the tests.
+    }
+
+    /// How long the lobby stays open, ticking: the deadline is minutes.
+    @ViewBuilder
+    private var closes: some View {
+        if let end = invite.expiresAt {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                if let now = serverNow() {
+                    let left = Int(((end - now) / 1000).rounded(.down))
+                    Label(GamesPagePlan.closesLine(secondsLeft: left), systemImage: "timer")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(left < 30 ? SR.accent : SR.inkMuted)
+                        .monospacedDigit()
+                }
+            }
+        }
+    }
+
+    private var buttons: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
+            Button {
+                SRHaptic.tap()
+                join()
+            } label: {
+                Group {
+                    if busy {
+                        ProgressView().tint(SR.cream)
+                    } else {
+                        SRButtonLabel(title: "Join", icon: "play.fill", fill: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .srButton(.prominent)
+            .controlSize(.large)
+            .accessibilityLabel("Join \(GameNames.title(invite.game))")
+            .accessibilityIdentifier("games-invite-join-\(invite.roomId)")
+            Button {
+                SRHaptic.select()
+                decline()
+            } label: {
+                SRButtonLabel(title: "Decline", fill: true)
+                    .frame(minHeight: 44)
+            }
+            .srButton(.regular)
+            .controlSize(.large)
+            .accessibilityIdentifier("games-invite-decline-\(invite.roomId)")
+        }
+        .disabled(busy)
+    }
 }
 
-/// A room I am in, to go back to.
+/// A room I am in, to go back to: the game's badge, whose it is or whose move,
+/// and where it has got to.
 struct GameRoomRow: View {
     let room: GameRoomSummary
     /// The server's clock, for a durable game's "21 h left".
@@ -657,45 +1015,57 @@ struct GameRoomRow: View {
     var body: some View {
         SRCard(accented: room.myTurn, interactive: true) {
             HStack(spacing: 12) {
-                Image(systemName: GameKind(rawValue: room.game)?.icon ?? "gamecontroller")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(SR.accent)
-                    .frame(width: 28)
+                GameArtBadge(game: room.game, side: 42)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(GameNames.title(room.game))
                         .font(SR.Text.title())
                         .foregroundStyle(SR.ink)
-                    if room.durable {
-                        // Ticks once a minute: the deadline is hours, not seconds.
-                        TimelineView(.periodic(from: .now, by: 60)) { _ in
-                            Text(YourGames.status(room, atServer: serverNow()) ?? "Hosted by \(room.hostName)")
-                                .font(room.myTurn ? SR.Text.bodyMedium(15) : SR.Text.secondary())
-                                .foregroundStyle(room.myTurn ? SR.accentInk : SR.inkMuted)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityIdentifier("games-room-status-\(room.id)")
-                        }
-                        if room.pace == .async {
-                            Text(YourGames.paceLine(room))
-                                .font(SR.Text.mono())
-                                .foregroundStyle(SR.inkMuted)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    } else {
-                        Text("Hosted by \(room.hostName)")
-                            .font(SR.Text.secondary())
-                            .foregroundStyle(SR.inkMuted)
-                    }
+                        .fixedSize(horizontal: false, vertical: true)
+                    status
                 }
                 Spacer(minLength: 8)
-                SRGlassChip(text: phaseLabel, tone: SR.accentInk)
+                SRGlassChip(text: phaseLabel, icon: phaseIcon, tone: phaseTone)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(SR.inkGhost)
+                    .foregroundStyle(SR.inkMuted)
+                    .accessibilityHidden(true)
             }
             .frame(minHeight: SR.tapTarget)
         }
+        .background {
+            // My move: the row glows faintly in the game's colour, so it is
+            // found before it is read.
+            if room.myTurn {
+                RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+                    .fill(GamesArt.hue(room.game).wash)
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityHint("Resume")
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        if room.durable {
+            // Ticks once a minute: the deadline is hours, not seconds.
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                Text(YourGames.status(room, atServer: serverNow()) ?? "Hosted by \(room.hostName)")
+                    .font(room.myTurn ? SR.Text.bodyMedium(15) : SR.Text.secondary())
+                    .foregroundStyle(room.myTurn ? SR.accentInk : SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("games-room-status-\(room.id)")
+            }
+            if room.pace == .async {
+                Text(YourGames.paceLine(room))
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            Text("Hosted by \(room.hostName)")
+                .font(SR.Text.secondary())
+                .foregroundStyle(SR.inkMuted)
+        }
     }
 
     private var phaseLabel: String {
@@ -705,6 +1075,24 @@ struct GameRoomRow: View {
         case .finished: return "Finished"
         case .closed: return "Closed"
         case .unknown: return "Open"
+        }
+    }
+
+    private var phaseIcon: String {
+        switch room.phase {
+        case .lobby: return "hourglass"
+        case .countdown, .armed, .result, .playing, .question, .reveal, .show, .input, .review: return "play.fill"
+        case .finished: return "flag.checkered"
+        case .closed: return "xmark"
+        case .unknown: return "circle.fill"
+        }
+    }
+
+    private var phaseTone: Color {
+        switch room.phase {
+        case .lobby, .unknown: return SR.accentInk
+        case .countdown, .armed, .result, .playing, .question, .reveal, .show, .input, .review: return SR.good
+        case .finished, .closed: return SR.inkSecondary
         }
     }
 }
@@ -768,10 +1156,13 @@ struct NewGameSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
                     // The game was picked on its card, so the sheet does not
-                    // offer the whole shelf again: it sets this game up.
+                    // offer the whole shelf again: it sets this game up — its
+                    // picture, its name, and how it is played.
+                    NewGameBanner(game: game)
                     SRPageHeader(kicker: "New game", title: game.title, strap: game.line)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("games-game-\(game.rawValue)")
+                    NewGameHowTo(game: game)
 
                     // No signal, or nobody online: the same game on this phone.
                     if let playOffline {
@@ -881,43 +1272,13 @@ struct NewGameSheet: View {
                         }
                     }
 
-                    if let refusal {
-                        Label(refusal, systemImage: "exclamationmark.circle")
-                            .font(SR.Text.bodyMedium(15))
-                            .foregroundStyle(SR.error)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("games-new-refusal")
-                    }
-
-                    Button {
-                        SRHaptic.tap()
-                        if gcse, gcseSubject == nil {
-                            refusal = "Pick a subject for the GCSE quiz."
-                            SRHaptic.bad()
-                            return
-                        }
-                        working = true
-                        refusal = nil
-                        let payload = request
-                        Task {
-                            if let sentence = await start(payload) {
-                                refusal = sentence
-                                SRHaptic.bad()
-                                UIAccessibility.post(notification: .announcement, argument: sentence)
-                            }
-                            working = false
-                        }
-                    } label: {
-                        SRButtonLabel(title: invited.isEmpty ? "Open the lobby" : "Invite and open the lobby", icon: "arrow.right", fill: true)
-                    }
-                    .srButton(.prominent)
-                    .controlSize(.large)
-                    .disabled(working || busy)
-                    .accessibilityIdentifier("games-start")
                 }
                 .padding(.horizontal, SR.gutter)
                 .padding(.vertical, 12)
             }
+            // Start rides at the foot of the sheet, always in reach: the
+            // settings above it can run to three screens on a small phone.
+            .safeAreaInset(edge: .bottom, spacing: 0) { startBar }
             .srGround(.warm)
             .navigationTitle("New game")
             .navigationBarTitleDisplayMode(.inline)
@@ -929,6 +1290,72 @@ struct NewGameSheet: View {
             }
         }
         .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Why the last Start was refused, then Start — pinned under the settings.
+    private var startBar: some View {
+        VStack(spacing: 10) {
+            if let refusal {
+                Label(refusal, systemImage: "exclamationmark.circle")
+                    .font(SR.Text.bodyMedium(15))
+                    .foregroundStyle(SR.error)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("games-new-refusal")
+            }
+            Button {
+                SRHaptic.tap()
+                begin()
+            } label: {
+                Group {
+                    if working {
+                        ProgressView().tint(SR.cream)
+                    } else {
+                        SRButtonLabel(title: invited.isEmpty ? "Open the lobby" : "Invite and open the lobby",
+                                      icon: "arrow.right", fill: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .srButton(.prominent)
+            .controlSize(.large)
+            .disabled(working || busy)
+            .accessibilityLabel(invited.isEmpty ? "Open the lobby" : "Invite and open the lobby")
+            .accessibilityIdentifier("games-start")
+        }
+        .padding(.horizontal, SR.gutter)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background {
+            Rectangle()
+                .fill(.regularMaterial)
+                .overlay(alignment: .top) { Rectangle().fill(SR.divider).frame(height: 0.5) }
+                .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    /// Start: check what the phone can, then ask the site for the room.
+    private func begin() {
+        if gcse, gcseSubject == nil {
+            refusal = "Pick a subject for the GCSE quiz."
+            SRHaptic.bad()
+            return
+        }
+        working = true
+        refusal = nil
+        let payload = request
+        Task {
+            if let sentence = await start(payload) {
+                refusal = sentence
+                SRHaptic.bad()
+                UIAccessibility.post(notification: .announcement, argument: sentence)
+            } else {
+                // The lobby is open: the sheet closes on its way there.
+                SRHaptic.ok()
+            }
+            working = false
+        }
     }
 
     /// What Start sends: the game's own body, with the pace when it offers one.
@@ -1563,5 +1990,71 @@ struct NewGameSheet: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(id)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+/// The new-game sheet's picture: the game's tile, wide.
+struct NewGameBanner: View {
+    let game: GameKind
+
+    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 120
+
+    var body: some View {
+        let hue = GameCategory.of(game.rawValue).hue
+        let shape = RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
+        HStack(spacing: 14) {
+            Image(systemName: game.icon)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(hue.base)
+                .frame(width: 60, height: 60)
+                .background(Circle().fill(hue.onFill.opacity(0.94)))
+                .shadow(color: Color.black.opacity(0.14), radius: 5, y: 2)
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: height, alignment: .leading)
+        .background { GamesTileBackdrop(game: game.rawValue, hue: hue, symbolSide: 120) }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.22), lineWidth: 1))
+        .shadow(color: hue.base.opacity(0.26), radius: 12, y: 5)
+        .accessibilityHidden(true)
+    }
+}
+
+/// How the game is played, in the family's words, and who it is for — what
+/// the shelf's tile had no room to say.
+struct NewGameHowTo: View {
+    let game: GameKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "book.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SR.accent)
+                    .accessibilityHidden(true)
+                Text("HOW TO PLAY")
+                    .font(SR.Text.label())
+                    .tracking(SR.kickerTracking)
+                    .foregroundStyle(SR.inkSecondary)
+                Spacer(minLength: 8)
+                SRGlassChip(text: GamesPagePlan.playersChip(game.rawValue, onPhone: game.playsOnPhone),
+                            icon: "person.2.fill", tone: SR.accentInk)
+                    .accessibilityHidden(true)
+            }
+            Text(game.blurb)
+                .font(SR.Text.body(16))
+                .foregroundStyle(SR.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(GamesPagePlan.playersLine(game.rawValue, onPhone: game.playsOnPhone))
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(SR.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .srGlassCard(.paper)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("games-how-to-play")
     }
 }

@@ -13,6 +13,12 @@ import UIKit
 /// Sizes come from the space the room screen gives it: card width from the
 /// width shared by the piles in a row (at most three across) and from the
 /// height left over after the pad, so five piles fit a 375pt phone.
+///
+/// The overhaul (2026-10-29) laid the piles on a midnight felt where each
+/// new card slaps down (fully drawn from its first frame, so nobody's
+/// reaction is timed against a fade), made the pad a big hot button that
+/// jumps under the hand, ran the match clock as a ring, and pops a won snap
+/// or a false one in big type.
 struct SnapView: View {
     let context: OfflineGameContext<SnapRules>
     @StateObject private var stimulus = OfflineStimulus()
@@ -22,18 +28,26 @@ struct SnapView: View {
     @State private var sentFlip = 0
     /// My measured time for that snap, shown before the host answers.
     @State private var sentMs: Int?
+    @State private var padPresses = 0
+    @State private var callout = ""
+    @State private var calloutTone: Color = SR.accentDeep
+    @State private var calloutToken = 0
+    @State private var burstToken = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     private var view: SnapRules.PlayerView { context.view }
 
     var body: some View {
         GeometryReader { geo in
-            let padHeight = playing ? min(150, max(96, geo.size.height * 0.2)) : 0
+            let padHeight = playing ? min(160, max(104, geo.size.height * 0.22)) : 0
             VStack(spacing: 12) {
                 header
-                SnapTable(piles: view.piles, me: context.me, lastFlipper: view.lastFlipper,
-                          flip: view.flip,
-                          width: geo.size.width - SR.gutter * 2,
-                          height: max(120, geo.size.height - padHeight - 150))
+                NearbyPlayFelt(tone: .navy, padding: 10) {
+                    SnapTable(piles: view.piles, me: context.me, lastFlipper: view.lastFlipper,
+                              flip: view.flip,
+                              width: geo.size.width - SR.gutter * 2 - 20,
+                              height: max(120, geo.size.height - padHeight - 190))
+                }
                 noticeLine
                 Spacer(minLength: 0)
                 if playing {
@@ -54,39 +68,56 @@ struct SnapView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .srGround(.warm)
+        .overlay {
+            ZStack {
+                NearbyPlayBurst(token: burstToken)
+                NearbyPlayCallout(text: callout, icon: "hand.raised.fill", tone: calloutTone, token: calloutToken, hold: 1.0)
+            }
+        }
         .onAppear { arm() }
         .onChange(of: view.flip) { _, _ in arm() }
-        .onChange(of: view.phase) { _, _ in arm() }
+        .onChange(of: view.phase) { _, new in
+            arm()
+            if new != .playing && view.champions == [context.me] { burstToken += 1 }
+        }
         .onChange(of: context.clock) { _, _ in arm() }
         .onChange(of: view.notice) { _, notice in react(to: notice) }
+        .onChange(of: scenePhase) { _, new in
+            if new == .active { arm() }
+        }
         .onDisappear { stimulus.reset() }
     }
 
     // MARK: - The top line
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(status)
-                .font(SR.Text.title())
-                .foregroundStyle(SR.ink)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("offline-snap-status")
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(kicker)
+                    .font(SR.Text.label())
+                    .tracking(1.2)
+                    .foregroundStyle(SR.inkMuted)
+                    .lineLimit(1)
+                Text(status)
+                    .font(SR.Text.display(22))
+                    .foregroundStyle(statusTone)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("offline-snap-status")
+            }
             Spacer(minLength: 8)
             if view.phase == .playing {
-                TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-                    let left = context.clock.secondsLeft(until: view.endsAt)
-                    Text(String(format: "%d:%02d", left / 60, left % 60))
-                        .font(SR.Text.mono(15))
-                        .foregroundStyle(left <= 15 ? SR.error : SR.inkSecondary)
-                        .monospacedDigit()
-                        .fixedSize()
-                        .accessibilityLabel("\(left) seconds left")
-                }
-                .accessibilityIdentifier("offline-snap-clock")
+                NearbyPlayClockRing(clock: context.clock, until: view.endsAt, total: SnapRules.matchLength,
+                                    size: 50, urgentBelow: 15)
+                    .accessibilityIdentifier("offline-snap-clock")
             }
         }
+    }
+
+    private var kicker: String {
+        guard let row = myRow else { return "Snap · watching" }
+        return "Snap · \(row.stack + row.pile) cards yours"
     }
 
     /// My row in the table, if I am playing this match.
@@ -118,6 +149,12 @@ struct SnapView: View {
             return "Snap!"
         }
         return "Snap when two cards match"
+    }
+
+    private var statusTone: Color {
+        if snappedThisCard && view.mySnap == -1 { return SR.error }
+        if snappedThisCard { return SR.accent }
+        return SR.ink
     }
 
     private var watchingText: String {
@@ -180,19 +217,28 @@ struct SnapView: View {
     private var pad: some View {
         let shape = RoundedRectangle(cornerRadius: SR.Glass.radius, style: .continuous)
         return ZStack {
-            shape.fill(padFill)
-            VStack(spacing: 4) {
-                Text("SNAP!")
-                    .font(SR.Text.hero(48))
-                    .foregroundStyle(SR.paper)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                Text(padHint)
-                    .font(SR.Text.mono(13))
-                    .foregroundStyle(SR.paper.opacity(0.85))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+            shape.fill(LinearGradient(colors: padColours, startPoint: .top, endPoint: .bottom))
+            shape.fill(LinearGradient(colors: [Color.white.opacity(0.22), Color.white.opacity(0)],
+                                      startPoint: .top, endPoint: .center))
+            shape.strokeBorder(Color.white.opacity(0.3), lineWidth: 2)
+            HStack(spacing: 12) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 38, weight: .bold))
+                    .rotationEffect(.degrees(-12))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SNAP!")
+                        .font(SR.Text.hero(48))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text(padHint)
+                        .font(SR.Text.mono(13))
+                        .opacity(0.9)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
             }
+            .foregroundStyle(Color.white)
+            .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 2)
             .padding(.horizontal, 16)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -201,11 +247,14 @@ struct SnapView: View {
                 .accessibilityIdentifier("offline-snap-pad")
         }
         .clipShape(shape)
+        .shadow(color: (padColours.last ?? Color.clear).opacity(0.4), radius: 12, x: 0, y: 6)
+        .nearbyPlayBump(padPresses, scale: 0.95)
     }
 
-    private var padFill: Color {
-        guard snappedThisCard else { return SR.ink }
-        return view.mySnap == -1 ? SR.error : SR.accent
+    /// Fixed colours: a hot orange to slap, violet once snapped, red for a guess.
+    private var padColours: [Color] {
+        guard snappedThisCard else { return [Color(hex: 0xFF7A3D), Color(hex: 0xD9480F)] }
+        return view.mySnap == -1 ? [Color(hex: 0xF0525A), Color(hex: 0xB3261E)] : [Color(hex: 0x8F75FF), Color(hex: 0x5B3FD9)]
     }
 
     private var padHint: String {
@@ -244,17 +293,28 @@ struct SnapView: View {
         guard let ms = stimulus.reactionMs(touchedAt: timestamp) else { return }
         sentFlip = view.flip
         sentMs = ms
+        padPresses += 1
         SRHaptic.tap()
         context.send(.snap(flip: view.flip, ms: ms))
     }
 
-    /// A buzz for my own wins and false snaps.
+    /// A buzz and a pop for my own wins and false snaps, and a word for others'.
     private func react(to notice: SnapRules.Notice?) {
-        guard let notice, notice.playerId == context.me else { return }
+        guard let notice else { return }
+        let mine = notice.playerId == context.me
         switch notice.kind {
-        case .won: SRHaptic.ok()
-        case .falseSnap: SRHaptic.bad()
-        case .missed, .turnedOver: break
+        case .won:
+            if mine { SRHaptic.ok() }
+            callout = mine ? "Snap! +\(notice.cards)" : "\(who(notice.playerId)) snapped!"
+            calloutTone = mine ? SR.good : SR.accentDeep
+            calloutToken += 1
+        case .falseSnap:
+            if mine { SRHaptic.bad() }
+            callout = mine ? "False snap! −\(notice.cards)" : "False snap!"
+            calloutTone = SR.error
+            calloutToken += 1
+        case .missed, .turnedOver:
+            break
         }
     }
 }
@@ -273,7 +333,7 @@ struct SnapTable: View {
 
     private let gap: CGFloat = 12
     /// Name line above and count line below a card, with their spacing.
-    private let captions: CGFloat = 44
+    private let captions: CGFloat = 46
 
     private var columns: Int {
         switch piles.count {
@@ -304,7 +364,7 @@ struct SnapTable: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: gap) {
                     ForEach(row, id: \.self) { index in
-                        SnapPileTile(row: piles[index], me: me, width: side,
+                        SnapPileTile(row: piles[index], seat: index, me: me, width: side,
                                      fresh: piles[index].id == lastFlipper && flip > 0)
                     }
                 }
@@ -317,13 +377,15 @@ struct SnapTable: View {
 }
 
 /// One player's pile: their name, the face-up top (or an empty slot), and
-/// how many cards they hold face down and face up.
+/// how many cards they hold face down and face up. A new top slaps down.
 struct SnapPileTile: View {
     let row: SnapRules.PileRow
+    var seat: Int = 0
     let me: String
     let width: CGFloat
     /// This pile took the newest card.
     let fresh: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var name: String { row.id == me ? "You" : row.name }
 
@@ -331,37 +393,44 @@ struct SnapPileTile: View {
         let shape = RoundedRectangle(cornerRadius: width * 0.12, style: .continuous)
         VStack(spacing: 4) {
             HStack(spacing: 4) {
-                if row.isTurn {
-                    Circle()
-                        .fill(SR.accent)
-                        .frame(width: 6, height: 6)
-                }
+                Circle()
+                    .fill(row.isTurn ? NearbyPlayFeltInk.gold : OfflineSeatColour.of(seat))
+                    .frame(width: 8, height: 8)
                 Text(name)
                     .font(SR.Text.label(12))
-                    .foregroundStyle(row.isTurn ? SR.accent : SR.ink)
+                    .foregroundStyle(row.isTurn ? NearbyPlayFeltInk.gold : NearbyPlayFeltInk.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             .frame(width: width)
 
-            Group {
+            ZStack {
+                // The face-down stack under the pile, a card's edge per few cards.
+                if row.stack > 0 {
+                    OfflineCardBack(width: width)
+                        .offset(x: 3, y: 3)
+                        .opacity(0.8)
+                }
                 if let top = row.top {
                     OfflineCardFace(card: top, width: width)
+                        .id(top.id + "-\(row.pile)")
+                        .transition(reduceMotion ? AnyTransition.identity : SnapPileTile.slap)
                 } else {
                     shape
-                        .strokeBorder(SR.line, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        .strokeBorder(NearbyPlayFeltInk.faint, style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
                         .frame(width: width, height: width * OfflineCardMetrics.aspect)
                 }
             }
+            .animation(.spring(response: 0.22, dampingFraction: 0.65), value: row.top)
             .overlay {
                 if fresh {
-                    shape.stroke(SR.accent, lineWidth: 3)
+                    shape.stroke(NearbyPlayFeltInk.gold, lineWidth: 3)
                 }
             }
 
             Text(counts)
-                .font(SR.Text.mono(11))
-                .foregroundStyle(SR.inkMuted)
+                .font(SR.Text.mono(12))
+                .foregroundStyle(NearbyPlayFeltInk.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(width: width)
@@ -370,6 +439,13 @@ struct SnapPileTile: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityIdentifier("offline-snap-pile-\(row.id)")
+    }
+
+    /// A new top lands from a little above and a little larger — drawn in
+    /// full from its first frame — and the old one goes at once.
+    static var slap: AnyTransition {
+        AnyTransition.asymmetric(insertion: AnyTransition.scale(scale: 1.18).combined(with: AnyTransition.offset(y: -10)),
+                                 removal: AnyTransition.identity)
     }
 
     private var counts: String {

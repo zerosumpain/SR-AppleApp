@@ -4,28 +4,46 @@ import SwiftUI
 /// everyone's running total.
 ///
 /// The keypad is built from the page's width (three keys a row, each at
-/// least a tap target tall), so it fits a 375-point phone at any text size;
-/// the sum itself scales down rather than wrap. What I have typed stays on
-/// this phone until Enter — only the answer travels.
+/// least a thumb tall), so it fits a 375-point phone at any text size; the
+/// sum itself scales down rather than wrap. What I have typed stays on this
+/// phone until Enter — only the answer travels.
+///
+/// The overhaul (2026-10-29) counts in 3-2-1 with big bumping digits, runs
+/// the minute as a ring, ticks a right answer green and shakes a wrong one,
+/// calls out a streak bonus, makes every key a thumb-sized tile, races the
+/// scores as bars, and keeps this phone's best score.
 struct OfflineSprintView: View {
     let context: OfflineGameContext<OfflineSprintRules>
     @State private var typed = ""
     /// The sum an answer was sent for, so a double tap sends once; the next
     /// view (a new index) or a refusal clears it.
     @State private var sentFor: Int?
+    /// How the last answer went, for the tick or the cross on the sum.
+    @State private var verdict: Bool?
+    @State private var verdictToken = 0
+    @State private var shakes = 0
+    @State private var callout = ""
+    @State private var calloutToken = 0
+    @State private var best: NearbyPlayBestOutcome?
+    @State private var burstToken = 0
 
     private var view: OfflineSprintRules.PlayerView { context.view }
     private var mine: OfflineSprintRules.Mine? { view.me }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                SRPageHeader(kicker: kicker, title: title)
-                    .accessibilityIdentifier("offline-sprint-header")
-                clockBar
+            VStack(alignment: .leading, spacing: 16) {
+                NearbyPlayBanner(kicker: kicker, title: title, mine: view.phase == .playing && mine != nil,
+                                 mark: .symbol("plus.forwardslash.minus")) {
+                    clock
+                }
+                .accessibilityIdentifier("offline-sprint-header")
                 if let mine, view.phase == .playing || view.phase == .countdown {
                     problemCard(mine)
                     keypad
+                }
+                if let best, let mine, view.phase == .done || view.phase == .over {
+                    NearbyPlayBestLine(outcome: best, value: mine.score, format: { "\($0) pts" })
                 }
                 board
             }
@@ -34,14 +52,27 @@ struct OfflineSprintView: View {
             .padding(.bottom, 28)
         }
         .srGround(.warm)
+        .overlay {
+            ZStack {
+                NearbyPlayBurst(token: burstToken)
+                NearbyPlayCallout(text: callout, icon: "flame.fill", tone: SR.good, token: calloutToken, hold: 1.0)
+            }
+        }
         .onChange(of: mine?.index) { _, _ in
             sentFor = nil
             typed = ""
-            if let right = mine?.lastRight { if right { SRHaptic.tap() } else { SRHaptic.bad() } }
+            if let right = mine?.lastRight { answered(right) }
         }
-        .onChange(of: view.phase) { _, new in
+        .onChange(of: view.phase) { old, new in
             if new == .playing { SRHaptic.select() }
-            if new == .done { SRHaptic.ok() }
+            // Once, on the first view past the whistle — even if a missed
+            // view means this phone goes straight from playing to over.
+            let ended = new == .done || new == .over
+            let wasEnded = old == .done || old == .over
+            if ended && !wasEnded {
+                SRHaptic.ok()
+                finished()
+            }
         }
         .onChange(of: context.refusal) { _, new in
             if new != nil { sentFor = nil }
@@ -68,59 +99,85 @@ struct OfflineSprintView: View {
 
     // MARK: - The clock
 
-    private var clockBar: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "timer")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(SR.accent)
-                .accessibilityHidden(true)
-            switch view.phase {
-            case .countdown:
-                Text("Starting in")
-                    .font(SR.Text.bodyMedium(15))
-                    .foregroundStyle(SR.inkSecondary)
-                OfflineCountdown(clock: context.clock, until: view.startsAt, font: SR.Text.figure(24), tone: SR.accent)
-            case .playing:
-                Text("Time left")
-                    .font(SR.Text.bodyMedium(15))
-                    .foregroundStyle(SR.inkSecondary)
-                OfflineCountdown(clock: context.clock, until: view.endsAt, font: SR.Text.figure(24))
-            case .done, .over:
-                Text("Time's up")
-                    .font(SR.Text.bodyMedium(15))
-                    .foregroundStyle(SR.inkSecondary)
-            }
-            Spacer(minLength: 8)
-            if let streak = mine?.streak, streak >= 2 {
-                SRGlassChip(text: "\(streak) in a row", icon: "flame.fill", tone: SR.accent)
-            }
+    @ViewBuilder
+    private var clock: some View {
+        switch view.phase {
+        case .countdown:
+            EmptyView()
+        case .playing:
+            NearbyPlayBannerClock(clock: context.clock, until: view.endsAt,
+                                  total: OfflineSprintRules.seconds, mine: mine != nil)
+        case .done, .over:
+            Image(systemName: "flag.checkered")
+                .font(SR.Text.display(26))
+                .foregroundStyle(SR.inkMuted)
+                .accessibilityLabel("Time's up")
         }
-        .padding(.horizontal, SR.cardPadding)
-        .padding(.vertical, 12)
-        .srGlassCard(.paper)
     }
 
     // MARK: - My sum
 
     private func problemCard(_ mine: OfflineSprintRules.Mine) -> some View {
-        VStack(spacing: 10) {
-            Text(mine.problem.map { "\($0) =" } ?? "Get ready")
-                .font(SR.Text.hero(40))
-                .foregroundStyle(SR.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-                .accessibilityLabel(mine.problem.map { "What is \(spoken($0))?" } ?? "Get ready")
-            Text(typed.isEmpty ? " " : typed)
-                .font(SR.Text.figure(34))
-                .foregroundStyle(SR.accent)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous).fill(SR.surface))
-                .accessibilityLabel(typed.isEmpty ? "No answer typed" : "Your answer, \(typed)")
-                .accessibilityIdentifier("offline-sprint-typed")
+        VStack(spacing: 12) {
+            if view.phase == .countdown {
+                NearbyPlayCountdownHero(clock: context.clock, until: view.startsAt, size: 96, tone: SR.accent)
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            } else {
+                HStack(spacing: 8) {
+                    if mine.streak >= 2 {
+                        NearbyPlayStat(icon: "flame.fill", text: "\(mine.streak) in a row")
+                            .nearbyPlayBump(mine.streak)
+                    }
+                    Spacer(minLength: 0)
+                    if let verdict {
+                        Image(systemName: verdict ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(SR.Text.display(26))
+                            .foregroundStyle(verdict ? SR.good : SR.error)
+                            .nearbyPlayBump(verdictToken, scale: 1.3)
+                            .accessibilityLabel(verdict ? "Right" : "Wrong")
+                    }
+                }
+                .frame(minHeight: 30)
+                Text(mine.problem.map { "\($0) =" } ?? "Get ready")
+                    .font(SR.Text.hero(44))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .modifier(NearbyPlayShake(travel: 10, animatableData: CGFloat(shakes)))
+                    .accessibilityLabel(mine.problem.map { "What is \(spoken($0))?" } ?? "Get ready")
+            }
+            answerSlot
         }
         .padding(SR.cardPadding)
         .frame(maxWidth: .infinity)
         .srGlassCard(.paper)
+    }
+
+    private var answerSlot: some View {
+        let shape = RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
+        return HStack(spacing: 2) {
+            Text(typed.isEmpty ? " " : typed)
+                .font(SR.Text.figure(38))
+                .foregroundStyle(SR.accent)
+                .lineLimit(1)
+            if canAnswer {
+                Capsule()
+                    .fill(SR.accent.opacity(0.6))
+                    .frame(width: 3, height: 32)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 60)
+        .background(shape.fill(SR.surface))
+        .overlay(shape.strokeBorder(verdictRim, lineWidth: verdict == nil ? 1 : 2))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(typed.isEmpty ? "No answer typed" : "Your answer, \(typed)")
+        .accessibilityIdentifier("offline-sprint-typed")
+    }
+
+    private var verdictRim: Color {
+        guard let verdict else { return SR.line }
+        return verdict ? SR.good : SR.error
     }
 
     /// "12 × 7" read as words: VoiceOver says "minus" for "−", not "dash".
@@ -150,27 +207,31 @@ struct OfflineSprintView: View {
     }
 
     private func keyButton(_ key: String) -> some View {
-        Button {
+        let enter = key == "Enter"
+        let shape = RoundedRectangle(cornerRadius: NearbyPlayMetrics.radius, style: .continuous)
+        return Button {
             press(key)
         } label: {
             Group {
                 if key == "⌫" {
-                    Image(systemName: "delete.left")
-                        .font(.system(size: 20, weight: .semibold))
+                    Image(systemName: "delete.left.fill")
+                        .font(SR.Text.display(24))
+                } else if enter {
+                    Image(systemName: "return")
+                        .font(SR.Text.display(24))
                 } else {
                     Text(key)
-                        .font(key == "Enter" ? SR.Text.title() : SR.Text.figure(26))
+                        .font(SR.Text.figure(30))
                 }
             }
-            .foregroundStyle(key == "Enter" ? SR.paper : SR.ink)
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .background(
-                RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous)
-                    .fill(key == "Enter" ? SR.accent : SR.surface)
-            )
-            .contentShape(Rectangle())
+            .foregroundStyle(enter ? SR.paper : SR.ink)
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .background(shape.fill(enter ? SR.accentDeep : SR.surface))
+            .overlay(shape.strokeBorder(enter ? Color.clear : SR.line, lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.06), radius: 2, x: 0, y: 1)
+            .contentShape(shape)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SRPressStyle())
         .accessibilityLabel(key == "⌫" ? "Delete" : key)
         .accessibilityIdentifier("offline-sprint-key-\(key == "⌫" ? "delete" : key.lowercased())")
     }
@@ -191,7 +252,34 @@ struct OfflineSprintView: View {
         }
     }
 
+    // MARK: - Moments
+
+    private func answered(_ right: Bool) {
+        verdict = right
+        verdictToken += 1
+        if right {
+            SRHaptic.tap()
+            if let streak = mine?.streak, streak > 0, streak % OfflineSprintRules.streakEvery == 0 {
+                callout = "Streak bonus +\(OfflineSprintRules.streakBonus)"
+                calloutToken += 1
+            }
+        } else {
+            SRHaptic.bad()
+            withAnimation(.linear(duration: 0.35)) { shakes += 1 }
+        }
+    }
+
+    private func finished() {
+        if view.board.count > 1, view.board.first?.id == context.me { burstToken += 1 }
+        if best == nil, let mine {
+            best = NearbyPlayBestBook.record(OfflineSprintRules.info.id, value: mine.score, rule: .higher)
+            if best?.beatAnOldBest == true { burstToken += 1 }
+        }
+    }
+
     // MARK: - Everyone
+
+    private var leader: Int { max(1, view.board.map(\.score).max() ?? 1) }
 
     private var board: some View {
         VStack(alignment: .leading, spacing: SR.cardGap) {
@@ -199,22 +287,7 @@ struct OfflineSprintView: View {
             VStack(spacing: 0) {
                 ForEach(Array(view.board.enumerated()), id: \.element.id) { index, row in
                     if index > 0 { Divider().overlay(SR.divider) }
-                    HStack(spacing: 12) {
-                        OfflineInitial(name: row.name, size: 28, tone: OfflineSeatColour.of(seat(of: row.id)))
-                        Text(row.id == context.me ? "\(row.name) (you)" : row.name)
-                            .font(SR.Text.title(16))
-                            .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text("\(row.right) right")
-                            .font(SR.Text.mono())
-                            .foregroundStyle(SR.inkMuted)
-                        Text("\(row.score)")
-                            .font(SR.Text.figure(22))
-                            .foregroundStyle(SR.ink)
-                    }
-                    .frame(minHeight: SR.tapTarget)
-                    .accessibilityElement(children: .combine)
+                    boardRow(row, place: index + 1)
                 }
             }
             .padding(.horizontal, SR.cardPadding)
@@ -222,6 +295,42 @@ struct OfflineSprintView: View {
             .srGlassCard(.paper)
             .accessibilityIdentifier("offline-sprint-board")
         }
+    }
+
+    private func boardRow(_ row: OfflineSprintRules.Row, place: Int) -> some View {
+        let tone = OfflineSeatColour.of(seat(of: row.id))
+        let share = CGFloat(max(0, row.score)) / CGFloat(leader)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                if view.board.count > 1 {
+                    NearbyPlayPlaceDisc(place: place)
+                }
+                OfflineInitial(name: row.name, size: 30, tone: tone)
+                Text(row.id == context.me ? "\(row.name) (you)" : row.name)
+                    .font(SR.Text.title(16))
+                    .foregroundStyle(row.away ? SR.inkMuted : SR.ink)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(row.right) right")
+                    .font(SR.Text.mono())
+                    .foregroundStyle(SR.inkMuted)
+                Text("\(row.score)")
+                    .font(SR.Text.figure(22))
+                    .foregroundStyle(SR.ink)
+                    .contentTransition(.numericText(value: Double(row.score)))
+            }
+            GeometryReader { geo in
+                Capsule()
+                    .fill(tone)
+                    .frame(width: max(6, geo.size.width * share))
+            }
+            .frame(height: 5)
+            .srAnimation(.snappy(duration: 0.3), value: row.score)
+            .accessibilityHidden(true)
+        }
+        .frame(minHeight: 56)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 
     private func seat(of id: String) -> Int {

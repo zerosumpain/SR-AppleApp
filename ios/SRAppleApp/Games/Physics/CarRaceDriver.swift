@@ -41,6 +41,9 @@ final class CarRaceDriver: ObservableObject {
     @Published private(set) var counter: CarLapCounter
     @Published private(set) var raceTime: Double = 0
     @Published var rivals: [CarRival] = []
+    /// Stopped by the race menu or the app leaving the screen (a race on
+    /// this phone only: a nearby race runs on the room's clock).
+    @Published private(set) var paused = false
     /// The camera's heading, eased behind the car's so a twitch is not a lurch.
     private(set) var cameraHeading: Double
     /// The run as it is driven, for the ghost a best leaves behind.
@@ -61,6 +64,7 @@ final class CarRaceDriver: ObservableObject {
     /// Local uptime the lights go out.
     private(set) var startsAt: Double
     private var ticker: FrameTicker?
+    private var pausedAt: Double?
     private var lastFrame: Double?
     private var lastReport: Double = -1
     private var lastBump: Double = -1
@@ -110,6 +114,28 @@ final class CarRaceDriver: ObservableObject {
         ticker = nil
         lastFrame = nil
         tilt.stop()
+    }
+
+    /// Stop the clock and the car where they are, with nothing held.
+    func pause() {
+        guard phase != .finished, !paused else { return }
+        paused = true
+        pausedAt = OfflineUptime.now()
+        steerHeld = 0
+        brakeHeld = false
+        boostHeld = false
+        stop()
+    }
+
+    /// Carry on where the pause stopped: the lights-out time moves on by
+    /// however long it lasted, so the race clock and the ghosts pick up
+    /// exactly where they were.
+    func resume() {
+        guard paused, phase != .finished else { return }
+        if let pausedAt { startsAt += OfflineUptime.now() - pausedAt }
+        pausedAt = nil
+        paused = false
+        start()
     }
 
     /// Seconds until the lights go out (0 once racing).

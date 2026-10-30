@@ -48,7 +48,9 @@ jobs:
   testflight:
     runs-on: macos-26
     environment: testflight
-    timeout-minutes: 40
+    # Archive, export and upload ran 26-29 minutes before the games overhaul
+    # (2026-10-30) added nine games; 55 leaves a slow runner room to finish.
+    timeout-minutes: 55
     # Write, for the ad-hoc copy's draft release only (scripts/publish-adhoc.sh).
     permissions:
       contents: write

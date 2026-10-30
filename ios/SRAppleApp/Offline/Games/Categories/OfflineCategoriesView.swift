@@ -8,10 +8,18 @@ import SwiftUI
 /// has my latest answer when the clock runs out; the fields never take the
 /// host's copy back while I am typing, so an echo arriving late cannot undo
 /// a keystroke. A phone that rejoins mid-game starts from the host's copy.
+///
+/// The letter is a die that rolls when it arrives (`PlayTableLetterDie`); the
+/// card is an answer sheet with a numbered line per category that ticks green
+/// when its answer starts with the letter and turns amber when it does not,
+/// under a bar that fills as the card does. In the review each answer wears
+/// a stamp — a point, shared, wrong letter, vetoed — and the veto is a real
+/// button, not a small glyph.
 struct OfflineCategoriesView: View {
     let context: OfflineGameContext<OfflineCategoriesRules>
     @State private var drafts: [String] = []
     @FocusState private var focused: Int?
+    @ObservedObject private var results = OfflineResultStore.shared
 
     private typealias Rules = OfflineCategoriesRules
 
@@ -26,23 +34,9 @@ struct OfflineCategoriesView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 clockBar
-                switch view.phase {
-                case .countdown:
-                    Text("A letter and a card of \(Rules.cardSize) categories are coming. Get ready.")
-                        .font(SR.Text.body())
-                        .foregroundStyle(SR.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                case .playing:
-                    if playing {
-                        card
-                    } else {
-                        Text("You are watching this one. The answers show when time is up.")
-                            .font(SR.Text.body())
-                            .foregroundStyle(SR.inkSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                case .review, .over:
-                    review
+                phaseContent
+                if view.phase == .over, let mine = myRow {
+                    PlayTableBestStrip(score: mine.score, best: results.queue.tallies[Rules.info.id]?.best)
                 }
                 OfflineWordScores(title: view.board.count == 1 ? "Score" : "Scores", rows: rows, me: context.me,
                                   players: context.players, id: "offline-categories-scores")
@@ -65,6 +59,29 @@ struct OfflineCategoriesView: View {
         }
     }
 
+    @ViewBuilder
+    private var phaseContent: some View {
+        switch view.phase {
+        case .countdown:
+            Text("A letter and a card of \(Rules.cardSize) categories are coming. Get ready.")
+                .font(SR.Text.body())
+                .foregroundStyle(SR.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .playing:
+            if playing {
+                progress
+                card
+            } else {
+                Text("You are watching this one. The answers show when time is up.")
+                    .font(SR.Text.body())
+                    .foregroundStyle(SR.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case .review, .over:
+            review
+        }
+    }
+
     /// One empty answer a category — or, rejoining, the host's copy of mine.
     private func startDrafts() {
         guard drafts.count != view.categories.count else { return }
@@ -78,8 +95,8 @@ struct OfflineCategoriesView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 14) {
-            CategoriesLetter(letter: view.letter, side: 68)
+        HStack(alignment: .center, spacing: 16) {
+            PlayTableLetterDie(letter: view.letter, side: 76)
             VStack(alignment: .leading, spacing: 4) {
                 Text(view.mine == nil ? "CATEGORIES · WATCHING" : "CATEGORIES")
                     .font(SR.Text.label())
@@ -90,6 +107,12 @@ struct OfflineCategoriesView: View {
                     .foregroundStyle(SR.ink)
                     .lineLimit(2)
                     .minimumScaleFactor(0.6)
+                if let letter = view.letter {
+                    Text("Every answer starts with \(letter.uppercased())")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.inkMuted)
+                        .lineLimit(2)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -127,9 +150,33 @@ struct OfflineCategoriesView: View {
 
     // MARK: - Writing
 
+    /// How full the card is, as a bar that fills.
+    private var progress: some View {
+        let total = max(view.categories.count, 1)
+        let fraction = CGFloat(filled) / CGFloat(total)
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(SR.inkGhost.opacity(0.25))
+                Capsule()
+                    .fill(LinearGradient(colors: [SR.accent, SR.good], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(10, geo.size.width * fraction))
+                    .opacity(filled == 0 ? 0 : 1)
+            }
+        }
+        .frame(height: 10)
+        .srAnimation(.spring(response: 0.4, dampingFraction: 0.75), value: filled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(filled) of \(view.categories.count) answered")
+    }
+
     private var card: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 0) {
             ForEach(Array(view.categories.enumerated()), id: \.offset) { index, category in
+                if index > 0 {
+                    Rectangle()
+                        .fill(SR.accent.opacity(0.18))
+                        .frame(height: 1)
+                }
                 row(index, category)
             }
             Text(view.together ? "Answers save as you type. The same answer as someone else scores nothing."
@@ -139,47 +186,85 @@ struct OfflineCategoriesView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
+                .padding(.top, 12)
         }
+        .padding(SR.cardPadding)
+        .overlay(alignment: .leading) {
+            // The red margin rule of a sheet of exercise paper.
+            Rectangle()
+                .fill(SR.error.opacity(0.35))
+                .frame(width: 1.5)
+                .padding(.leading, SR.cardPadding + 40)
+                .padding(.vertical, 14)
+                .accessibilityHidden(true)
+        }
+        .srGlassCard(.paper)
     }
 
     private func row(_ index: Int, _ category: String) -> some View {
         let text = index < drafts.count ? drafts[index] : ""
         let warning = CategoriesRules.warning(text, letter: view.letter)
         let count = view.categories.count
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(index + 1)")
-                    .font(SR.Text.label())
-                    .foregroundStyle(SR.inkGhost)
-                    .monospacedDigit()
-                    .frame(minWidth: 18, alignment: .leading)
+        let answered = !text.trimmingCharacters(in: .whitespaces).isEmpty
+        let tone: Color = !answered ? SR.inkGhost : (warning == nil ? SR.good : SR.warn)
+        return HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(answered ? tone : Color.clear)
+                Circle()
+                    .strokeBorder(tone, lineWidth: 2)
+                if answered {
+                    Image(systemName: warning == nil ? "checkmark" : "exclamationmark")
+                        .font(SR.Text.label(13))
+                        .foregroundStyle(Color.white)
+                } else {
+                    Text("\(index + 1)")
+                        .font(SR.Text.label())
+                        .foregroundStyle(SR.inkMuted)
+                        .monospacedDigit()
+                }
+            }
+            .frame(width: 30, height: 30)
+            .padding(.top, 2)
+            .srAnimation(.spring(response: 0.3, dampingFraction: 0.6), value: answered)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
                 Text(category)
                     .font(SR.Text.title(15))
                     .foregroundStyle(SR.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            TextField(view.letter.map { "\($0.uppercased())…" } ?? "…", text: Binding(
-                get: { index < drafts.count ? drafts[index] : "" },
-                set: { edit(index, $0) }
-            ))
-            .font(SR.Text.body(17))
-            .foregroundStyle(SR.ink)
-            .textInputAutocapitalization(.words)
-            .submitLabel(index + 1 < count ? .next : .done)
-            .focused($focused, equals: index)
-            .onSubmit { focused = index + 1 < count ? index + 1 : nil }
-            .padding(.horizontal, 12)
-            .frame(minHeight: SR.tapTarget)
-            .srGlassCard(.paper, radius: SR.Glass.innerRadius + 4)
-            .accessibilityLabel("\(category), answer")
-            .accessibilityIdentifier("offline-categories-field-\(index)")
-            if let warning {
-                Label(warning, systemImage: "exclamationmark.circle")
-                    .font(SR.Text.secondary(13))
-                    .foregroundStyle(SR.warn)
+                field(index, category, count: count)
+                if let warning {
+                    Label(warning, systemImage: "exclamationmark.circle")
+                        .font(SR.Text.secondary(13))
+                        .foregroundStyle(SR.warn)
+                }
             }
         }
+        .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
+    }
+
+    private func field(_ index: Int, _ category: String, count: Int) -> some View {
+        TextField(view.letter.map { "\($0.uppercased())…" } ?? "…", text: Binding(
+            get: { index < drafts.count ? drafts[index] : "" },
+            set: { edit(index, $0) }
+        ))
+        .font(SR.Text.body(18))
+        .foregroundStyle(SR.ink)
+        .textInputAutocapitalization(.words)
+        .submitLabel(index + 1 < count ? .next : .done)
+        .focused($focused, equals: index)
+        .onSubmit { focused = index + 1 < count ? index + 1 : nil }
+        .padding(.horizontal, 4)
+        .frame(minHeight: 48)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(focused == index ? SR.accent : SR.line)
+                .frame(height: focused == index ? 2 : 1)
+        }
+        .accessibilityLabel("\(category), answer")
+        .accessibilityIdentifier("offline-categories-field-\(index)")
     }
 
     /// Keeps the draft and sends it: the host stores the latest, so nothing
@@ -227,44 +312,101 @@ struct OfflineCategoriesView: View {
         let crossed = answer.status == .shared || answer.status == .wrongLetter || answer.status == .struck
         let canVeto = view.together && view.phase == .review && view.mine != nil && !mine && answer.status != .empty
         return HStack(alignment: .center, spacing: 10) {
-            OfflineInitial(name: context.name(of: answer.owner), size: 26,
+            OfflineInitial(name: context.name(of: answer.owner), size: 30,
                            tone: OfflineSeatColour.of(context.players.firstIndex { $0.id == answer.owner } ?? 0))
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(answer.text.isEmpty ? "—" : answer.text)
-                    .font(SR.Text.title(16))
+                    .font(SR.Text.title(17))
                     .foregroundStyle(answer.text.isEmpty || crossed ? SR.inkGhost : SR.ink)
                     .strikethrough(crossed, color: SR.inkMuted)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(line(answer, mine: mine))
-                    .font(SR.Text.mono())
-                    .foregroundStyle(answer.status == .ok ? SR.good : SR.inkMuted)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    statusPill(answer)
+                    Text(shortLine(answer, mine: mine))
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .accessibilityLabel(line(answer, mine: mine))
+                }
             }
             Spacer(minLength: 8)
-            if canVeto {
-                Button {
-                    SRHaptic.select()
-                    context.send(.veto(owner: answer.owner, index: answer.index, on: !answer.vetoedByMe))
-                } label: {
-                    Image(systemName: answer.vetoedByMe ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(answer.vetoedByMe ? SR.error : SR.inkSecondary)
-                        .frame(width: SR.tapTarget, height: SR.tapTarget)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(answer.vetoedByMe ? "Take back your veto" : "Veto \(answer.text)")
-                .accessibilityIdentifier("offline-categories-veto-\(answer.owner)-\(answer.index)")
-            }
+            if canVeto { vetoButton(answer) }
             Text(answer.points > 0 ? "+1" : "0")
-                .font(SR.Text.figure(18))
-                .foregroundStyle(answer.points > 0 ? SR.ink : SR.inkGhost)
-                .frame(minWidth: 26, alignment: .trailing)
+                .font(SR.Text.figure(20))
+                .foregroundStyle(answer.points > 0 ? SR.good : SR.inkGhost)
+                .frame(minWidth: 28, alignment: .trailing)
+                .srNumeric(Double(answer.points))
         }
-        .frame(minHeight: SR.tapTarget)
+        .frame(minHeight: 60)
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
+    }
+
+    private func vetoButton(_ answer: Rules.Answer) -> some View {
+        Button {
+            if answer.vetoedByMe { SRHaptic.select() } else { SRHaptic.tap() }
+            context.send(.veto(owner: answer.owner, index: answer.index, on: !answer.vetoedByMe))
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: answer.vetoedByMe ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    .font(SR.Text.title(18))
+                Text(answer.vetoedByMe ? "VETOED" : "VETO")
+                    .font(SR.Text.label(10))
+                    .tracking(0.6)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(answer.vetoedByMe ? Color.white : SR.error)
+            .frame(width: PlayTableMetrics.bigButton, height: PlayTableMetrics.bigButton)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(answer.vetoedByMe ? SR.error : SR.error.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(SR.error.opacity(answer.vetoedByMe ? 0 : 0.45), lineWidth: 1.5)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SRPressStyle())
+        .srAnimation(.snappy(duration: 0.2), value: answer.vetoedByMe)
+        .accessibilityLabel(answer.vetoedByMe ? "Take back your veto" : "Veto \(answer.text)")
+        .accessibilityIdentifier("offline-categories-veto-\(answer.owner)-\(answer.index)")
+    }
+
+    /// The answer's verdict as a small coloured stamp.
+    private func statusPill(_ answer: Rules.Answer) -> some View {
+        let words: String
+        let tone: Color
+        switch answer.status {
+        case .ok: words = "POINT"; tone = SR.good
+        case .shared: words = "SHARED"; tone = SR.warn
+        case .wrongLetter: words = "WRONG LETTER"; tone = SR.warn
+        case .struck: words = "VETOED"; tone = SR.error
+        case .empty: words = "BLANK"; tone = SR.inkMuted
+        }
+        return Text(words)
+            .font(SR.Text.label(11))
+            .tracking(0.6)
+            .foregroundStyle(tone)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(tone.opacity(0.14)))
+            .overlay(Capsule().strokeBorder(tone.opacity(0.5), lineWidth: 1))
+            .accessibilityHidden(true)
+    }
+
+    /// Beside the stamp: who, and the vetoes so far — the stamp says the rest.
+    private func shortLine(_ answer: Rules.Answer, mine: Bool) -> String {
+        var parts = [mine ? "You" : context.name(of: answer.owner)]
+        if answer.vetoes > 0, answer.status != .struck, answer.strikeAt > 0 {
+            parts.append("\(answer.vetoes) of \(answer.strikeAt) \(answer.strikeAt == 1 ? "veto" : "vetoes")")
+        }
+        return parts.joined(separator: " · ")
     }
 
     /// "Ann · SHARED", "You · 1 of 2 vetoes".
