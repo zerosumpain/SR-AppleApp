@@ -161,7 +161,7 @@ struct MoreScreen: View {
 
     /// What sits in More, as doors.
     enum Item: Hashable {
-        case trips, news, daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
+        case trips, news, drive, daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
         case place(Router.Tab)
 
         /// The door's identifier (`more-<id>`, which the UI tests find it
@@ -181,6 +181,9 @@ struct MoreScreen: View {
         var all: [Item] = []
         if showsTrips { all.append(.trips) }
         if showsNews { all.append(.news) }
+        // Drive: their own files and the family's shared folder, for the
+        // owner and anyone given drive:self. Never in a demo — it is real files.
+        if access.drive && !SRDemo.isOn { all.append(.drive) }
         // The daydream loop is the owner's, over the site, and so is the
         // Wildmind valley beside it.
         if AccessStore.ownerSite { all += [.daydream, .wildmind] }
@@ -222,6 +225,9 @@ struct MoreScreen: View {
         case .news:
             return HubEntry(id: item.id, icon: "newspaper.fill", fill: SR.accentInk, title: "News", status: nil,
                             hint: "The wire, ranked by what is moving") { router.pushFromHub(Router.Tab.news) }
+        case .drive:
+            return HubEntry(id: item.id, icon: "externaldrive.fill", fill: SR.accentDeep, title: "Drive", status: nil,
+                            hint: "Your own files, and a shared folder for the family") { router.pushFromHub(DriveRef()) }
         case .daydream:
             return HubEntry(id: item.id, icon: "sparkles", fill: SR.accentInk, title: "Daydream",
                             status: toDecide > 0 ? "\(toDecide) to decide" : nil, count: toDecide,
