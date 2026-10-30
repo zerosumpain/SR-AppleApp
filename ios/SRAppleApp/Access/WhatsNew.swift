@@ -34,6 +34,14 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-30-drive", when: "October 2026", title: "Drive", items: [
+            WhatsNewItem(icon: "lock.fill", title: "Your own files",
+                         detail: "Drive is in More. My files is your own space for photos and files: nobody else in the family can see it."),
+            WhatsNewItem(icon: "person.3.fill", title: "A shared family folder",
+                         detail: "Shared is one folder everyone in the family can see and add to. Only whoever added a file can delete it."),
+            WhatsNewItem(icon: "plus.circle", title: "Add, open and tidy",
+                         detail: "Add photos, videos and files with +, make folders, and tap a file to open, share or save it."),
+        ]),
         WhatsNewRelease(id: "2026-10-30-games-overhaul", when: "October 2026", title: "Nine new games", items: [
             WhatsNewItem(icon: "steeringwheel", title: "Car Racer+",
                          detail: "A proper racing game. Tyres that grip and slide, gears, weight that shifts as you brake, and gravel that punishes a mistake. Race a season against rivals, win prize money and spend it upgrading your car."),

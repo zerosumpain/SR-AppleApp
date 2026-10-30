@@ -959,6 +959,8 @@ private extension View {
             .navigationDestination(for: SoloGameRef.self) { OfflineSoloScreen(kind: $0.kind) }
             // The Travel kit and its five tools, from the hub.
             .navigationDestination(for: TravelKitRef.self) { _ in TravelKitScreen() }
+            // Drive, from the hub: the top, and each folder pushed above it.
+            .navigationDestination(for: DriveRef.self) { DriveScreen(ref: $0).id($0) }
             .navigationDestination(for: TravelToolRef.self) { $0.screen }
             .navigationDestination(for: NewsStory.self) { NewsStoryScreen(story: $0) }
             .navigationDestination(for: FlowRef.self) { FlowDetailScreen(ref: $0).id($0.slug) }

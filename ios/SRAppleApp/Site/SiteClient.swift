@@ -301,7 +301,8 @@ final class SiteClient {
         file: Data,
         filename: String,
         mimeType: String,
-        fields: [String: String] = [:]
+        fields: [String: String] = [:],
+        timeout: TimeInterval? = nil
     ) async throws -> T {
         // `url(for:)` keeps the query VERBATIM, so each value is escaped here,
         // and strictly: `urlQueryAllowed` lets `&`, `=` and `+` through, and a
@@ -315,6 +316,8 @@ final class SiteClient {
 
         var req = try request("\(path)?\(query)", method: "POST", body: file)
         req.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        // A 30 MB file on a weak signal outlasts the session's 30 s.
+        if let timeout { req.timeoutInterval = timeout }
         let (data, response) = try await session.data(for: req)
         try check(response, data)
         do {
@@ -500,6 +503,8 @@ final class SiteClient {
         // A revoked credential must not leave thread titles behind in iPhone
         // search. The index is a file other system processes read.
         ThreadIndex.clear()
+        // Nor the Drive files opened on this phone.
+        DriveCache.clear()
         // Nor a copy of itself, or a family board, for the widgets — nor the
         // family view kept for a cold start.
         FamilyWidgetBridge.clear()

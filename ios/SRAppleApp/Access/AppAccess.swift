@@ -23,24 +23,28 @@ struct AppAccess: Codable, Equatable {
     var family = false
     /// Family games (`games:self` on the site): the Games tab and its invites.
     var games = false
+    /// Drive (`drive:self` on the site): their own space, which nobody else
+    /// can open, and the family's shared folder — in More.
+    var drive = false
     /// Where the answer came from: "view" (the household view — preferred,
     /// because it is what the owner's access groups were pushed into) or
     /// "site" (`/api/native/me`, the fallback for a phone whose view carries
     /// none). Nil in anything built in code.
     var source: String? = nil
 
-    static let everything = AppAccess(owner: true, chat: true, news: true, research: true, notes: true, intel: true, family: true, games: true)
+    static let everything = AppAccess(owner: true, chat: true, news: true, research: true, notes: true, intel: true, family: true, games: true, drive: true)
     static let nothing = AppAccess()
 
     init(owner: Bool = false, chat: Bool = false, news: Bool = false, research: Bool = false,
          notes: Bool = false, intel: Bool = false, family: Bool = false, games: Bool = false,
-         source: String? = nil) {
+         drive: Bool = false, source: String? = nil) {
         self.owner = owner; self.chat = chat; self.news = news; self.research = research
         self.notes = notes; self.intel = intel; self.family = family; self.games = games
+        self.drive = drive
         self.source = source
     }
 
-    private enum CodingKeys: String, CodingKey { case owner, chat, news, research, notes, intel, family, games, source }
+    private enum CodingKeys: String, CodingKey { case owner, chat, news, research, notes, intel, family, games, drive, source }
 
     /// Lenient: a missing or mistyped flag is false, never a thrown decode —
     /// this rides inside the household view and the persisted upload queue,
@@ -50,6 +54,7 @@ struct AppAccess: Codable, Equatable {
         func flag(_ key: CodingKeys) -> Bool { ((try? c.decodeIfPresent(Bool.self, forKey: key)) ?? nil) ?? false }
         owner = flag(.owner); chat = flag(.chat); news = flag(.news); research = flag(.research)
         notes = flag(.notes); intel = flag(.intel); family = flag(.family); games = flag(.games)
+        drive = flag(.drive)
         source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? nil
     }
 
@@ -188,7 +193,13 @@ enum AccessPolicy {
 
     /// The lanes a member's site credential is for.
     private static func needsSite(_ access: AppAccess) -> Bool {
-        access.chat || access.news || access.games
+        access.chat || access.news || access.games || access.drive
+    }
+
+    /// Whether Drive is in the hub: the owner, or `drive:self`, and the site
+    /// credential its files live behind (`/api/native/drive`).
+    static func drive(_ access: AppAccess, sitePaired: Bool) -> Bool {
+        (access.owner || access.drive) && sitePaired
     }
 
     /// How often a member phone re-asks for a pairing code.
@@ -398,6 +409,8 @@ final class AccessStore: ObservableObject {
     func allows(_ tab: Router.Tab) -> Bool { AccessPolicy.allows(tab, current) }
     /// The family's step board and task list — see `AccessPolicy.familyBoards`.
     var familyBoards: Bool { AccessPolicy.familyBoards(current, sitePaired: SiteClient.shared.isPaired) }
+    /// Drive in the hub — see `AccessPolicy.drive`.
+    var drive: Bool { AccessPolicy.drive(current, sitePaired: SiteClient.shared.isPaired) }
 
     /// The owner's site lane: the site is paired AND this is the owner. Every
     /// store that reads an owner-only endpoint (today, alerts, connections,

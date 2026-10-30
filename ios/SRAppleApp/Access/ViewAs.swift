@@ -84,7 +84,7 @@ struct ViewAsScreen: View {
     static func summary(_ view: HouseholdView) -> String {
         guard let flags = view.access?.flags else { return "NO ACCESS SENT" }
         let named: [(Bool, String)] = [
-            (flags.chat, "chat"), (flags.news, "news"), (flags.family, "family"), (flags.games, "games"),
+            (flags.chat, "chat"), (flags.news, "news"), (flags.family, "family"), (flags.games, "games"), (flags.drive, "drive"),
             (flags.research, "research"), (flags.notes, "notes"), (flags.intel, "intel"),
         ]
         let on = named.filter { $0.0 }.map { $0.1.uppercased() }
