@@ -107,8 +107,11 @@ final class DriveFolderModel: ObservableObject {
                     "api/native/drive/files",
                     file: file.data,
                     filename: file.name,
-                    mimeType: file.mime,
-                    fields: ["space": ref.space.rawValue, "folder": ref.folder],
+                    // Always octet-stream on the wire, the real type in `type`:
+                    // the site refuses a text/plain POST from a phone as a
+                    // cross-site form before any route runs.
+                    mimeType: "application/octet-stream",
+                    fields: ["space": ref.space.rawValue, "folder": ref.folder, "type": file.mime],
                     timeout: 300
                 )
                 added += 1
