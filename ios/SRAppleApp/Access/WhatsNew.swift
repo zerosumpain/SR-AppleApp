@@ -34,6 +34,10 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-30-sky-hopper", when: "October 2026", title: "A new game: Sky Hopper", items: [
+            WhatsNewItem(icon: "arrow.up.circle.fill", title: "Sky Hopper",
+                         detail: "Fintan's idea: you are always jumping on small floating clouds, some with springs or power-ups, and you move across the screen with the buttons or by tilting. Climb as high as you can. Find it in Games."),
+        ]),
         WhatsNewRelease(id: "2026-10-30-hometowns-polish", when: "October 2026", title: "A town worth a closer look", items: [
             WhatsNewItem(icon: "building.2", title: "Hometowns, redrawn",
                          detail: "Every house, shop, office and factory is drawn properly now: windows, roofs, awnings, chimneys and gardens. Roads have markings and crossings, forests have trees, and cars drive round the streets."),
