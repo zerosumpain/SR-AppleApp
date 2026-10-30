@@ -129,6 +129,18 @@ struct HometownsMapView: View {
     }
 }
 
+/// The page's web view, holding the navigation stack's swipe-back off while
+/// the map is on screen: the map owns every drag (one finger pans or paints a
+/// zone), so a rightward drag mustn't count as "back". See `SwipeBackHold`.
+final class HometownsWKWebView: WKWebView {
+    private let hold = SwipeBackHold()
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        hold.update(for: self)
+    }
+}
+
 /// The web view the page runs in.
 struct HometownsWebView: UIViewRepresentable {
     let store: HometownsStore
@@ -146,7 +158,7 @@ struct HometownsWebView: UIViewRepresentable {
         config.userContentController.add(WeakHandler(context.coordinator), name: "hometowns")
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = .all
-        let web = WKWebView(frame: .zero, configuration: config)
+        let web = HometownsWKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
         web.backgroundColor = Self.ground
         // The page pans and zooms the map itself (one finger pans, two pinch).

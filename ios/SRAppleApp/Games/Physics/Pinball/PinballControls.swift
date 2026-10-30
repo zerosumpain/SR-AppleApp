@@ -102,33 +102,14 @@ final class PinballTouchView: UIView {
 
     // MARK: - Swipe back
 
-    /// The navigation stack's edge swipe, off while the table is on screen: a
+    /// The navigation stack's swipe-back, off while the table is on screen: a
     /// thumb sliding on the left flipper would otherwise pull the whole game
-    /// away mid-ball. The back button still leaves; the swipe comes back the
-    /// moment the table goes.
-    private weak var popGesture: UIGestureRecognizer?
+    /// away mid-ball. See `SwipeBackHold`.
+    private let hold = SwipeBackHold()
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil {
-            guard popGesture == nil, let gesture = Self.navigationController(above: self)?.interactivePopGestureRecognizer else { return }
-            gesture.isEnabled = false
-            popGesture = gesture
-        } else {
-            popGesture?.isEnabled = true
-            popGesture = nil
-        }
-    }
-
-    private static func navigationController(above view: UIView) -> UINavigationController? {
-        var responder: UIResponder? = view.next
-        while let current = responder {
-            if let controller = current as? UIViewController, let navigation = controller.navigationController {
-                return navigation
-            }
-            responder = current.next
-        }
-        return nil
+        hold.update(for: self)
     }
 
     // MARK: - VoiceOver
