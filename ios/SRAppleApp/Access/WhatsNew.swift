@@ -38,7 +38,7 @@ enum WhatsNew {
             WhatsNewItem(icon: "building.2", title: "Hometowns, redrawn",
                          detail: "Every house, shop, office and factory is drawn properly now: windows, roofs, awnings, chimneys and gardens. Roads have markings and crossings, forests have trees, and cars drive round the streets."),
             WhatsNewItem(icon: "hand.draw", title: "Drag without falling out",
-                         detail: "Dragging the map or painting a zone no longer swipes you out of the game. Use the back button to leave."),
+                         detail: "Dragging the town in Hometowns, or the island in Homestead, no longer swipes you out of the game. Use the back button to leave."),
             WhatsNewItem(icon: "hand.point.up.left", title: "Press and hold to look closer",
                          detail: "Press and hold a building to see what's going on there. A quick tap no longer opens it by accident."),
         ]),

@@ -155,6 +155,8 @@ struct HomesteadBoardView: View {
             .gesture(taps(viewport))
             .simultaneousGesture(moves(viewport))
             .overlay(alignment: .bottomTrailing) { fitButton }
+            // Panning the island east mustn't swipe the game away.
+            .holdingSwipeBack()
         }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)

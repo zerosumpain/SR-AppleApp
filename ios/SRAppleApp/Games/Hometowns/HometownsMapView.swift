@@ -130,37 +130,14 @@ struct HometownsMapView: View {
 }
 
 /// The page's web view, holding the navigation stack's swipe-back off while
-/// the map is on screen. The map owns every drag (one finger pans or paints a
-/// zone), and since iOS 26 a rightward drag anywhere on the screen, not only
-/// from the left edge, is the stack's "back": panning the town east or
-/// dragging a zone pulled the whole game off the screen and closed it. The
-/// back button still leaves; both swipes come back the moment the map goes.
+/// the map is on screen: the map owns every drag (one finger pans or paints a
+/// zone), so a rightward drag mustn't count as "back". See `SwipeBackHold`.
 final class HometownsWKWebView: WKWebView {
-    private var held: [UIGestureRecognizer] = []
+    private let hold = SwipeBackHold()
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil {
-            guard held.isEmpty, let navigation = navigationController else { return }
-            var gestures = [navigation.interactivePopGestureRecognizer]
-            if #available(iOS 26.0, *) { gestures.append(navigation.interactiveContentPopGestureRecognizer) }
-            held = gestures.compactMap { $0 }.filter(\.isEnabled)
-            held.forEach { $0.isEnabled = false }
-        } else {
-            held.forEach { $0.isEnabled = true }
-            held = []
-        }
-    }
-
-    private var navigationController: UINavigationController? {
-        var responder: UIResponder? = next
-        while let current = responder {
-            if let controller = current as? UIViewController, let navigation = controller.navigationController {
-                return navigation
-            }
-            responder = current.next
-        }
-        return nil
+        hold.update(for: self)
     }
 }
 
