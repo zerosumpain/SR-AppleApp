@@ -225,7 +225,10 @@ struct HometownsHowToPlaySheet: View {
             Step(id: 4, icon: "face.smiling", colour: HometownsZoneStyle.colour("homes"), title: "Keep people happy",
                  line: kid ? "The bars at the top show what your town wants. The animal helpers give you tips."
                      : "The Wants bar shows demand. Advisors suggest one thing at a time; People shows every face's needs and what they say."),
-            Step(id: 5, icon: "sun.max.fill", colour: Color(hex: 0xE0A030), title: "Regional Day",
+            Step(id: 6, icon: "hand.point.up.left.fill", colour: HometownsZoneStyle.colour("offices"), title: kid ? "Look closer" : "Inspect a building",
+                 line: kid ? "Press and hold a house or a shop to see who lives there and what would make it grow."
+                     : "Press and hold any building for its card: who is there, what they want and what would make it grow."),
+            Step(id: 7, icon: "sun.max.fill", colour: Color(hex: 0xE0A030), title: "Regional Day",
                  line: kid ? "Once a day the whole county settles up and the morning news comes out."
                      : "Once a day the county settles up: the Morning Bulletin, the money and the season's standings."),
         ]
