@@ -56,6 +56,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case merge2048 = "merge-2048"
     case minesweeper
     case snake
+    case skyHopper = "sky-hopper"
 
     var id: String { rawValue }
 
@@ -92,6 +93,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .merge2048: return "2048"
         case .minesweeper: return "Minesweeper"
         case .snake: return "Snake"
+        case .skyHopper: return "Sky Hopper"
         }
     }
 
@@ -129,6 +131,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .merge2048: return "Slide the tiles. Matching numbers merge. Reach 2048."
         case .minesweeper: return "Clear the field. The numbers tell you where the mines are."
         case .snake: return "Eat, grow, and don't bite your own tail."
+        case .skyHopper: return "Bounce from cloud to cloud. Tilt or press to steer."
         }
     }
 
@@ -195,6 +198,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "A field with mines hidden in it. Tap a square to clear it; the number says how many mines touch it. Hold to plant a flag. Clear every safe square to win. Plays offline."
         case .snake:
             return "The old phone classic. Swipe to turn, eat the apples to grow, and don't run into the walls or your own tail. It speeds up as you grow. Plays offline."
+        case .skyHopper:
+            return "Hop bounces by itself on little floating clouds: tilt the phone or hold the arrows to land on the next one and climb as high as you can. Springs launch you, a propeller cap lifts you and a bubble saves a fall. Watch out for crumbly clouds. Plays offline."
         case .carRace:
             return "A top-down race round eight circuits. Tilt to steer, brake into the bends, drift out of them and hold Boost on the straights. Race your own best ghost, pass the phone round for up to four, or race phone to phone nearby. Plays offline."
         }
@@ -233,6 +238,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .merge2048: return "square.grid.2x2.fill"
         case .minesweeper: return "flag.fill"
         case .snake: return "arrow.turn.down.right"
+        case .skyHopper: return "arrow.up.circle.fill"
         }
     }
 }
@@ -320,7 +326,8 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.carRace, _): return "Pick a track and how many laps."
         // The rest are played on this phone and set their own levels in the game.
         case (.carRacerPlus, _), (.miniGolf, _), (.pinball, _), (.tiltMaze, _), (.orbit, _),
-             (.solitaire, _), (.merge2048, _), (.minesweeper, _), (.snake, _):
+             (.solitaire, _), (.merge2048, _), (.minesweeper, _), (.snake, _),
+             (.skyHopper, _):
             return "Played on this phone. Pick a level in the game."
         }
     }

@@ -80,6 +80,7 @@ enum GamesTileMotif: String, CaseIterable {
         "merge-2048": .blocks,
         "minesweeper": .checker,
         "snake": .snake,
+        "sky-hopper": .bubbles,
     ]
 }
 
@@ -111,7 +112,7 @@ enum GamesPagePlan {
     /// NEW on its tile until it is first played, or until February.
     static let newGames: Set<String> = [
         "car-racer-plus", "mini-golf", "pinball", "tilt-maze", "orbit",
-        "solitaire", "merge-2048", "minesweeper", "snake",
+        "solitaire", "merge-2048", "minesweeper", "snake", "sky-hopper",
     ]
 
     /// 2027-02-01 00:00 UTC: a NEW badge older than this is no longer news.

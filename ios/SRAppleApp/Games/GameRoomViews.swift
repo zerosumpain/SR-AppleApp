@@ -71,7 +71,7 @@ struct GameRoomScreen: View {
             case .hometowns?:
                 HometownsScreen(roomId: ref.id)
             case .lander?, .carRace?, .carRacerPlus?, .miniGolf?, .pinball?, .tiltMaze?, .orbit?,
-                 .solitaire?, .merge2048?, .minesweeper?, .snake?:
+                 .solitaire?, .merge2048?, .minesweeper?, .snake?, .skyHopper?:
                 PhysicsGameScreen(kind: GameKind(rawValue: game) ?? .lander)
             case nil:
                 SREmpty(
