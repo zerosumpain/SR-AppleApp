@@ -25,18 +25,22 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         // its games and scrolls them up under the strip (`choose` scrolls to
         // `games-play`): no keyboard to cover the tile. In CI the search field
         // took the tap but not the typing, and the keyboard sat over an
-        // unfiltered page. Physics is the shortest list; on a narrow phone it
-        // can be past the strip's edge, and "On this phone" is second.
+        // unfiltered page. The strip scrolls sideways, and in the demo
+        // "Invites 2" and "Your games 41" come first, so "On this phone" and
+        // Physics start past the right edge: swipe the strip until one shows.
         let card = byId(app, "games-new-\(gameId)")
+        let strip = byId(app, "games-strip")
         let physics = byId(app, "games-strip-physics")
         let phone = byId(app, "games-strip-phone")
-        _ = phone.waitForExistence(timeout: 10)
-        if physics.exists && physics.isHittable {
+        _ = physics.waitForExistence(timeout: 10)
+        if reveal(app, physics, in: strip) {
             physics.tap()
             beat(1.5)
-        } else if phone.exists && phone.isHittable {
+        } else if reveal(app, phone, in: strip) {
             phone.tap()
             beat(1.5)
+        } else {
+            soft(false, "no shelf chip on screen")
         }
         if !scroll(app, to: card, swipes: 4) {
             findBySearch(app)
@@ -100,11 +104,30 @@ final class SuggestedSkyHopperUITests: XCTestCase {
             soft(false, "no keyboard for games-search")
             return
         }
-        search.typeText(title)
+        // Into whatever holds the focus: the field's own `typeText` found no
+        // focus in CI though the keyboard was up for it.
+        app.typeText(title)
         beat(0.5)
         let go = app.keyboards.buttons["search"]
-        if go.exists && go.isHittable { go.tap() } else { search.typeText("\n") }
+        if go.exists && go.isHittable { go.tap() } else { app.typeText("\n") }
         beat(1)
+    }
+
+    /// Slow swipes along the chip strip, left then back right, until `chip`
+    /// is on screen and can be tapped.
+    @MainActor private func reveal(_ app: XCUIApplication, _ chip: XCUIElement, in strip: XCUIElement,
+                                   swipes: Int = 6) -> Bool {
+        guard chip.exists, strip.exists else { return false }
+        if chip.isHittable { return true }
+        for _ in 0..<swipes {
+            strip.swipeLeft(velocity: .slow)
+            if chip.isHittable { return true }
+        }
+        for _ in 0..<(swipes * 2) {
+            strip.swipeRight(velocity: .slow)
+            if chip.isHittable { return true }
+        }
+        return chip.isHittable
     }
 
     @MainActor private func byId(_ app: XCUIApplication, _ id: String) -> XCUIElement {
