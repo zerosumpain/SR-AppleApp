@@ -21,21 +21,25 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         XCTAssertTrue(byId(app, "games-screen").waitForExistence(timeout: 20), "the Games page did not open")
 
         // The demo's Games page opens on its invites and forty-odd rooms, so
-        // the search field is pages down: the pinned "All games" chip jumps
-        // the page to Play (`choose` scrolls to `games-play`) first.
-        let all = byId(app, "games-strip-all")
-        if all.waitForExistence(timeout: 10), all.isHittable {
-            all.tap()
-            beat(1)
-        }
-
-        // Search by name: one result, right under the field, whatever the shelf order.
-        // The return key puts the keyboard away so it cannot cover the tile.
+        // the shelves are pages down. A pinned shelf chip holds the page to
+        // its games and scrolls them up under the strip (`choose` scrolls to
+        // `games-play`): no keyboard to cover the tile. In CI the search field
+        // took the tap but not the typing, and the keyboard sat over an
+        // unfiltered page. Physics is the shortest list; on a narrow phone it
+        // can be past the strip's edge, and "On this phone" is second.
         let card = byId(app, "games-new-\(gameId)")
-        let search = app.textFields["games-search"]
-        if scroll(app, to: search) {
-            search.tap()
-            search.typeText(title + "\n")
+        let physics = byId(app, "games-strip-physics")
+        let phone = byId(app, "games-strip-phone")
+        _ = phone.waitForExistence(timeout: 10)
+        if physics.exists && physics.isHittable {
+            physics.tap()
+            beat(1.5)
+        } else if phone.exists && phone.isHittable {
+            phone.tap()
+            beat(1.5)
+        }
+        if !scroll(app, to: card, swipes: 4) {
+            findBySearch(app)
         }
         XCTAssertTrue(scroll(app, to: card), "no \(title) tile (games-new-\(gameId))")
         card.tap()
@@ -73,6 +77,35 @@ final class SuggestedSkyHopperUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// The way round if the Physics chip did not bring the tile up: every
+    /// game again ("All games" also jumps to Play), then search by name, typing
+    /// only once the keyboard is up, and put the keyboard away after.
+    @MainActor private func findBySearch(_ app: XCUIApplication) {
+        let all = byId(app, "games-strip-all")
+        if all.waitForExistence(timeout: 5), all.isHittable {
+            all.tap()
+            beat(1.5)
+        }
+        let search = app.textFields["games-search"]
+        guard scroll(app, to: search) else {
+            soft(false, "no games-search")
+            return
+        }
+        search.tap()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) {
+            search.tap()
+        }
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 5) else {
+            soft(false, "no keyboard for games-search")
+            return
+        }
+        search.typeText(title)
+        beat(0.5)
+        let go = app.keyboards.buttons["search"]
+        if go.exists && go.isHittable { go.tap() } else { search.typeText("\n") }
+        beat(1)
+    }
 
     @MainActor private func byId(_ app: XCUIApplication, _ id: String) -> XCUIElement {
         app.descendants(matching: .any)[id].firstMatch
