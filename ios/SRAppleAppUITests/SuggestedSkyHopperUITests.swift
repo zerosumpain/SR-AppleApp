@@ -21,23 +21,18 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         XCTAssertTrue(byId(app, "games-screen").waitForExistence(timeout: 20), "the Games page did not open")
 
         // The demo's Games page opens on its invites and forty-odd rooms, so
-        // the shelves are pages down. A pinned shelf chip holds the page to
-        // its games and scrolls them up under the strip (`choose` scrolls to
-        // `games-play`): no keyboard to cover the tile. In CI the search field
-        // took the tap but not the typing, and the keyboard sat over an
-        // unfiltered page. The strip scrolls sideways, and in the demo
-        // "Invites 2" and "Your games 41" come first, so "On this phone" and
-        // Physics start past the right edge: swipe the strip until one shows.
+        // the shelves are pages down. The pinned "On this phone" chip holds
+        // the page to the phone-played games and scrolls them up under the
+        // strip (`choose` scrolls to `games-play`). Query the chip itself,
+        // never the strip container: CI found the chips but not the strip,
+        // and a guard on the strip skipped both chips. No search field: in
+        // CI it took the tap but not the typing. "Invites 2" and "Your games
+        // 41" come first, so the chip may start past the right edge: swipe
+        // the chip itself left until it can be tapped.
         let card = byId(app, "games-new-\(gameId)")
-        let strip = byId(app, "games-strip")
-        let physics = byId(app, "games-strip-physics")
         let phone = byId(app, "games-strip-phone")
-        _ = physics.waitForExistence(timeout: 10)
-        if reveal(app, physics, in: strip) {
-            physics.tap()
-            beat(1.5)
-        } else if reveal(app, phone, in: strip) {
-            phone.tap()
+        let physics = byId(app, "games-strip-physics")
+        if pick(phone) || pick(physics) {
             beat(1.5)
         } else {
             soft(false, "no shelf chip on screen")
@@ -45,9 +40,6 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         // Held drags, not flicks: a flick's momentum carried the page past a
         // 164-pt tile between looks, and eight of them did not always get
         // down past the demo's forty-odd rooms when the chip's jump fell short.
-        if !hunt(app, to: card, steps: 6) {
-            findBySearch(app)
-        }
         XCTAssertTrue(hunt(app, to: card, steps: 24), "no \(title) tile (games-new-\(gameId))")
 
         // "Hittable" holds for a tile half under the pinned chip strip or the
@@ -90,7 +82,7 @@ final class SuggestedSkyHopperUITests: XCTestCase {
 
         // The demo climbs for about twenty seconds of play, then lets Hop fall.
         let over = byId(app, "\(gameId)-over")
-        soft(over.waitForExistence(timeout: 45), "no results card")
+        soft(over.waitForExistence(timeout: 30), "no results card")
         beat(1.5)
         attach(app, "Suggested — \(title) — result")
         soft(byId(app, "\(gameId)-again").exists, "no \(gameId)-again")
@@ -98,52 +90,26 @@ final class SuggestedSkyHopperUITests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// The way round if the Physics chip did not bring the tile up: every
-    /// game again ("All games" also jumps to Play), then search by name, typing
-    /// only once the keyboard is up, and put the keyboard away after.
-    @MainActor private func findBySearch(_ app: XCUIApplication) {
-        let all = byId(app, "games-strip-all")
-        if all.waitForExistence(timeout: 5), all.isHittable {
-            all.tap()
-            beat(1.5)
+    /// Bring a shelf chip on screen (swiping the chip itself left, then
+    /// back right) and tap it once, so the shelf is held. A second tap on a
+    /// lit chip lets the shelf go again, so it is tapped only while unlit.
+    @MainActor private func pick(_ chip: XCUIElement) -> Bool {
+        guard chip.waitForExistence(timeout: 10) else { return false }
+        if chip.isSelected { return true }
+        var tries = 0
+        while !chip.isHittable && tries < 6 {
+            chip.swipeLeft(velocity: .slow)
+            tries += 1
         }
-        let search = app.textFields["games-search"]
-        guard hunt(app, to: search, steps: 24) else {
-            soft(false, "no games-search")
-            return
+        tries = 0
+        while !chip.isHittable && tries < 8 {
+            chip.swipeRight(velocity: .slow)
+            tries += 1
         }
-        search.tap()
-        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) {
-            search.tap()
-        }
-        guard app.keyboards.firstMatch.waitForExistence(timeout: 5) else {
-            soft(false, "no keyboard for games-search")
-            return
-        }
-        // Into whatever holds the focus: the field's own `typeText` found no
-        // focus in CI though the keyboard was up for it.
-        app.typeText(title)
-        beat(0.5)
-        let go = app.keyboards.buttons["search"]
-        if go.exists && go.isHittable { go.tap() } else { app.typeText("\n") }
-        beat(1)
-    }
-
-    /// Slow swipes along the chip strip, left then back right, until `chip`
-    /// is on screen and can be tapped.
-    @MainActor private func reveal(_ app: XCUIApplication, _ chip: XCUIElement, in strip: XCUIElement,
-                                   swipes: Int = 6) -> Bool {
-        guard chip.exists, strip.exists else { return false }
-        if chip.isHittable { return true }
-        for _ in 0..<swipes {
-            strip.swipeLeft(velocity: .slow)
-            if chip.isHittable { return true }
-        }
-        for _ in 0..<(swipes * 2) {
-            strip.swipeRight(velocity: .slow)
-            if chip.isHittable { return true }
-        }
-        return chip.isHittable
+        guard chip.isHittable else { return false }
+        _ = chip.waitUntilStill(timeout: 2)
+        chip.tap()
+        return true
     }
 
     @MainActor private func byId(_ app: XCUIApplication, _ id: String) -> XCUIElement {
