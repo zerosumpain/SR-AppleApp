@@ -134,9 +134,11 @@ jobs:
     if: needs.scope.outputs.ios == 'true'
     runs-on: macos-26
     # Was 110, when this job also ran the screenshot walks (~43 min) and the
-    # Release build (~11) and a green run took ~85. Without them a green run is
-    # ~25. A timeout is for a wedged simulator, not the suite.
-    timeout-minutes: 60
+    # Release build (~11) and a green run took ~85. Without them a green run
+    # was ~25, but every game since has added UI tests: green runs now take
+    # 50-59 minutes, and at 60 the suite itself was being cut off. A timeout
+    # is for a wedged simulator, not the suite.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Verify current Apple toolchain
