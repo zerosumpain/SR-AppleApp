@@ -172,17 +172,19 @@ struct AzulFactoryView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(AzulPaint.plate)
+            Circle().fill(AzulPaint.plate.opacity(tiles.isEmpty ? 0.45 : 1))
             Circle().strokeBorder(active ? SR.accent : AzulPaint.plateEdge, lineWidth: active ? 3 : 1.5)
-            if tiles.isEmpty {
-                Text("\(index + 1)")
-                    .font(SR.Text.label())
-                    .foregroundStyle(AzulPaint.plateInk.opacity(0.45))
-            } else {
-                grid.padding(18)
-            }
+            if !tiles.isEmpty { grid.padding(18) }
         }
         .aspectRatio(1, contentMode: .fit)
+        // Its number in the corner the plate leaves free, as the log says it:
+        // "Sam took 2 blue from factory 3".
+        .overlay(alignment: .topLeading) {
+            Text("\(index + 1)")
+                .font(SR.Text.label())
+                .foregroundStyle(tiles.isEmpty ? SR.inkGhost : SR.inkMuted)
+                .accessibilityHidden(true)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Factory \(index + 1)")
         .accessibilityIdentifier("azul-factory-\(index)")
