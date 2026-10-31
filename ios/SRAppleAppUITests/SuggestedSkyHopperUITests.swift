@@ -20,12 +20,22 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         XCTAssertTrue(app.openTab("Games"), "no Games tab")
         XCTAssertTrue(byId(app, "games-screen").waitForExistence(timeout: 20), "the Games page did not open")
 
-        // Search by name: one result, at the top, whatever the shelf order.
+        // The demo's Games page opens on its invites and forty-odd rooms, so
+        // the search field is pages down: the pinned "All games" chip jumps
+        // the page to Play (`choose` scrolls to `games-play`) first.
+        let all = byId(app, "games-strip-all")
+        if all.waitForExistence(timeout: 10), all.isHittable {
+            all.tap()
+            beat(1)
+        }
+
+        // Search by name: one result, right under the field, whatever the shelf order.
+        // The return key puts the keyboard away so it cannot cover the tile.
         let card = byId(app, "games-new-\(gameId)")
         let search = app.textFields["games-search"]
-        if search.waitForExistence(timeout: 10) {
+        if scroll(app, to: search) {
             search.tap()
-            search.typeText(title)
+            search.typeText(title + "\n")
         }
         XCTAssertTrue(scroll(app, to: card), "no \(title) tile (games-new-\(gameId))")
         card.tap()
