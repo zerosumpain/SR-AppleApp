@@ -63,9 +63,9 @@ struct SkyHopperScreen: View {
 
     private var hud: some View {
         HStack(spacing: 8) {
-            SkyHopperStatBox(title: "Score", value: session.score, strong: true)
+            SkyHopperStatBox(title: "Score", value: session.score, strong: true, rolls: false)
                 .accessibilityIdentifier("sky-hopper-score")
-            SkyHopperStatBox(title: "Best", value: max(session.best, session.score))
+            SkyHopperStatBox(title: "Best", value: max(session.best, session.score), rolls: false)
                 .accessibilityIdentifier("sky-hopper-best")
             SkyHopperStatBox(title: "Stars", value: session.stars)
                 .accessibilityIdentifier("sky-hopper-stars")
