@@ -27,12 +27,13 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         // never the strip container: CI found the chips but not the strip,
         // and a guard on the strip skipped both chips. No search field: in
         // CI it took the tap but not the typing. "Invites 2" and "Your games
-        // 41" come first, so the chip may start past the right edge: swipe
-        // the chip itself left until it can be tapped.
+        // 41" come first, so the chip starts past the right edge: swipe a
+        // chip that is on screen left until it can be tapped (never the
+        // off-screen chip itself: CI fails that action outright).
         let card = byId(app, "games-new-\(gameId)")
         let phone = byId(app, "games-strip-phone")
         let physics = byId(app, "games-strip-physics")
-        if pick(phone) || pick(physics) {
+        if pick(app, phone) || pick(app, physics) {
             beat(1.5)
         } else {
             soft(false, "no shelf chip on screen")
@@ -90,26 +91,33 @@ final class SuggestedSkyHopperUITests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Bring a shelf chip on screen (swiping the chip itself left, then
-    /// back right) and tap it once, so the shelf is held. A second tap on a
-    /// lit chip lets the shelf go again, so it is tapped only while unlit.
-    @MainActor private func pick(_ chip: XCUIElement) -> Bool {
+    /// Bring a shelf chip on screen and tap it once, so the shelf is held.
+    /// The chip starts past the right edge (CI: "On this phone" at x=404 in a
+    /// 402-pt window), and swiping or tapping an off-screen chip fails the
+    /// test ("visible frame is empty"), so the strip is moved by swiping
+    /// whichever chip IS hittable. A second tap on a lit chip lets the shelf
+    /// go again, so it is tapped only while unlit.
+    @MainActor private func pick(_ app: XCUIApplication, _ chip: XCUIElement) -> Bool {
         guard chip.waitForExistence(timeout: 10) else { return false }
         if chip.isSelected { return true }
-        var tries = 0
-        while !chip.isHittable && tries < 6 {
-            chip.swipeLeft(velocity: .slow)
-            tries += 1
-        }
-        tries = 0
-        while !chip.isHittable && tries < 8 {
-            chip.swipeRight(velocity: .slow)
-            tries += 1
+        for _ in 0..<8 where !chip.isHittable {
+            guard let handle = visibleChip(app, except: chip) else { break }
+            handle.swipeLeft(velocity: .slow)
+            beat(0.5)
         }
         guard chip.isHittable else { return false }
         _ = chip.waitUntilStill(timeout: 2)
         chip.tap()
         return true
+    }
+
+    /// A chip of the Games strip that is on screen now (never the strip
+    /// container, which CI does not find), other than `chip`.
+    @MainActor private func visibleChip(_ app: XCUIApplication, except chip: XCUIElement) -> XCUIElement? {
+        let ids = ["all", "rooms", "invites", "top", "phone", "family", "leaderboard", "ideas"]
+            .map { "games-strip-\($0)" }
+            .filter { $0 != chip.identifier }
+        return ids.map { byId(app, $0) }.first { $0.exists && $0.isHittable }
     }
 
     @MainActor private func byId(_ app: XCUIApplication, _ id: String) -> XCUIElement {
