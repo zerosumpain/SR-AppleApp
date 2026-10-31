@@ -68,6 +68,8 @@ struct GameRoomScreen: View {
                 ManhuntScreen(roomId: ref.id)
             case .homestead?:
                 HomesteadScreen(roomId: ref.id)
+            case .azul?:
+                AzulScreen(roomId: ref.id)
             case .hometowns?:
                 HometownsScreen(roomId: ref.id)
             case .lander?, .carRace?, .carRacerPlus?, .miniGolf?, .pinball?, .tiltMaze?, .orbit?,

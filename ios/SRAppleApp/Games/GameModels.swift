@@ -42,6 +42,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case fireworks
     case manhunt
     case homestead
+    case azul
     case hometowns
     // Played on this phone, offline: never a room on the site (Games/Physics/).
     case lander
@@ -80,6 +81,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fireworks: return "Fireworks"
         case .manhunt: return "Manhunt"
         case .homestead: return "Homestead"
+        case .azul: return "Azul"
         case .hometowns: return "Hometowns"
         case .lander: return "Lander"
         case .carRace: return "Car Race"
@@ -117,6 +119,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fireworks: return "Build the show together. You cannot see your own cards."
         case .manhunt: return "Hide and seek outdoors, on the map."
         case .homestead: return "Settle an island. Trade, build, race to the points."
+        case .azul: return "Draft the tiles, fill your wall, mind the floor."
         case .hometowns: return "Build a town each around Kingsport. A year a day."
         case .lander: return "Tilt to steer, hold to burn. Land softly on the pad."
         case .carRace: return "Tilt to steer round the track. Race your ghost or the family."
@@ -173,6 +176,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "One runner, everyone else hunts, outdoors inside a circle a parent sets. The hunters see each other on the map, but the runner only every few minutes. Get close and tap Catch; the runner wins if the clock runs out."
         case .homestead:
             return "Three to five of you settle an island. Roll for timber, clay, wool, grain and stone, trade with each other, build roads, cottages and towns, and watch out for the fox. First to the points wins. Play in one sitting or a turn a day."
+        case .azul:
+            return "Two to four of you tile a palace wall. On your turn take every tile of one colour from a factory or the centre and lay them on one of your lines; what doesn't fit falls to the floor and costs you. Full lines go up on the wall at the end of the round and score for every tile they touch. Every phone shows the whole table, and the TV can too. Play in one sitting or a turn a day."
         case .hometowns:
             return "Everyone builds a town of their own around Kingsport, and the county keeps going for months. Lay roads, paint homes and shops, and watch people move in. A game year passes every real day, towns grow while you're away, and the family settles up each evening. On your own is a real game too."
         case .lander:
@@ -221,6 +226,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .fireworks: return "sparkles"
         case .manhunt: return "figure.run"
         case .homestead: return "house.lodge.fill"
+        case .azul: return "square.grid.3x3.topleft.filled"
         case .hometowns: return "building.2.fill"
         case .lander: return "moon.fill"
         case .carRace: return "car.fill"
@@ -313,6 +319,10 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.homestead, .easy): return "8 points wins. A friendly fox, prices on show and trade tips."
         case (.homestead, .medium): return "10 points wins. Prices on show, and what you can afford."
         case (.homestead, .hard): return "10 points wins. No hints and the shortest turns."
+        // Over days the host's hours set the clock instead.
+        case (.azul, .easy): return "Three minutes a turn."
+        case (.azul, .medium): return "90 seconds a turn."
+        case (.azul, .hard): return "45 seconds a turn."
         // A county has no level: the host picks its rivalry instead (the sheet hides this).
         case (.hometowns, _): return "Every county plays the same rules; rivalry is set for the county."
         // Played on this phone: a lander's levels climb, a race picks its track.
@@ -484,8 +494,11 @@ struct GamesLobby: Decodable, Equatable {
     var parent: Bool = false
     /// Every lobby not yet started, anybody's — sent to a parent only.
     var openLobbies: [GameOpenLobby] = []
+    /// The games with a TV board at /games/<id> (`["azul"]`): their rooms
+    /// offer "Show on TV". Empty from an older site.
+    var screens: [String] = []
 
-    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces, parent, openLobbies }
+    private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces, parent, openLobbies, screens }
 
     init(me: GamePerson, players: [GamePerson], invites: [GameInvite], rooms: [GameRoomSummary], serverNow: Double,
          paces: [String: [String]] = [:], parent: Bool = false, openLobbies: [GameOpenLobby] = []) {
@@ -505,6 +518,7 @@ struct GamesLobby: Decodable, Equatable {
         paces = (try? c.decodeIfPresent([String: [String]].self, forKey: .paces)) ?? [:]
         parent = (try? c.decodeIfPresent(Bool.self, forKey: .parent)) ?? false
         openLobbies = (try? c.decodeIfPresent([GameOpenLobby].self, forKey: .openLobbies)) ?? []
+        screens = (try? c.decodeIfPresent([String].self, forKey: .screens)) ?? []
     }
 }
 
@@ -861,6 +875,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// Homestead: the island, hands, legal spots, offers and log, read from the
     /// same JSON (`HomesteadLogic.swift`). Nil in every other game's room.
     let homestead: HomesteadState?
+    /// Azul: the factories, the centre, every board, the lines my turn may
+    /// use and the round's scores, read from the same JSON (`AzulLogic.swift`).
+    /// Nil in every other game's room.
+    let azul: AzulState?
     /// A durable room (written to the site's database after every move; see
     /// `GameDurable.swift`), its pace, and its write counter. False, live and
     /// nil from a room that is not durable, or from an older site.
@@ -963,6 +981,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         fireworks = game == GameKind.fireworks.rawValue ? (try? FireworksState(from: decoder)) : nil
         manhunt = game == GameKind.manhunt.rawValue ? (try? ManhuntState(from: decoder)) : nil
         homestead = game == GameKind.homestead.rawValue ? (try? HomesteadState(from: decoder)) : nil
+        azul = game == GameKind.azul.rawValue ? (try? AzulState(from: decoder)) : nil
         durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
         pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
         version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? nil
@@ -1029,6 +1048,8 @@ struct CreateGameBody: Encodable, Equatable {
     var minutes: Int? = nil
     /// Homestead: the island size (`auto` | `standard` | `large`).
     var island: String? = nil
+    /// Azul: `phones` | `tv` — whether the host means to put the table on a TV board.
+    var table: String? = nil
     /// Hometowns: the county — its name, rivalry, Regional Day hour and mishaps (§10.12 F7).
     var county: HometownsCountySetup? = nil
     /// A durable game's pace (`live` | `async`) and, over days, hours a turn
@@ -1106,11 +1127,19 @@ struct GameActionBody: Encodable {
     var at: Double? = nil
     var radius: Int? = nil
     var minutes: Int? = nil
+    /// Azul: `take {source:"centre"|<factory>, colour, line:<0-4>|"floor"}`
+    /// (`colour` as Fireworks'). Either kind of value: see `ActionCard`.
+    var source: ActionCard? = nil
+    var line: ActionCard? = nil
+    /// A game with a TV board: `screen {code}`, the four letters the TV shows.
+    var code: String? = nil
 }
 
 /// The `card` an action posts: a name in Secret Mission (`"succeed"` or
 /// `"sabotage"`), a card id from my hand in Fireworks. Both games post the
 /// same key, so one field carries either; a literal of either kind works.
+/// Azul's `source` (`"centre"` or a factory) and `line` (an index or
+/// `"floor"`) are the same either-or, and use it too.
 enum ActionCard: Encodable, Equatable, ExpressibleByStringLiteral, ExpressibleByIntegerLiteral {
     case named(String)
     case id(Int)
