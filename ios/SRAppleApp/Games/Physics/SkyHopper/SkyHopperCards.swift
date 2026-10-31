@@ -18,6 +18,7 @@ struct SkyHopperIntroCard: View {
         }
         .padding(SR.cardPadding)
         .srGlassCard(.paper)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sky-hopper-intro")
     }
 
@@ -173,6 +174,7 @@ struct SkyHopperPauseCard: View {
         }
         .padding(SR.cardPadding)
         .srGlassCard(.paper)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sky-hopper-paused")
     }
 }
@@ -210,6 +212,7 @@ struct SkyHopperOverCard: View {
         }
         .padding(SR.cardPadding)
         .srGlassCard(.paper)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sky-hopper-over")
     }
 

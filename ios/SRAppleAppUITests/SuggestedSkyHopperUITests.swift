@@ -2,7 +2,10 @@ import XCTest
 
 /// Sky Hopper, opened from its tile on the Games tab in the demo, started,
 /// and photographed: the start card, a run under way (the demo's autopilot
-/// steers), and the results card when the demo lets Hop fall.
+/// steers), the pause card, the results card when the demo lets Hop fall,
+/// and a replay. Every step from Play on is a hard assert: an earlier
+/// version skipped an unhittable Play button and took three photos of the
+/// start card. Ordinary touch play (no demo) is `SkyHopperSessionTests`.
 final class SuggestedSkyHopperUITests: XCTestCase {
     private let gameId = "sky-hopper"
     private let title = "Sky Hopper"
@@ -58,35 +61,79 @@ final class SuggestedSkyHopperUITests: XCTestCase {
             card.tap()
         }
         XCTAssertTrue(screen.waitForExistence(timeout: 15), "the game did not open")
-        soft(byId(app, "\(gameId)-intro").waitForExistence(timeout: 10), "no start card")
+        let intro = byId(app, "\(gameId)-intro")
+        XCTAssertTrue(intro.waitForExistence(timeout: 10), "no start card")
         beat(1.5)
         attach(app, "Suggested — \(title) — start")
 
-        let start = byId(app, "\(gameId)-start")
-        soft(start.waitForExistence(timeout: 10), "no \(gameId)-start")
-        if start.exists && start.isHittable { start.tap() }
-        beat(4)                                   // the demo plays itself (SRDemo.isOn)
+        // Play: a real button, on screen and tappable (the card slides in, so
+        // wait for it to settle), and the card must go when it is tapped.
+        let start = app.buttons["\(gameId)-start"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 10), "no \(gameId)-start button")
+        XCTAssertTrue(waitHittable(start, timeout: 10), "\(gameId)-start is not hittable: \(start.debugDescription)")
+        start.waitUntilStill()
+        start.tap()
+        XCTAssertTrue(intro.waitForNonExistence(timeout: 5), "the start card stayed up after Play")
+
+        // The demo flies itself (SRDemo.isOn): Hop must climb.
+        let board = byId(app, "\(gameId)-board")
+        XCTAssertTrue(board.waitForExistence(timeout: 5), "no \(gameId)-board")
+        let pause = app.buttons["\(gameId)-pause"].firstMatch
+        XCTAssertTrue(pause.waitForExistence(timeout: 5), "no \(gameId)-pause")
+        let firstHeight = metres(board)
+        beat(4)
+        XCTAssertGreaterThan(metres(board), firstHeight, "the run did not advance: \(board.label)")
         attach(app, "Suggested — \(title) — playing")
 
-        let pause = byId(app, "\(gameId)-pause")
-        if pause.waitForExistence(timeout: 5), pause.isHittable {
-            pause.tap()
-            let paused = byId(app, "\(gameId)-paused")
-            soft(paused.waitForExistence(timeout: 5), "no pause card")
-            beat(1)
-            attach(app, "Suggested — \(title) — paused")
-            let resume = byId(app, "\(gameId)-resume")
-            if resume.waitForExistence(timeout: 5), resume.isHittable { resume.tap() }
-        } else {
-            soft(false, "no \(gameId)-pause")
-        }
+        XCTAssertTrue(waitHittable(pause, timeout: 5), "\(gameId)-pause is not hittable")
+        // Read before the card covers the sky (behind a card it is hidden from VoiceOver).
+        let heldAt = metres(board)
+        pause.tap()
+        let paused = byId(app, "\(gameId)-paused")
+        XCTAssertTrue(paused.waitForExistence(timeout: 5), "no pause card")
+        beat(1.5)
+        attach(app, "Suggested — \(title) — paused")
+        let resume = app.buttons["\(gameId)-resume"].firstMatch
+        XCTAssertTrue(resume.waitForExistence(timeout: 5), "no \(gameId)-resume")
+        XCTAssertTrue(waitHittable(resume, timeout: 5), "\(gameId)-resume is not hittable")
+        resume.tap()
+        XCTAssertTrue(paused.waitForNonExistence(timeout: 5), "the pause card stayed up after Resume")
+        beat(2)
+        XCTAssertGreaterThan(metres(board), heldAt, "the run did not carry on after Resume: \(board.label)")
 
         // The demo climbs for about twenty seconds of play, then lets Hop fall.
         let over = byId(app, "\(gameId)-over")
-        soft(over.waitForExistence(timeout: 30), "no results card")
+        XCTAssertTrue(over.waitForExistence(timeout: 45), "no results card")
         beat(1.5)
         attach(app, "Suggested — \(title) — result")
-        soft(byId(app, "\(gameId)-again").exists, "no \(gameId)-again")
+
+        // Play again: the results go and a fresh run climbs.
+        let again = app.buttons["\(gameId)-again"].firstMatch
+        XCTAssertTrue(again.waitForExistence(timeout: 5), "no \(gameId)-again")
+        XCTAssertTrue(waitHittable(again, timeout: 10), "\(gameId)-again is not hittable")
+        again.tap()
+        XCTAssertTrue(over.waitForNonExistence(timeout: 5), "the results card stayed up after Play again")
+        let replayStart = metres(board)
+        beat(3)
+        XCTAssertGreaterThan(metres(board), replayStart, "the replay did not advance: \(board.label)")
+        attach(app, "Suggested — \(title) — replay")
+    }
+
+    /// Polls until the element can be tapped (a card sliding in is not yet).
+    @MainActor private func waitHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable { return true }
+            beat(0.3)
+        }
+        return element.exists && element.isHittable
+    }
+
+    /// Hop's height, read from the sky's spoken label ("… 12 metres up.").
+    @MainActor private func metres(_ board: XCUIElement) -> Int {
+        let label = board.label
+        guard let range = label.range(of: #"(\d+) metres up"#, options: .regularExpression) else { return -1 }
+        return Int(label[range].split(separator: " ").first ?? "") ?? -1
     }
 
     // MARK: - Helpers
