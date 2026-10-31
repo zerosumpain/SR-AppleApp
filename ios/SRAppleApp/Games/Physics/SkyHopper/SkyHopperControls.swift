@@ -130,6 +130,14 @@ struct SkyHopperStatBox: View {
     let title: String
     let value: Int
     var strong = false
+    /// Rolling digits for a figure that changes now and then (stars). Score
+    /// and Best count up with every metre, several times a second: rolled,
+    /// each roll would start before the last one ended and the HUD would
+    /// never be still while Hop climbs.
+    var rolls = true
+
+    private var transition: ContentTransition { rolls ? .numericText() : .identity }
+    private var roll: Animation? { rolls ? .snappy(duration: 0.25) : nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -144,8 +152,8 @@ struct SkyHopperStatBox: View {
                 .foregroundStyle(strong ? SR.accent : SR.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
-                .contentTransition(.numericText())
-                .animation(.snappy(duration: 0.25), value: value)
+                .contentTransition(transition)
+                .animation(roll, value: value)
         }
         .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
         .padding(.horizontal, 12)
