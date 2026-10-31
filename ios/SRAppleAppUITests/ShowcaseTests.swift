@@ -1775,6 +1775,55 @@ final class ShowcaseTests: XCTestCase {
         }
     }
 
+    /// Azul: Alex's turn in round 3 — the factories, the centre with the
+    /// first-player marker, Alex's board and everyone else's — then four red
+    /// picked up from a factory with Alex's lines lit and the choices
+    /// showing what each would do, and a finished game Sam won.
+    @MainActor func testShowcaseAzul() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let playing = byId(app, "games-room-g_demo_azul")
+        if scroll(app, to: playing) {
+            playing.tap()
+            settle(app, on: byId(app, "azul-playing"), seconds: 2)
+            soft(byId(app, "azul-headline").label.contains("Your turn"), "not my turn")
+            soft(byId(app, "azul-factories").exists, "no factories")
+            soft(byId(app, "azul-centre").exists, "no centre")
+            soft(byId(app, "azul-centre-marker").exists, "no first-player marker in the centre")
+            soft(byId(app, "azul-my-board").exists, "no board of my own")
+            soft(byId(app, "azul-board-p_sam").exists, "no board for Sam")
+            attach(app, "Showcase — Azul, my turn")
+            let red = byId(app, "azul-tile-45")
+            if red.exists {
+                red.tap()
+                settle(app, on: byId(app, "azul-choices"), seconds: 1)
+                soft(byId(app, "azul-choice-line-0").exists, "line 1 is not offered for red")
+                soft(byId(app, "azul-choice-floor").exists, "the floor is not offered")
+                soft(byId(app, "azul-line-0").exists, "line 1 is not lit")
+                attach(app, "Showcase — Azul, red picked")
+            } else {
+                soft(false, "no red tile in factory 2")
+            }
+            back(app)
+        } else {
+            soft(false, "no Azul game to resume")
+        }
+
+        let finished = byId(app, "games-room-g_demo_azul_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "azul-finished"), seconds: 2)
+            soft(byId(app, "azul-standings").exists, "no final scores")
+            soft(byId(app, "azul-outcome").exists, "no ending sentence")
+            attach(app, "Showcase — Azul, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Azul")
+        }
+    }
+
     /// Manhunt: Alex hunting — the circle, the other hunters live and Sam at
     /// the last ping, the clocks and Catch — and a finished hunt Robin caught.
     @MainActor func testShowcaseManhunt() {
