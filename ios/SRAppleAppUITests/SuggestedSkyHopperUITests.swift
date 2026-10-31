@@ -42,13 +42,29 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         } else {
             soft(false, "no shelf chip on screen")
         }
-        if !scroll(app, to: card, swipes: 4) {
+        // Held drags, not flicks: a flick's momentum carried the page past a
+        // 164-pt tile between looks, and eight of them did not always get
+        // down past the demo's forty-odd rooms when the chip's jump fell short.
+        if !hunt(app, to: card, steps: 6) {
             findBySearch(app)
         }
-        XCTAssertTrue(scroll(app, to: card), "no \(title) tile (games-new-\(gameId))")
-        card.tap()
+        XCTAssertTrue(hunt(app, to: card, steps: 24), "no \(title) tile (games-new-\(gameId))")
 
-        XCTAssertTrue(byId(app, "\(gameId)-screen").waitForExistence(timeout: 15), "the game did not open")
+        // "Hittable" holds for a tile half under the pinned chip strip or the
+        // tray, and a tap there lands on a chip ("Invites" jumps the page back
+        // to the top) or on nothing. Bring the tile to the middle of the window
+        // and let it settle first; if the tap still went astray, find it and
+        // tap once more.
+        let screen = byId(app, "\(gameId)-screen")
+        centre(app, card)
+        card.waitUntilStill()
+        card.tap()
+        if !screen.waitForExistence(timeout: 8), hunt(app, to: card, steps: 24) {
+            centre(app, card)
+            card.waitUntilStill()
+            card.tap()
+        }
+        XCTAssertTrue(screen.waitForExistence(timeout: 15), "the game did not open")
         soft(byId(app, "\(gameId)-intro").waitForExistence(timeout: 10), "no start card")
         beat(1.5)
         attach(app, "Suggested — \(title) — start")
@@ -92,7 +108,7 @@ final class SuggestedSkyHopperUITests: XCTestCase {
             beat(1.5)
         }
         let search = app.textFields["games-search"]
-        guard scroll(app, to: search) else {
+        guard hunt(app, to: search, steps: 24) else {
             soft(false, "no games-search")
             return
         }
@@ -134,18 +150,47 @@ final class SuggestedSkyHopperUITests: XCTestCase {
         app.descendants(matching: .any)[id].firstMatch
     }
 
-    /// Down the page, then back up it, until the element can be tapped.
-    @MainActor private func scroll(_ app: XCUIApplication, to element: XCUIElement, swipes: Int = 8) -> Bool {
-        if element.waitForExistence(timeout: 10), element.isHittable { return true }
-        for _ in 0..<swipes {
+    /// Down the page, then back up it, a held drag at a time (no momentum, so
+    /// each step moves well under a window and nothing slips past between
+    /// looks), until the element can be tapped.
+    @MainActor private func hunt(_ app: XCUIApplication, to element: XCUIElement, steps: Int) -> Bool {
+        if element.waitForExistence(timeout: 5), element.isHittable { return true }
+        for _ in 0..<steps {
+            drag(app, by: 0.4)
             if element.exists && element.isHittable { return true }
-            app.swipeUp()
         }
-        for _ in 0..<swipes {
+        for _ in 0..<steps {
+            drag(app, by: -0.4)
             if element.exists && element.isHittable { return true }
-            app.swipeDown()
         }
         return element.exists && element.isHittable
+    }
+
+    /// Move the page so the element sits in the middle band of the window,
+    /// clear of the pinned strip at the top and the tray at the foot.
+    @MainActor private func centre(_ app: XCUIApplication, _ element: XCUIElement) {
+        for _ in 0..<4 {
+            let window = app.frame
+            guard element.exists, window.height > 0 else { return }
+            let mid = element.frame.midY
+            let low = window.minY + window.height * 0.3
+            let high = window.minY + window.height * 0.7
+            if mid >= low && mid <= high { return }
+            // Below the middle: drag the page up by the gap, and the other way.
+            drag(app, by: (mid - window.midY) / window.height)
+        }
+    }
+
+    /// One held vertical drag through the middle of the window: `fraction` of
+    /// its height (at most 0.45), positive to move the page up (further down
+    /// the content), negative to move it back. The hold at the end stops the
+    /// page dead.
+    @MainActor private func drag(_ app: XCUIApplication, by fraction: CGFloat) {
+        let step = max(-0.45, min(0.45, fraction))
+        guard abs(step) >= 0.05 else { return }
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5 + step / 2))
+        let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5 - step / 2))
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.2)
     }
 
     /// A pause for animations, without failing the test.
