@@ -14,12 +14,18 @@ import UIKit
 /// while the rest fade, and shows everyone's picks. The finish is my points,
 /// how many I got right, my best on this phone, the table and the answers to
 /// go over.
+///
+/// The TV at the top puts the quiz on a TV board (`GameScreenPairing`): the
+/// question large, who has answered, the reveal and the scores, for the room
+/// to watch while every phone still answers on its own.
 struct QuizNightScreen: View {
     let roomId: String
     @StateObject private var store: QuizNightStore
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var games: GamesStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showingTV = false
 
     init(roomId: String) {
         self.roomId = roomId
@@ -41,6 +47,27 @@ struct QuizNightScreen: View {
             .overlay(alignment: .bottom) {
                 if let message = store.message, !immersive { SRBanner(text: message) }
             }
+            .toolbar { toolbarItems }
+            .sheet(isPresented: $showingTV) {
+                GameScreenPairingSheet(roomId: roomId, game: GameKind.quizNight.rawValue, prefix: "quiz")
+            }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarItems: some ToolbarContent {
+        if offersTV {
+            ToolbarItem(placement: .topBarTrailing) {
+                GameShowOnTVToolbarButton(prefix: "quiz") { showingTV = true }
+            }
+        }
+    }
+
+    /// "Show on TV" while there is a quiz to show — the lobby, a question
+    /// and its reveal — once the site has a TV board for it.
+    private var offersTV: Bool {
+        guard !store.ended, let phase = store.room?.phase else { return false }
+        guard phase == .lobby || phase == .question || phase == .reveal else { return false }
+        return GameScreenPairing.offered(GameKind.quizNight.rawValue, lobby: games.lobby)
     }
 
     private var immersive: Bool {

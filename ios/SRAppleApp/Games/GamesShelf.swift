@@ -94,6 +94,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         "categories": .word,
         "quiz-night": .word,
         "one-clue": .word,
+        "codenames": .word,
         "draw-guess": .party,
         "fake-artist": .party,
         "mission": .party,

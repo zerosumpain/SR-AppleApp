@@ -43,6 +43,7 @@ enum GameKind: String, CaseIterable, Identifiable {
     case manhunt
     case homestead
     case azul
+    case codenames
     case hometowns
     // Played on this phone, offline: never a room on the site (Games/Physics/).
     case lander
@@ -82,6 +83,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "Manhunt"
         case .homestead: return "Homestead"
         case .azul: return "Azul"
+        case .codenames: return "Codenames"
         case .hometowns: return "Hometowns"
         case .lander: return "Lander"
         case .carRace: return "Car Race"
@@ -120,6 +122,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "Hide and seek outdoors, on the map."
         case .homestead: return "Settle an island. Trade, build, race to the points."
         case .azul: return "Draft the tiles, fill your wall, mind the floor."
+        case .codenames: return "One-word clues, two teams, a grid of 25 on the TV."
         case .hometowns: return "Build a town each around Kingsport. A year a day."
         case .lander: return "Tilt to steer, hold to burn. Land softly on the pad."
         case .carRace: return "Tilt to steer round the track. Race your ghost or the family."
@@ -178,6 +181,8 @@ enum GameKind: String, CaseIterable, Identifiable {
             return "Three to five of you settle an island. Roll for timber, clay, wool, grain and stone, trade with each other, build roads, cottages and towns, and watch out for the fox. First to the points wins. Play in one sitting or a turn a day."
         case .azul:
             return "Two to four of you tile a palace wall. On your turn take every tile of one colour from a factory or the centre and lay them on one of your lines; what doesn't fit falls to the floor and costs you. Full lines go up on the wall at the end of the round and score for every tile they touch. Every phone shows the whole table, and the TV can too. Play in one sitting or a turn a day."
+        case .codenames:
+            return "Two to eight of you, best with the grid on the TV. Each team has a spymaster who can see which words are their agents, and gives one-word clues with a number, like \"ocean 2\". The team taps the cards they think it means. Find all your agents first, and stay away from the assassin. Two or three play together against the clock."
         case .hometowns:
             return "Everyone builds a town of their own around Kingsport, and the county keeps going for months. Lay roads, paint homes and shops, and watch people move in. A game year passes every real day, towns grow while you're away, and the family settles up each evening. On your own is a real game too."
         case .lander:
@@ -227,6 +232,7 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .manhunt: return "figure.run"
         case .homestead: return "house.lodge.fill"
         case .azul: return "square.grid.3x3.topleft.filled"
+        case .codenames: return "rectangle.grid.3x2.fill"
         case .hometowns: return "building.2.fill"
         case .lander: return "moon.fill"
         case .carRace: return "car.fill"
@@ -323,6 +329,9 @@ enum GameDifficulty: String, CaseIterable, Identifiable, Codable {
         case (.azul, .easy): return "Three minutes a turn."
         case (.azul, .medium): return "90 seconds a turn."
         case (.azul, .hard): return "45 seconds a turn."
+        case (.codenames, .easy): return "Five minutes for a clue, five to guess."
+        case (.codenames, .medium): return "Two and a half minutes for a clue, the same to guess."
+        case (.codenames, .hard): return "90 seconds for a clue, 90 to guess."
         // A county has no level: the host picks its rivalry instead (the sheet hides this).
         case (.hometowns, _): return "Every county plays the same rules; rivalry is set for the county."
         // Played on this phone: a lander's levels climb, a race picks its track.
@@ -494,8 +503,8 @@ struct GamesLobby: Decodable, Equatable {
     var parent: Bool = false
     /// Every lobby not yet started, anybody's — sent to a parent only.
     var openLobbies: [GameOpenLobby] = []
-    /// The games with a TV board at /games/<id> (`["azul"]`): their rooms
-    /// offer "Show on TV". Empty from an older site.
+    /// The games with a TV board at /games/<id> (`["azul", "quiz-night",
+    /// "codenames"]`): their rooms offer "Show on TV". Empty from an older site.
     var screens: [String] = []
 
     private enum CodingKeys: String, CodingKey { case me, players, invites, rooms, serverNow, paces, parent, openLobbies, screens }
@@ -879,6 +888,10 @@ struct GameRoom: Decodable, Equatable, Identifiable {
     /// use and the round's scores, read from the same JSON (`AzulLogic.swift`).
     /// Nil in every other game's room.
     let azul: AzulState?
+    /// Codenames: the grid, the key (to a spymaster only), the clue and its
+    /// history, the teams and the result, read from the same JSON
+    /// (`CodenamesLogic.swift`). Nil in every other game's room.
+    let codenames: CodenamesState?
     /// A durable room (written to the site's database after every move; see
     /// `GameDurable.swift`), its pace, and its write counter. False, live and
     /// nil from a room that is not durable, or from an older site.
@@ -982,6 +995,7 @@ struct GameRoom: Decodable, Equatable, Identifiable {
         manhunt = game == GameKind.manhunt.rawValue ? (try? ManhuntState(from: decoder)) : nil
         homestead = game == GameKind.homestead.rawValue ? (try? HomesteadState(from: decoder)) : nil
         azul = game == GameKind.azul.rawValue ? (try? AzulState(from: decoder)) : nil
+        codenames = game == GameKind.codenames.rawValue ? (try? CodenamesState(from: decoder)) : nil
         durable = (try? c.decodeIfPresent(Bool.self, forKey: .durable)) ?? false
         pace = GamePace.from((try? c.decodeIfPresent(String.self, forKey: .pace)) ?? nil)
         version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? nil

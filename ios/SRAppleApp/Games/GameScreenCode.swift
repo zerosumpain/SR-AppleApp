@@ -3,11 +3,11 @@ import Foundation
 // The four letters a TV board shows, as the phone handles them — see
 // SR-Main's `src/lib/games/screens.ts` (`CODE_ALPHABET`, `normaliseCode`).
 //
-// A game with a TV board (`lobby.screens`, today Azul's) is shown on a TV by
-// opening strangeramblings.com/games/<game> there: the page shows a code, a
-// player types it into the room's "Show on TV" sheet, and the site sends the
-// TV a ticket for the room. The site decides whether a code is real; the
-// phone only keeps the field to letters that could be one.
+// A game with a TV board (`lobby.screens`: Azul, Quiz Night and Codenames)
+// is shown on a TV by opening strangeramblings.com/games/<game> there: the
+// page shows a code, a player types it into the room's "Show on TV" sheet,
+// and the site sends the TV a ticket for the room. The site decides whether
+// a code is real; the phone only keeps the field to letters that could be one.
 //
 // Foundation only, so it runs in `scripts/home-check.sh` on Linux.
 

@@ -536,11 +536,13 @@ struct GamesScreen: View {
         }
     }
 
-    /// Hometowns and Azul are offered only once the site plays them (its
-    /// lobby lists the game's paces): family phones pick up an app build
-    /// before the server release, and a game the server refuses to start is
-    /// a dead tile.
+    /// Hometowns, Azul and Codenames are offered only once the site plays
+    /// them (its lobby lists the game's paces, or for Codenames, which is
+    /// live only, its TV board in `screens`): family phones pick up an app
+    /// build before the server release, and a game the server refuses to
+    /// start is a dead tile.
     private func offered(_ kind: GameKind) -> Bool {
+        if kind == .codenames { return store.lobby?.screens.contains(kind.rawValue) == true }
         guard kind == .hometowns || kind == .azul else { return true }
         return store.lobby?.paces[kind.rawValue] != nil
     }
@@ -1464,6 +1466,7 @@ struct NewGameSheet: View {
         case .manhunt: return "Invite 2+"
         case .homestead: return "Invite 2+"
         case .azul: return AzulRules.sheetTrailing
+        case .codenames: return CodenamesRules.sheetTrailing
         case .hometowns: return "Solo or up to 6"
         default: return "Solo"
         }
@@ -1490,6 +1493,8 @@ struct NewGameSheet: View {
             return "Nobody else in the family can play yet, and Homestead needs three. The lobby can wait for people to pair phones."
         case .azul:
             return AzulRules.sheetNobody
+        case .codenames:
+            return CodenamesRules.sheetNobody
         case .hometowns:
             return "Nobody else in the family can play yet, so this is a county of one — a real game. Invite people later from the lobby."
         default:
@@ -1518,6 +1523,8 @@ struct NewGameSheet: View {
             return "Homestead is for three to five: invite at least two. Play in one sitting, or over days a turn at a time. The lobby waits for them to join."
         case .azul:
             return AzulRules.sheetPick
+        case .codenames:
+            return CodenamesRules.sheetPick
         case .hometowns:
             return "A county is for one to six mayors, one town each. Only a parent can start it. The lobby waits for whoever you invite; you can start on your own."
         default:
