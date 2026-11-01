@@ -295,7 +295,7 @@ struct TodayScreen: View {
         .onChange(of: scenePhase) { _, phase in
             // The ring's live query delivered every Watch sample all day in
             // the background; the task starts it again on the way back.
-            if phase == .background { move.stop() }
+            if phase == .background { rings.stop() }
             guard phase == .active else { return }
             // A planner job left running in the background: pick it up. The
             // re-reads come from the task above, restarted on the way back.
