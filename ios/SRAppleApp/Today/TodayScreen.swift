@@ -337,6 +337,9 @@ struct TodayScreen: View {
     private var availableTiles: [HomeTileKind] {
         HomeTileKind.available(access: access.current, sitePaired: site.paired)
     }
+    /// The morning report is the owner's, over the site — not drawn for a
+    /// member, nor while the owner is viewing the app as one.
+    private var ownsReport: Bool { access.current.owner && site.paired }
 
     /// What Home draws, in order.
     private var visibleTiles: [HomeTileKind] {
@@ -403,7 +406,7 @@ struct TodayScreen: View {
         if arranging {
             HomeArrangeBanner()
         }
-        HomeGrid(kinds: kinds, sizes: drawnSizes(layout, kinds)) { kind, size in
+        HomeGrid(kinds: kinds, sizes: drawnSizes(layout, kinds), briefingReport: ownsReport) { kind, size in
             gridTile(kind, size: size, chosen: layout.size(of: kind))
         }
         .environment(\.homeColours, { router.openColours() })
@@ -578,9 +581,11 @@ struct TodayScreen: View {
         let hasButtons = HomeLayout.decode(homeLayout).size(of: kind) != .compact
         switch kind {
         case .briefing:
+            let report: (() -> Void)? = ownsReport ? { router.openMorningReport() } : nil
             HomeBriefingTile(health: store.payload?.health, rings: rings.rings, news: store.payload?.news,
                              household: access.current.family ? family.view : nil, flows: flowAttention,
-                             open: openInsight, hide: hide, customise: arrange)
+                             open: openInsight, hide: hide, customise: arrange,
+                             report: report)
         case .family:
             HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange, keepsChildren: true) {
                 HomeFamilyTile(store: family, watch: family.view?.watch, live: onScreen && scenePhase == .active)

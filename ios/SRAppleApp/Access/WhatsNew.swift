@@ -203,6 +203,11 @@ enum WhatsNew {
             WhatsNewItem(icon: "suitcase.rolling", title: "Trips move on",
                          detail: "A slot whose time has gone drops off the Lock Screen and alerts, done or not — no more breakfast at noon."),
         ]),
+        WhatsNewRelease(id: "2026-10-27-morning-report", when: "October 2026", title: "Your morning, in full", items: [
+            WhatsNewItem(icon: "sun.horizon", title: "Morning report",
+                         detail: "Tap Morning report at the foot of Worth knowing on Home. The day's briefing, what connects across it, and the nineteen things it looked at — tap any card for its facts, or pick an earlier day.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-10-27-trip-walked", when: "October 2026", title: "Behind you", items: [
             WhatsNewItem(icon: "map", title: "Trip maps lose what you've walked",
                          detail: "On a trip day the route you have already walked comes off the map, the walk you are on starts where you are, and days gone by leave the trip map. Days still to come stay as planned."),

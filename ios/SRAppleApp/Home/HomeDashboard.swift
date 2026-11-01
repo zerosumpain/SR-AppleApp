@@ -14,6 +14,8 @@ struct HomeGrid<Tile: View>: View {
     let kinds: [HomeTileKind]
     /// Each tile's size as drawn now: the reader's, folded if it is empty.
     let sizes: [HomeTileKind: HomeSize]
+    /// The briefing tile ends in the owner's "Morning report" row: room for it.
+    var briefingReport = false
     @ViewBuilder let tile: (HomeTileKind, HomeSize) -> Tile
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var unit: CGFloat = 172
@@ -22,6 +24,10 @@ struct HomeGrid<Tile: View>: View {
     @ScaledMetric(relativeTo: .body) private var briefing: CGFloat = 232
     /// Six of them, when the reader makes it large.
     @ScaledMetric(relativeTo: .body) private var briefingLarge: CGFloat = 420
+    /// The "Morning report" row under them, on the owner's tile.
+    @ScaledMetric(relativeTo: .body) private var reportRow: CGFloat = 40
+    /// That row's room, when the tile has it.
+    private var report: CGFloat { briefingReport ? reportRow : 0 }
     /// The gauge beside four figures, and the rings under them.
     @ScaledMetric(relativeTo: .body) private var health: CGFloat = 236
     /// The headline, four lanes and yesterday's winner.
@@ -87,10 +93,10 @@ struct HomeGrid<Tile: View>: View {
         switch size(kind) {
         case .compact: return shortcut
         case .square: return unit
-        case .hero: return kind == .briefing ? briefingLarge : hero
+        case .hero: return kind == .briefing ? briefingLarge + report : hero
         case .wide:
             switch kind {
-            case .briefing: return briefing
+            case .briefing: return briefing + report
             case .health: return health
             case .steps: return steps
             case .news: return news
