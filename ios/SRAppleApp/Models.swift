@@ -622,7 +622,9 @@ struct LocationSettings: Codable, Equatable {
             was.vehicleInterval = s.vehicleInterval
             if was == s { return preset.settings }
         }
-        if s.movingInterval == 30 { s.movingInterval = LocationSettings().movingInterval }
+        if s.movingInterval == 30 { s.movingInterval = LocationSettings().movingInterval; return s }
+        // A cadence set by hand stays that cadence in a car too.
+        s.vehicleInterval = s.movingInterval
         return s
     }
 

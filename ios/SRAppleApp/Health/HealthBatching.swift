@@ -124,15 +124,19 @@ enum HealthBatching {
     /// Points per upload once merged: the server's whole-batch limit.
     static let locationsPerBatch = 500
 
-    /// Every location-only batch folded into as few as `locationsPerBatch`
-    /// allows, in the order they were recorded, where the first of them stood.
-    /// The collector queues a batch per point, so a drive at one point a
-    /// second, or an hour with no signal, was thousands of uploads sent one
-    /// at a time. Batches carrying health or deletions are left as they are.
+    /// The collector's one-point batches folded into as few as
+    /// `locationsPerBatch` allows, in the order they were recorded, where the
+    /// first of them stood. The collector queues a batch per point, so a drive
+    /// at one point a second, or an hour with no signal, was thousands of
+    /// uploads sent one at a time. Only ONE-point batches: a bigger one is
+    /// close tracking's, or the half a refusal split off, and re-joining those
+    /// halves would let one bad point fail the whole queue on every flush
+    /// (three refusals trip the breaker before it is ever alone). Batches
+    /// carrying health or deletions are left as they are.
     /// Only while no upload is in flight (`Companion.flush` holds `sending`):
     /// a batch being sent must not change under it. PURE.
     static func mergeLocations(_ queue: [UploadBatch], per size: Int = locationsPerBatch) -> [UploadBatch] {
-        let only = { (b: UploadBatch) in b.health.isEmpty && b.deleted.isEmpty && !b.locations.isEmpty }
+        let only = { (b: UploadBatch) in b.health.isEmpty && b.deleted.isEmpty && b.locations.count == 1 }
         let runs = queue.filter(only)
         guard runs.count > 1, let first = queue.firstIndex(where: only) else { return queue }
         let points = runs.flatMap(\.locations)

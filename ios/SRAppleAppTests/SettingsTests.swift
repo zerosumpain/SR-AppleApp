@@ -264,6 +264,7 @@ final class SettingsTests: XCTestCase {
 
         var custom = LocationSettings(); custom.movingInterval = 120
         XCTAssertEqual(LocationSettings.withLiveCadence(custom).movingInterval, 120, "a hand-set cadence is left alone")
+        XCTAssertEqual(LocationSettings.withLiveCadence(custom).vehicleInterval, 120, "in a car too")
     }
 
     // MARK: - One upload for many points
@@ -275,10 +276,10 @@ final class SettingsTests: XCTestCase {
 
     func testLocationBatchesMergeInOrderAndLeaveHealthAlone() {
         let health = UploadBatch(health: [HealthRecord(id: "h", kind: "steps", start: "a", end: "b", source: "t")])
-        let queue = [UploadBatch(locations: [point(1)]), health, UploadBatch(locations: [point(2)]), UploadBatch(locations: [point(3), point(4)])]
+        let queue = [UploadBatch(locations: [point(1)]), health, UploadBatch(locations: [point(2)]), UploadBatch(locations: [point(3)])]
         let merged = HealthBatching.mergeLocations(queue)
         XCTAssertEqual(merged.count, 2)
-        XCTAssertEqual(merged[0].locations.map(\.recorded), [1, 2, 3, 4].map { point($0).recorded })
+        XCTAssertEqual(merged[0].locations.map(\.recorded), [1, 2, 3].map { point($0).recorded })
         XCTAssertEqual(merged[1].health.map(\.id), ["h"])
     }
 
@@ -286,6 +287,13 @@ final class SettingsTests: XCTestCase {
         let queue = (0..<1201).map { UploadBatch(locations: [point($0)]) }
         let merged = HealthBatching.mergeLocations(queue)
         XCTAssertEqual(merged.map(\.locations.count), [500, 500, 201])
+    }
+
+    func testASplitHalfIsNeverRejoined() {
+        // Two halves a refusal split, and the collector's own one-point batches.
+        let queue = [UploadBatch(locations: [point(1), point(2)]), UploadBatch(locations: [point(3), point(4)]),
+                     UploadBatch(locations: [point(5)]), UploadBatch(locations: [point(6)])]
+        XCTAssertEqual(HealthBatching.mergeLocations(queue).map(\.locations.count), [2, 2, 2])
     }
 
     func testASingleBatchIsLeftAsItIs() {

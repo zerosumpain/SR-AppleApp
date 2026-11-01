@@ -816,7 +816,10 @@ import UIKit
             // queue, so it is written at most every `queueWriteEvery`, as
             // close tracking batches its commits. Killed in between costs
             // those seconds; the flush that follows writes it anyway.
-            let persist = Date().timeIntervalSince(lastQueueWrite) >= Self.queueWriteEvery
+            // Below car speed every point is written at once: the last points
+            // of a drive are the arrival, and a phone suspended there may be
+            // killed before any later write.
+            let persist = location.speed < settings.vehicleSpeed || Date().timeIntervalSince(lastQueueWrite) >= Self.queueWriteEvery
             try outbox.change(persist: persist) {
                 $0.batches.append(UploadBatch(locations: [point]))
                 // What the drain bought. Counted here rather than derived from
