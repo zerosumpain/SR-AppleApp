@@ -88,6 +88,11 @@ enum FamilyShelf {
         case familyNow, trips, games, health
         /// Shares the share extension could not send (FamilyBacklogShared.swift).
         case backlogQueue
+        /// Whether this phone's person has Drive (a JSON `true`), so the share
+        /// extension offers "Save to Drive" only to them (DriveShared.swift).
+        /// The credential is shelved for Drive alone too, so a Drive-only
+        /// member can share into it.
+        case driveAllowed
         /// The reader's palette, as the widgets and Live Activities paint it
         /// (`SRWidgetPalette`). Not a secret, and not the family's: kept when
         /// everything else is cleared.
@@ -182,7 +187,10 @@ enum FamilyWidgetFetch {
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse else { return nil }
-        if http.statusCode == 401 || http.statusCode == 403 {
+        // A 403 for somebody shelved for Drive alone is a board they were
+        // never given, not a credential gone: the share extension still needs
+        // it. A 401 always clears.
+        if http.statusCode == 401 || (http.statusCode == 403 && FamilyShelf.load(Bool.self, .driveAllowed) != true) {
             FamilyShelf.clearAll()
             return nil
         }
