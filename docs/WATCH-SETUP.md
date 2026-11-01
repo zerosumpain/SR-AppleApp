@@ -13,8 +13,10 @@ At developer.apple.com/account → **Certificates, Identifiers & Profiles** →
 1. **+** → **App Groups** → identifier `group.com.strangeramblings.com.appleapp`.
 2. **+** → **App IDs** → **App** → explicit bundle ID
    `com.strangeramblings.com.appleapp.watchkitapp`. Tick **App Groups** and
-   **HealthKit**. Register, then open it, **Configure** App Groups, tick the
-   group from step 1, **Save**.
+   **HealthKit**, and **Time Sensitive Notifications** (so a time-sensitive
+   push, the bat phone or a game invite, buzzes the Watch through a mirrored
+   Focus; added 2026-11-01). Register, then open it, **Configure** App Groups,
+   tick the group from step 1, **Save**.
 3. **+** → **App IDs** → **App** → explicit bundle ID
    `com.strangeramblings.com.appleapp.watchkitapp.complications`. Tick **App
    Groups** only. Register, then **Configure** the same group and **Save**.
@@ -53,6 +55,7 @@ iPhone app alone:
 | There is no App ID … | Part A, steps 2–3 |
 | … does not have the App Group … attached | Part A: Configure App Groups on that App ID |
 | … does not have HealthKit ticked | Part A, step 2 |
+| The Watch profile has no Time Sensitive Notifications … | Part A, step 2. Not fatal: the build ships the Watch app without it, and a Focus silences time-sensitive pushes on the Watch |
 | App Store Connect refused the API key (401/403) | The key needs the **Admin** role, or App Manager with access to Certificates, Identifiers & Profiles: App Store Connect → Users and Access → Integrations. Or use the manual route below. |
 
 ## The manual route (only if the API key cannot manage profiles)

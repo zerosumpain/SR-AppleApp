@@ -90,6 +90,19 @@ if os.environ.get('WATCH_UUID'):
     assert group in watch['Entitlements'].get('com.apple.security.application-groups', []), 'Watch profile must include the App Group ' + group
     assert widget['Entitlements']['application-identifier'] == team + '.' + bundle + '.watchkitapp.complications', 'Complications profile does not match <bundle>.watchkitapp.complications'
     assert group in widget['Entitlements'].get('com.apple.security.application-groups', []), 'Complications profile must include the App Group ' + group
+    # The phone forwards a time-sensitive push to the Watch, which lets it
+    # through a mirrored Focus only if the Watch app holds the entitlement too.
+    # An entitlement its profile lacks fails the archive, so until the Watch
+    # App ID has Time Sensitive Notifications ticked it is left out, not fatal.
+    ts = 'com.apple.developer.usernotifications.time-sensitive'
+    if not watch['Entitlements'].get(ts):
+        path = Path('ios/SRAppleWatch/SRAppleWatch.entitlements')
+        entitlements = plistlib.loads(path.read_bytes())
+        entitlements.pop(ts, None)
+        path.write_bytes(plistlib.dumps(entitlements))
+        print('::warning::The Watch profile has no Time Sensitive Notifications, so this build leaves it out and a Focus '
+              'silences bat phone and game pushes on the Watch. Tick it on the ' + bundle + '.watchkitapp App ID '
+              '(docs/WATCH-SETUP.md, Part A).')
     profiles[bundle + '.watchkitapp'] = os.environ['WATCH_UUID']
     profiles[bundle + '.watchkitapp.complications'] = os.environ['WIDGET_UUID']
 if os.environ.get('LIVE_UUID'):
