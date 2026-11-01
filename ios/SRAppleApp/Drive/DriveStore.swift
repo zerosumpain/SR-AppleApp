@@ -39,8 +39,6 @@ final class DriveFolderModel: ObservableObject {
         await load()
     }
 
-    var maxUpload: Int { listing?.maxUploadBytes ?? DriveLogic.defaultMaxUpload }
-
     func load() async {
         guard SiteClient.shared.isPaired else {
             loaded = true
@@ -52,6 +50,7 @@ final class DriveFolderModel: ObservableObject {
         let asked = ref
         do {
             let answer: DriveListing = try await SiteClient.shared.send(DriveLogic.listPath(asked))
+            DriveUploadQueue.shared.remember(answer)
             guard asked == ref else { return }
             listing = answer
             message = nil
@@ -116,7 +115,7 @@ final class DriveFolderModel: ObservableObject {
         do {
             try await DriveUploadQueue.shared.enqueue(url, consume: consume, space: ref.space, folder: folder ?? ref.folder,
                                                       filename: name, mimeType: mime, takenAt: takenAt,
-                                                      assetId: assetId, limit: maxUpload)
+                                                      assetId: assetId, limits: listing?.limits)
         } catch {
             message = error.localizedDescription
             if consume { try? FileManager.default.removeItem(at: url) }

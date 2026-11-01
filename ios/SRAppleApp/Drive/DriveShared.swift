@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -97,9 +98,172 @@ enum DriveSharePost {
         }
     }
 
+    static func refusalText(_ data: Data) -> String? { refusal(data) }
+
     private static func refusal(_ data: Data) -> String? {
         let text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
         return (text?.isEmpty ?? true) ? nil : text
+    }
+}
+
+/// A file read a megabyte at a time: hashed, or a piece of it copied out for
+/// one chunk of a big upload. Memory stays flat however big the film — both
+/// the app's queue and the extension (killed at around 120 MB) read this way.
+enum DriveFileIO {
+    static let readBytes = 1 << 20
+
+    /// Lowercase hex SHA-256 of the whole file.
+    static func sha256(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            let more: Bool = try autoreleasepool {
+                guard let piece = try handle.read(upToCount: readBytes), !piece.isEmpty else { return false }
+                hasher.update(data: piece)
+                return true
+            }
+            if !more { break }
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// `length` bytes of `source` from `offset`, written to `target` (replaced).
+    /// Readable after first unlock, so the system can send it while the phone is locked.
+    static func writeSlice(of source: URL, offset: Int, length: Int, to target: URL) throws {
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        try input.seek(toOffset: UInt64(offset))
+        let manager = FileManager.default
+        try? manager.removeItem(at: target)
+        guard manager.createFile(atPath: target.path, contents: nil,
+                                 attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let output = try FileHandle(forWritingTo: target)
+        defer { try? output.close() }
+        var left = length
+        while left > 0 {
+            let wrote: Int = try autoreleasepool {
+                guard let piece = try input.read(upToCount: min(left, readBytes)), !piece.isEmpty else { return 0 }
+                try output.write(contentsOf: piece)
+                return piece.count
+            }
+            // The file is shorter than it was when it was measured.
+            guard wrote > 0 else { throw CocoaError(.fileReadCorruptFile) }
+            left -= wrote
+        }
+    }
+
+    /// The size on disk, or nil when it can't be read.
+    static func size(of url: URL) -> Int? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
+    }
+}
+
+/// A big file from the share sheet, a piece at a time (`DriveChunks.swift`),
+/// while the sheet is open. One chunk at a time is on disk beside the file
+/// and in memory a megabyte at a time.
+enum DriveChunkedPost {
+    /// Goes in a row that fail before the sheet gives up.
+    static let maxFailures = 3
+
+    /// `progress` is told the bytes the site holds as they grow.
+    static func upload(fileURL: URL, size: Int, space: DriveSpace, folder: String, filename: String, type: String,
+                       takenAt: String? = nil, progress: @escaping @MainActor (Int) -> Void) async -> DriveSharePost.Outcome {
+        guard let (origin, token) = DriveShelf.credential() else { return .notSignedIn }
+        let sha: String
+        do {
+            sha = try await Task.detached(priority: .userInitiated) { try DriveFileIO.sha256(of: fileURL) }.value
+        } catch {
+            return .refused("That file couldn't be read.")
+        }
+        let start = DriveUploadSessionStart(folder: folder, filename: filename, type: type, size: size, sha256: sha, takenAt: takenAt)
+        guard let startBody = try? JSONEncoder().encode(start) else { return .refused("That file couldn't be read.") }
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        let session = URLSession(configuration: config)
+        defer { session.finishTasksAndInvalidate() }
+        let piece = fileURL.deletingLastPathComponent().appendingPathComponent("chunk-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: piece) }
+
+        var state = DriveChunkState()
+        var failures = 0
+        while true {
+            guard let (path, method) = DriveChunks.request(state, space: space) else {
+                // A step that needs a session it has not got: start one.
+                state = DriveChunkState(chunkBytes: state.chunkBytes, restarts: state.restarts)
+                continue
+            }
+            let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
+            guard let url = DriveShelf.url(origin, path: parts[0], query: parts.count > 1 ? parts[1] : nil) else {
+                return .refused("That file name can't be used.")
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            request.timeoutInterval = 120
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            var answer: (Data, URLResponse)?
+            switch state.step {
+            case .create:
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                answer = try? await session.upload(for: request, from: startBody)
+            case .put(let offset):
+                let length = DriveChunks.length(offset: offset, size: size, chunkBytes: state.chunkBytes)
+                do {
+                    try await Task.detached(priority: .userInitiated) {
+                        try DriveFileIO.writeSlice(of: fileURL, offset: offset, length: length, to: piece)
+                    }.value
+                } catch {
+                    return .refused("That file couldn't be read.")
+                }
+                request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+                answer = try? await session.upload(for: request, fromFile: piece)
+            case .status:
+                answer = try? await session.data(for: request)
+            case .storing(let polls):
+                // The site is keeping it: ask again in a few seconds.
+                try? await Task.sleep(nanoseconds: UInt64(DriveChunks.pollDelay(polls)) * 1_000_000_000)
+                answer = try? await session.data(for: request)
+            case .complete:
+                // The site answers within about 20 s, a 202 if it needs longer.
+                request.timeoutInterval = 90
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                answer = try? await session.upload(for: request, from: Data("{}".utf8))
+            }
+            let status = (answer?.1 as? HTTPURLResponse)?.statusCode
+            if status == 401 { return .notSignedIn }
+            if status == 403, let body = answer?.0, DriveSharePost.refusalText(body) == nil { return .notSignedIn }
+            switch DriveChunks.answer(state, size: size, status: status, body: answer?.0, transportError: nil) {
+            case .next(let next, let progressed):
+                state = next
+                if progressed { failures = 0 }
+                await progress(next.received)
+            case .stored(_, let duplicate, _):
+                await progress(size)
+                return .stored(name: filename, duplicate: duplicate)
+            case .failed(let why, let resume):
+                failures += 1
+                guard failures < maxFailures else { return status == nil ? .unreachable : .refused(why) }
+                state = resume
+                try? await Task.sleep(nanoseconds: UInt64(failures) * 2_000_000_000)
+            case .refused(let why):
+                if let id = state.uploadId { await cancel(id, space: space, origin: origin, token: token, session: session) }
+                return .refused(why)
+            }
+        }
+    }
+
+    /// Give the site back the room a given-up session holds. Best effort.
+    private static func cancel(_ uploadId: String, space: DriveSpace, origin: URL, token: String, session: URLSession) async {
+        guard let path = DriveChunks.cancelPath(uploadId, space: space) else { return }
+        let parts = path.split(separator: "?", maxSplits: 1).map(String.init)
+        guard let url = DriveShelf.url(origin, path: parts[0], query: parts.count > 1 ? parts[1] : nil) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 15
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        _ = try? await session.data(for: request)
     }
 }
 

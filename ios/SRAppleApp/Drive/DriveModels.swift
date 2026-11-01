@@ -80,7 +80,25 @@ struct DriveListing: Codable, Equatable {
     let folders: [DriveFolder]
     let files: [DriveFile]
     let usage: DriveUsage
+    /// The most one request takes (the single-shot upload).
     let maxUploadBytes: Int
+    /// The most a file may be when sent a piece at a time (the 4 GB cap, or
+    /// what is left of this person's room if less). Missing from an older
+    /// site, which takes no big uploads.
+    var maxLargeUploadBytes: Int? = nil
+    /// The size of each piece, when the site takes big uploads.
+    var chunkBytes: Int? = nil
+
+    var limits: DriveUploadLimits {
+        DriveUploadLimits(single: maxUploadBytes, large: maxLargeUploadBytes)
+    }
+}
+
+/// What a space takes per file, from its listing: one request up to
+/// `single`, a session a piece at a time up to `large` (nil: no sessions).
+struct DriveUploadLimits: Equatable {
+    var single: Int = DriveLogic.defaultMaxUpload
+    var large: Int? = nil
 }
 
 /// One file of a space, on its own screen — what a tapped file's Info, a

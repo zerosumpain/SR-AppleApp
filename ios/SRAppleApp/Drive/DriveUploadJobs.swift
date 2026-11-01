@@ -47,6 +47,10 @@ struct DriveUploadJob: Codable, Equatable, Identifiable {
     var attempts: Int = 0
     var sentBytes: Int = 0
     var state: State = .waiting
+    /// A file over the single-shot limit goes up a piece at a time
+    /// (`DriveChunks.swift`): how far it has got. Nil for a single upload —
+    /// and for every job written before big uploads, which decode as before.
+    var chunked: DriveChunkState? = nil
 
     /// What the queue says it is adding: the name the site will give it.
     var displayName: String {
@@ -82,9 +86,12 @@ struct DriveUploadJob: Codable, Equatable, Identifiable {
         var next = self
         next.state = .sending
         next.attempts += 1
-        next.sentBytes = 0
+        next.sentBytes = chunkedFloor
         return next
     }
+
+    /// What a big upload already has on the site; nothing for a single one.
+    private var chunkedFloor: Int { min(chunked?.received ?? 0, sizeBytes) }
 
     func progressed(_ sent: Int64) -> DriveUploadJob {
         var next = self
@@ -94,6 +101,7 @@ struct DriveUploadJob: Codable, Equatable, Identifiable {
 
     /// The system finished with it: what the site said, or that it never answered.
     func finished(status: Int?, body: Data?, transportError: String?) -> DriveUploadJob {
+        if let chunked { return answered(chunked, status: status, body: body, transportError: transportError) }
         var next = self
         next.state = DriveUploadOutcome.classify(status: status, body: body, transportError: transportError)
         if case .stored = next.state { next.sentBytes = sizeBytes }
@@ -107,11 +115,45 @@ struct DriveUploadJob: Codable, Equatable, Identifiable {
         return false
     }
 
-    /// Back to waiting — Try again, or the queue's own retry.
+    /// Back to waiting — Try again, or the queue's own retry. A big upload
+    /// keeps its session: it carries on from what the site holds.
     func retried() -> DriveUploadJob {
         var next = self
         next.state = .waiting
-        next.sentBytes = 0
+        next.chunked = chunked?.resumed
+        next.sentBytes = chunkedFloor
+        return next
+    }
+
+    /// Try again, pressed: the count of goes, and of lost sessions, start over.
+    func retriedByHand() -> DriveUploadJob {
+        var next = self
+        next.attempts = 0
+        next.chunked?.restarts = 0
+        return next.retried()
+    }
+
+    /// The answer to one step of a big upload (`DriveChunks.answer`). Only a
+    /// `complete` that answered 201, or a duplicate, is stored safely.
+    private func answered(_ chunk: DriveChunkState, status: Int?, body: Data?, transportError: String?) -> DriveUploadJob {
+        var next = self
+        switch DriveChunks.answer(chunk, size: sizeBytes, status: status, body: body, transportError: transportError) {
+        case .next(let state, let progressed):
+            next.chunked = state
+            next.state = .sending
+            next.sentBytes = min(state.received, sizeBytes)
+            // Bytes went in: a long upload's earlier troubles are behind it.
+            if progressed { next.attempts = 1 }
+        case .stored(let fileId, let duplicate, let safe):
+            next.state = .stored(fileId: fileId, duplicate: duplicate, safe: safe)
+            next.sentBytes = sizeBytes
+        case .failed(let why, let resume):
+            next.chunked = resume
+            next.state = .failed(why)
+            next.sentBytes = min(resume.received, sizeBytes)
+        case .refused(let why):
+            next.state = .refused(why)
+        }
         return next
     }
 }
@@ -171,6 +213,10 @@ enum DriveUploadOutcome {
         let sent = active.reduce(0) { $0 + $1.sentBytes }
         let percent = bytes > 0 ? Int((Double(sent) / Double(bytes) * 100).rounded()) : 0
         let head = total > 1 ? "Adding \(min(done + 1, total)) of \(total)" : "Adding \(active[0].displayName)"
+        // A big file says how far it has got itself: "1.2 GB of 3 GB".
+        if let big = active.first(where: { $0.chunked != nil && $0.state == .sending && $0.sentBytes > 0 }) {
+            return "\(head) · \(DriveLogic.size(big.sentBytes)) of \(DriveLogic.size(big.sizeBytes))"
+        }
         return percent > 0 ? "\(head) · \(percent)%" : "\(head)…"
     }
 

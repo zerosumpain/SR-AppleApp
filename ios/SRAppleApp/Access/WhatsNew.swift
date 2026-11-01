@@ -34,6 +34,10 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-02-big-uploads", when: "November 2026", title: "Big videos into Drive", items: [
+            WhatsNewItem(icon: "film.stack", title: "Big videos and photos go up",
+                         detail: "Big videos and photos now upload, a piece at a time, and carry on where they left off, even if the signal drops or the app is shut. That works from Drive, the Share button and Shortcuts."),
+        ]),
         WhatsNewRelease(id: "2026-11-02-drive-native", when: "November 2026", title: "Drive, made for the phone", items: [
             WhatsNewItem(icon: "photo.stack", title: "Photos as they are",
                          detail: "Add up to a hundred photos and videos at once. They go up in the background, even with the app shut, and keep when and where they were taken. Turn off Keep photo originals in the … menu if you'd rather send JPEGs."),
