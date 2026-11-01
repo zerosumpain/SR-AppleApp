@@ -23,6 +23,10 @@ const RETENTION_DAYS = 30;
  * the newest points are the ones kept if it is ever hit.
  */
 const TRACK_LIMIT = 20000;
+// A live point older than this is no fresher than what the view already
+// says; one less precise than this would make the pin jump about indoors.
+const LIVE_POINT_MAX_AGE_MS = 15 * 60_000;
+const LIVE_POINT_MAX_ACCURACY_M = 100;
 /**
  * Runs of consecutive bike-marked fixes in [first, last], as
  * `[firstEpoch, lastEpoch]`. A lone marked fix is a span of one instant.
@@ -174,6 +178,35 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
     value.count++;
     rate.set(key, value);
     if (value.count > 20) fail(429, 'Too many attempts. Try again in a minute.');
+  }
+  // Live positions: the view SR-Main pushed is up to a minute behind its
+  // phones (pull, rebuild, push), so each source's newest point here is laid
+  // over the pin it drew. Only for the people SR-Main named as sources for
+  // THIS viewer (it decides who may be seen; a held or switched-off person
+  // is never one), only a point newer than the pushed one, recent, and
+  // precise enough to move a pin for.
+  const newestPoint = db.prepare('SELECT l.recorded, l.payload FROM locations l JOIN users u ON u.id=l.user_id WHERE u.email=? AND u.family=? AND u.sharing=1 ORDER BY l.recorded DESC LIMIT 1');
+  function livePositions(view, sources, family, now = Date.now()) {
+    if (!Array.isArray(view?.people) || !sources.length) return view;
+    const emailOf = new Map(sources.map(s => [s.subject, s.email]));
+    const people = view.people.map(person => {
+      const email = emailOf.get(person.subject);
+      if (!email || !person.position) return person;
+      const row = newestPoint.get(email, family);
+      if (!row) return person;
+      const at = Date.parse(row.recorded);
+      if (!(at > Date.parse(person.position.at)) || at < now - LIVE_POINT_MAX_AGE_MS || at > now + 60_000) return person;
+      const p = JSON.parse(row.payload);
+      if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude) || !(p.accuracy >= 0 && p.accuracy <= LIVE_POINT_MAX_ACCURACY_M)) return person;
+      const recorded = new Date(at).toISOString();
+      return {
+        ...person,
+        position: { lat: round(p.latitude, 6), lon: round(p.longitude, 6), at: recorded },
+        lastSeenAt: recorded,
+        batteryPct: Number.isInteger(p.battery) ? p.battery : person.batteryPct,
+      };
+    });
+    return { ...view, people };
   }
   return createServer(async (req, res) => {
     const send = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
@@ -401,20 +434,34 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!owner) return send(200, { cursor: since, users: [], fixes: [], more: false });
         const { users: members, revision } = await policy.household(owner.family);
         // The cursor is opaque to callers but is really a tuple: (received,
-        // user_id, location id). It is split on the first two '|'s so a
-        // location id containing one — unlikely, but ids are caller-chosen —
-        // still round-trips, and fixes strictly after it are found by
-        // comparing that tuple, not the joined string (a straight string
-        // compare would misorder as soon as two users' ids differ in length).
-        let cursorParts = null;
+        // user_id, recorded, location id), written `v2|…`. Points are paged
+        // in that order because one upload gives all its points ONE received,
+        // and SR-Main skips a fix older than the last it wrote — in id order
+        // (random) it kept a handful of each batch. Split on the first four
+        // '|'s so a location id containing one — unlikely, but ids are
+        // caller-chosen — still round-trips, and fixes strictly after it are
+        // found by comparing that tuple, not the joined string (a straight
+        // string compare would misorder as soon as two users' ids differ in
+        // length).
+        //
+        // A cursor from before v2 (received|user_id|id) cannot be placed
+        // inside its group by recorded, so that user's whole group at that
+        // received is sent again; SR-Main drops what it already has.
+        let cursorClause = '', cursorArgs = [];
         if (since) {
-          const first = since.indexOf('|'), second = since.indexOf('|', first + 1);
-          if (first < 0 || second < 0) fail(400, 'Invalid cursor');
-          cursorParts = [since.slice(0, first), since.slice(first + 1, second), since.slice(second + 1)];
+          const at = [];
+          for (let from = 0, i = 0; i < 4; i++) { const k = since.indexOf('|', from); if (k < 0) break; at.push(k); from = k + 1; }
+          if (since.startsWith('v2|') && at.length === 4) {
+            const [received, user, recorded, id] = [since.slice(at[0] + 1, at[1]), since.slice(at[1] + 1, at[2]), since.slice(at[2] + 1, at[3]), since.slice(at[3] + 1)];
+            cursorClause = 'AND (l.received > ? OR (l.received = ? AND (l.user_id > ? OR (l.user_id = ? AND (l.recorded > ? OR (l.recorded = ? AND l.id > ?))))))';
+            cursorArgs = [received, received, user, user, recorded, recorded, id];
+          } else if (!since.startsWith('v2|') && at.length >= 2) {
+            const [received, user] = [since.slice(0, at[0]), since.slice(at[0] + 1, at[1])];
+            cursorClause = 'AND (l.received > ? OR (l.received = ? AND l.user_id >= ?))';
+            cursorArgs = [received, received, user];
+          } else fail(400, 'Invalid cursor');
         }
-        const cursorClause = cursorParts ? 'AND (l.received > ? OR (l.received = ? AND (l.user_id > ? OR (l.user_id = ? AND l.id > ?))))' : '';
-        const cursorArgs = cursorParts ? [cursorParts[0], cursorParts[0], cursorParts[1], cursorParts[1], cursorParts[2]] : [];
-        const rows = db.prepare(`SELECT l.user_id, l.id, l.recorded, l.payload, l.received, u.email FROM locations l JOIN users u ON u.id=l.user_id WHERE u.family=? AND u.sharing=1 ${cursorClause} ORDER BY l.received, l.user_id, l.id LIMIT ?`)
+        const rows = db.prepare(`SELECT l.user_id, l.id, l.recorded, l.payload, l.received, u.email FROM locations l JOIN users u ON u.id=l.user_id WHERE u.family=? AND u.sharing=1 ${cursorClause} ORDER BY l.received, l.user_id, l.recorded, l.id LIMIT ?`)
           .all(owner.family, ...cursorArgs, pageLimit + 1);
         const page = rows.slice(0, pageLimit);
         const fixes = page.map(r => {
@@ -422,7 +469,7 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           return { email: r.email, id: r.id, recorded: r.recorded, received: r.received, lat: round(p.latitude, 6), lon: round(p.longitude, 6), accuracy: round(p.accuracy, 1), speed: round(p.speed, 2), moving: !!p.moving, battery: Number.isInteger(p.battery) ? p.battery : null, motion: MOTION_KINDS.includes(p.motion) ? p.motion : null, bike: p.bike === true };
         });
         const last = page.at(-1);
-        const cursor = last ? `${last.received}|${last.user_id}|${last.id}` : since;
+        const cursor = last ? `v2|${last.received}|${last.user_id}|${last.recorded}|${last.id}` : since;
         return send(200, { cursor, revision, more: rows.length > pageLimit, users: members.map(m => ({ email: m.email, name: m.name, sharing: !!m.sharing, stepsSharing: !!m.steps_sharing, sitePairWanted: m.site_pair_wanted ?? null, deleteRequested: m.delete_requested ?? null })), fixes });
       }
       // Arrivals/departures forwarded from SR-Main, same token as the read
@@ -482,11 +529,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
         if (!Array.isArray(body.views) || body.views.length > 50) fail(400, 'At most 50 views per batch');
         const views = body.views.map(v => {
           // `sources` (who in the view is a companion phone) rides along from
-          // SR-Main #1076 for live positions; validated, not stored yet.
+          // SR-Main #1076: the view GET lays their newest points over it.
           exactKeys(v, ['email', 'view', 'sources']);
           if (v.sources !== undefined && (!Array.isArray(v.sources) || v.sources.length > 50 || !v.sources.every(s => s && string(s.subject, 200) && string(s.email, 320)))) fail(400, 'Invalid live sources');
           if (!string(v.email, 320) || !v.view || typeof v.view !== 'object' || Array.isArray(v.view)) fail(400, 'Invalid view');
-          return { email: v.email.toLowerCase(), payload: JSON.stringify(v.view) };
+          return { email: v.email.toLowerCase(), payload: JSON.stringify(v.view), sources: JSON.stringify((v.sources ?? []).map(x => ({ subject: x.subject, email: x.email.toLowerCase() }))) };
         });
         const updated = new Date().toISOString();
         let stored = 0;
@@ -495,11 +542,11 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
           if (owner) {
             db.prepare('DELETE FROM household_views WHERE user_id IN (SELECT id FROM users WHERE family=?)').run(owner.family);
             const member = db.prepare('SELECT id FROM users WHERE email=? AND family=?');
-            const insert = db.prepare('INSERT OR REPLACE INTO household_views (user_id,payload,updated,revision) VALUES (?,?,?,?)');
+            const insert = db.prepare('INSERT OR REPLACE INTO household_views (user_id,payload,updated,revision,sources) VALUES (?,?,?,?,?)');
             for (const view of views) {
               const recipient = member.get(view.email, owner.family);
               if (!recipient) continue;
-              stored += insert.run(recipient.id, view.payload, updated, state.revision).changes;
+              stored += insert.run(recipient.id, view.payload, updated, state.revision, view.sources).changes;
             }
           }
           db.exec('COMMIT');
@@ -722,8 +769,9 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       // null until SR-Main has pushed one (or after it stopped building one).
       if (path === '/api/apple/household/view' && method === 'GET') {
         const state = await policy.household(auth.family, seen);
-        const row = db.prepare('SELECT payload, updated FROM household_views WHERE user_id=? AND revision=? AND updated>?').get(auth.user_id, state.revision, new Date(Date.now() - 5 * 60_000).toISOString());
-        return send(200, { view: row ? JSON.parse(row.payload) : null, updated: row?.updated ?? null });
+        const row = db.prepare('SELECT payload, updated, sources FROM household_views WHERE user_id=? AND revision=? AND updated>?').get(auth.user_id, state.revision, new Date(Date.now() - 5 * 60_000).toISOString());
+        if (!row) return send(200, { view: null, updated: null });
+        return send(200, { view: livePositions(JSON.parse(row.payload), JSON.parse(row.sources || '[]'), auth.family), updated: row.updated });
       }
       // The phone's drain of its own queue — same drain-by-acknowledgement
       // contract as /api/native/notifications, so a member never needs the
