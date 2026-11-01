@@ -802,7 +802,7 @@ struct ContentView: View {
             let scoped = url.startAccessingSecurityScopedResource()
             _ = try? await DriveUploadQueue.shared.enqueue(
                 url, consume: inbox, space: .mine, folder: "", filename: url.lastPathComponent,
-                mimeType: ChatUpload.mimeType(for: url), limit: DriveLogic.defaultMaxUpload
+                mimeType: ChatUpload.mimeType(for: url)
             )
             if scoped { url.stopAccessingSecurityScopedResource() }
         }

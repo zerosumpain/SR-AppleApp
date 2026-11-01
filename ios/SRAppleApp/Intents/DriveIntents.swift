@@ -60,9 +60,10 @@ struct UploadToDriveIntent: AppIntent {
                 let mime = file.type?.preferredMIMEType
                     ?? UTType(filenameExtension: temp.pathExtension)?.preferredMIMEType
                     ?? "application/octet-stream"
+                // The space's own limits (looked up once): a big film goes a
+                // piece at a time, through the same queue.
                 let job = try await DriveUploadQueue.shared.enqueue(
-                    temp, consume: true, space: space, folder: place, filename: name, mimeType: mime,
-                    limit: DriveLogic.defaultMaxUpload
+                    temp, consume: true, space: space, folder: place, filename: name, mimeType: mime
                 )
                 if job == nil { already += 1 } else { queued += 1 }
             } catch {
