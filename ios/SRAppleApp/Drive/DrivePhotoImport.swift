@@ -249,7 +249,7 @@ final class DriveMoveFromPhone: ObservableObject {
 
     /// The original's bytes, written straight to a file — from iCloud if
     /// that is where it is.
-    private static func export(_ asset: PHAsset) async -> URL? {
+    static func export(_ asset: PHAsset) async -> URL? {
         let resources = PHAssetResource.assetResources(for: asset)
         let wanted: [PHAssetResourceType] = asset.mediaType == .video ? [.video, .fullSizeVideo] : [.photo, .fullSizePhoto]
         var chosen: PHAssetResource?

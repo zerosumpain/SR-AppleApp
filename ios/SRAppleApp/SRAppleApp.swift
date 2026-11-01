@@ -96,6 +96,13 @@ import Combine
             }
         }
 
+        // Photo sync: the window the system grants (most often overnight, on
+        // charge) to send the library's photos not yet in Drive.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: DrivePhotoSync.taskIdentifier, using: nil) { task in
+            Task { @MainActor in DrivePhotoSync.shared.runInBackground(task) }
+        }
+        DrivePhotoSync.shared.start()
+
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.com.appleapp.refresh", using: nil) { [weak self] task in
             Task { @MainActor in
                 guard let companion = self?.companion else { task.setTaskCompleted(success: false); return }

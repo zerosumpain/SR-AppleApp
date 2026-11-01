@@ -34,6 +34,14 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-02-photo-sync", when: "November 2026", title: "Your photos, kept in Drive", items: [
+            WhatsNewItem(icon: "arrow.triangle.2.circlepath", title: "Photo sync",
+                         detail: "Turn on Photo Sync from + in Drive and your photos and videos go to My files by themselves, in the background. New ones follow after you take them. Anything Drive already has is never sent twice."),
+            WhatsNewItem(icon: "checkmark.icloud", title: "See what's in Drive",
+                         detail: "Photo Sync shows how many of this phone's photos are in Drive, how many are on their way and how many are still to go. You can see the ones not there yet."),
+            WhatsNewItem(icon: "trash", title: "Free up space when you like",
+                         detail: "Nothing is removed from your phone by itself. When you want the space back, Remove from this phone takes only the photos Drive has confirmed it holds, and your phone asks first."),
+        ]),
         WhatsNewRelease(id: "2026-11-01-workout-history", when: "November 2026", title: "Older workouts, with their maps", items: [
             WhatsNewItem(icon: "map", title: "Re-send older workouts",
                          detail: "Settings → Apple Health → Workout history sends your workouts again from a date you pick, each with its route, heart rate and splits, so older outings get their maps on the website.",
@@ -195,6 +203,11 @@ enum WhatsNew {
             WhatsNewItem(icon: "suitcase.rolling", title: "Trips move on",
                          detail: "A slot whose time has gone drops off the Lock Screen and alerts, done or not — no more breakfast at noon."),
         ]),
+        WhatsNewRelease(id: "2026-10-27-morning-report", when: "October 2026", title: "Your morning, in full", items: [
+            WhatsNewItem(icon: "sun.horizon", title: "Morning report",
+                         detail: "Tap Morning report at the foot of Worth knowing on Home. The day's briefing, what connects across it, and the nineteen things it looked at — tap any card for its facts, or pick an earlier day.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-10-27-trip-walked", when: "October 2026", title: "Behind you", items: [
             WhatsNewItem(icon: "map", title: "Trip maps lose what you've walked",
                          detail: "On a trip day the route you have already walked comes off the map, the walk you are on starts where you are, and days gone by leave the trip map. Days still to come stay as planned."),
@@ -237,6 +250,10 @@ enum WhatsNew {
             WhatsNewItem(icon: "magnifyingglass", title: "Find what was said",
                          detail: "Search your captures by words, person, app or date, and open anyone mentioned to see every capture they are in.",
                          ownerOnly: true),
+        ]),
+        WhatsNewRelease(id: "2026-10-26-battery", when: "October 2026", title: "Easier on the battery", items: [
+            WhatsNewItem(icon: "battery.75percent", title: "Quieter in your pocket",
+                         detail: "SR stops checking for news, family updates and Health data every few minutes while it is closed. It catches up the moment you open it."),
         ]),
         WhatsNewRelease(id: "2026-10-26-chess-valley", when: "October 2026", title: "Blue against red", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess in colour",

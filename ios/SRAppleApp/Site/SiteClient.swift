@@ -507,6 +507,7 @@ final class SiteClient {
         // go up (and the record of photos moved off it).
         DriveCache.clear()
         DriveUploadQueue.shared.clear()
+        DrivePhotoSync.shared.clear()
         // Nor a copy of itself, or a family board, for the widgets — nor the
         // family view kept for a cold start.
         FamilyWidgetBridge.clear()
@@ -517,6 +518,7 @@ final class SiteClient {
         FamilyBacklogStore.shared.reset()
         LandgrabStore.shared.reset()
         CaptureStore.shared.reset()
+        MorningReportStore.shared.reset()
         Task {
             await JourneyLive.shared.endAll()
             await retryPendingRevocations()
