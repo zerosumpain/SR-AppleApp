@@ -246,6 +246,10 @@ enum WhatsNew {
                          detail: "Search your captures by words, person, app or date, and open anyone mentioned to see every capture they are in.",
                          ownerOnly: true),
         ]),
+        WhatsNewRelease(id: "2026-10-26-battery", when: "October 2026", title: "Easier on the battery", items: [
+            WhatsNewItem(icon: "battery.75percent", title: "Quieter in your pocket",
+                         detail: "SR stops checking for news, family updates and Health data every few minutes while it is closed. It catches up the moment you open it."),
+        ]),
         WhatsNewRelease(id: "2026-10-26-chess-valley", when: "October 2026", title: "Blue against red", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess in colour",
                          detail: "Pieces are blue and red now, the board edge shows whose turn it is, and a Captured card counts what each side has taken."),
