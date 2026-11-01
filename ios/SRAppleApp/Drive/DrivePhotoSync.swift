@@ -207,7 +207,7 @@ final class DrivePhotoSync: NSObject, ObservableObject {
         for (i, id) in ids.enumerated() {
             guard let asset = library.assets[id] else { continue }
             working = "Getting \(i + 1) of \(ids.count) ready…"
-            guard let url = await DrivePhotoImport.export(asset) else {
+            guard let url = await DriveMoveFromPhone.export(asset) else {
                 later.insert(id) // iCloud out of reach, most often: next time the app opens
                 continue
             }
