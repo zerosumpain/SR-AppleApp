@@ -38,6 +38,7 @@ struct DriveScreen: View {
     @State private var choosingFiles = false
     @State private var takingPhoto = false
     @State private var movingFromPhone = false
+    @State private var syncingPhotos = false
     @State private var naming = false
     @State private var newFolder = ""
     @State private var renaming: DriveFile?
@@ -113,6 +114,7 @@ struct DriveScreen: View {
         .sheet(isPresented: $movingFromPhone) {
             DriveMoveSheet(folder: model, keepOriginals: keepOriginals)
         }
+        .sheet(isPresented: $syncingPhotos) { DriveSyncSheet() }
         .fileMover(isPresented: $exporting, file: exportFile) { result in
             if case .failure(let error) = result { model.message = error.localizedDescription }
             exportFile = nil
@@ -461,6 +463,7 @@ struct DriveScreen: View {
             Button { choosingFiles = true } label: { Label("Choose Files", systemImage: "doc") }
             Button { naming = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
             Divider()
+            Button { syncingPhotos = true } label: { Label("Photo Sync…", systemImage: "arrow.triangle.2.circlepath") }
             Button { movingFromPhone = true } label: { Label("Move Photos off This Phone…", systemImage: "arrow.up.bin") }
         } label: {
             Image(systemName: "plus")
@@ -789,6 +792,7 @@ struct DriveMoveSheet: View {
     let keepOriginals: Bool
     @StateObject private var move = DriveMoveFromPhone()
     @ObservedObject private var uploads = DriveUploadQueue.shared
+    @ObservedObject private var sync = DrivePhotoSync.shared
     @Environment(\.dismiss) private var dismiss
     @State private var confirming = false
 
@@ -830,9 +834,11 @@ struct DriveMoveSheet: View {
                             Label(move.removable.count == 1 ? "Remove 1 from this phone" : "Remove \(move.removable.count) from this phone",
                                   systemImage: "trash")
                         }
-                        .disabled(move.removable.isEmpty || move.stillSending || move.copying != nil)
+                        // With photo sync on something is nearly always going, so
+                        // what Drive has already confirmed may go meanwhile.
+                        .disabled(move.removable.isEmpty || move.copying != nil || (move.stillSending && !sync.settings.on))
                     } footer: {
-                        Text(move.stillSending ? "Waiting for every copy to reach Drive first." : "Only photos Drive has confirmed it holds. Your phone asks before anything goes, and they stay in Recently Deleted for 30 days.")
+                        Text(move.stillSending && !sync.settings.on ? "Waiting for every copy to reach Drive first." : "Only photos Drive has confirmed it holds. Your phone asks before anything goes, and they stay in Recently Deleted for 30 days.")
                     }
                 } else {
                     Section {

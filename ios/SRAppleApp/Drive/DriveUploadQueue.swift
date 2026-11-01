@@ -467,6 +467,7 @@ final class DriveUploadQueue: ObservableObject {
             }
             landed = DriveLanding(count: landed.count + 1, ref: DriveRef(space: job.space, folder: job.folder))
             if !jobs.contains(where: { $0.isActive }) { SRHaptic.ok() }
+            trimStored()
         case .refused:
             removeStepFiles(job.id)
             cancelSession(job)
@@ -491,6 +492,18 @@ final class DriveUploadQueue: ObservableObject {
         persist()
     }
 
+    /// Photo sync sends a whole library through here: past this many, the
+    /// oldest files already safely stored leave the list (the ledger keeps
+    /// them), so the queue's file stays small.
+    static let keepStored = 200
+
+    private func trimStored() {
+        let stored = jobs.filter { $0.isSafelyStored }
+        guard stored.count > Self.keepStored else { return }
+        let gone = Set(stored.sorted { $0.createdAt < $1.createdAt }.prefix(stored.count - Self.keepStored).map(\.id))
+        jobs.removeAll { gone.contains($0.id) }
+    }
+
     fileprivate func eventsFinished() {
         // A next chunk still being copied out goes to the system first.
         guard preparing == 0 else {
@@ -502,7 +515,17 @@ final class DriveUploadQueue: ObservableObject {
         backgroundCompletion = nil
     }
 
-    // MARK: - "Move from phone"
+    // MARK: - "Move from phone" and photo sync
+
+    /// Photos Drive named as already holding (photo sync's check): written
+    /// down as an upload's 200 duplicate would be, in one write.
+    func recordKnown(_ found: [(assetId: String, fileId: String, space: DriveSpace)]) {
+        var next = ledger
+        for f in found { next = next.recordingKnown(assetId: f.assetId, fileId: f.fileId, space: f.space) }
+        guard next != ledger else { return }
+        ledger = next
+        Self.write(ledger, Self.ledgerFile)
+    }
 
     /// The library said these photos are gone.
     func markRemoved(_ assetIds: Set<String>) {

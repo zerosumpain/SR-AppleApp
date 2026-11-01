@@ -34,6 +34,14 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-02-photo-sync", when: "November 2026", title: "Your photos, kept in Drive", items: [
+            WhatsNewItem(icon: "arrow.triangle.2.circlepath", title: "Photo sync",
+                         detail: "Turn on Photo Sync from + in Drive and your photos and videos go to My files by themselves, in the background. New ones follow after you take them. Anything Drive already has is never sent twice."),
+            WhatsNewItem(icon: "checkmark.icloud", title: "See what's in Drive",
+                         detail: "Photo Sync shows how many of this phone's photos are in Drive, how many are on their way and how many are still to go. You can see the ones not there yet."),
+            WhatsNewItem(icon: "trash", title: "Free up space when you like",
+                         detail: "Nothing is removed from your phone by itself. When you want the space back, Remove from this phone takes only the photos Drive has confirmed it holds, and your phone asks first."),
+        ]),
         WhatsNewRelease(id: "2026-11-02-big-uploads", when: "November 2026", title: "Big videos into Drive", items: [
             WhatsNewItem(icon: "film.stack", title: "Big videos and photos go up",
                          detail: "Big videos and photos now upload, a piece at a time, and carry on where they left off, even if the signal drops or the app is shut. That works from Drive, the Share button and Shortcuts."),
