@@ -81,6 +81,21 @@ import Combine
         WatchBridge.shared.start(companion: companion)
         installQuickActions(application)
 
+        // Drive uploads: reconnect to the background session the system may
+        // have carried on with while the app was shut, and send what waits.
+        DriveUploadQueue.shared.start()
+        // And the processing window asked for when uploads were left
+        // waiting (no signal, the site busy): send them again.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: DriveUploadQueue.taskIdentifier, using: nil) { task in
+            Task { @MainActor in
+                DriveUploadQueue.shared.reconcile()
+                // The system's own session does the sending from here; the
+                // window only had to hand the files over.
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                task.setTaskCompleted(success: true)
+            }
+        }
+
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.com.appleapp.refresh", using: nil) { [weak self] task in
             Task { @MainActor in
                 guard let companion = self?.companion else { task.setTaskCompleted(success: false); return }
@@ -162,6 +177,19 @@ import Combine
             await companion?.sync()
         }
         return true
+    }
+
+    /// The system finished (or needs the app for) Drive's background
+    /// uploads while it was shut: the queue's delegate takes the events, and
+    /// calls this back when the last is in.
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == DriveUploadQueue.sessionIdentifier else {
+            completionHandler()
+            return
+        }
+        DriveUploadQueue.shared.backgroundCompletion = completionHandler
+        DriveUploadQueue.shared.start()
     }
 
     // MARK: - Notifications
@@ -357,6 +385,15 @@ import Combine
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
+        // "Saved invoice.pdf" (`url: sr://drive?space=…&folder=…&file=…`):
+        // the folder it was filed in, and the file's Info above it. The url
+        // is all a phone hiding notification details is sent.
+        if category == "drive" || (content.userInfo["url"] as? String)?.lowercased().hasPrefix("sr://drive") == true,
+           let link = DriveLink.from(userInfo: content.userInfo) {
+            Self.pending.driveLink = link
+            NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
+            return
+        }
         if category == "connections" {
             Self.pending.openConnections = true
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
@@ -448,6 +485,8 @@ import Combine
     var capture: CaptureLink?
     /// A jkai thread, from a tapped chat push.
     var chatThread: String?
+    /// A Drive folder or file, from a tapped "Saved …" push or "Open Drive".
+    var driveLink: DriveLink?
     var openAlerts = false
     var openConnections = false
     var daydreamCommission: String?
@@ -487,6 +526,11 @@ import Combine
         if let chatThread {
             router.openThread(chatThread)
             self.chatThread = nil
+            tab = nil
+        }
+        if let driveLink {
+            router.openDrive(driveLink)
+            self.driveLink = nil
             tab = nil
         }
         if let tab { router.show(tab) }
@@ -532,6 +576,8 @@ import Combine
                             if phase == .background {
                                 battery.sample()
                                 companion.scheduleRefresh()
+                                // Drive uploads left waiting: a window to send them.
+                                DriveUploadQueue.shared.scheduleBackgroundResume()
                                 // A deferred outbox removal (an accepted batch,
                                 // written lazily during a flush) must not ride
                                 // into a suspend unwritten.
