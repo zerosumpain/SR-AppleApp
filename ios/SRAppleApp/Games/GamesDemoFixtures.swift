@@ -23,9 +23,11 @@ import Foundation
 // the fake, and a reveal. Durable rooms: two Homestead games over days in
 // "Your games", one Alex's move and one waiting for Sam, and `paces` offering
 // Homestead over days. Azul: Alex's turn mid-round and a finished game
-// (`AzulDemoFixtures.swift`), with `screens` offering its TV board. The room stream has no
-// fixture and 404s, which is the fallback the room screen must survive: it
-// re-reads the snapshot.
+// (`AzulDemoFixtures.swift`). Codenames: a lobby, Alex as a spymaster with
+// the clue to give, Alex guessing as an operative, and a finished game
+// (`CodenamesDemoFixtures.swift`). `screens` offers the TV board for Azul,
+// Quiz Night and Codenames. The room stream has no fixture and 404s, which is
+// the fallback the room screen must survive: it re-reads the snapshot.
 
 extension SRDemoFixtures {
 
@@ -200,6 +202,7 @@ extension SRDemoFixtures {
                    \(storeShotsSkipsWordle ? "" : fakeArtistLobbyRows)
                    \(storeShotsSkipsWordle ? "" : plateLobbyRows)
                    \(storeShotsSkipsWordle ? "" : azulLobbyRows)
+                   \(storeShotsSkipsWordle ? "" : codenamesLobbyRows)
                    \(storeShotsSkipsWordle ? "" : fireworksLobbyRows)
                    \(storeShotsSkipsWordle ? "" : manhuntLobbyRows)
                    \(storeShotsSkipsWordle ? "" : categoriesLobbyRows)
@@ -216,7 +219,7 @@ extension SRDemoFixtures {
                    \(storeShotsSkipsWordle ? "" : homesteadLobbyRows)
                    {"id": \(s(demoMemoryRoom)), "game": "sequence-memory", "phase": "input", "hostName": "Sam"}],
          "paces": {"homestead": ["live", "async"], "hometowns": ["async"], "azul": ["live", "async"]},
-         "screens": ["azul"],
+         "screens": ["azul", "quiz-night", "codenames"],
          \(parentLobbies(now))
          "serverNow": \(ms(now))}
         """
@@ -257,6 +260,7 @@ extension SRDemoFixtures {
         if let homestead = homesteadRoom(id: id, clock: clock) { return homestead }
         if let county = hometownsRoom(id: id, clock: clock) { return county }
         if let azul = azulRoom(id: id, clock: clock) { return azul }
+        if let codenames = codenamesRoom(id: id, clock: clock) { return codenames }
         if id == demoWordleRoom { return wordleRoom(clock) }
         if id == demoQuizRoom { return quizRoom(reveal: false, clock: clock) }
         if id == demoQuizRevealRoom { return quizRoom(reveal: true, clock: clock) }

@@ -1229,6 +1229,7 @@ final class ShowcaseTests: XCTestCase {
             soft(byId(app, "quiz-option-3").exists, "fewer than four answers")
             soft(byId(app, "quiz-timer").exists, "no clock on the question")
             soft(byId(app, "quiz-answered").exists, "no row of who has answered")
+            soft(byId(app, "quiz-tv-toolbar").exists, "no Show on TV in the quiz")
             attach(app, "Showcase — Quiz Night, question")
             let answer = byId(app, "quiz-option-1")
             if answer.exists {
@@ -1821,6 +1822,88 @@ final class ShowcaseTests: XCTestCase {
             back(app)
         } else {
             soft(false, "no finished Azul")
+        }
+    }
+
+    /// Codenames: Alex's lobby (Show on TV first, the picks, both sides),
+    /// then Alex as red's spymaster — the key on the grid and the clue field,
+    /// with a word on the board refused before it is sent — then Alex
+    /// guessing for blue with a card lifted, and a finished game red won.
+    @MainActor func testShowcaseCodenames() {
+        let app = launch()
+        openTab(app, "Games")
+        settle(app, on: byId(app, "games-invite-g_demo_invite"))
+
+        let lobby = byId(app, "games-room-g_demo_codenames_lobby")
+        if scroll(app, to: lobby) {
+            lobby.tap()
+            settle(app, on: byId(app, "codenames-lobby"), seconds: 2)
+            soft(byId(app, "codenames-tv").exists, "no Show on TV in the lobby")
+            soft(byId(app, "codenames-mode").label.uppercased().contains("TWO TEAMS"), "the lobby does not say two teams")
+            soft(byId(app, "codenames-pick-red").exists, "no red pick")
+            soft(byId(app, "codenames-lobby-blue").exists, "no blue side")
+            soft(byId(app, "codenames-anywhere").exists, "nobody listed as anywhere")
+            attach(app, "Showcase — Codenames, lobby")
+            back(app)
+        } else {
+            soft(false, "no Codenames lobby to open")
+        }
+
+        let spy = byId(app, "games-room-g_demo_codenames_spy")
+        if scroll(app, to: spy) {
+            spy.tap()
+            settle(app, on: byId(app, "codenames-playing"), seconds: 2)
+            soft(byId(app, "codenames-headline").label.contains("Your clue"), "not my clue to give")
+            soft(byId(app, "codenames-grid").exists, "no grid")
+            soft(byId(app, "codenames-teams").exists, "no teams across the top")
+            soft(byId(app, "codenames-key-note").exists, "no note that I can see the key")
+            soft(byId(app, "codenames-history").exists, "no clue history")
+            attach(app, "Showcase — Codenames, the spymaster's key")
+            let field = byId(app, "codenames-clue-field")
+            if scroll(app, to: field) {
+                field.tap()
+                field.typeText("lanterns")
+                settle(app, on: byId(app, "codenames-clue-refusal"), seconds: 1)
+                soft(byId(app, "codenames-clue-refusal").label.contains("on the board"), "a word on the board was not refused")
+                attach(app, "Showcase — Codenames, a clue refused")
+            } else {
+                soft(false, "no clue field")
+            }
+            back(app)
+        } else {
+            soft(false, "no Codenames game as a spymaster")
+        }
+
+        let guess = byId(app, "games-room-g_demo_codenames_guess")
+        if scroll(app, to: guess) {
+            guess.tap()
+            settle(app, on: byId(app, "codenames-playing"), seconds: 2)
+            soft(byId(app, "codenames-clue").exists, "no clue banner")
+            soft(byId(app, "codenames-pass").exists, "no End turn")
+            let card = byId(app, "codenames-card-1")
+            if card.exists {
+                card.tap()
+                settle(app, on: byId(app, "codenames-confirm"), seconds: 1)
+                attach(app, "Showcase — Codenames, a card lifted")
+            } else {
+                soft(false, "no face-down card to lift")
+            }
+            back(app)
+        } else {
+            soft(false, "no Codenames game to guess in")
+        }
+
+        let finished = byId(app, "games-room-g_demo_codenames_done")
+        if scroll(app, to: finished) {
+            finished.tap()
+            settle(app, on: byId(app, "codenames-finished"), seconds: 2)
+            soft(byId(app, "codenames-outcome").exists, "no winner's banner")
+            soft(byId(app, "codenames-key").exists, "no key at the end")
+            soft(byId(app, "codenames-standings").exists, "no teams at the end")
+            attach(app, "Showcase — Codenames, finished")
+            back(app)
+        } else {
+            soft(false, "no finished Codenames")
         }
     }
 
