@@ -303,10 +303,10 @@ test('the household lane is answered from the received index, not a scan of ever
   // The exact SQL app.mjs's household GET runs on a paged (cursor-bearing)
   // request — the branch most likely to fall back to a scan + temp sort if
   // the index doesn't cover both the WHERE and the ORDER BY.
-  const sql = `SELECT l.user_id, l.id, l.recorded, l.payload, l.received, u.email FROM locations l JOIN users u ON u.id=l.user_id WHERE u.family=? AND u.sharing=1 AND (l.received > ? OR (l.received = ? AND (l.user_id > ? OR (l.user_id = ? AND l.id > ?)))) ORDER BY l.received, l.user_id, l.id LIMIT ?`;
-  const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('one', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 'alex', 'alex', 'a', 10);
+  const sql = `SELECT l.user_id, l.id, l.recorded, l.payload, l.received, u.email FROM locations l JOIN users u ON u.id=l.user_id WHERE u.family=? AND u.sharing=1 AND (l.received > ? OR (l.received = ? AND (l.user_id > ? OR (l.user_id = ? AND (l.recorded > ? OR (l.recorded = ? AND l.id > ?)))))) ORDER BY l.received, l.user_id, l.recorded, l.id LIMIT ?`;
+  const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('one', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 'alex', 'alex', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 'a', 10);
   const detail = plan.map(r => r.detail).join('\n');
-  assert.match(detail, /locations_received/, 'the household page query should use the received index, not scan locations by user_id alone');
+  assert.match(detail, /locations_received_recorded/, 'the household page query should use the received index, not scan locations by user_id alone');
   assert.doesNotMatch(detail, /USE TEMP B-TREE/, 'the ORDER BY should be satisfied by the index, not a temp sort');
 });
 
@@ -349,6 +349,38 @@ test('paging across the household lane returns every shared fix exactly once', a
   const tail = await request(`household?since=${encodeURIComponent(cursor)}&limit=2`, { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
   assert.deepEqual(tail.body.fixes, []);
   assert.equal(tail.body.more, false);
+});
+
+test('one upload\'s points page in the order they were recorded, whatever their ids', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  const at = i => new Date(Date.now() - (30 - i) * 1000).toISOString();
+  // Ids that sort against time, as random UUIDs do half the time.
+  const fixes = Array.from({ length: 6 }, (_, i) => householdFix(`z${9 - i}`, at(i)));
+  assert.equal((await request('sync', { method: 'POST', body: batch([], [...fixes].reverse()) })).status, 200);
+  const recorded = [];
+  let cursor = '';
+  for (let pages = 0; pages < 10; pages++) {
+    const { body } = await request(`household?since=${encodeURIComponent(cursor)}&limit=4`, { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+    recorded.push(...body.fixes.map(f => f.recorded));
+    cursor = body.cursor;
+    if (!body.more) break;
+  }
+  assert.deepEqual(recorded, fixes.map(f => f.recorded));
+  assert.match(cursor, /^v2\|/);
+});
+
+test('a cursor from before v2 still pages, sending that user\'s last group again rather than skipping any', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { method: 'PUT', body: { enabled: true } });
+  const at = i => new Date(Date.now() - (30 - i) * 1000).toISOString();
+  await request('sync', { method: 'POST', body: batch([], [householdFix('b', at(1)), householdFix('a', at(2))]) });
+  const all = (await request('household', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } })).body.fixes;
+  const legacy = `${all[0].received}|alex|b`;
+  const { status, body } = await request(`household?since=${encodeURIComponent(legacy)}`, { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } });
+  assert.equal(status, 200);
+  assert.deepEqual(body.fixes.map(f => f.id), ['b', 'a']);
+  assert.equal((await request('household?since=v2%7Cbroken', { user: null, headers: { Authorization: `Bearer ${HOUSEHOLD_TOKEN}` } })).status, 400);
 });
 
 test('a family member with sharing off is listed but contributes no fixes', async t => {
@@ -934,7 +966,7 @@ test('a push replaces the family: a person left out loses their view, another fa
   assert.equal((await request('household/view', { user: 'robin' })).body.view, null, 'legacy unversioned views are not served');
 });
 
-test('a view may carry the live sources SR-Main sends, validated and not stored', async t => {
+test('a view may carry the live sources SR-Main sends, and malformed ones are refused', async t => {
   const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
   const sources = [{ subject: 'sam', email: 'sam@example.test' }];
   const stored = await postViews(request, [{ email: 'alex@example.test', view: view('a1'), sources }]);
@@ -943,6 +975,46 @@ test('a view may carry the live sources SR-Main sends, validated and not stored'
   assert.equal((await request('household/view')).body.view.people[0].subject, 'a1');
   assert.equal((await postViews(request, [{ email: 'alex@example.test', view: view('x'), sources: 'sam' }])).status, 400);
   assert.equal((await postViews(request, [{ email: 'alex@example.test', view: view('x'), sources: [{ subject: 'sam' }] }])).status, 400);
+});
+
+test('the view lays a source\'s newest point over the pin SR-Main drew, and only a source\'s', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: true } });
+  const ago = m => new Date(Date.now() - m * 60_000).toISOString();
+  const person = (subject, at) => ({ subject, batteryPct: 50, lastSeenAt: at, position: { lat: 51, lon: -1, at } });
+  const pushed = { generatedAt: ago(1), people: [person('sam', ago(2)), person('robin', ago(2))] };
+  await request('sync', { user: 'sam', method: 'POST', body: batch([], [{ ...householdFix('s-new', ago(0.5), { lat: 51.2, lon: -1.2 }), battery: 41 }]) });
+  await postViews(request, [{ email: 'alex@example.test', view: pushed, sources: [{ subject: 'sam', email: 'SAM@example.test' }] }]);
+  const live = (await request('household/view')).body.view.people;
+  assert.deepEqual(live[0].position, { lat: 51.2, lon: -1.2, at: live[0].lastSeenAt });
+  assert.equal(live[0].batteryPct, 41);
+  assert.deepEqual(live[1], pushed.people[1], 'not a source: left as pushed');
+
+  // A point no newer than the pushed pin changes nothing.
+  await postViews(request, [{ email: 'alex@example.test', view: { ...pushed, people: [person('sam', ago(0))] }, sources: [{ subject: 'sam', email: 'sam@example.test' }] }]);
+  assert.equal((await request('household/view')).body.view.people[0].position.lat, 51);
+});
+
+test('a stale or imprecise point, or one from a person who stopped sharing, is not laid over the view', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: true } });
+  const ago = m => new Date(Date.now() - m * 60_000).toISOString();
+  const pushed = { generatedAt: ago(1), people: [{ subject: 'sam', batteryPct: 50, lastSeenAt: ago(60), position: { lat: 51, lon: -1, at: ago(60) } }] };
+  const sources = [{ subject: 'sam', email: 'sam@example.test' }];
+  const lat = async () => (await request('household/view')).body.view.people[0].position.lat;
+
+  await request('sync', { user: 'sam', method: 'POST', body: batch([], [householdFix('stale', ago(20), { lat: 52 })]) });
+  await postViews(request, [{ email: 'alex@example.test', view: pushed, sources }]);
+  assert.equal(await lat(), 51, 'older than the live window');
+
+  await request('sync', { user: 'sam', method: 'POST', body: batch([], [{ ...householdFix('vague', ago(1), { lat: 53 }), accuracy: 500 }]) });
+  assert.equal(await lat(), 51, 'too imprecise to move a pin');
+
+  await request('sync', { user: 'sam', method: 'POST', body: batch([], [householdFix('good', ago(0.5), { lat: 54 })]) });
+  assert.equal(await lat(), 54);
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: false } });
+  await postViews(request, [{ email: 'alex@example.test', view: pushed, sources }]);
+  assert.equal(await lat(), 51, 'sharing off: nothing laid over');
 });
 
 test('household views reject a malformed batch', async t => {

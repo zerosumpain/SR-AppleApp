@@ -26,11 +26,13 @@ export function openStore(path) {
       PRIMARY KEY(user_id, id));
     CREATE INDEX IF NOT EXISTS locations_user_time ON locations(user_id, recorded);
     -- The household lane (app.mjs GET /api/apple/household) pages ACROSS
-    -- users by (received, user_id, id) — locations_user_time above is led by
-    -- user_id, so it cannot answer that ORDER BY without a scan + temp sort.
-    -- id trails so the ORDER BY needs no temp b-tree, same trick as
-    -- health_user_received below.
-    CREATE INDEX IF NOT EXISTS locations_received ON locations(received, user_id, id);
+    -- users by (received, user_id, recorded, id) — locations_user_time above
+    -- is led by user_id, so it cannot answer that ORDER BY without a scan +
+    -- temp sort. recorded comes before id because every point in one upload
+    -- shares one received, and SR-Main skips a fix older than the last it
+    -- wrote: in id (random) order it kept a handful of each batch.
+    CREATE INDEX IF NOT EXISTS locations_received_recorded ON locations(received, user_id, recorded, id);
+    DROP INDEX IF EXISTS locations_received;
     CREATE INDEX IF NOT EXISTS health_user_kind_time ON health(user_id, kind, start);
     -- The export cursor pages by received (id trailing so its ORDER BY needs no
     -- temp sort) and earliest by start, neither led by kind.
@@ -111,6 +113,11 @@ export function openStore(path) {
   }
   if (!db.prepare('PRAGMA table_info(household_views)').all().some(c => c.name === 'revision')) {
     db.exec("ALTER TABLE household_views ADD COLUMN revision TEXT NOT NULL DEFAULT ''");
+  }
+  // Who in the view is a companion phone, from SR-Main: the view GET lays
+  // each one's newest point over the pushed position (live positions).
+  if (!db.prepare('PRAGMA table_info(household_views)').all().some(c => c.name === 'sources')) {
+    db.exec("ALTER TABLE household_views ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'");
   }
   if (!db.prepare('PRAGMA table_info(alerts)').all().some(c => c.name === 'revision')) {
     db.exec("ALTER TABLE alerts ADD COLUMN revision TEXT NOT NULL DEFAULT ''");
