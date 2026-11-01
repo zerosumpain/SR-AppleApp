@@ -587,6 +587,18 @@ struct AppleHealthScreen: View {
     @ObservedObject var location: LocationCollector
 
     private let groups = HealthCatalogue.groupOrder
+    /// Workout history: the date older workouts are re-sent from.
+    @State private var resendFrom = Calendar.current.date(from: DateComponents(year: 2021, month: 1, day: 1)) ?? .distantPast
+    @State private var confirmResend = false
+
+    /// Owner only: the re-send feeds the owner's own /health, and on any other
+    /// phone it would only fill a server with workouts nobody reads.
+    private var showsWorkoutHistory: Bool {
+        companion.profile?.owner == true
+            && HealthCatalogue.kinds(inGroups: outbox.state.healthEnabled).contains("workout")
+    }
+
+    private var workoutsReadFrom: Date { outbox.state.readStart(for: "workout") }
 
     var body: some View {
         List {
@@ -626,6 +638,48 @@ struct AppleHealthScreen: View {
                     .font(SR.Text.mono())
                     .foregroundStyle(SR.inkMuted)
                     .padding(.vertical, 4)
+            }
+
+            if showsWorkoutHistory {
+                Section {
+                    DatePicker(selection: $resendFrom, in: ...workoutsReadFrom, displayedComponents: .date) {
+                        Text("Re-send from")
+                            .font(SR.Text.body(16))
+                            .foregroundStyle(SR.ink)
+                    }
+                    .tint(SR.accent)
+                    .srGlassRow()
+                    .frame(minHeight: SR.tapTarget)
+
+                    Button {
+                        SRHaptic.tap()
+                        confirmResend = true
+                    } label: {
+                        SRRow(title: "Re-send older workouts",
+                              subtitle: "Workouts are read from \(workoutsReadFrom.formatted(date: .abbreviated, time: .omitted))",
+                              icon: "map")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(companion.busy || resendFrom >= workoutsReadFrom)
+                    .srGlassRow()
+                    .confirmationDialog("Re-send every workout since \(resendFrom.formatted(date: .abbreviated, time: .omitted))?",
+                                        isPresented: $confirmResend, titleVisibility: .visible) {
+                        Button("Re-send workouts") {
+                            let from = resendFrom
+                            Task { await companion.resendWorkouts(from: from) }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Each workout goes again with its route, heart rate and splits. Workouts already on the website are updated, not duplicated. Years of workouts take a while: it carries on in the background and resumes where it stopped.")
+                    }
+                } header: {
+                    SRSectionLabel(text: "Workout history")
+                } footer: {
+                    Text("Workouts from before this app was set up came through Health Auto Export, which often left out the route. Re-sending reads them from Apple Health again so their maps, heart rate and splits appear on the website.")
+                        .font(SR.Text.mono())
+                        .foregroundStyle(SR.inkMuted)
+                        .padding(.vertical, 4)
+                }
             }
 
             Section {

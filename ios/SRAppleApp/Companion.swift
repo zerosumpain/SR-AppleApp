@@ -178,6 +178,15 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             if enabled && !self.askingHealth { await self.authorizeHealth() } else { await self.refreshHealthReview() }
         }
     }
+    /// Settings → Apple Health → Workout history: read every workout since
+    /// `date` again, with its route, and start uploading them now.
+    func resendWorkouts(from date: Date) async {
+        do {
+            try health.resendWorkouts(from: date)
+            updateQueue()
+        } catch { message = error.localizedDescription; return }
+        await sync()
+    }
     /// Not `busy`: the sheet is the reader's, and the read and upload after
     /// it run beside a sync like any other flush (each has its own guard).
     func authorizeHealth() async {

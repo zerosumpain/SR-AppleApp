@@ -34,6 +34,11 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-01-workout-history", when: "November 2026", title: "Older workouts, with their maps", items: [
+            WhatsNewItem(icon: "map", title: "Re-send older workouts",
+                         detail: "Settings → Apple Health → Workout history sends your workouts again from a date you pick, each with its route, heart rate and splits, so older outings get their maps on the website.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-11-01-tray-home", when: "November 2026", title: "Tap again for Home", items: [
             WhatsNewItem(icon: "house", title: "Tap again for Home",
                          detail: "Tap the button for the page you're on, Family say, and you're back Home. Tap it again and you're back on Family."),
