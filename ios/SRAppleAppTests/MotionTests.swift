@@ -243,6 +243,7 @@ final class MotionTests: XCTestCase {
         XCTAssertTrue(state.gateEvents.isEmpty)
         XCTAssertTrue(state.location.motion.enabled, "GPS sleeps when still on every phone (John, 2026-10-15)")
         XCTAssertFalse(state.motionGateOn, "an old file is marked for the one-time switch-on")
+        XCTAssertFalse(state.liveCadenceOn, "and for the one-time faster cadence")
     }
 
     func testAPartialMotionBlobKeepsTheRestOfTheDefaults() throws {
@@ -252,7 +253,7 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(s.motion.sustainedWalk, 120)
         XCTAssertEqual(s.motion.stepBurst, 150, "unlisted fields must keep their defaults")
         XCTAssertEqual(s.motion.confidenceFloor, .medium)
-        XCTAssertEqual(s.movingInterval, 30, "and the settings around it are untouched")
+        XCTAssertEqual(s.movingInterval, 5, "and the settings around it are untouched")
     }
 
     func testAGateEventMissingEverythingStillDecodes() throws {

@@ -42,6 +42,17 @@ enum WhatsNew {
             WhatsNewItem(icon: "trash", title: "Free up space when you like",
                          detail: "Nothing is removed from your phone by itself. When you want the space back, Remove from this phone takes only the photos Drive has confirmed it holds, and your phone asks first."),
         ]),
+        WhatsNewRelease(id: "2026-11-01-workout-history", when: "November 2026", title: "Older workouts, with their maps", items: [
+            WhatsNewItem(icon: "map", title: "Re-send older workouts",
+                         detail: "Settings → Apple Health → Workout history sends your workouts again from a date you pick, each with its route, heart rate and splits, so older outings get their maps on the website.",
+                         ownerOnly: true),
+        ]),
+        WhatsNewRelease(id: "2026-11-01-tray-home", when: "November 2026", title: "Tap again for Home", items: [
+            WhatsNewItem(icon: "house", title: "Tap again for Home",
+                         detail: "Tap the button for the page you're on, Family say, and you're back Home. Tap it again and you're back on Family."),
+            WhatsNewItem(icon: "film.stack", title: "Incoming movies",
+                         detail: "Videos you add to Drive go into their own Incoming movies folder, next to Incoming photos. Both stay put and stand out at the top of your Drive."),
+        ]),
         WhatsNewRelease(id: "2026-11-02-big-uploads", when: "November 2026", title: "Big videos into Drive", items: [
             WhatsNewItem(icon: "film.stack", title: "Big videos and photos go up",
                          detail: "Big videos and photos now upload, a piece at a time, and carry on where they left off, even if the signal drops or the app is shut. That works from Drive, the Share button and Shortcuts."),

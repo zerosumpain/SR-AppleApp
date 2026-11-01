@@ -56,6 +56,9 @@ import UIKit
     /// The anchor's region identifier. One region, always replaced — iOS allows
     /// twenty per app and leaking them would quietly stop new ones registering.
     private static let anchorID = "sr.location.anchor"
+    /// How often a recorded point writes the queue to disk (see `record`).
+    private static let queueWriteEvery: TimeInterval = 5
+    private var lastQueueWrite = Date.distantPast
     /// Ignore SIGNIFICANT-CHANGE wakes for this long after arming.
     /// `startMonitoringSignificantLocationChanges` delivers a fix almost
     /// immediately, and without this the gate would wake itself the instant it
@@ -809,7 +812,15 @@ import UIKit
                                    battery: Self.batteryPercent(),
                                    bike: BikePresence.shared.connectedNow())
         do {
-            try outbox.change {
+            // A point a second in a car: the state file is the whole upload
+            // queue, so it is written at most every `queueWriteEvery`, as
+            // close tracking batches its commits. Killed in between costs
+            // those seconds; the flush that follows writes it anyway.
+            // Below car speed every point is written at once: the last points
+            // of a drive are the arrival, and a phone suspended there may be
+            // killed before any later write.
+            let persist = location.speed < settings.vehicleSpeed || Date().timeIntervalSince(lastQueueWrite) >= Self.queueWriteEvery
+            try outbox.change(persist: persist) {
                 $0.batches.append(UploadBatch(locations: [point]))
                 // What the drain bought. Counted here rather than derived from
                 // the queue, because the queue empties on upload.
@@ -817,6 +828,7 @@ import UIKit
                 $0.accuracySum += location.horizontalAccuracy
                 if $0.countingSince == nil { $0.countingSince = Date() }
             }
+            if persist { lastQueueWrite = Date() }
             if gate == .tracking {
                 status = moving
                     ? "Moving · target \(Int(settings.movingInterval))s"

@@ -112,6 +112,44 @@ final class HealthCatalogueTests: XCTestCase {
                        "a state file from before the catalogue must still migrate")
     }
 
+    func testWorkoutHistoryMovesOnlyTheWorkoutReadStart() {
+        var state = PersistedState()
+        state.historyStart = Date(timeIntervalSince1970: 1_790_000_000)
+        XCTAssertEqual(state.readStart(for: "workout"), state.historyStart, "no re-send asked for: workouts read like everything else")
+        let older = Date(timeIntervalSince1970: 1_609_459_200) // 1 Jan 2021
+        state.workoutHistoryStart = older
+        XCTAssertEqual(state.readStart(for: "workout"), older)
+        XCTAssertEqual(state.readStart(for: "heart_rate"), state.historyStart, "every other kind keeps its window")
+        // A date after historyStart can never narrow what workouts already read.
+        state.workoutHistoryStart = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(state.readStart(for: "workout"), state.historyStart)
+    }
+
+    func testWorkoutHistoryStartSurvivesTheStateFile() throws {
+        var state = PersistedState()
+        state.workoutHistoryStart = Date(timeIntervalSince1970: 1_609_459_200)
+        let decoded = try JSONDecoder().decode(PersistedState.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(decoded.workoutHistoryStart, state.workoutHistoryStart)
+        // A file from before it decodes without one, and an unreadable value
+        // costs the re-send, never the upload queue.
+        XCTAssertNil(try JSONDecoder().decode(PersistedState.self, from: Data("{}".utf8)).workoutHistoryStart)
+        let bad = try JSONDecoder().decode(PersistedState.self, from: Data(#"{"batches":[],"workoutHistoryStart":"soon"}"#.utf8))
+        XCTAssertNil(bad.workoutHistoryStart)
+    }
+
+    @MainActor func testResendingWorkoutsClearsOnlyTheWorkoutAnchor() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outbox = try Outbox(url: directory.appendingPathComponent("state.json"))
+        try outbox.change { $0.anchors = ["workout": Data([1]), "heart_rate": Data([2])] }
+        let collector = HealthCollector(outbox: outbox)
+        let from = Date(timeIntervalSince1970: 1_609_459_200)
+        try collector.resendWorkouts(from: from)
+        XCTAssertNil(outbox.state.anchors["workout"])
+        XCTAssertEqual(outbox.state.anchors["heart_rate"], Data([2]))
+        XCTAssertEqual(outbox.state.workoutHistoryStart, from)
+    }
+
     @MainActor func testRePairingDoesNotRerunTheMigration() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

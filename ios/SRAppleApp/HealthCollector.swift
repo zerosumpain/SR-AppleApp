@@ -174,6 +174,21 @@ private final class RouteGathering: @unchecked Sendable {
         }
     }
 
+    /// Re-read every workout since `date`, each WITH its route, series and
+    /// events, by moving the workout read start back and dropping the workout
+    /// anchor. Pages of ten commit their anchor as they upload, so a backfill
+    /// years long carries on across launches and background wakes. The
+    /// generation bump in `startObservers()` stops an in-flight pass
+    /// committing the anchor this just cleared — the same order `authorize()`
+    /// uses for the catalogue re-read.
+    func resendWorkouts(from date: Date) throws {
+        try outbox.change {
+            $0.workoutHistoryStart = date
+            $0.anchors.removeValue(forKey: "workout")
+        }
+        startObservers()
+    }
+
     // MARK: - The passes
 
     func collect(until deadline: Date) async throws {
@@ -238,7 +253,7 @@ private final class RouteGathering: @unchecked Sendable {
         while more, Date() < deadline {
             let anchorData = outbox.state.anchors[kind]
             let anchor = try anchorData.map { try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) } ?? nil
-            let (found, deleted, next) = try await changes(type: sampleType, anchor: anchor, limit: limit)
+            let (found, deleted, next) = try await changes(type: sampleType, kind: kind, anchor: anchor, limit: limit)
             guard live(), enabledKinds.contains(kind) else { return }
             try Task.checkCancellation()
             var records: [HealthRecord] = []
@@ -267,8 +282,8 @@ private final class RouteGathering: @unchecked Sendable {
         }
     }
 
-    private func changes(type: HKSampleType, anchor: HKQueryAnchor?, limit: Int) async throws -> ([HKSample], [HKDeletedObject], HKQueryAnchor?) {
-        let predicate = HKQuery.predicateForSamples(withStart: outbox.state.historyStart, end: nil)
+    private func changes(type: HKSampleType, kind: String, anchor: HKQueryAnchor?, limit: Int) async throws -> ([HKSample], [HKDeletedObject], HKQueryAnchor?) {
+        let predicate = HKQuery.predicateForSamples(withStart: outbox.state.readStart(for: kind), end: nil)
         return try await withCheckedThrowingContinuation { continuation in
             let query = HKAnchoredObjectQuery(type: type, predicate: predicate, anchor: anchor, limit: limit) { _, samples, deleted, next, error in
                 if let error { continuation.resume(throwing: error) }

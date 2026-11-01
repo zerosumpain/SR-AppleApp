@@ -228,11 +228,12 @@ struct SRTray: View {
     }
 
     /// Another place: its tab, as it was left. The place already showing:
-    /// back to its first page, as a tab bar does.
+    /// Home, so one button flips between Home and its place (John,
+    /// 2026-11-01). On More, pushed over that place, the place itself.
     private func choose(_ tab: Router.Tab) {
         SRHaptic.select()
         if router.tab == tab {
-            router.popToRoot(tab)
+            if place == .more { router.popToRoot(tab) } else { router.goHome() }
         } else {
             router.tab = tab
         }
