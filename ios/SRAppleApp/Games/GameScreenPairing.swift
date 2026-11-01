@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 // "Show on TV", for any game with a TV board — the games the lobby lists in
-// `screens` (today Azul). The TV opens strangeramblings.com/games/<game>,
+// `screens` (Azul, Quiz Night and Codenames). The TV opens strangeramblings.com/games/<game>,
 // which is public (a TV has no login) and shows four letters; somebody in the
 // room types them here, the phone posts `{action:"screen", code}` to the room,
 // and the site sends that TV a ticket for the room. The TV then follows the
@@ -195,12 +195,12 @@ struct GameScreenPairingSheet: View {
                     .font(SR.Text.display(24))
                     .foregroundStyle(SR.ink)
             }
-            Text("The TV shows this game now and follows it to the end. Every phone still shows the whole table.")
+            Text("The TV shows this game now and follows it to the end. Every phone plays on as before.")
                 .font(SR.Text.secondary())
                 .foregroundStyle(SR.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button { dismiss() } label: {
-                TableButtonLabel(title: "Back to the table", icon: "arrow.uturn.backward")
+                TableButtonLabel(title: "Back to the game", icon: "arrow.uturn.backward")
             }
             .buttonStyle(TableSolidButtonStyle())
             .accessibilityIdentifier("\(prefix)-tv-done")
