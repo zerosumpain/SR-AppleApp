@@ -117,6 +117,24 @@ final class Router: ObservableObject {
         tab = .today
     }
 
+    /// Drive at a place a link names — a tapped "Saved invoice.pdf", "Open
+    /// Drive" from a Shortcut, `sr://drive?…`. Lands on Home with the hub,
+    /// Drive's top and the folder stacked beneath, so Back walks up; a file
+    /// opens its Info above the folder. Somebody without Drive lands on Today.
+    func openDrive(_ link: DriveLink) {
+        guard AccessStore.shared.drive, !SRDemo.isOn else { show(.today); return }
+        // A deep link closes whatever modal was up — the alert it was read in.
+        sheet = nil
+        var path = NavigationPath()
+        path.append(HubRef())
+        path.append(DriveRef(space: link.space))
+        if !link.folder.isEmpty { path.append(DriveRef(space: link.space, folder: link.folder)) }
+        if let id = link.fileId { path.append(DriveFileRef(space: link.space, id: id)) }
+        today = path
+        hubHost = .today
+        tab = .today
+    }
+
     /// The hub, pushed onto the tab that is open: More, in the tray.
     func openHub() {
         hubHost = tab
@@ -400,6 +418,9 @@ struct ContentView: View {
     /// The reader's colours: a change rebuilds the tabs (see `.id` below).
     @ObservedObject private var palette = SRPaletteStore.shared
     @Environment(\.scenePhase) private var scenePhase
+    /// Files handed in from another app ("Open in SR"), waiting on the
+    /// reader's choice: into Drive, or to jkai.
+    @State private var incomingFiles: [URL] = []
 
     init(companion: Companion, outbox: Outbox, location: LocationCollector, battery: BatteryMonitor) {
         self.companion = companion
@@ -635,19 +656,20 @@ struct ContentView: View {
         }
         // A thread opened from Spotlight. The index carries the conversation id
         // as the item identifier, so this is a push rather than a search.
-        // A photo or document sent here from another app's Share sheet. The
-        // system copies it into this app's Inbox and hands over a file URL.
+        // A photo or document sent here from another app's Share sheet ("Open
+        // in SR"). The system copies it into this app's Inbox and hands over a
+        // file URL.
         //
-        // Not a share EXTENSION, which would be the richer version (web pages,
-        // text, a compose sheet without leaving the other app): an extension is
-        // a second target with its own bundle id and provisioning profile, and
-        // this app has exactly one — see the signing notes. A document type
-        // lives in the app target and needs nothing new from the portal.
+        // That is the document-type route, in the app target. The share
+        // EXTENSION (`SRAppleShare`, a target of its own with its own profile,
+        // minted by CI) is the other: links and text onto the backlog or a
+        // trip, and photos and files into Drive, without leaving the other app.
         //
         // The document types are in Info.plist and cannot change per person,
-        // so "Open in SR" stays on the Share sheet for everyone; somebody
-        // without chat has nowhere for a file to go, and it is dropped —
-        // including the copy iOS put in Inbox.
+        // so "Open in SR" stays on the Share sheet for everyone. With Drive the
+        // reader chooses: into Drive, or to jkai. Somebody with neither has
+        // nowhere for a file to go, and it is dropped — including the copy
+        // iOS put in Inbox.
         .onOpenURL { url in
             // sr://family/steps, sr://family/tasks — a widget tapped, or a link.
             if let page = FamilyPage.from(url: url) {
@@ -676,6 +698,12 @@ struct ContentView: View {
                 router.openThread(chat.conversationId)
                 return
             }
+            // sr://drive?space=…&folder=…&file=… — a saved-attachment push,
+            // "Open Drive" from a Shortcut, or a link.
+            if let drive = DriveLink.from(url: url), url.scheme?.lowercased() == "sr" {
+                router.openDrive(drive)
+                return
+            }
             // sr://pair?join=…&server=… — "Open SR" on the install page: the
             // link that put the app here connects the phone as its person.
             if let payload = PairingPayload.fromLink(url.absoluteString) {
@@ -683,12 +711,23 @@ struct ContentView: View {
                 return
             }
             guard url.isFileURL else { return }
-            guard access.allows(.chat) else {
+            let drive = access.drive && access.viewingAs == nil && !SRDemo.isOn
+            guard access.allows(.chat) || drive else {
                 if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
                 return
             }
-            router.share([url])
+            guard drive else {
+                router.share([url])
+                return
+            }
+            incomingFiles.append(url)
         }
+        .modifier(DriveIncomingChoice(
+            files: $incomingFiles,
+            chat: access.allows(.chat),
+            save: { files in Task { await saveIncomingToDrive(files) } },
+            ask: { files in router.share(files) }
+        ))
         // A notification tapped while the app is already open — a game invite
         // banner, most often. No scene-phase change comes with that, so
         // nothing else would drain what the delegate left waiting.
@@ -753,6 +792,22 @@ struct ContentView: View {
         ))
     }
 
+    /// "Open in SR" → Save to Drive: into the top of My files through the
+    /// upload queue, then Drive opened there. The Inbox copy is moved into
+    /// the queue, so nothing is left behind.
+    private func saveIncomingToDrive(_ urls: [URL]) async {
+        router.openDrive(DriveLink())
+        for url in urls {
+            let inbox = url.path.contains("/Inbox/")
+            let scoped = url.startAccessingSecurityScopedResource()
+            _ = try? await DriveUploadQueue.shared.enqueue(
+                url, consume: inbox, space: .mine, folder: "", filename: url.lastPathComponent,
+                mimeType: ChatUpload.mimeType(for: url), limit: DriveLogic.defaultMaxUpload
+            )
+            if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+    }
+
     /// Run the Games invite poll exactly while it can be useful: the scene is
     /// active, this person may play, and the site credential exists.
     private func syncGamesPoll() {
@@ -763,7 +818,8 @@ struct ContentView: View {
     /// while they may see the boards, gone the moment they may not.
     private func syncFamilyWidgets() {
         guard access.viewingAs == nil else { return }
-        FamilyWidgetBridge.sync(allowed: AccessPolicy.familyBoards(access.current, sitePaired: site.paired))
+        FamilyWidgetBridge.sync(allowed: AccessPolicy.shelvesCredential(access.current, sitePaired: site.paired),
+                                drive: AccessPolicy.drive(access.current, sitePaired: site.paired))
     }
 
     /// The step board or the task list, on whichever stack holds it.
@@ -959,8 +1015,10 @@ private extension View {
             .navigationDestination(for: SoloGameRef.self) { OfflineSoloScreen(kind: $0.kind) }
             // The Travel kit and its five tools, from the hub.
             .navigationDestination(for: TravelKitRef.self) { _ in TravelKitScreen() }
-            // Drive, from the hub: the top, and each folder pushed above it.
+            // Drive, from the hub: the top, and each folder pushed above it,
+            // and one file's Info above that.
             .navigationDestination(for: DriveRef.self) { DriveScreen(ref: $0).id($0) }
+            .navigationDestination(for: DriveFileRef.self) { DriveFileScreen(ref: $0).id($0) }
             .navigationDestination(for: TravelToolRef.self) { $0.screen }
             .navigationDestination(for: NewsStory.self) { NewsStoryScreen(story: $0) }
             .navigationDestination(for: FlowRef.self) { FlowDetailScreen(ref: $0).id($0.slug) }
