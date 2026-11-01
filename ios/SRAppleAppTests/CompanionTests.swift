@@ -9,8 +9,9 @@ final class CompanionTests: XCTestCase {
         XCTAssertFalse(policy.shouldRecord(at: start.addingTimeInterval(599), speed: 0, distance: 0, accuracy: 10))
         XCTAssertTrue(policy.shouldRecord(at: start.addingTimeInterval(600), speed: 0, distance: 0, accuracy: 10))
         XCTAssertTrue(policy.shouldRecord(at: start.addingTimeInterval(601), speed: 1, distance: 40, accuracy: 10))
-        XCTAssertFalse(policy.shouldRecord(at: start.addingTimeInterval(620), speed: 1, distance: 40, accuracy: 10))
-        XCTAssertTrue(policy.shouldRecord(at: start.addingTimeInterval(631), speed: 1, distance: 40, accuracy: 10))
+        // Moving on foot: a point every 5 s (John, 2026-11-01).
+        XCTAssertFalse(policy.shouldRecord(at: start.addingTimeInterval(604), speed: 1, distance: 40, accuracy: 10))
+        XCTAssertTrue(policy.shouldRecord(at: start.addingTimeInterval(606), speed: 1, distance: 40, accuracy: 10))
         XCTAssertTrue(policy.shouldRecord(at: start.addingTimeInterval(811), speed: 0, distance: 0, accuracy: 10))
         XCTAssertFalse(policy.moving)
     }
@@ -108,7 +109,7 @@ final class CompanionTests: XCTestCase {
     }
     /// The sync at open and the Family store share a `household/view` read
     /// made seconds ago, and never one older than `viewReuse` — the Family
-    /// tab's 15 s poll always asks the server.
+    /// tab's polls (5 s while someone moves) always ask the server.
     @MainActor func testAHouseholdViewIsReusedForSecondsOnly() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -116,9 +117,9 @@ final class CompanionTests: XCTestCase {
         let read = Date(timeIntervalSince1970: 100000)
         XCTAssertNil(companion.reusableView(now: read), "nothing read yet")
         companion.noteView(HouseholdViewResponse(view: nil, updated: "2026-10-22T08:00:00.000Z"), at: read)
-        XCTAssertEqual(companion.reusableView(now: read.addingTimeInterval(9))?.updated, "2026-10-22T08:00:00.000Z")
+        XCTAssertEqual(companion.reusableView(now: read.addingTimeInterval(3))?.updated, "2026-10-22T08:00:00.000Z")
         XCTAssertNil(companion.reusableView(now: read.addingTimeInterval(Companion.viewReuse)))
-        XCTAssertLessThan(Companion.viewReuse, 15, "shorter than the Family tab's poll")
+        XCTAssertLessThan(Companion.viewReuse, 5, "shorter than the Family tab's live poll")
         // Losing the pairing forgets it.
         companion.noteView(HouseholdViewResponse(view: nil, updated: nil))
         companion.forgetAfterAccountDeletion()
