@@ -151,6 +151,8 @@ targets:
       # own upload, folder fetch and folder picker (no app types in either).
       - path: SRAppleApp/Drive/DriveModels.swift
       - path: SRAppleApp/Drive/DriveShared.swift
+      # Big files a piece at a time: the same session steps as the app's queue.
+      - path: SRAppleApp/Drive/DriveChunks.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID).share

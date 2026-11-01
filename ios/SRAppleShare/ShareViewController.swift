@@ -16,7 +16,8 @@ import UniformTypeIdentifiers
 // Or — photos, videos and files — into Drive ("Save to Drive"): My files or
 // the family's Shared folder, and a folder in it, for whoever the app has
 // shelved as having Drive (DriveShared.swift). Each file is read to disk and
-// streamed up from there, never held in memory.
+// streamed up from there, never held in memory — a big one a piece at a
+// time (DriveChunks.swift), each piece copied out a megabyte at a time.
 //
 // An extension is killed for memory or slowness long before an app is, so
 // it stays thin: no page reads, one request per thing sent.
@@ -94,7 +95,12 @@ final class ShareModel: ObservableObject {
     @Published var files: [SharedFile] = []
     /// The most the site takes per file, once a listing has said.
     @Published var maxUploadBytes = DriveLogic.defaultMaxUpload
+    /// The most a file may be sent a piece at a time; nil when the site
+    /// takes no big uploads.
+    @Published var maxLargeUploadBytes: Int?
     @Published var sent = 0
+    /// A big file on its way: the bytes the site holds, of its size.
+    @Published var bigProgress: (held: Int, of: Int)?
 
     var driveAllowed: Bool { DriveShelf.allowed }
 
@@ -209,6 +215,7 @@ final class ShareModel: ObservableObject {
     func loadDriveLimit() async {
         guard !files.isEmpty, driveAllowed, let listing = await DriveFolderFetch.list(space: driveSpace, folder: "") else { return }
         maxUploadBytes = listing.maxUploadBytes
+        maxLargeUploadBytes = listing.maxLargeUploadBytes
     }
 
     func loadPeople() async {
@@ -240,6 +247,9 @@ final class ShareModel: ObservableObject {
     /// One line under the headline for files: their size together.
     var filesDetail: String? {
         guard !files.isEmpty else { return nil }
+        if phase == .sending, let big = bigProgress {
+            return "\(DriveLogic.size(big.held)) of \(DriveLogic.size(big.of)) sent"
+        }
         return DriveLogic.size(files.reduce(0) { $0 + $1.bytes })
     }
 
@@ -306,16 +316,28 @@ final class ShareModel: ObservableObject {
     private func sendToDrive() async {
         let space = driveSpace
         let folder = driveFolder
-        if let big = files.first(where: { DriveLogic.tooLarge($0.bytes, limit: maxUploadBytes) != nil }),
-           let refusal = DriveLogic.tooLarge(big.bytes, limit: maxUploadBytes) {
-            phase = .failed("\(big.name): \(refusal) Nothing was sent.")
-            return
+        for file in files {
+            if case .refused(let refusal) = DriveChunks.route(size: file.bytes, single: maxUploadBytes, large: maxLargeUploadBytes) {
+                phase = .failed("\(file.name): \(refusal) Nothing was sent.")
+                return
+            }
         }
         phase = .sending
         sent = 0
         var duplicates = 0
         for file in files {
-            switch await DriveSharePost.upload(fileURL: file.url, space: space, folder: folder, filename: file.name, type: file.type) {
+            let outcome: DriveSharePost.Outcome
+            if DriveChunks.route(size: file.bytes, single: maxUploadBytes, large: maxLargeUploadBytes) == .chunked {
+                bigProgress = (0, file.bytes)
+                outcome = await DriveChunkedPost.upload(fileURL: file.url, size: file.bytes, space: space, folder: folder,
+                                                        filename: file.name, type: file.type) { [weak self] held in
+                    self?.bigProgress = (held, file.bytes)
+                }
+                bigProgress = nil
+            } else {
+                outcome = await DriveSharePost.upload(fileURL: file.url, space: space, folder: folder, filename: file.name, type: file.type)
+            }
+            switch outcome {
             case .stored(_, let duplicate):
                 sent += 1
                 if duplicate { duplicates += 1 }
