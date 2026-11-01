@@ -34,6 +34,14 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-10-31-azul", when: "October 2026", title: "Azul", items: [
+            WhatsNewItem(icon: "square.grid.3x3.topleft.filled", title: "A new game for two to four",
+                         detail: "Take every tile of one colour, fill your lines and tile your wall. Whatever doesn't fit falls to the floor and costs you. Play in one sitting or a turn a day."),
+            WhatsNewItem(icon: "iphone", title: "The whole table on every phone",
+                         detail: "Everyone's board is on your phone, so nobody needs to crowd round one screen. Tap a tile and the lines it can go on light up, with how many fit."),
+            WhatsNewItem(icon: "tv", title: "Or on the TV",
+                         detail: "Open strangeramblings.com/games/azul on the TV, tap Show on TV in the game and type the four letters it shows."),
+        ]),
         WhatsNewRelease(id: "2026-10-30-hometowns-polish", when: "October 2026", title: "A town worth a closer look", items: [
             WhatsNewItem(icon: "building.2", title: "Hometowns, redrawn",
                          detail: "Every house, shop, office and factory is drawn properly now: windows, roofs, awnings, chimneys and gardens. Roads have markings and crossings, forests have trees, and cars drive round the streets."),

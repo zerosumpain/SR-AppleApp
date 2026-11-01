@@ -100,6 +100,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         "liars-dice": .party,
         "chess": .strategy,
         "homestead": .strategy,
+        "azul": .strategy,
         "hometowns": .strategy,
         "fireworks": .strategy,
         "pass-the-plate": .strategy,

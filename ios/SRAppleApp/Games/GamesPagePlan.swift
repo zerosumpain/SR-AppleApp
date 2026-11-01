@@ -68,6 +68,7 @@ enum GamesTileMotif: String, CaseIterable {
         "fireworks": .sparkles,
         "manhunt": .map,
         "homestead": .map,
+        "azul": .grid,
         "hometowns": .map,
         "lander": .hills,
         "car-race": .track,
@@ -107,11 +108,12 @@ enum GamesPagePlan {
     static let phoneFilter = "phone"
     static let familyFilter = "family"
 
-    /// The games added to the phone in the autumn 2026 overhaul. Each says
-    /// NEW on its tile until it is first played, or until February.
+    /// The games added to the phone in the autumn 2026 overhaul, and Azul
+    /// after it. Each says NEW on its tile until it is first played, or until
+    /// February.
     static let newGames: Set<String> = [
         "car-racer-plus", "mini-golf", "pinball", "tilt-maze", "orbit",
-        "solitaire", "merge-2048", "minesweeper", "snake",
+        "solitaire", "merge-2048", "minesweeper", "snake", "azul",
     ]
 
     /// 2027-02-01 00:00 UTC: a NEW badge older than this is no longer news.
@@ -162,6 +164,7 @@ enum GamesPagePlan {
         case "fireworks": return (2, 5)
         case "manhunt": return (3, 8)
         case "homestead": return (3, 5)
+        case "azul": return (2, 4)
         case "hometowns": return (1, 6)
         case "liars-dice": return (2, 5)
         case "draw-guess": return (2, 5)

@@ -536,11 +536,13 @@ struct GamesScreen: View {
         }
     }
 
-    /// Hometowns is offered only once the site plays it (its lobby lists the
-    /// game's paces): family phones pick up an app build before the server
-    /// release, and a county the server refuses to start is a dead tile.
+    /// Hometowns and Azul are offered only once the site plays them (its
+    /// lobby lists the game's paces): family phones pick up an app build
+    /// before the server release, and a game the server refuses to start is
+    /// a dead tile.
     private func offered(_ kind: GameKind) -> Bool {
-        kind != .hometowns || store.lobby?.paces[GameKind.hometowns.rawValue] != nil
+        guard kind == .hometowns || kind == .azul else { return true }
+        return store.lobby?.paces[kind.rawValue] != nil
     }
 
     /// "2 waiting on you" beside "Your games", when durable games wait on me.
@@ -1134,6 +1136,8 @@ struct NewGameSheet: View {
     @State private var fakeRounds = 3
     // Homestead: the island size, as an index of `HomesteadSettings.islands`.
     @State private var homesteadIsland = 0
+    // Azul: phones only, or a TV board too.
+    @State private var azulTable: AzulTable = .phones
     // Hometowns: the county's name, rivalry, Regional Day hour and mishaps.
     @State private var county = HometownsCountySetup()
     // Draw & Guess.
@@ -1218,6 +1222,10 @@ struct NewGameSheet: View {
 
                     if game == .homestead {
                         homesteadSettings
+                    }
+
+                    if game == .azul {
+                        azulSettings
                     }
 
                     if game == .hometowns {
@@ -1430,6 +1438,9 @@ struct NewGameSheet: View {
             return HomesteadSettings(difficulty: difficulty, island: HomesteadSettings.island(at: homesteadIsland))
                 .createBody(invite: invite)
         }
+        if game == .azul {
+            return AzulSettings(difficulty: difficulty, table: azulTable).createBody(invite: invite)
+        }
         if game == .hometowns {
             var create = CreateGameBody(game: game.rawValue, difficulty: GameDifficulty.easy.rawValue, invite: invite)
             var setup = county
@@ -1452,6 +1463,7 @@ struct NewGameSheet: View {
         case .fireworks: return FireworksRules.sheetTrailing
         case .manhunt: return "Invite 2+"
         case .homestead: return "Invite 2+"
+        case .azul: return AzulRules.sheetTrailing
         case .hometowns: return "Solo or up to 6"
         default: return "Solo"
         }
@@ -1476,6 +1488,8 @@ struct NewGameSheet: View {
             return "Nobody else in the family can play yet, and Manhunt needs a runner and two hunters. The lobby can wait for people to pair phones."
         case .homestead:
             return "Nobody else in the family can play yet, and Homestead needs three. The lobby can wait for people to pair phones."
+        case .azul:
+            return AzulRules.sheetNobody
         case .hometowns:
             return "Nobody else in the family can play yet, so this is a county of one — a real game. Invite people later from the lobby."
         default:
@@ -1502,6 +1516,8 @@ struct NewGameSheet: View {
             return "Manhunt is for three to eight, outdoors: invite at least two. The lobby waits for them to join, and you can ask more in from there."
         case .homestead:
             return "Homestead is for three to five: invite at least two. Play in one sitting, or over days a turn at a time. The lobby waits for them to join."
+        case .azul:
+            return AzulRules.sheetPick
         case .hometowns:
             return "A county is for one to six mayors, one town each. Only a parent can start it. The lobby waits for whoever you invite; you can start on your own."
         default:
@@ -1721,6 +1737,27 @@ struct NewGameSheet: View {
                 .foregroundStyle(SR.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("games-homestead-line")
+        }
+    }
+
+    /// Azul: phones only, or the table on a TV board too — and that the TV
+    /// is optional, since every phone shows the whole table either way.
+    private var azulSettings: some View {
+        VStack(alignment: .leading, spacing: SR.cardGap) {
+            SRSectionLabel(text: "Table")
+            ForEach(AzulTable.allCases) { table in
+                choice(
+                    title: table.label,
+                    line: table.line,
+                    selected: azulTable == table,
+                    id: "games-azul-table-\(table.rawValue)"
+                ) { azulTable = table }
+            }
+            Text(AzulRules.tableNote)
+                .font(SR.Text.mono())
+                .foregroundStyle(SR.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("games-azul-table-line")
         }
     }
 
