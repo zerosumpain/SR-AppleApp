@@ -290,9 +290,12 @@ export function touchCredential(db, credentialHash, telemetry, now = Date.now())
     t.osVersion ?? null, t.deviceModel ?? null, t.deviceName ?? null, credentialHash);
 }
 
-/** Independent of new uploads: abandoned devices cannot defeat retention. */
+/**
+ * Independent of new uploads: abandoned devices cannot defeat retention.
+ * Locations are NOT pruned: the history is kept until its owner deletes it
+ * (the owner's decision, 2026-11-01). Alerts, views and credentials still expire.
+ */
 export function pruneStore(db, now = Date.now()) {
-  db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(now - 30 * 86400000).toISOString());
   db.prepare('DELETE FROM alerts WHERE created<?').run(new Date(now - 7 * 86400000).toISOString());
   db.prepare('DELETE FROM household_views WHERE updated<?').run(new Date(now - 5 * 60000).toISOString());
   db.prepare('DELETE FROM credentials WHERE expires<?').run(now);

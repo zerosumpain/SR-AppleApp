@@ -10,9 +10,10 @@ import { KINDS, catalogue, validateHealthRecord } from './catalogue.mjs';
 import { exportPage } from './export.mjs';
 import { createDoorbell } from './doorbell.mjs';
 /**
- * How long a location history is kept, in days. Enforced by the prune in
- * `sync`, reported by `track` so the day strip can draw the right number of
- * columns — one constant rather than a 30 written in two places that drift.
+ * How many days `track` returns at most, reported (as `retentionDays`, the
+ * name clients read) so the day strip can draw the right number of columns.
+ * A view window only: location history is kept until its owner deletes it
+ * (2026-11-01); nothing prunes it by age.
  */
 const RETENTION_DAYS = 30;
 /**
@@ -904,9 +905,8 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
             if (row.kind === 'workout') db.prepare("DELETE FROM health WHERE user_id=? AND kind IN ('workout_route','workout_series') AND json_extract(payload,'$.workout')=?").run(auth.user_id, id);
           }
           for (const r of locations) db.prepare('INSERT OR IGNORE INTO locations VALUES (?,?,?,?,?)').run(auth.user_id, r.id, r.recorded, JSON.stringify(r), received);
-          // Location history is deliberately bounded; family API exposes latest
-          // only, and `track` exposes this window to its owner and nobody else.
-          db.prepare('DELETE FROM locations WHERE recorded<?').run(new Date(Date.now() - RETENTION_DAYS * 86400000).toISOString());
+          // Location history is kept until its owner deletes it; the family API
+          // exposes the latest point only, and `track` a window to its owner alone.
           db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
         if ((health.length || body.deleted.length) && ownerId && auth.user_id === ownerId) ring();

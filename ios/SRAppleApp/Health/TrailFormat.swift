@@ -242,7 +242,7 @@ enum ActivityOrigin {
     static func explanation(_ key: String) -> String? {
         switch self.key(key) {
         case "apple": return "Recorded as a workout by the Watch or phone and sent to the site through Apple Health."
-        case "companion": return "Captured in the background by the SR app's movement tracking — no workout was started. The type is inferred from speed, there is no elevation, and the app keeps location for 30 days."
+        case "companion": return "Captured in the background by the SR app's movement tracking — no workout was started. The type is inferred from speed, there is no elevation, and the app keeps location until you delete it."
         case "recorded": return "Recorded live with the site's own recorder."
         case "imported": return "Imported activity history."
         case "whoop": return "Recorded by WHOOP and synced to the site."
