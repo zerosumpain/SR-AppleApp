@@ -202,6 +202,13 @@ enum AccessPolicy {
         (access.owner || access.drive) && sitePaired
     }
 
+    /// Whether the shared Keychain shelf holds the site credential: for the
+    /// family widgets' boards, or for "Save to Drive" in the share extension —
+    /// so a Drive-only member can share into Drive too.
+    static func shelvesCredential(_ access: AppAccess, sitePaired: Bool) -> Bool {
+        familyBoards(access, sitePaired: sitePaired) || drive(access, sitePaired: sitePaired)
+    }
+
     /// How often a member phone re-asks for a pairing code.
     static let pairRequestInterval: TimeInterval = 300
 
