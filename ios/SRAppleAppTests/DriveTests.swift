@@ -426,4 +426,294 @@ final class DriveLogicTests: XCTestCase {
         XCTAssertTrue(DriveLogic.intelSettled("done"))
         XCTAssertFalse(DriveLogic.intelSettled("pending"))
     }
+
+    // MARK: - Big files, a piece at a time
+
+    private let mib = 1_048_576
+    private let sid = "0123456789abcdef0123456789abcdef"
+
+    private func json(_ text: String) -> Data { Data(text.utf8) }
+
+    private func bigJob(asset: String? = "A9") -> DriveUploadJob {
+        var j = DriveUploadJob(id: "big", space: .mine, folder: "Films", filename: "IMG_0002.MOV", mimeType: "video/quicktime",
+                               sizeBytes: 20 * mib + 5, sha256: String(repeating: "c", count: 64), takenAt: nil,
+                               staged: "big.MOV", assetId: asset, createdAt: Date(timeIntervalSince1970: 0))
+        j.chunked = DriveChunkState()
+        return j
+    }
+
+    private func session(received: Int = 0) -> Data {
+        json(#"{"uploadId":"\#(sid)","chunkBytes":8388608,"received":\#(received),"size":20971525,"expiresAt":"x"}"#)
+    }
+
+    private var fileJSON: String {
+        #"{"id":"f9","name":"IMG_0002.MOV","path":"Films/IMG_0002.MOV","mimeType":"video/quicktime","sizeBytes":20971525,"createdAt":"x","updatedAt":"x","mine":true,"addedBy":null,"canDelete":true}"#
+    }
+
+    func testTheChunkPlanCoversTheFileOnceWithAShortLastPiece() {
+        let size = 20 * mib + 5
+        let chunk = DriveChunks.chunkBytes
+        XCTAssertEqual(DriveChunks.offsets(size: size, chunkBytes: chunk), [0, 8 * mib, 16 * mib])
+        XCTAssertEqual(DriveChunks.length(offset: 0, size: size, chunkBytes: chunk), 8 * mib)
+        XCTAssertEqual(DriveChunks.length(offset: 16 * mib, size: size, chunkBytes: chunk), 4 * mib + 5)
+        XCTAssertEqual(DriveChunks.length(offset: size, size: size, chunkBytes: chunk), 0)
+        XCTAssertEqual(DriveChunks.offsets(size: size, chunkBytes: chunk).map {
+            DriveChunks.length(offset: $0, size: size, chunkBytes: chunk)
+        }.reduce(0, +), size)
+        XCTAssertEqual(DriveChunks.offsets(size: 16 * mib, chunkBytes: chunk), [0, 8 * mib], "an exact fit has no empty last piece")
+        XCTAssertEqual(DriveChunks.offsets(size: size, chunkBytes: chunk, from: 9 * mib), [9 * mib, 17 * mib], "resumes from what the site holds")
+    }
+
+    func testABigFileGoesInPiecesOnlyWhereTheSiteTakesThem() {
+        let single = 30 * mib
+        let large = 4 * 1024 * mib
+        XCTAssertEqual(DriveChunks.route(size: single, single: single, large: large), .single)
+        XCTAssertEqual(DriveChunks.route(size: single + 1, single: single, large: large), .chunked)
+        XCTAssertEqual(DriveChunks.route(size: large, single: single, large: large), .chunked)
+        guard case .refused(let old) = DriveChunks.route(size: single + 1, single: single, large: nil) else {
+            return XCTFail("an older site takes no big files")
+        }
+        XCTAssertTrue(old.contains("the most is"), old)
+        XCTAssertEqual(DriveChunks.route(size: large + 1, single: single, large: large),
+                       .refused("That is 4.1 GB — the most Drive can take is 4 GB."))
+        XCTAssertEqual(DriveChunks.gigabytes(1536 * mib), "1.5 GB")
+        XCTAssertEqual(DriveChunks.gigabytes(4 * 1024 * mib), "4 GB")
+    }
+
+    func testASessionGoesFromStartToStoredSafely() {
+        var j = bigJob().started()
+        XCTAssertEqual(j.chunked?.step, .create)
+        j = j.finished(status: 201, body: session(), transportError: nil)
+        XCTAssertEqual(j.state, .sending)
+        XCTAssertEqual(j.chunked?.uploadId, sid)
+        XCTAssertEqual(j.chunked?.step, .put(offset: 0))
+        for received in [8 * mib, 16 * mib] {
+            j = j.finished(status: 200, body: json(#"{"received":\#(received)}"#), transportError: nil)
+            XCTAssertEqual(j.chunked?.step, .put(offset: received))
+            XCTAssertEqual(j.sentBytes, received)
+            XCTAssertFalse(j.isSafelyStored)
+        }
+        j = j.finished(status: 200, body: json(#"{"received":20971525}"#), transportError: nil)
+        XCTAssertEqual(j.chunked?.step, .complete)
+        XCTAssertFalse(j.isSafelyStored, "every byte sent is not yet a file")
+        j = j.finished(status: 201, body: json(#"{"file":\#(fileJSON),"duplicate":false}"#), transportError: nil)
+        XCTAssertEqual(j.state, .stored(fileId: "f9", duplicate: false, safe: true))
+        XCTAssertEqual(DriveMoveLedger().recording(j).entries.map(\.assetId), ["A9"])
+    }
+
+    func testOnlyACompleteOrADuplicateProvesABigFileIsHeld() {
+        // The session's start finding these bytes already there.
+        let dup = bigJob().started().finished(status: 200, body: json(#"{"file":\#(fileJSON),"duplicate":true}"#), transportError: nil)
+        XCTAssertEqual(dup.state, .stored(fileId: "f9", duplicate: true, safe: true))
+        // A 200 file that does not say duplicate proves nothing.
+        let unproven = bigJob().started().finished(status: 200, body: json(#"{"file":\#(fileJSON)}"#), transportError: nil)
+        XCTAssertFalse(unproven.isSafelyStored)
+        // A started session, accepted chunks: never in the ledger.
+        var j = bigJob().started().finished(status: 201, body: session(), transportError: nil)
+        j = j.finished(status: 200, body: json(#"{"received":20971525}"#), transportError: nil)
+        XCTAssertTrue(DriveMoveLedger().recording(j).entries.isEmpty)
+        // A complete 200 without duplicate: stored, not safe.
+        let odd = j.finished(status: 200, body: json(#"{"file":\#(fileJSON),"duplicate":false}"#), transportError: nil)
+        XCTAssertFalse(odd.isSafelyStored)
+        XCTAssertTrue(DriveMoveLedger().recording(odd).entries.isEmpty)
+    }
+
+    func testA409CarriesOnFromWhatTheSiteHolds() {
+        let s = DriveChunkState(step: .put(offset: 8 * mib), uploadId: sid, received: 8 * mib)
+        let size = 20 * mib + 5
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 409, body: json(#"{"error":"x","received":16777216}"#), transportError: nil),
+                       .next(DriveChunkState(step: .put(offset: 16 * mib), uploadId: sid, received: 16 * mib), progressed: true))
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 409, body: json(#"{"error":"x","received":0}"#), transportError: nil),
+                       .next(DriveChunkState(step: .put(offset: 0), uploadId: sid, received: 0), progressed: false),
+                       "the site holding less: back to where it is")
+        // The same offset: another send to this session is still going.
+        guard case .failed(_, let busy) = DriveChunks.answer(s, size: size, status: 409, body: json(#"{"received":8388608}"#), transportError: nil) else {
+            return XCTFail("a concurrent send waits")
+        }
+        XCTAssertEqual(busy.step, .status)
+        // No received at all: ask.
+        guard case .failed(_, let ask) = DriveChunks.answer(s, size: size, status: 409, body: nil, transportError: nil) else {
+            return XCTFail("a bare 409 asks")
+        }
+        XCTAssertEqual(ask.step, .status)
+    }
+
+    func testAStatusAnswerResumesTheSession() {
+        let s = DriveChunkState(step: .status, uploadId: sid, received: 0)
+        let size = 20 * mib + 5
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 200, body: json(#"{"uploadId":"\#(sid)","received":8388608,"size":20971525,"chunkBytes":8388608,"status":"uploading"}"#), transportError: nil),
+                       .next(DriveChunkState(step: .put(offset: 8 * mib), uploadId: sid, received: 8 * mib), progressed: true))
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 200, body: json(#"{"received":20971525,"chunkBytes":8388608}"#), transportError: nil),
+                       .next(DriveChunkState(step: .complete, uploadId: sid, received: size), progressed: true),
+                       "every byte there, no status from an older Drive: complete")
+    }
+
+    func testALostSessionStartsAgainOnceThenWaits() {
+        let size = 20 * mib + 5
+        let s = DriveChunkState(step: .put(offset: 8 * mib), uploadId: sid, received: 8 * mib)
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 404, body: nil, transportError: nil),
+                       .next(DriveChunkState(step: .create, restarts: 1), progressed: false))
+        var again = s
+        again.restarts = 1
+        guard case .failed(_, let fresh) = DriveChunks.answer(again, size: size, status: 404, body: nil, transportError: nil) else {
+            return XCTFail("a second loss waits")
+        }
+        XCTAssertNil(fresh.uploadId, "the next go starts a new session")
+        XCTAssertEqual(fresh.step, .create)
+    }
+
+    func testCompleteAnswering202IsPolledUntilDone() {
+        let size = 20 * mib + 5
+        let s = DriveChunkState(step: .complete, uploadId: sid, received: size)
+        let storing = DriveChunkState(step: .storing(polls: 0), uploadId: sid, received: size)
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 202, body: json(#"{"status":"storing","received":20971525,"size":20971525}"#), transportError: nil),
+                       .next(storing, progressed: false))
+        // Still storing: asked again, a little later each time.
+        XCTAssertEqual(DriveChunks.answer(storing, size: size, status: 200, body: json(#"{"status":"storing","received":20971525}"#), transportError: nil),
+                       .next(DriveChunkState(step: .storing(polls: 1), uploadId: sid, received: size), progressed: false))
+        XCTAssertEqual((0...6).map(DriveChunks.pollDelay), [3, 6, 9, 12, 15, 15, 15])
+        XCTAssertEqual(DriveChunks.request(storing, space: .shared)?.method, "GET")
+        // Done with a file: stored, safe.
+        XCTAssertEqual(DriveChunks.answer(storing, size: size, status: 200, body: json(#"{"status":"done","file":\#(fileJSON),"duplicate":false}"#), transportError: nil),
+                       .stored(fileId: "f9", duplicate: false, safe: true))
+        XCTAssertEqual(DriveChunks.answer(storing, size: size, status: 200, body: json(#"{"status":"done","file":\#(fileJSON),"duplicate":true}"#), transportError: nil),
+                       .stored(fileId: "f9", duplicate: true, safe: true))
+        // Done without a file proves nothing.
+        guard case .failed = DriveChunks.answer(storing, size: size, status: 200, body: json(#"{"status":"done"}"#), transportError: nil) else {
+            return XCTFail("done without a file is not stored")
+        }
+        // A job polling survives being written down, and a relaunch keeps polling.
+        var j = bigJob().started()
+        j.chunked = storing
+        let back = try? JSONDecoder().decode(DriveUploadJob.self, from: JSONEncoder().encode(j))
+        XCTAssertEqual(back, j)
+        XCTAssertEqual(j.finished(status: nil, body: nil, transportError: "Interrupted.").retried().chunked?.step, .storing(polls: 0))
+    }
+
+    func testAFailedStoreStartsAgainOnceThenStops() {
+        let size = 20 * mib + 5
+        let storing = DriveChunkState(step: .storing(polls: 3), uploadId: sid, received: size)
+        let failed = json(#"{"status":"failed","message":"The file changed while it was sending — it will be sent again."}"#)
+        XCTAssertEqual(DriveChunks.answer(storing, size: size, status: 200, body: failed, transportError: nil),
+                       .next(DriveChunkState(step: .create, restarts: 1), progressed: false))
+        var again = storing
+        again.restarts = 1
+        XCTAssertEqual(DriveChunks.answer(again, size: size, status: 200, body: failed, transportError: nil),
+                       .refused("The file changed while it was sending — it will be sent again."))
+        // A 422 from complete itself is the same.
+        XCTAssertEqual(DriveChunks.answer(DriveChunkState(step: .complete, uploadId: sid, received: size), size: size, status: 422,
+                                          body: json(#"{"error":"mismatch"}"#), transportError: nil),
+                       .next(DriveChunkState(step: .create, restarts: 1), progressed: false))
+    }
+
+    func testNoAnswerOrA5xxFromCompleteIsPolled() {
+        let size = 20 * mib + 5
+        let s = DriveChunkState(step: .complete, uploadId: sid, received: size)
+        let storing = DriveChunkState(step: .storing(polls: 0), uploadId: sid, received: size)
+        for status in [500, 502, 524] {
+            XCTAssertEqual(DriveChunks.answer(s, size: size, status: status, body: nil, transportError: nil), .next(storing, progressed: false))
+        }
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: nil, body: nil, transportError: "timed out"), .next(storing, progressed: false))
+        // A 409 with every byte there: already keeping it.
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 409, body: json(#"{"received":20971525}"#), transportError: nil),
+                       .next(storing, progressed: false))
+        // Short after all: the rest is sent.
+        XCTAssertEqual(DriveChunks.answer(s, size: size, status: 409, body: json(#"{"received":8388608}"#), transportError: nil),
+                       .next(DriveChunkState(step: .put(offset: 8 * mib), uploadId: sid, received: 8 * mib), progressed: false))
+    }
+
+    func testRefusalsAndBusyAnswersForEveryStep() {
+        let size = 20 * mib + 5
+        XCTAssertEqual(DriveChunks.answer(DriveChunkState(), size: size, status: 413,
+                                          body: json(#"{"error":"The most is 4 GB a file."}"#), transportError: nil),
+                       .refused("The most is 4 GB a file."))
+        guard case .failed(let room, let resume) = DriveChunks.answer(DriveChunkState(), size: size, status: 507,
+                                                                      body: json(#"{"error":"Drive is short of space right now — try again later."}"#), transportError: nil) else {
+            return XCTFail("short of room is for now")
+        }
+        XCTAssertEqual(room, "Drive is short of space right now — try again later.")
+        XCTAssertEqual(resume.step, .create)
+        guard case .failed = DriveChunks.answer(DriveChunkState(), size: size, status: 429, body: nil, transportError: nil) else {
+            return XCTFail("too many sessions is for now")
+        }
+        // A session id that is not the site's shape is never used in a path.
+        let bad = json(#"{"uploadId":"../../etc","chunkBytes":8388608,"received":0}"#)
+        guard case .failed = DriveChunks.answer(DriveChunkState(), size: size, status: 201, body: bad, transportError: nil) else {
+            return XCTFail("a bad id is unreadable")
+        }
+        XCTAssertNil(DriveChunks.request(DriveChunkState(step: .put(offset: 0), uploadId: "../x"), space: .mine))
+        // A 200 that did not take the piece does not loop.
+        guard case .failed = DriveChunks.answer(DriveChunkState(step: .put(offset: 8 * mib), uploadId: sid, received: 8 * mib), size: size,
+                                                status: 200, body: json(#"{"received":8388608}"#), transportError: nil) else {
+            return XCTFail("no progress is a failure")
+        }
+    }
+
+    func testRequestsAndTaskDescriptions() {
+        let s = DriveChunkState(step: .put(offset: 16_777_216), uploadId: sid)
+        XCTAssertEqual(DriveChunks.request(DriveChunkState(), space: .shared)?.path, "api/native/drive/uploads?space=shared")
+        XCTAssertEqual(DriveChunks.request(s, space: .mine)?.path, "api/native/drive/uploads/\(sid)?space=mine&offset=16777216")
+        XCTAssertEqual(DriveChunks.request(s, space: .mine)?.method, "PUT")
+        var c = s
+        c.step = .complete
+        XCTAssertEqual(DriveChunks.request(c, space: .mine)?.path, "api/native/drive/uploads/\(sid)/complete?space=mine")
+        XCTAssertEqual(DriveChunks.cancelPath(sid, space: .mine), "api/native/drive/uploads/\(sid)?space=mine")
+        let steps: [DriveChunkState.Step] = [.create, .put(offset: 8_388_608), .status, .complete, .storing(polls: 4)]
+        for step in steps {
+            let parsed = DriveChunks.parseTask(DriveChunks.taskDescription(job: "6F1C2A9E-0D1B-4B8E", step: step))
+            XCTAssertEqual(parsed.job, "6F1C2A9E-0D1B-4B8E")
+            XCTAssertEqual(parsed.step, step)
+        }
+        let single = DriveChunks.parseTask("6F1C2A9E-0D1B-4B8E")
+        XCTAssertEqual(single.job, "6F1C2A9E-0D1B-4B8E")
+        XCTAssertNil(single.step, "a single upload's task is its job id alone, as before")
+    }
+
+    func testABigJobKeepsItsSessionAcrossFailuresAndRetries() throws {
+        var j = bigJob().started().finished(status: 201, body: session(), transportError: nil)
+        j = j.finished(status: 200, body: json(#"{"received":8388608}"#), transportError: nil)
+        j = j.finished(status: nil, body: nil, transportError: "offline")
+        XCTAssertEqual(j.state, .failed("offline"))
+        XCTAssertEqual(j.sentBytes, 8 * mib, "what the site holds still counts")
+        XCTAssertTrue(j.retriesItself)
+        let again = j.retried().started()
+        XCTAssertEqual(again.chunked?.step, .status, "asks how far it got rather than starting over")
+        XCTAssertEqual(again.chunked?.uploadId, sid)
+        XCTAssertEqual(again.sentBytes, 8 * mib)
+        // Progress puts earlier troubles behind it.
+        let moved = again.finished(status: 200, body: json(#"{"uploadId":"\#(sid)","received":16777216,"chunkBytes":8388608}"#), transportError: nil)
+        XCTAssertEqual(moved.attempts, 1)
+        // Try again by hand: the lost-session count starts over too.
+        var lost = moved
+        lost.chunked?.restarts = 1
+        lost.state = .failed("x")
+        XCTAssertEqual(lost.retriedByHand().chunked?.restarts, 0)
+        XCTAssertEqual(lost.retriedByHand().attempts, 0)
+        // Written down and read back, mid-way.
+        let back = try JSONDecoder().decode(DriveUploadJob.self, from: JSONEncoder().encode(moved))
+        XCTAssertEqual(back, moved)
+    }
+
+    func testAJobWrittenBeforeBigUploadsStillReads() throws {
+        let old = json(#"[{"id":"j1","space":"mine","folder":"","filename":"a.pdf","mimeType":"application/pdf","sizeBytes":10,"sha256":"a","staged":"j1.pdf","createdAt":0,"attempts":1,"sentBytes":0,"state":{"waiting":{}}}]"#)
+        let jobs = try JSONDecoder().decode([DriveUploadJob].self, from: old)
+        XCTAssertNil(jobs.first?.chunked)
+    }
+
+    func testTheBannerSaysHowFarABigFileHasGot() throws {
+        var j = bigJob().started().finished(status: 201, body: session(), transportError: nil)
+        j = j.progressed(Int64(4 * mib))
+        let banner = try XCTUnwrap(DriveUploadOutcome.banner([j]))
+        XCTAssertTrue(banner.hasPrefix("Adding IMG_0002.MOV · "), banner)
+        XCTAssertTrue(banner.contains(" of "), banner)
+    }
+
+    func testAListingSaysWhetherBigFilesAreTaken() throws {
+        let new = #"{"space":"mine","folder":"","folders":[],"files":[],"usage":{"bytes":0,"quotaBytes":null},"maxUploadBytes":31457280,"maxLargeUploadBytes":4294967296,"chunkBytes":8388608}"#
+        let listing = try JSONDecoder().decode(DriveListing.self, from: json(new))
+        XCTAssertEqual(listing.limits, DriveUploadLimits(single: 31_457_280, large: 4_294_967_296))
+        XCTAssertEqual(listing.chunkBytes, 8_388_608)
+        let old = #"{"space":"mine","folder":"","folders":[],"files":[],"usage":{"bytes":0,"quotaBytes":null},"maxUploadBytes":31457280}"#
+        XCTAssertNil(try JSONDecoder().decode(DriveListing.self, from: json(old)).limits.large)
+    }
 }
