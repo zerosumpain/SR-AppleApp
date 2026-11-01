@@ -27,7 +27,19 @@ struct TetherPalsPad: View {
             TetherPalsPadArt(buttons: buttons, holds: session.holds, solo: session.solo,
                              active: session.active, team: session.team)
                 .accessibilityHidden(true)
-            TetherPalsTouchPad(session: session, strips: strips, solo: session.solo, live: live)
+            touchLayer(strips: strips)
+        }
+    }
+
+    /// The finger-reading `UIView`, only while the pad is live. Under a card
+    /// (start, pause, result) it leaves the tree altogether: a UIKit view does
+    /// not reliably hear SwiftUI's `.allowsHitTesting` / `.accessibilityHidden`,
+    /// and the card's buttons sit right over the strips. Leaving also hands
+    /// the swipe-back gesture back while a card is up.
+    @ViewBuilder
+    private func touchLayer(strips: Int) -> some View {
+        if live {
+            TetherPalsTouchPad(session: session, strips: strips, solo: session.solo, live: true)
                 .accessibilityIdentifier("tether-pals-pad")
         }
     }
@@ -179,6 +191,11 @@ final class TetherPalsTouchView: UIView {
             fingers = [:]
             installActions()
         }
+        // Belt and braces with the pad leaving the tree: when not live, no
+        // finger lands here and VoiceOver / UI tests see the card instead.
+        isUserInteractionEnabled = live
+        isAccessibilityElement = live
+        accessibilityElementsHidden = !live
         if !live { fingers = [:] }
     }
 

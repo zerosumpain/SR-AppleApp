@@ -36,13 +36,20 @@ final class SuggestedTetherPalsUITests: XCTestCase {
         beat(1.5)
         attach(app, "Suggested — \(title) — start")
 
+        // Play sits at the foot of the start card, over the pad strips; the
+        // pad leaves the tree under a card, so Play is the element there.
         let start = byId(app, "\(gameId)-start")
         soft(start.waitForExistence(timeout: 10), "no \(gameId)-start")
-        if start.exists {
-            if !start.isHittable { app.swipeUp() }
-            start.tap()
-        }
-        beat(3)                                   // the demo plays itself (SRDemo.isOn)
+        soft(waitHittable(start, timeout: 5), "\(gameId)-start not hittable")
+        if start.exists { start.tap() }
+
+        // The card slides away and the demo plays itself (SRDemo.isOn).
+        let board = byId(app, "\(gameId)-board")
+        let pause = byId(app, "\(gameId)-pause")
+        soft(byId(app, "\(gameId)-intro").waitForNonExistence(timeout: 5), "the start card did not go")
+        soft(waitHittable(board, timeout: 10), "no \(gameId)-board")
+        soft(waitHittable(pause, timeout: 10), "no \(gameId)-pause while playing")
+        beat(2.5)
         attach(app, "Suggested — \(title) — playing")
 
         // The autopilot clears the level in about ten seconds; the card follows.
@@ -51,7 +58,6 @@ final class SuggestedTetherPalsUITests: XCTestCase {
             beat(1)
         } else {
             soft(false, "no \(gameId)-over")
-            let pause = byId(app, "\(gameId)-pause")
             if pause.exists, pause.isHittable {
                 pause.tap()
                 soft(byId(app, "\(gameId)-paused").waitForExistence(timeout: 5), "no pause card")
@@ -89,6 +95,16 @@ final class SuggestedTetherPalsUITests: XCTestCase {
         for _ in 0..<swipes {
             if element.exists && element.isHittable { return true }
             app.swipeDown()
+        }
+        return element.exists && element.isHittable
+    }
+
+    /// Polls until the element exists and can be tapped, or time runs out.
+    @MainActor private func waitHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable { return true }
+            beat(0.25)
         }
         return element.exists && element.isHittable
     }
