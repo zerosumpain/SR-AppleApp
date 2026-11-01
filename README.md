@@ -193,7 +193,7 @@ Deployment target: iOS 17.0, iPhone only. Pair in the app using a one-time code 
 - Pausing sharing on the website hides the last position immediately. The phone stops collection when it next reaches the server. Pausing on an offline phone stops collection immediately; server visibility changes only once the pause reaches the server.
 - Queue and anchors are persisted atomically with iOS file protection and excluded from backup. Tokens use device-only Keychain storage. The queue caps at 50,000 records and stops advancing collection when full. Uploads retry on subsequent events, foreground launch, a best-effort retry timer, and OS-scheduled background refresh.
 - Native history views are bounded recent-record views, not full historical analytics. A family location still opens explicitly in Apple Maps rather than being embedded.
-- Locations are retained for up to 30 days (pruned on ingestion); family reads expose the latest point only. Health records remain until deletion. Delete uploaded data revokes paired devices to prevent immediate automatic re-upload.
+- Locations are kept until the owner deletes them (no age-based prune since 2026-11-01); family reads expose the latest point only. Health records remain until deletion. Delete uploaded data revokes paired devices to prevent immediate automatic re-upload.
 - Family account provisioning is administrator CLI-only, and deliberately so: `family` decides who can see a location, and there is nothing in a Google login to infer it from. See [site integration](docs/INTEGRATION.md).
 
 ## The movement map
@@ -391,7 +391,7 @@ sessions are validated by Main; the companion never receives Main's signing key.
 
 Configure a dedicated `APPLE_POLICY_TOKEN` matching Main's `COMPANION_POLICY_TOKEN`, and `APPLE_POLICY_URL` to Main's `/api/native/companion-policy` (HTTPS, or loopback HTTP locally). Never reuse the household or Health export token. Apply Main's security SQL migration before deploying this companion. Missing/unavailable policy denies access.
 
-Locations expire after 30 days independently of uploads; alerts after seven days; household snapshots after five minutes. Health remains until deletion. Delete creates a durable job: raw data, recipient views and credentials are removed immediately; Main and Health acknowledge their derived copies independently. Pairing and uploads remain blocked while either acknowledgement is missing. Deletion manifests and tombstones are retained as retry records (not health values); named places, other-source trail, accounts and separately expiring backups are outside this control.
+Locations are kept until deleted; alerts expire after seven days; household snapshots after five minutes. Health remains until deletion. Delete creates a durable job: raw data, recipient views and credentials are removed immediately; Main and Health acknowledge their derived copies independently. Pairing and uploads remain blocked while either acknowledgement is missing. Deletion manifests and tombstones are retained as retry records (not health values); named places, other-source trail, accounts and separately expiring backups are outside this control.
 
 Website disconnect clears local views/widgets/Live Activities and queues revoke-self in the device-only Keychain. Retries occur at launch/foreground, without retaining an active website login. Companion disconnect is separate: it pauses location collection and revokes that credential.
 

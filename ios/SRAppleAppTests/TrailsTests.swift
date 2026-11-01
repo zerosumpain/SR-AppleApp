@@ -441,7 +441,7 @@ final class ActivityOriginTests: XCTestCase {
     func testTheDetailExplainsACapturedOutingAndAFoldedOne() throws {
         let captured: ActivityDetailResponse = try TrailSamples.decode(TrailSamples.capturedActivity)
         XCTAssertEqual(ActivityOriginNote.sentences(captured.activity.row), [
-            "Captured in the background by the SR app's movement tracking — no workout was started. The type is inferred from speed, there is no elevation, and the app keeps location for 30 days.",
+            "Captured in the background by the SR app's movement tracking — no workout was started. The type is inferred from speed, there is no elevation, and the app keeps location until you delete it.",
         ])
 
         let page: ActivitiesPage = try TrailSamples.decode(TrailSamples.activities)

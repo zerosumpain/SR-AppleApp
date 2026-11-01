@@ -142,9 +142,11 @@ test('deletion survives downstream outage and duplicate requests; both acknowled
   assert.equal((await f.request('pair-code',{cookie,method:'POST',body:{}})).status,200);
 });
 
-test('retention runs without another upload', async t => {
+test('retention runs without another upload, and never prunes location history', async t => {
   const f=await fixture(t);
   f.db.prepare('INSERT INTO locations VALUES(?,?,?,?,?)').run('family','old','2000-01-01T00:00:00.000Z','{}','2000-01-01T00:00:00.000Z');
+  f.db.prepare('INSERT INTO alerts (user_id,id,payload,created) VALUES(?,?,?,?)').run('family','stale','{}','2000-01-01T00:00:00.000Z');
   pruneStore(f.db);
-  assert.equal(f.db.prepare('SELECT count(*) n FROM locations').get().n,0);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM locations').get().n,1);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM alerts').get().n,0);
 });
