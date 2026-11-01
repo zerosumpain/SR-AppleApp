@@ -121,6 +121,30 @@ enum HealthBatching {
         return [first, second]
     }
 
+    /// Points per upload once merged: the server's whole-batch limit.
+    static let locationsPerBatch = 500
+
+    /// Every location-only batch folded into as few as `locationsPerBatch`
+    /// allows, in the order they were recorded, where the first of them stood.
+    /// The collector queues a batch per point, so a drive at one point a
+    /// second, or an hour with no signal, was thousands of uploads sent one
+    /// at a time. Batches carrying health or deletions are left as they are.
+    /// Only while no upload is in flight (`Companion.flush` holds `sending`):
+    /// a batch being sent must not change under it. PURE.
+    static func mergeLocations(_ queue: [UploadBatch], per size: Int = locationsPerBatch) -> [UploadBatch] {
+        let only = { (b: UploadBatch) in b.health.isEmpty && b.deleted.isEmpty && !b.locations.isEmpty }
+        let runs = queue.filter(only)
+        guard runs.count > 1, let first = queue.firstIndex(where: only) else { return queue }
+        let points = runs.flatMap(\.locations)
+        let merged = stride(from: 0, to: points.count, by: size).map { UploadBatch(locations: Array(points[$0..<min($0 + size, points.count)])) }
+        var out: [UploadBatch] = []
+        for (index, batch) in queue.enumerated() {
+            if index == first { out.append(contentsOf: merged) }
+            if !only(batch) { out.append(batch) }
+        }
+        return out
+    }
+
     /// The server's reason for a body it could not parse: a truncated upload,
     /// never the record's fault, so it never costs a record.
     static let invalidJSON = "Invalid JSON"

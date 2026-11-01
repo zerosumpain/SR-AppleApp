@@ -163,6 +163,12 @@ struct PersistedState: Codable {
     /// A file without the key predates that and gets it turned on by
     /// `Outbox`; after that the phone's own toggle is left alone.
     var motionGateOn = true
+    /// Whether the faster moving cadence (a point every 5 s, every second in
+    /// a car — John, 2026-11-01) was applied to this phone's saved settings,
+    /// once. A file without the key predates it: `Outbox` moves the old
+    /// Accurate cadence (30 s) to the new one and gives a saved preset its
+    /// own car cadence, so it still reads as that preset.
+    var liveCadenceOn = true
 
     /// Decode every field as OPTIONAL-with-a-default.
     ///
@@ -209,6 +215,7 @@ struct PersistedState: Codable {
         // `try?`: a cache of a server answer, like `connections`.
         access = (try? c.decodeIfPresent(AppAccess.self, forKey: .access)) ?? nil
         motionGateOn = try c.decodeIfPresent(Bool.self, forKey: .motionGateOn) ?? false
+        liveCadenceOn = try c.decodeIfPresent(Bool.self, forKey: .liveCadenceOn) ?? false
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`
@@ -235,6 +242,11 @@ let outboxFullMessage = "Offline queue is full. Connect and sync before collecti
                 // straight away so a later "off" in Settings sticks.
                 state.location.motion.enabled = true
                 state.motionGateOn = true
+                try? write()
+            }
+            if !state.liveCadenceOn {
+                state.location = LocationSettings.withLiveCadence(state.location)
+                state.liveCadenceOn = true
                 try? write()
             }
         } else { state = PersistedState() }
@@ -296,7 +308,8 @@ struct MovementPolicy {
         let wasMoving = moving
         if speed >= settings.movingSpeed || distance > max(30, accuracy * 2) { moving = true; lastMovement = time }
         else if let lastMovement, time.timeIntervalSince(lastMovement) >= settings.stopThreshold { moving = false }
-        let interval: TimeInterval = moving ? settings.movingInterval : settings.stationaryInterval
+        let interval: TimeInterval = !moving ? settings.stationaryInterval
+            : speed >= settings.vehicleSpeed ? min(settings.vehicleInterval, settings.movingInterval) : settings.movingInterval
         guard lastRecorded == nil || wasMoving != moving || time.timeIntervalSince(lastRecorded!) >= interval else { return false }
         lastRecorded = time
         return true
@@ -506,8 +519,13 @@ struct LocationSettings: Codable, Equatable {
     var movingDistanceFilter: Double = 10
     var stationaryDistanceFilter: Double = 30
     /// How often a point is RECORDED. Separate from how often the sensor reports.
-    var movingInterval: TimeInterval = 30
+    var movingInterval: TimeInterval = 5
     var stationaryInterval: TimeInterval = 600
+    /// At or above `vehicleSpeed` (m/s) a point is recorded this often: a
+    /// point a second in a car is what harsh braking is read from, and what
+    /// makes the family's map move smoothly (John, 2026-11-01).
+    var vehicleInterval: TimeInterval = 1
+    var vehicleSpeed: Double = 8
     /// Still for this long and the phone is considered stopped.
     var stopThreshold: TimeInterval = 180
     /// Above this speed (m/s) the phone is considered moving.
@@ -561,7 +579,7 @@ struct LocationSettings: Codable, Equatable {
                 return LocationSettings(
                     movingAccuracy: .hundredMetres, stationaryAccuracy: .kilometre,
                     movingDistanceFilter: 100, stationaryDistanceFilter: 500,
-                    movingInterval: 300, stationaryInterval: 1800,
+                    movingInterval: 300, stationaryInterval: 1800, vehicleInterval: 300,
                     stopThreshold: 300, movingSpeed: 1.2, accuracyCeiling: 500,
                     heartbeatInterval: 0, activity: .fitness,
                     pausesAutomatically: true, significantChangeMonitoring: true,
@@ -577,7 +595,7 @@ struct LocationSettings: Codable, Equatable {
                 return LocationSettings(
                     movingAccuracy: .tenMetres, stationaryAccuracy: .hundredMetres,
                     movingDistanceFilter: 25, stationaryDistanceFilter: 100,
-                    movingInterval: 60, stationaryInterval: 900,
+                    movingInterval: 60, stationaryInterval: 900, vehicleInterval: 5,
                     stopThreshold: 240, movingSpeed: 0.8, accuracyCeiling: 150,
                     heartbeatInterval: 300, activity: .fitness,
                     pausesAutomatically: true, significantChangeMonitoring: true,
@@ -590,6 +608,22 @@ struct LocationSettings: Codable, Equatable {
                 return LocationSettings()
             }
         }
+    }
+
+    /// Saved settings from before the car cadence existed, moved onto it
+    /// once (`PersistedState.liveCadenceOn`). The old Accurate default
+    /// recorded every 30 s while moving; a saver or balanced preset gets its
+    /// own car cadence, so it is still recognised as that preset. Anything
+    /// else changed by hand keeps its moving cadence. PURE.
+    static func withLiveCadence(_ old: LocationSettings) -> LocationSettings {
+        var s = old
+        for preset in [Preset.saver, .balanced] {
+            var was = preset.settings
+            was.vehicleInterval = s.vehicleInterval
+            if was == s { return preset.settings }
+        }
+        if s.movingInterval == 30 { s.movingInterval = LocationSettings().movingInterval }
+        return s
     }
 
     /// Which preset this matches, or nil once a value has been changed by hand.
@@ -609,6 +643,8 @@ struct LocationSettings: Codable, Equatable {
         stationaryDistanceFilter = try c.decodeIfPresent(Double.self, forKey: .stationaryDistanceFilter) ?? d.stationaryDistanceFilter
         movingInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .movingInterval) ?? d.movingInterval
         stationaryInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .stationaryInterval) ?? d.stationaryInterval
+        vehicleInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .vehicleInterval) ?? d.vehicleInterval
+        vehicleSpeed = try c.decodeIfPresent(Double.self, forKey: .vehicleSpeed) ?? d.vehicleSpeed
         stopThreshold = try c.decodeIfPresent(TimeInterval.self, forKey: .stopThreshold) ?? d.stopThreshold
         movingSpeed = try c.decodeIfPresent(Double.self, forKey: .movingSpeed) ?? d.movingSpeed
         accuracyCeiling = try c.decodeIfPresent(Double.self, forKey: .accuracyCeiling) ?? d.accuracyCeiling
@@ -623,8 +659,10 @@ struct LocationSettings: Codable, Equatable {
          stationaryAccuracy: LocationAccuracy = .hundredMetres,
          movingDistanceFilter: Double = 10,
          stationaryDistanceFilter: Double = 30,
-         movingInterval: TimeInterval = 30,
+         movingInterval: TimeInterval = 5,
          stationaryInterval: TimeInterval = 600,
+         vehicleInterval: TimeInterval = 1,
+         vehicleSpeed: Double = 8,
          stopThreshold: TimeInterval = 180,
          movingSpeed: Double = 0.8,
          accuracyCeiling: Double = 100,
@@ -639,6 +677,8 @@ struct LocationSettings: Codable, Equatable {
         self.stationaryDistanceFilter = stationaryDistanceFilter
         self.movingInterval = movingInterval
         self.stationaryInterval = stationaryInterval
+        self.vehicleInterval = vehicleInterval
+        self.vehicleSpeed = vehicleSpeed
         self.stopThreshold = stopThreshold
         self.movingSpeed = movingSpeed
         self.accuracyCeiling = accuracyCeiling

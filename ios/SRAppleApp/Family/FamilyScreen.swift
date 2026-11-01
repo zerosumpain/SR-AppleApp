@@ -83,7 +83,7 @@ struct FamilyScreen: View {
             await gifts.load()
             await alarm.poll()
             while !Task.isCancelled {
-                try? await Task.sleep(for: FamilyStore.refreshInterval)
+                try? await Task.sleep(for: store.nextRefresh)
                 guard !Task.isCancelled else { break }
                 await alarm.poll()
                 await store.load()

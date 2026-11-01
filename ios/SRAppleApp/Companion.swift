@@ -85,17 +85,42 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
     /// The last `household/view` answer and when it came. At open the sync
     /// and the Family store (Today's mini-map) both read it seconds apart, and
     /// adopt the same watched places and access from it; one read serves both.
-    /// The server files a view every two minutes at most, so a few seconds'
-    /// reuse shows nothing a second read would not have.
+    /// Under the Family tab's live poll (5 s): the companion server lays
+    /// moving phones' newest points over the view, so a read is fresher than
+    /// the view it was filed from.
     private var recentView: (response: HouseholdViewResponse, at: Date)?
-    static let viewReuse: TimeInterval = 10
+    static let viewReuse: TimeInterval = 4
+    private var networkObserver: NSObjectProtocol?
+    /// A new point asks for an upload, at most one every `liveUploadEvery`:
+    /// in a car the phone records a point a second, and a flush per point
+    /// would be two requests a second. The family's map is no fresher than
+    /// this.
+    static let liveUploadEvery: TimeInterval = 5
+    private var locationFlush: Task<Void, Never>?
+    private var lastLocationFlush = Date.distantPast
+    func flushLocationSoon() {
+        guard locationFlush == nil else { return }
+        let wait = max(0, Self.liveUploadEvery - Date().timeIntervalSince(lastLocationFlush))
+        locationFlush = Task { [weak self] in
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            guard let self else { return }
+            self.locationFlush = nil
+            self.lastLocationFlush = Date()
+            await self.flush()
+        }
+    }
     init(outbox: Outbox) {
         self.outbox = outbox; health = HealthCollector(outbox: outbox); location = LocationCollector(outbox: outbox)
         paired = api.token != nil
         // What the site last said this person may use, before anything draws.
         AccessStore.shared.attach(outbox)
         health.onUpdate = { [weak self] in Task { await self?.flush() } }
-        location.onUpdate = { [weak self] in Task { await self?.flush() } }
+        location.onUpdate = { [weak self] in self?.flushLocationSoon() }
+        // Signal back, or Wi-Fi: send what built up while there was none.
+        networkObserver = NotificationCenter.default.addObserver(forName: TripNetwork.improved, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.flush() }
+        }
+        _ = TripNetwork.shared
         updateQueue()
         if paired { health.startObservers(); location.start() }
         if paired && health.needsPermissionReview { message = reviewPrompt }
@@ -412,6 +437,11 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
                 try outbox.change { $0.sharing = false; for i in $0.batches.indices { $0.batches[i].locations = [] } }
                 location.stop()
             }
+            // One upload for many points (`mergeLocations`). Once, before the
+            // round: merging again inside it would re-join the halves a
+            // refusal split.
+            let merged = HealthBatching.mergeLocations(outbox.state.batches)
+            if merged.count != outbox.state.batches.count { try outbox.change { $0.batches = HealthBatching.mergeLocations($0.batches) } }
             var round = UploadRound()
             while let batch = round.next(in: outbox.state.batches) {
                 try Task.checkCancellation()

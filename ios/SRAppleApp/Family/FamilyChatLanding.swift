@@ -346,7 +346,7 @@ struct FamilyChatPersonPage: View {
                     while !Task.isCancelled {
                         await store.load()
                         await FamilyForecastStore.shared.load()
-                        try? await Task.sleep(for: FamilyStore.refreshInterval)
+                        try? await Task.sleep(for: store.nextRefresh)
                     }
                 }
         } else {
