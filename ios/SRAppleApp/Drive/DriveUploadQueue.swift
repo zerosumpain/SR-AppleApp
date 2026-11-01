@@ -163,12 +163,32 @@ final class DriveUploadQueue: ObservableObject {
 
     // MARK: - Sending
 
+    /// Big (chunked) files sent at the same time; the rest wait as `.waiting`.
+    static let bigAtOnce = 2
+
+    /// A big file stopped going (kept, refused or failed): start the next one waiting.
+    private func startWaitingBig() {
+        guard let next = jobs.first(where: { $0.chunked != nil && $0.state == .waiting }) else { return }
+        submit(next.id)
+    }
+
     private func submit(_ id: String) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         let job = jobs[index]
         if job.chunked != nil {
-            // A new go counts once; the steps of one go do not.
-            if job.state != .sending { jobs[index] = job.started() }
+            // A new go counts once; the steps of one go do not. A new go waits
+            // its turn while `bigAtOnce` big files are already going: the site
+            // holds six open uploads a person and stages each at its full size,
+            // so an album of videos sent all at once would spend its retries on
+            // "too many at once" and stop.
+            if job.state != .sending {
+                let going = jobs.filter { $0.id != id && $0.chunked != nil && $0.state == .sending }.count
+                guard going < Self.bigAtOnce else {
+                    jobs[index].state = .waiting
+                    return
+                }
+                jobs[index] = job.started()
+            }
             sendStep(id)
             return
         }
@@ -467,6 +487,7 @@ final class DriveUploadQueue: ObservableObject {
         default:
             break
         }
+        if job.chunked != nil { startWaitingBig() }
         persist()
     }
 
