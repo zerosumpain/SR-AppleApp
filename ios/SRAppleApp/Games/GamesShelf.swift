@@ -119,6 +119,7 @@ enum GameCategory: String, CaseIterable, Identifiable, Codable {
         "merge-2048": .puzzle,
         "minesweeper": .puzzle,
         "snake": .quick,
+        "tether-pals": .physics,
         "manhunt": .outdoor,
     ]
 }
