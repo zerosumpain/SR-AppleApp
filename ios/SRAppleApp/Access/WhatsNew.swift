@@ -34,6 +34,19 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-02-drive-native", when: "November 2026", title: "Drive, made for the phone", items: [
+            WhatsNewItem(icon: "photo.stack", title: "Photos as they are",
+                         detail: "Add up to a hundred photos and videos at once. They go up in the background, even with the app shut, and keep when and where they were taken. Turn off Keep photo originals in the … menu if you'd rather send JPEGs."),
+            WhatsNewItem(icon: "arrow.up.bin", title: "Free up space on your phone",
+                         detail: "Choose Move Photos off This Phone from +, pick the days or an album, and they're copied to Drive. Once Drive has every one, you can remove them from your phone. It always asks first."),
+            WhatsNewItem(icon: "square.and.arrow.up", title: "Share straight into Drive",
+                         detail: "In Photos, Files or any app, tap Share, then SR, and choose My files or Shared and a folder. Save to Files and Save to Photos work the other way round."),
+            WhatsNewItem(icon: "hand.tap", title: "Press and hold a file",
+                         detail: "Share it, save it, rename it, move it to another folder or see its details. Search finds names across the whole of My files or Shared, and you can sort by name, date, size or kind, or see photos as a grid."),
+            WhatsNewItem(icon: "sparkles", title: "jkai reads your files",
+                         detail: "Analyse a file for a summary, its key facts, dates and amounts, and anything you need to do. Extract entities adds it to the knowledge graph, and attachments saved from important email arrive with a notification that opens them.",
+                         ownerOnly: true),
+        ]),
         WhatsNewRelease(id: "2026-11-01-codenames-quiz-tv", when: "November 2026", title: "Codenames, and the quiz on the TV", items: [
             WhatsNewItem(icon: "rectangle.grid.3x2.fill", title: "Codenames, for two to eight",
                          detail: "Twenty-five words on the TV, two teams, and a spymaster each who knows which words are their agents. They give one word and a number, and the team taps the cards they think it means. Keep away from the assassin."),

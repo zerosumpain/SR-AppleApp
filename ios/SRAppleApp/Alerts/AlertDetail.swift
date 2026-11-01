@@ -12,6 +12,13 @@ import SwiftUI
 /// plainest case of "seen".
 struct AlertDetailScreen: View {
     let alert: SiteAlert
+
+    /// The alert's link as a place in this app, when it is one (`sr://…`).
+    static func appLink(_ path: String) -> URL? {
+        guard path.lowercased().hasPrefix("sr://"), let url = URL(string: path) else { return nil }
+        return url
+    }
+
     @ObservedObject var alerts: AlertStore
     /// Set when shown from Today, where "Dismiss from Today" means something.
     var onDismissFromToday: (() -> Void)? = nil
@@ -60,11 +67,16 @@ struct AlertDetailScreen: View {
                         }.srButton(.prominent)
                     }
                     if let path = alert.url {
+                        let inApp = AlertDetailScreen.appLink(path)
                         Button {
                             SRHaptic.tap()
-                            openURL(SiteClient.shared.webURL(path))
+                            // An `sr://` link (a saved attachment's folder, a
+                            // capture) is a place in this app: it opens here,
+                            // through `onOpenURL`, rather than as a broken
+                            // page on the site.
+                            openURL(inApp ?? SiteClient.shared.webURL(path))
                         } label: {
-                            SRButtonLabel(title: "Open on the web", icon: "safari", fill: true)
+                            SRButtonLabel(title: inApp == nil ? "Open on the web" : "Open", icon: inApp == nil ? "safari" : "arrow.up.forward.app", fill: true)
                         }
                         .srButton(.prominent)
                         .controlSize(.large)

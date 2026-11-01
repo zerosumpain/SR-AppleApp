@@ -147,6 +147,10 @@ targets:
       - path: SRAppleApp/Family/FamilyBoardModels.swift
       - path: SRAppleApp/Family/FamilyWidgetShared.swift
       - path: SRAppleApp/Design/SRPaletteShared.swift
+      # "Save to Drive": the wire shapes and pure rules, and the extension's
+      # own upload, folder fetch and folder picker (no app types in either).
+      - path: SRAppleApp/Drive/DriveModels.swift
+      - path: SRAppleApp/Drive/DriveShared.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(SR_BUNDLE_ID).share

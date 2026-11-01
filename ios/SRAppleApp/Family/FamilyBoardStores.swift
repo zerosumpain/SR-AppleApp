@@ -262,10 +262,15 @@ enum FamilyWidgetBridge {
 
     /// Hand the widgets the site credential while this person may see the
     /// boards; take it and the snapshots away the moment they may not.
-    static func sync(allowed: Bool) {
+    ///
+    /// `drive`: they have Drive, so the share extension may offer it. The
+    /// credential is shelved for that alone too (a Drive-only member), and
+    /// `allowed` should already include it.
+    static func sync(allowed: Bool, drive: Bool = false) {
         guard active else { return }
         if allowed, let token = SiteClient.shared.token {
             let credential = FamilyWidgetCredential(origin: SiteClient.shared.origin.absoluteString, token: token)
+            FamilyShelf.save(drive, .driveAllowed)
             if FamilyShelf.save(credential, .credential) {
                 for kind in FamilyWidgetKind.all { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
             }
@@ -279,7 +284,7 @@ enum FamilyWidgetBridge {
         if SRDemo.isOn { return }
         // Anything a widget draws, or the credential. Not the palette (kept)
         // nor the share queue alone (it only goes with the rest, as before).
-        let held: [FamilyShelf.Account] = [.credential, .steps, .tasks, .messages, .familyNow, .trips, .games, .health]
+        let held: [FamilyShelf.Account] = [.credential, .steps, .tasks, .messages, .familyNow, .trips, .games, .health, .driveAllowed]
         guard held.contains(where: { FamilyShelf.read($0) != nil }) else { return }
         FamilyShelf.clearAll()
         for kind in FamilyWidgetKind.all { WidgetCenter.shared.reloadTimelines(ofKind: kind) }

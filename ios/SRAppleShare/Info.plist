@@ -13,11 +13,14 @@
 <key>NSExtension</key><dict>
   <key>NSExtensionPointIdentifier</key><string>com.apple.share-services</string>
   <key>NSExtensionPrincipalClass</key><string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
-  <!-- One web link (YouTube, Safari, Instagram), or text (TikTok shares a caption with the link in it; Notes shares an idea). Not images or files: those are "Open in SR" on the app itself. -->
+  <!-- One web link (YouTube, Safari, Instagram), or text (TikTok shares a caption with the link in it; Notes shares an idea), onto the backlog or a trip. Photos, videos and files go to Drive, for whoever has it (DriveShared.swift). -->
   <key>NSExtensionAttributes</key><dict>
     <key>NSExtensionActivationRule</key><dict>
       <key>NSExtensionActivationSupportsWebURLWithMaxCount</key><integer>1</integer>
       <key>NSExtensionActivationSupportsText</key><true/>
+      <key>NSExtensionActivationSupportsImageWithMaxCount</key><integer>20</integer>
+      <key>NSExtensionActivationSupportsMovieWithMaxCount</key><integer>5</integer>
+      <key>NSExtensionActivationSupportsFileWithMaxCount</key><integer>20</integer>
     </dict>
   </dict>
 </dict>

@@ -5,12 +5,11 @@ import Foundation
 ///
 /// These are the capability a web page cannot have at all: the phone answering
 /// a question about you without being opened, and a sentence you say becoming a
-/// thread. They live in the app target rather than an extension deliberately —
-/// an extension needs a bundle identifier and a provisioning profile of its
-/// own, and this repository's TestFlight lane holds exactly one profile, for
-/// the app. Everything here works from the app target and signs with what we
-/// already have. Widgets and Live Activities do not, which is why there are
-/// none yet.
+/// thread. They live in the app target: they need the app's own client and
+/// stores, and an intent there needs no profile of its own. (The widgets, Live
+/// Activities and the share extension are targets of their own, with profiles
+/// CI mints — the bat phone and capture intents are compiled into the widget
+/// extension too, with no-op performs, for their buttons.)
 
 /// What an intent says when it belongs to a feature this person was not given.
 ///
@@ -154,6 +153,24 @@ struct SRShortcuts: AppShortcutsProvider {
             phrases: ["Sync \(.applicationName)"],
             shortTitle: "Sync now",
             systemImageName: "arrow.triangle.2.circlepath"
+        )
+        AppShortcut(
+            intent: UploadToDriveIntent(),
+            phrases: [
+                "Upload to Drive in \(.applicationName)",
+                "Save to my \(.applicationName) Drive",
+            ],
+            shortTitle: "Upload to Drive",
+            systemImageName: "arrow.up.doc"
+        )
+        AppShortcut(
+            intent: OpenDriveIntent(),
+            phrases: [
+                "Open Drive in \(.applicationName)",
+                "Open my \(.applicationName) Drive",
+            ],
+            shortTitle: "Open Drive",
+            systemImageName: "externaldrive"
         )
     }
 }
