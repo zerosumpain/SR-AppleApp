@@ -36,7 +36,8 @@ final class SettingsTests: XCTestCase {
     /// The whole point of leaving the default alone.
     func testTheDefaultReproducesTheOldHardCodedBehaviour() {
         let d = LocationSettings()
-        XCTAssertEqual(d.movingInterval, 30)
+        XCTAssertEqual(d.movingInterval, 5, "a point every 5 s while moving (John, 2026-11-01)")
+        XCTAssertEqual(d.vehicleInterval, 1)
         XCTAssertEqual(d.stationaryInterval, 600)
         XCTAssertEqual(d.stopThreshold, 180)
         XCTAssertEqual(d.movingSpeed, 0.8)
@@ -229,5 +230,74 @@ final class SettingsTests: XCTestCase {
             XCTAssertFalse(HealthScreen.label(for: kind).isEmpty)
         }
         XCTAssertEqual(HealthScreen.label(for: "heart_rate_variability"), "Heart rate variability")
+    }
+
+    // MARK: - The car cadence (John, 2026-11-01)
+
+    func testACarRecordsEverySecondAndAWalkEveryFive() {
+        var policy = MovementPolicy(settings: LocationSettings())
+        let t0 = Date()
+        XCTAssertTrue(policy.shouldRecord(at: t0, speed: 15, distance: 15, accuracy: 5))
+        XCTAssertTrue(policy.shouldRecord(at: t0.addingTimeInterval(1), speed: 15, distance: 15, accuracy: 5), "a car: every second")
+        XCTAssertFalse(policy.shouldRecord(at: t0.addingTimeInterval(2), speed: 1.4, distance: 2, accuracy: 5), "on foot: not yet")
+        XCTAssertTrue(policy.shouldRecord(at: t0.addingTimeInterval(6), speed: 1.4, distance: 8, accuracy: 5), "on foot: every five")
+    }
+
+    func testSaverIgnoresTheCarCadence() {
+        var policy = MovementPolicy(settings: LocationSettings.Preset.saver.settings)
+        let t0 = Date()
+        XCTAssertTrue(policy.shouldRecord(at: t0, speed: 20, distance: 200, accuracy: 50))
+        XCTAssertFalse(policy.shouldRecord(at: t0.addingTimeInterval(2), speed: 20, distance: 200, accuracy: 50))
+    }
+
+    func testOldSavedSettingsMoveOntoTheNewCadenceAndKeepTheirPreset() throws {
+        // The old Accurate default, as a phone saved it before the car cadence.
+        var oldAccurate = LocationSettings(); oldAccurate.movingInterval = 30
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(oldAccurate)) as! [String: Any]
+        json.removeValue(forKey: "vehicleInterval"); json.removeValue(forKey: "vehicleSpeed")
+        let decoded = try JSONDecoder().decode(LocationSettings.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(LocationSettings.withLiveCadence(decoded).matchingPreset, .accurate)
+        XCTAssertEqual(LocationSettings.withLiveCadence(decoded).movingInterval, 5)
+
+        var oldSaver = LocationSettings.Preset.saver.settings; oldSaver.vehicleInterval = 1
+        XCTAssertEqual(LocationSettings.withLiveCadence(oldSaver).matchingPreset, .saver)
+
+        var custom = LocationSettings(); custom.movingInterval = 120
+        XCTAssertEqual(LocationSettings.withLiveCadence(custom).movingInterval, 120, "a hand-set cadence is left alone")
+        XCTAssertEqual(LocationSettings.withLiveCadence(custom).vehicleInterval, 120, "in a car too")
+    }
+
+    // MARK: - One upload for many points
+
+    private func point(_ i: Int) -> LocationRecord {
+        LocationRecord(recorded: "2026-11-01T10:00:\(String(format: "%02d", i % 60)).000Z", latitude: 54.5, longitude: -1.55,
+                       accuracy: 5, speed: 10, moving: true, battery: nil, bike: nil)
+    }
+
+    func testLocationBatchesMergeInOrderAndLeaveHealthAlone() {
+        let health = UploadBatch(health: [HealthRecord(id: "h", kind: "steps", start: "a", end: "b", source: "t")])
+        let queue = [UploadBatch(locations: [point(1)]), health, UploadBatch(locations: [point(2)]), UploadBatch(locations: [point(3)])]
+        let merged = HealthBatching.mergeLocations(queue)
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(merged[0].locations.map(\.recorded), [1, 2, 3].map { point($0).recorded })
+        XCTAssertEqual(merged[1].health.map(\.id), ["h"])
+    }
+
+    func testMergedBatchesStayUnderTheServersLimit() {
+        let queue = (0..<1201).map { UploadBatch(locations: [point($0)]) }
+        let merged = HealthBatching.mergeLocations(queue)
+        XCTAssertEqual(merged.map(\.locations.count), [500, 500, 201])
+    }
+
+    func testASplitHalfIsNeverRejoined() {
+        // Two halves a refusal split, and the collector's own one-point batches.
+        let queue = [UploadBatch(locations: [point(1), point(2)]), UploadBatch(locations: [point(3), point(4)]),
+                     UploadBatch(locations: [point(5)]), UploadBatch(locations: [point(6)])]
+        XCTAssertEqual(HealthBatching.mergeLocations(queue).map(\.locations.count), [2, 2, 2])
+    }
+
+    func testASingleBatchIsLeftAsItIs() {
+        let queue = [UploadBatch(locations: [point(1)])]
+        XCTAssertEqual(HealthBatching.mergeLocations(queue).map(\.id), queue.map(\.id))
     }
 }

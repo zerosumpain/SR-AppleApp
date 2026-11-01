@@ -27,6 +27,14 @@ final class FamilyStore: ObservableObject {
     /// 15 s: the site files a fresh view within about 30 s of a phone's
     /// upload while somebody is out on close tracking.
     static let refreshInterval: Duration = .seconds(15)
+    /// While somebody else is on the move. The companion server lays each
+    /// phone's newest point over the view (live positions), and a moving
+    /// phone uploads every 5 s, so this is what makes the pin travel.
+    static let liveInterval: Duration = .seconds(5)
+    /// The next wait: quicker while anyone but the viewer is moving.
+    var nextRefresh: Duration {
+        view?.people.contains { !$0.isSelf && $0.moving != nil } == true ? Self.liveInterval : Self.refreshInterval
+    }
 
     private let companion: Companion
     private var loading = false

@@ -289,12 +289,23 @@ struct DriveScreen: View {
             router.pushFromHub(DriveRef(space: model.ref.space, folder: folder.path))
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "folder.fill")
-                    .foregroundStyle(SR.accent)
-                    .frame(width: 32, height: 32)
-                    .accessibilityHidden(true)
+                if let mark = DriveLogic.incomingMark(folder.path) {
+                    // Incoming photos and movies: a solid tile with its own mark,
+                    // so the two the phone fills stand out from the rest.
+                    Image(systemName: mark)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(SR.paper)
+                        .frame(width: 32, height: 32)
+                        .background(SR.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: "folder.fill")
+                        .foregroundStyle(SR.accent)
+                        .frame(width: 32, height: 32)
+                        .accessibilityHidden(true)
+                }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(folder.name).font(SR.Text.bodyMedium(15)).foregroundStyle(SR.ink).lineLimit(1)
+                    Text(folder.name).font(SR.Text.bodyMedium(15)).fontWeight(DriveLogic.incomingMark(folder.path) == nil ? nil : .semibold).foregroundStyle(SR.ink).lineLimit(1)
                     Text(folder.items == 1 ? "1 file" : "\(folder.items) files")
                         .font(SR.Text.secondary(12)).foregroundStyle(SR.inkMuted)
                 }

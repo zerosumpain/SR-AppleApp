@@ -220,8 +220,8 @@ struct LocationSettingsScreen: View {
                 accuracyPicker("Accuracy while stopped", selection: $draft.stationaryAccuracy)
 
                 stepperRow("Record every, moving", value: $draft.movingInterval,
-                           range: 10...600, step: 10, unit: "s",
-                           note: "How often a point is saved while you are moving.")
+                           range: 5...600, step: 5, unit: "s",
+                           note: "How often a point is saved while you are moving. In a car it is every second, unless this is longer.")
                 stepperRow("Record every, stopped", value: $draft.stationaryInterval,
                            range: 60...3600, step: 60, unit: "s",
                            note: "Standing still rarely needs more than this.")

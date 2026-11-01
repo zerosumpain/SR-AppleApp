@@ -460,8 +460,23 @@ enum DriveLogic {
     }
 
     /// Folders have no date or size of their own: always by name.
+    /// Incoming photos and movies first, where the phone puts things; then by name.
     static func sorted(_ folders: [DriveFolder]) -> [DriveFolder] {
-        folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        folders.sorted { a, b in
+            let ia = incomingMark(a.path) != nil, ib = incomingMark(b.path) != nil
+            if ia != ib { return ia }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+    }
+
+    /// The SF Symbol for a space's Incoming photos or movies folder (the
+    /// server's protected pair, at the top of a space); nil for any other.
+    static func incomingMark(_ path: String) -> String? {
+        switch path {
+        case "Incoming photos": return "photo.on.rectangle.angled"
+        case "Incoming movies": return "film.stack"
+        default: return nil
+        }
     }
 
     /// What a file is, for sorting by kind: photos, films, sound, documents…

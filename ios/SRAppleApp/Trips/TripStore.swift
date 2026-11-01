@@ -23,6 +23,9 @@ final class TripNetwork: ObservableObject {
 
     @Published private(set) var online = true
     @Published private(set) var unmetered = false
+    /// Posted on coming back online, and on joining Wi-Fi: the location
+    /// backlog an hour without signal left behind goes up then (`Companion`).
+    static let improved = Notification.Name("sr.network.improved")
 
     private let monitor = NWPathMonitor()
 
@@ -32,8 +35,12 @@ final class TripNetwork: ObservableObject {
             let unmetered = online && !path.isExpensive && !path.isConstrained
             Task { @MainActor in
                 let wasOffline = !TripNetwork.shared.online
+                let wasMetered = !TripNetwork.shared.unmetered
                 TripNetwork.shared.online = online
                 TripNetwork.shared.unmetered = unmetered
+                if (online && wasOffline) || (unmetered && wasMetered) {
+                    NotificationCenter.default.post(name: TripNetwork.improved, object: nil)
+                }
                 if online && wasOffline { await TripEventQueue.shared.flush() }
             }
         }

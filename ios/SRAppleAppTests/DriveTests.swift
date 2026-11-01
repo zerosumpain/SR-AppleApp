@@ -716,4 +716,14 @@ final class DriveLogicTests: XCTestCase {
         let old = #"{"space":"mine","folder":"","folders":[],"files":[],"usage":{"bytes":0,"quotaBytes":null},"maxUploadBytes":31457280}"#
         XCTAssertNil(try JSONDecoder().decode(DriveListing.self, from: json(old)).limits.large)
     }
+
+    func testIncomingFoldersComeFirstWithTheirOwnMarks() {
+        let folders = [DriveFolder(name: "Archive", path: "Archive", items: 3),
+                       DriveFolder(name: "Incoming movies", path: "Incoming movies", items: 1),
+                       DriveFolder(name: "Incoming photos", path: "Incoming photos", items: 9),
+                       DriveFolder(name: "Incoming photos", path: "Trips/Incoming photos", items: 2)]
+        XCTAssertEqual(DriveLogic.sorted(folders).map(\.path), ["Incoming movies", "Incoming photos", "Archive", "Trips/Incoming photos"])
+        XCTAssertEqual(DriveLogic.incomingMark("Incoming movies"), "film.stack")
+        XCTAssertNil(DriveLogic.incomingMark("Trips/Incoming photos"), "only the pair at the top of a space")
+    }
 }
