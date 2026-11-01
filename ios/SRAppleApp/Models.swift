@@ -92,6 +92,13 @@ struct PersistedState: Codable {
     /// shares its location it says nothing about Health.
     var lastHealthUpload: Date?
     var historyStart = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
+    /// How far back WORKOUTS are read, once the owner has asked to re-send
+    /// older ones (Settings → Apple Health → Workout history). Nil means
+    /// `historyStart`. Workouts only: their routes, heart rate and splits are
+    /// what the website was missing from before this app (Health Auto Export
+    /// never sent many routes), and reading every other kind back to 2021
+    /// would be hundreds of thousands of records nobody asked for.
+    var workoutHistoryStart: Date?
     /// Everything the settings screen controls. Decoded with a default so an
     /// existing install upgrades without losing its queue — a new non-optional
     /// field with no default makes the whole state file undecodable, which here
@@ -216,11 +223,20 @@ struct PersistedState: Codable {
         access = (try? c.decodeIfPresent(AppAccess.self, forKey: .access)) ?? nil
         motionGateOn = try c.decodeIfPresent(Bool.self, forKey: .motionGateOn) ?? false
         liveCadenceOn = try c.decodeIfPresent(Bool.self, forKey: .liveCadenceOn) ?? false
+        // `try?`: a date it cannot read costs the re-send, never the queue.
+        workoutHistoryStart = (try? c.decodeIfPresent(Date.self, forKey: .workoutHistoryStart)) ?? nil
     }
 
     /// The memberwise init the rest of the app uses, which writing `init(from:)`
     /// suppresses.
     init() {}
+
+    /// Where an anchored read of `kind` starts: `historyStart`, or for
+    /// workouts the earlier of that and `workoutHistoryStart`.
+    func readStart(for kind: String) -> Date {
+        guard kind == "workout", let workouts = workoutHistoryStart else { return historyStart }
+        return min(workouts, historyStart)
+    }
 }
 /// What a change that would push the outbox past 50,000 records throws.
 let outboxFullMessage = "Offline queue is full. Connect and sync before collecting more data."
