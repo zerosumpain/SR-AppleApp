@@ -9,6 +9,10 @@ services:
       SESSION_INTROSPECTION_AUDIENCE: sr-companion
       APP_ORIGIN: ${APP_ORIGIN:?Set the HTTPS origin for the companion}
       DATABASE_PATH: /app/data/apple.sqlite
+      # SQLite's temporary files (an index build's sort, VACUUM) go on the
+      # data volume: /tmp is a 16 MB tmpfs, and on 2026-11-01 building the
+      # locations index over 130k rows filled it and crash-looped the pilot.
+      SQLITE_TMPDIR: /app/data
       APPLE_POLICY_URL: ${APPLE_POLICY_URL:-https://strangeramblings.com/api/native/companion-policy}
       APPLE_POLICY_TOKEN: ${APPLE_POLICY_TOKEN:?Set a dedicated Main companion-policy secret}
       # Main validates browser sessions using this companion's dedicated key.
