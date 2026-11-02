@@ -34,6 +34,12 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-02-sr-tv", when: "November 2026", title: "Games on the TV", items: [
+            WhatsNewItem(icon: "tv", title: "Join the TV",
+                         detail: "Scan the QR code on sr. tv with your camera and you're in as yourself, with no name to type. The app waits for the TV to start, then opens the game."),
+            WhatsNewItem(icon: "square.grid.4x3.fill", title: "Boggle is Kelloggle",
+                         detail: "Same letter dice, same words, new name."),
+        ]),
         WhatsNewRelease(id: "2026-11-02-photo-sync", when: "November 2026", title: "Your photos, kept in Drive", items: [
             WhatsNewItem(icon: "arrow.triangle.2.circlepath", title: "Photo sync",
                          detail: "Turn on Photo Sync from + in Drive and your photos and videos go to My files by themselves, in the background. New ones follow after you take them. Anything Drive already has is never sent twice."),
@@ -146,7 +152,7 @@ enum WhatsNew {
         ]),
         WhatsNewRelease(id: "2026-10-28-offline-everything", when: "October 2026", title: "Play anywhere", items: [
             WhatsNewItem(icon: "wifi.slash", title: "Every board game offline",
-                         detail: "Boggle, Anagram Blitz, Categories, Chess, Liar's Dice and Fireworks now play with no internet — alone against the phone or with phones nearby. Tap Play offline when you start one; scores sync when you're back online."),
+                         detail: "Kelloggle, Anagram Blitz, Categories, Chess, Liar's Dice and Fireworks now play with no internet — alone against the phone or with phones nearby. Tap Play offline when you start one; scores sync when you're back online."),
             WhatsNewItem(icon: "car.2", title: "Car Race, together",
                          detail: "Cars bump into each other when you race nearby, and split screen lets two to four of you race at once on one phone."),
             WhatsNewItem(icon: "rectangle.3.group", title: "More widgets",

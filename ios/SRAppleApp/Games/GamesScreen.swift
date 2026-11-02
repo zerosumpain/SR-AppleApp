@@ -41,10 +41,10 @@ struct GamesScreen: View {
 
     /// The games this build offers, in the catalogue's order.
     private var offeredGames: [GameKind] { GameKind.allCases.filter(offered) }
-
-    /// What a search reads for each game: its name, its line and its blurb.
+    /// What a search reads for each game: its name, its id (so "boggle" still
+    /// finds Kelloggle), its line and its blurb.
     private var searchText: [String: String] {
-        Dictionary(uniqueKeysWithValues: offeredGames.map { ($0.rawValue, "\($0.title) \($0.line) \($0.blurb)") })
+        Dictionary(uniqueKeysWithValues: offeredGames.map { ($0.rawValue, "\($0.title) \($0.rawValue) \($0.line) \($0.blurb)") })
     }
 
     private var favourites: [String] {

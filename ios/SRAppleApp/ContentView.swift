@@ -51,7 +51,9 @@ final class Router: ObservableObject {
     @Published var whatsNew: [WhatsNewRelease] = []
     @Published var whatsNewHistory = false
 
-    enum Sheet: String, Identifiable { case settings, alerts, connections, colours, whatsNew, batPhone; var id: String { rawValue } }
+    enum Sheet: String, Identifiable { case settings, alerts, connections, colours, whatsNew, batPhone, tvParty; var id: String { rawValue } }
+    /// The TV code the `tvParty` sheet is about (somebody without games).
+    @Published var tvPartyCode = ""
     /// Pages that live only inside More — not places with a tab of their own.
     /// Wildmind, like Daydream, is the owner's.
     enum MorePage: String, Hashable { case daydream, wildmind }
@@ -363,6 +365,20 @@ final class Router: ObservableObject {
         show(.games)
         guard AccessStore.shared.allows(.games) else { return }
         push(GameRoomRef(id: roomId, game: game), on: .games)
+    }
+
+    /// An sr. tv party — the TV's QR, via its web page's `sr://games/join/<CODE>`.
+    /// With games: the wait at that TV, pushed on Games. Without: a sheet that
+    /// says so and offers the party's web page, where anyone joins by name.
+    /// A malformed code still lands on the wait, which says what is wrong.
+    func openTVParty(_ code: String) {
+        guard AccessStore.shared.allows(.games) else {
+            tvPartyCode = code
+            sheet = .tvParty
+            return
+        }
+        show(.games)
+        push(TVPartyRef(code: code), on: .games)
     }
 
     /// One jkai thread — a tapped chat push, `sr://chat/<id>`, Spotlight —
@@ -691,6 +707,16 @@ struct ContentView: View {
                 router.openFamilyPage(page)
                 return
             }
+            // sr://games/join/<CODE> — an sr. tv party's QR, handed over by
+            // its web page. Before GlanceLink, which would read "join" as a room.
+            if case .join(let code)? = TVPartyLink.from(url: url) {
+                router.openTVParty(code)
+                return
+            }
+            if TVPartyLink.isJoinShaped(url) {
+                router.openTVParty(url.lastPathComponent)
+                return
+            }
             // sr://family, sr://games[/<room>], sr://health — the glance widgets.
             if let link = GlanceLink.from(url: url) { router.openGlance(link); return }
             // sr://batphone — the bat phone widget: its check, never a send.
@@ -795,6 +821,8 @@ struct ContentView: View {
             WhatsNewSheet(releases: router.whatsNew, history: router.whatsNewHistory)
         case .batPhone:
             BatPhoneConfirmSheet()
+        case .tvParty:
+            NavigationStack { TVPartyNoAccessView(code: router.tvPartyCode) }
         }
     }
 
@@ -1024,6 +1052,10 @@ private extension View {
     func placeDestinations() -> some View {
         self
             .navigationDestination(for: GameRoomRef.self) { GameRoomScreen(ref: $0).id($0.id) }
+            // An sr. tv party: the wait at the TV, and its web page for a game
+            // this build cannot play.
+            .navigationDestination(for: TVPartyRef.self) { TVPartyScreen(ref: $0).id($0.code) }
+            .navigationDestination(for: TVPartyWebRef.self) { TVPartyWebScreen(ref: $0) }
             .navigationDestination(for: GameLeaderboardRef.self) { _ in GameLeaderboardScreen() }
             .navigationDestination(for: MarblerRef.self) { _ in MarblerScreen() }
             .navigationDestination(for: PhysicsGameRef.self) { PhysicsGameScreen(kind: $0.kind) }
