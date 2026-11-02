@@ -8,7 +8,10 @@ final class HomeTests: XCTestCase {
     // MARK: - Which tiles exist
 
     func testTheOwnerHasEveryTile() {
-        XCTAssertEqual(HomeTileKind.available(access: .everything, sitePaired: true), HomeTileKind.defaultOrder)
+        // Travel kit is withdrawn for now: its kind stays so saved layouts
+        // still decode, but no one is offered it.
+        XCTAssertEqual(HomeTileKind.available(access: .everything, sitePaired: true),
+                       HomeTileKind.defaultOrder.filter { $0 != .travel })
     }
 
     func testTheBriefingLeadsAndTheFamilyFollows() {
