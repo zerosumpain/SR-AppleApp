@@ -198,10 +198,12 @@ struct TripStoryScreen: View {
     }
 }
 
-/// One photo from the library, as a square.
+/// One photo from the library, as a square. The request goes when the
+/// square does (a story scrolls through dozens), through the shared manager.
 struct TripAssetThumb: View {
     let asset: PHAsset
     var size: CGFloat = 84
+    @Environment(\.displayScale) private var scale
     @State private var image: UIImage?
 
     var body: some View {
@@ -212,15 +214,9 @@ struct TripAssetThumb: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
         .task(id: asset.localIdentifier) {
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .opportunistic
-            options.isNetworkAccessAllowed = true
-            let scale = UIScreen.main.scale
-            PHImageManager.default().requestImage(
-                for: asset, targetSize: CGSize(width: size * scale, height: size * scale),
-                contentMode: .aspectFill, options: options
-            ) { result, _ in
-                Task { @MainActor in if let result { image = result } }
+            let pixels = CGSize(width: size * scale, height: size * scale)
+            for await picture in SRLibraryImages.images(asset, pixels: pixels, options: SRLibraryImages.thumbnailOptions()) {
+                image = picture
             }
         }
         .accessibilityHidden(true)

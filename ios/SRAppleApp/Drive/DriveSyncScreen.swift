@@ -249,27 +249,10 @@ struct DriveAssetThumb: View {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return }
         isVideo = asset.mediaType == .video
         let scale = UITraitCollection.current.displayScale
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.isNetworkAccessAllowed = true
-        options.resizeMode = .fast
         let target = CGSize(width: side * scale, height: side * scale)
-        for await picture in Self.images(asset, target, options) {
+        // One shared caching manager for every square, the request cancelled with the square.
+        for await picture in SRLibraryImages.images(asset, pixels: target, options: SRLibraryImages.thumbnailOptions()) {
             image = picture
-        }
-    }
-
-    /// The system answers twice in opportunistic mode: a quick blurry one, then the real one.
-    private static func images(_ asset: PHAsset, _ size: CGSize, _ options: PHImageRequestOptions) -> AsyncStream<UIImage> {
-        AsyncStream { continuation in
-            let id = PHImageManager.default().requestImage(for: asset, targetSize: size, contentMode: .aspectFill, options: options) { picture, info in
-                if let picture { continuation.yield(picture) }
-                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                if !degraded || info?[PHImageErrorKey] != nil || (info?[PHImageCancelledKey] as? Bool) == true {
-                    continuation.finish()
-                }
-            }
-            continuation.onTermination = { _ in PHImageManager.default().cancelImageRequest(id) }
         }
     }
 }
