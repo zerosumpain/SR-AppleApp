@@ -254,9 +254,9 @@ final class PaletteTests: XCTestCase {
 
     func testTheSheetOffersOnlyTheColoursThisPersonSees() {
         let member = SRPaletteSheet.keys(access: AppAccess(family: true), sitePaired: false)
-        // The Travel kit tile is on every phone and wears the trips hue, so a
-        // member with no trips board still gets a Trips colour to change.
-        XCTAssertEqual(member, [.family, .health, .move, .trips])
+        // With the Travel kit withdrawn, a member with no trips board has no
+        // tile in the trips hue, so no Trips colour is offered.
+        XCTAssertEqual(member, [.family, .health, .move])
         let owner = SRPaletteSheet.keys(access: .everything, sitePaired: true)
         XCTAssertEqual(owner.first, .family)
         XCTAssertTrue(owner.contains(.alerts))

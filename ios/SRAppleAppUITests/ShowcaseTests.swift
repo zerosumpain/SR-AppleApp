@@ -1143,36 +1143,6 @@ final class ShowcaseTests: XCTestCase {
         soft(app.tray.waitForExistence(timeout: 10), "no Home tab behind it")
     }
 
-    @MainActor func testShowcaseTravelKit() {
-        let app = launch()
-        soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
-        openTab(app, "More")
-        settle(app, on: byId(app, "more-screen"))
-        let tile = byId(app, "more-travel")
-        guard scroll(app, to: tile) else { return soft(false, "no Travel kit card in More") }
-        tile.tap()
-        settle(app, on: byId(app, "travel-kit"), seconds: 2)
-        attach(app, "Showcase — Travel kit")
-        app.swipeUp()
-        settle(app)
-        attach(app, "Showcase — Travel kit, essentials")
-
-        let pages = [
-            ("translate", "travel-translate"), ("reader", "travel-reader"), ("phrases", "travel-phrasebook"),
-            ("money", "travel-money"),
-        ]
-        for (tool, page) in pages {
-            let card = byId(app, "travel-tool-\(tool)")
-            guard scroll(app, to: card) else { soft(false, "no \(tool) card"); continue }
-            card.tap()
-            soft(byId(app, page).waitForExistence(timeout: 5), "the \(tool) page did not open")
-            settle(app, seconds: 1)
-            attach(app, "Showcase — Travel kit, \(tool)")
-            app.navigationBars.buttons.element(boundBy: 0).tap()
-            settle(app, on: byId(app, "travel-kit"))
-        }
-    }
-
     /// Wordle Race: the new-game sheet opened from its card (set to Wordle,
     /// no game picker, difficulty lines from the Wordle table), then Sam's race half played —
     /// my three rows and the keyboard, Sam and Robin as colours only.

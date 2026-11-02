@@ -186,6 +186,87 @@ func retryDelay(madeProgress: Bool, transient: Bool) -> TimeInterval { madeProgr
             updateQueue()
         } catch { message = error.localizedDescription; return }
         await sync()
+        await continueBackfill()
+    }
+
+    // MARK: - Re-sending older workouts, without stopping
+
+    static let backfillTaskIdentifier = "com.strangeramblings.com.appleapp.health-backfill"
+    /// Settings → Apple Health → Workout history → "Keep going with SR shut".
+    static let backfillInBackgroundKey = "health.workoutBackfill.background"
+    static var backfillInBackground: Bool {
+        UserDefaults.standard.object(forKey: backfillInBackgroundKey) as? Bool ?? true
+    }
+
+    @Published private(set) var backfilling = false
+
+    /// One round: read a minute's worth of pages, send them.
+    private static let backfillRound: TimeInterval = 60
+    /// Records waiting to go past which reading pauses for the sending to
+    /// catch up (no signal, the site slow): the queue must not grow without end.
+    private static let backfillQueueCeiling = 2_000
+
+    /// While the app is on screen, keep reading and sending older workouts
+    /// until every page has gone, rather than stopping after one sync's
+    /// two minutes. On charge the screen is kept on meanwhile (`KeepAwake`).
+    /// Off screen it hands over to the background window.
+    func continueBackfill() async {
+        guard paired, health.workoutBackfillPending, !backfilling else { return }
+        // Workouts switched off since: nothing is left to re-send.
+        guard health.enabledKinds.contains("workout") else { health.workoutBackfillPending = false; return }
+        backfilling = true
+        KeepAwake.shared.set("health-backfill", true)
+        defer {
+            backfilling = false
+            KeepAwake.shared.set("health-backfill", false)
+            scheduleBackfill()
+        }
+        while paired, health.workoutBackfillPending, health.enabledKinds.contains("workout"),
+              UIApplication.shared.applicationState == .active, !Task.isCancelled {
+            await backfillRound()
+        }
+    }
+
+    private func backfillRound() async {
+        if queueCount < Self.backfillQueueCeiling {
+            try? await health.collect(until: Date().addingTimeInterval(Self.backfillRound))
+        }
+        await flush()
+        // Nothing went (no signal): wait rather than spin.
+        let stuck = queueCount >= Self.backfillQueueCeiling
+        try? await Task.sleep(for: .seconds(stuck ? 30 : 1))
+    }
+
+    /// Ask for a background processing window while pages are left, when
+    /// the owner allows it. iOS chooses when: most often overnight, on charge.
+    func scheduleBackfill() {
+        guard paired, health.workoutBackfillPending, Self.backfillInBackground else {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backfillTaskIdentifier)
+            return
+        }
+        BGTaskScheduler.shared.getPendingTaskRequests { pending in
+            guard !pending.contains(where: { $0.identifier == Self.backfillTaskIdentifier }) else { return }
+            let request = BGProcessingTaskRequest(identifier: Self.backfillTaskIdentifier)
+            request.requiresNetworkConnectivity = true
+            request.requiresExternalPower = false
+            request.earliestBeginDate = Date().addingTimeInterval(10 * 60)
+            try? BGTaskScheduler.shared.submit(request)
+        }
+    }
+
+    /// The window iOS granted: rounds until it ends or every page has gone.
+    func runBackfill(_ task: BGTask) {
+        let work = Task { @MainActor in
+            backfilling = true
+            while paired, health.workoutBackfillPending, health.enabledKinds.contains("workout"),
+                  Self.backfillInBackground, !Task.isCancelled {
+                await backfillRound()
+            }
+            backfilling = false
+            scheduleBackfill()
+            task.setTaskCompleted(success: !health.workoutBackfillPending)
+        }
+        task.expirationHandler = { work.cancel() }
     }
     /// Not `busy`: the sheet is the reader's, and the read and upload after
     /// it run beside a sync like any other flush (each has its own guard).

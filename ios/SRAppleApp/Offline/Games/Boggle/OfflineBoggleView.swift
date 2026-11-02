@@ -107,8 +107,8 @@ struct OfflineBoggleView: View {
     // MARK: - Words
 
     private var kicker: String {
-        guard let mine = view.mine else { return "Boggle · 4×4 · watching" }
-        return "Boggle · 4×4 · \(mine.count == 1 ? "1 word" : "\(mine.count) words")"
+        guard let mine = view.mine else { return "Kelloggle · 4×4 · watching" }
+        return "Kelloggle · 4×4 · \(mine.count == 1 ? "1 word" : "\(mine.count) words")"
     }
 
     private var title: String {

@@ -34,9 +34,15 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-02-sr-tv", when: "November 2026", title: "Games on the TV", items: [
+            WhatsNewItem(icon: "tv", title: "Join the TV",
+                         detail: "Scan the QR code on sr. tv with your camera and you're in as yourself, with no name to type. The app waits for the TV to start, then opens the game."),
+            WhatsNewItem(icon: "square.grid.4x3.fill", title: "Boggle is Kelloggle",
+                         detail: "Same letter dice, same words, new name."),
+        ]),
         WhatsNewRelease(id: "2026-11-02-photo-sync", when: "November 2026", title: "Your photos, kept in Drive", items: [
             WhatsNewItem(icon: "arrow.triangle.2.circlepath", title: "Photo sync",
-                         detail: "Turn on Photo Sync from + in Drive and your photos and videos go to My files by themselves, in the background. New ones follow after you take them. Anything Drive already has is never sent twice."),
+                         detail: "Turn on Photo Sync from + in Drive and your photos and videos go to My files by themselves. It carries on with SR shut, more slowly: a batch at a time, and faster on charge overnight. New ones follow after you take them. Anything Drive already has is never sent twice."),
             WhatsNewItem(icon: "checkmark.icloud", title: "See what's in Drive",
                          detail: "Photo Sync shows how many of this phone's photos are in Drive, how many are on their way and how many are still to go. You can see the ones not there yet."),
             WhatsNewItem(icon: "trash", title: "Free up space when you like",
@@ -146,7 +152,7 @@ enum WhatsNew {
         ]),
         WhatsNewRelease(id: "2026-10-28-offline-everything", when: "October 2026", title: "Play anywhere", items: [
             WhatsNewItem(icon: "wifi.slash", title: "Every board game offline",
-                         detail: "Boggle, Anagram Blitz, Categories, Chess, Liar's Dice and Fireworks now play with no internet — alone against the phone or with phones nearby. Tap Play offline when you start one; scores sync when you're back online."),
+                         detail: "Kelloggle, Anagram Blitz, Categories, Chess, Liar's Dice and Fireworks now play with no internet — alone against the phone or with phones nearby. Tap Play offline when you start one; scores sync when you're back online."),
             WhatsNewItem(icon: "car.2", title: "Car Race, together",
                          detail: "Cars bump into each other when you race nearby, and split screen lets two to four of you race at once on one phone."),
             WhatsNewItem(icon: "rectangle.3.group", title: "More widgets",
@@ -282,19 +288,8 @@ enum WhatsNew {
                          detail: "A card you rate stays where it is until you leave the screen.",
                          ownerOnly: true),
         ]),
-        WhatsNewRelease(id: "2026-10-25-travel", when: "October 2026", title: "Ready for Rome", items: [
-            WhatsNewItem(icon: "airplane", title: "Travel kit",
-                         detail: "In More. Five tools for abroad that work on the phone, with roaming off."),
-            WhatsNewItem(icon: "captions.bubble", title: "Live translate",
-                         detail: "Talk with someone in Italian, Spanish, French, German or Portuguese, or caption what is being said. Open it once on Wi-Fi to download the language."),
-            WhatsNewItem(icon: "text.viewfinder", title: "Read a sign",
-                         detail: "Photograph a menu, a sign or a ticket and read it in English."),
-            WhatsNewItem(icon: "book", title: "Phrasebook",
-                         detail: "Italian for food, allergies, shops and getting help, said out loud for you."),
-            WhatsNewItem(icon: "eurosign.circle", title: "Money",
-                         detail: "Pounds and euros both ways, splitting a bill, and what to tip."),
-            WhatsNewItem(icon: "location.north.line", title: "Way back",
-                         detail: "Pin the hotel, then follow the arrow home or show a taxi driver where to go."),
+        // The Travel kit's notes went with it (withdrawn 2026-11-02, to come back reworked).
+        WhatsNewRelease(id: "2026-10-25-travel", when: "October 2026", title: "What's new, and chess", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess fits its box",
                          detail: "The whole board shows now, not just one corner."),
             WhatsNewItem(icon: "sparkles", title: "This screen",

@@ -29,6 +29,11 @@ final class DriveSyncTests: XCTestCase {
         ]
         XCTAssertEqual(DriveSync.inFlight(jobs).map(\.id), ["1", "2", "4"])
         XCTAssertEqual(DriveSync.room(jobs), DriveSync.window - 3)
+        // Off screen the line is longer, so each wake leaves more to send.
+        XCTAssertEqual(DriveSync.room(jobs, window: DriveSync.windowSize(onScreen: false)), DriveSync.backgroundWindow - 3)
+        XCTAssertEqual(DriveSync.windowSize(onScreen: true), DriveSync.window)
+        XCTAssertGreaterThan(DriveSync.backgroundWindow, DriveSync.window)
+        XCTAssertLessThan(DriveSync.wakeBudget, 30)
     }
 
     func testAGivenUpFailureIsNotSentAgainBySyncButARefusalIsNotQueued() {

@@ -11,9 +11,13 @@ import SwiftUI
 /// what it opens is pushed above it on the same stack: one bar, one back
 /// button, the tab bar where it was.
 ///
-/// A grid of doors, two across and square, every one the same size (John,
-/// 2026-10-27: "all of them 2x2"), the ones this phone opens most first
+/// A grid of doors painted like the Games page (John, 2026-11-02: "the same
+/// treatment with beautiful images and logos as the games feature"):
+/// Settings, Drive, Captures and News keep the old 2x2 squares, and every
+/// other door is a 1x1, a 2x1 or a 1x2 packed around them with no holes
+/// (`HubLayout`). The ones this phone opens most come first within each size
 /// (`HubUsage`). Each says what is waiting behind it, and what it is for.
+/// Sync now is not a door: it is the hot button at the top right.
 /// Games are a tab now, so their invitations are on the tray's badge and the
 /// Games page, not repeated here.
 struct MoreScreen: View {
@@ -22,11 +26,14 @@ struct MoreScreen: View {
     @ObservedObject var games: GamesStore
     /// Sync now lives here (and in Settings), off Today. Not observed: the
     /// companion publishes on every upload, and the whole hub redrawing under
-    /// a thumb is how a tap goes missing. What the Sync door shows is
+    /// a thumb is how a tap goes missing. What the Sync button shows is
     /// mirrored below, on a change only.
     let companion: Companion
     @State private var syncing = false
     @State private var lastUpload: Date?
+    /// What the companion said, once Sync now has been tapped on this visit:
+    /// shown under the header until the page is left.
+    @State private var syncNote: String?
     @ObservedObject private var daydream = DaydreamStore.shared
     @ObservedObject private var feedback = NoticedFeedback.shared
     @ObservedObject private var commissions = CommissionStore.shared
@@ -62,25 +69,15 @@ struct MoreScreen: View {
             // stack whose last child is measured at a different height than
             // it was estimated at loops at the bottom.
             VStack(alignment: .leading, spacing: SR.cardGap) {
-                Text("Most used first")
-                    .font(SR.Text.mono())
-                    .foregroundStyle(SR.inkMuted)
-                    .padding(.horizontal, 2)
-                    .accessibilityHidden(true)
-                ForEach(Array(rows(entries).enumerated()), id: \.offset) { _, row in
-                    HStack(alignment: .top, spacing: SR.cardGap) {
-                        ForEach(row) { entry in
-                            HubTile(entry: entry, square: !typeSize.isAccessibilitySize) {
-                                HubUsage.opened(entry.id)
-                                entry.open()
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        // A short last row keeps its doors the size of the rest.
-                        ForEach(0..<(columns - row.count), id: \.self) { _ in
-                            Color.clear.frame(maxWidth: .infinity)
-                        }
+                header
+                if typeSize.isAccessibilitySize {
+                    // One column at the accessibility sizes, each door as tall
+                    // as its words: a cell is too small to hold them.
+                    ForEach(entries) { entry in
+                        HubTile(entry: entry, size: nil) { open(entry) }
                     }
+                } else {
+                    grid(entries)
                 }
             }
             .padding(.horizontal, SR.gutter)
@@ -98,6 +95,16 @@ struct MoreScreen: View {
             // Home, from More as from every first page.
             ToolbarItem(placement: .topBarLeading) { SRHomeButton() }
             ToolbarItem(placement: .principal) { SRBarMark() }
+            // Sync now, here and only here: the page's one action.
+            ToolbarItem(placement: .topBarTrailing) {
+                HubSyncButton(syncing: syncing, lastUpload: lastUpload, message: companion.message) {
+                    syncNote = nil
+                    Task { @MainActor in
+                        await companion.sync()
+                        syncNote = companion.message
+                    }
+                }
+            }
         }
         .onAppear { order = HubUsage.load().ordered(items.map(\.id), now: Date()) }
         .onReceive(companion.$busy.removeDuplicates()) { syncing = $0 }
@@ -120,14 +127,61 @@ struct MoreScreen: View {
         }
     }
 
-    /// Two across, square; one at the accessibility sizes, where a door
-    /// takes the height its words need.
-    private var columns: Int {
-        typeSize.isAccessibilitySize ? 1 : 2
+    /// "Most used first", and when this phone last synced — the time Sync
+    /// now's button would otherwise have no room for — or what the sync just
+    /// tapped said.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Most used first")
+                    .accessibilityHidden(true)
+                Spacer(minLength: 8)
+                if let caption = syncCaption {
+                    Text(caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        // The button says it to VoiceOver.
+                        .accessibilityHidden(true)
+                }
+            }
+            .font(SR.Text.mono())
+            .foregroundStyle(SR.inkMuted)
+            if let syncNote, !syncNote.isEmpty, !syncing {
+                Text(syncNote)
+                    .font(SR.Text.secondary(12))
+                    .foregroundStyle(SR.inkSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 2)
     }
 
-    private func rows(_ entries: [HubEntry]) -> [[HubEntry]] {
-        stride(from: 0, to: entries.count, by: columns).map { Array(entries[$0..<min($0 + columns, entries.count)]) }
+    private var syncCaption: String? {
+        if syncing { return "Syncing…" }
+        return lastUpload.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" }
+    }
+
+    /// The doors where `HubLayout` puts them. The sizes follow the ids and
+    /// this visit's order only, so nothing moves while the page is open.
+    private func grid(_ entries: [HubEntry]) -> some View {
+        let byId = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let cells = HubLayout.pack(entries.map(\.id)).compactMap { place in
+            byId[place.id].map { HubCell(place: place, entry: $0) }
+        }
+        return HubGridLayout(placements: cells.map(\.place), spacing: Self.gap) {
+            ForEach(cells) { cell in
+                HubTile(entry: cell.entry, size: cell.place.size) { open(cell.entry) }
+            }
+        }
+    }
+
+    /// Tighter than a card gap: four cells across a phone are small.
+    private static let gap: CGFloat = 10
+
+    private func open(_ entry: HubEntry) {
+        HubUsage.opened(entry.id)
+        entry.open()
     }
 
     /// The doors in this visit's order. One gained since the visit began
@@ -161,7 +215,7 @@ struct MoreScreen: View {
 
     /// What sits in More, as doors.
     enum Item: Hashable {
-        case trips, news, drive, daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, travel, offline, sync, settings
+        case trips, news, drive, daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, offline, settings
         case place(Router.Tab)
 
         /// The door's identifier (`more-<id>`, which the UI tests find it
@@ -199,9 +253,12 @@ struct MoreScreen: View {
         // section on Steps, when the site says no or has nothing.
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
         all += places.filter { $0 != .news }.map(Item.place)
-        // The Travel kit and Play nearby are everyone's: they run on the phone.
-        all += [.travel, .offline]
-        all += [.sync, .settings]
+        // Play nearby is everyone's: it runs on the phone. (The Travel kit is
+        // withdrawn for now, John 2026-11-02, to come back reworked: its
+        // screens stay in Travel/, with no door to them.)
+        all.append(.offline)
+        // Sync now is the button at the top right, not a door.
+        all.append(.settings)
         return all
     }
 
@@ -211,7 +268,7 @@ struct MoreScreen: View {
         case .trips:
             let next = trips.upcoming()
             let questions = HomeTripWords.openQuestions(next.flatMap { trips.bundles[$0.id] })
-            return HubEntry(id: item.id, icon: HomeTileKind.trips.symbol, fill: HomeTileKind.trips.hue.base, title: "Trips",
+            return HubEntry(id: item.id, icon: HomeTileKind.trips.symbol, title: "Trips",
                             status: tripStatus(next: next, questions: questions.count), count: questions.count,
                             hint: "Plan a trip, or open the one on now") {
                 if let next, let first = questions.first, trips.running() == nil {
@@ -223,60 +280,51 @@ struct MoreScreen: View {
                 }
             }
         case .news:
-            return HubEntry(id: item.id, icon: "newspaper.fill", fill: SR.accentInk, title: "News", status: nil,
+            return HubEntry(id: item.id, icon: "newspaper.fill", title: "News", status: nil,
                             hint: "The wire, ranked by what is moving") { router.pushFromHub(Router.Tab.news) }
         case .drive:
-            return HubEntry(id: item.id, icon: "externaldrive.fill", fill: SR.accentDeep, title: "Drive", status: nil,
+            return HubEntry(id: item.id, icon: "externaldrive.fill", title: "Drive", status: nil,
                             hint: "Your own files, and a shared folder for the family") { router.pushFromHub(DriveRef()) }
         case .daydream:
-            return HubEntry(id: item.id, icon: "sparkles", fill: SR.accentInk, title: "Daydream",
+            return HubEntry(id: item.id, icon: "sparkles", title: "Daydream",
                             status: toDecide > 0 ? "\(toDecide) to decide" : nil, count: toDecide,
                             hint: "What jkai spotted in your days, and your call on each") { router.pushFromHub(Router.MorePage.daydream) }
         case .wildmind:
             // The day of this life, once the page has been opened — More does
             // not ask the valley on its own.
-            return HubEntry(id: item.id, icon: "mountain.2", fill: SR.good, title: "Wildmind",
+            return HubEntry(id: item.id, icon: "mountain.2", title: "Wildmind",
                             status: wildmind.answer?.snapshot?.time.day.map { "Day \($0)" },
                             hint: "Two Claude minds in a valley, inventing whatever they need") { router.pushFromHub(Router.MorePage.wildmind) }
         case .captures:
-            return HubEntry(id: item.id, icon: "waveform.badge.mic", fill: SR.accent, title: "Captures", status: captureStatus,
+            return HubEntry(id: item.id, icon: "waveform.badge.mic", title: "Captures", status: captureStatus,
                             hint: "Record a thought or a conversation") { router.pushFromHub(CapturesRef()) }
         case .steps:
-            return HubEntry(id: item.id, icon: "figure.walk", fill: SR.good, title: "Steps", status: steps.shown.flatMap(FamilySteps.place),
+            return HubEntry(id: item.id, icon: "figure.walk", title: "Steps", status: steps.shown.flatMap(FamilySteps.place),
                             hint: "Today's family step board") { router.pushFromHub(FamilyPage.steps) }
         case .tasks:
-            return HubEntry(id: item.id, icon: "checklist", fill: SR.accentDeep, title: "Tasks", status: tasks.summary.flatMap { taskStatus($0) },
+            return HubEntry(id: item.id, icon: "checklist", title: "Tasks", status: tasks.summary.flatMap { taskStatus($0) },
                             hint: "Jobs for the family, with a reward when a parent confirms them") { router.pushFromHub(FamilyPage.tasks) }
         case .backlog:
-            return HubEntry(id: item.id, icon: "tray.full", fill: SR.accentInk, title: "Backlog", status: backlog.board.flatMap(FamilyBacklogRules.status),
+            return HubEntry(id: item.id, icon: "tray.full", title: "Backlog", status: backlog.board.flatMap(FamilyBacklogRules.status),
                             hint: "Videos, links and ideas to watch or do together") { router.pushFromHub(FamilyPage.backlog) }
         case .messages:
-            return HubEntry(id: item.id, icon: "bubble.left.and.text.bubble.right", fill: SR.accent, title: "msg family", status: nil,
+            return HubEntry(id: item.id, icon: "bubble.left.and.text.bubble.right", title: "msg family", status: nil,
                             hint: "One line to everyone's phone") { router.pushFromHub(FamilyPage.messages) }
         case .landgrab:
-            return HubEntry(id: item.id, icon: "hexagon.fill", fill: SR.accent, title: "Landgrab", status: Landgrab.moreStatus(landgrab.board),
+            return HubEntry(id: item.id, icon: "hexagon.fill", title: "Landgrab", status: Landgrab.moreStatus(landgrab.board),
                             hint: "Everywhere the family has explored, and this week's game") {
                 if let week = landgrab.board.flatMap(Landgrab.currentWeek) { router.pushFromHub(LandgrabMapRef(week: week.start)) }
             }
         case .place(let place):
             let card = MorePlaceCard(place: place, games: games)
-            return HubEntry(id: item.id, icon: card.icon, fill: card.fill, title: card.title, status: card.status,
+            return HubEntry(id: item.id, icon: card.icon, title: card.title, status: card.status,
                             count: place == .games ? games.invites.count : 0, hint: card.blurb) { router.pushFromHub(place) }
-        case .travel:
-            return HubEntry(id: item.id, icon: "airplane", fill: SR.accentDeep, title: "Travel kit", status: nil,
-                            hint: "Live translation, signs, phrases, money and the way back") { router.pushFromHub(TravelKitRef()) }
         case .offline:
-            return HubEntry(id: item.id, icon: "dot.radiowaves.left.and.right", fill: SR.accent, title: "Play nearby",
+            return HubEntry(id: item.id, icon: "dot.radiowaves.left.and.right", title: "Play nearby",
                             status: offline.inRoom ? "In a room" : nil,
                             hint: "Games for phones in the same room, no internet needed") { router.pushFromHub(OfflineGamesRef()) }
-        case .sync:
-            return HubEntry(id: item.id, icon: "arrow.triangle.2.circlepath", fill: SR.good, title: syncing ? "Syncing…" : "Sync now",
-                            status: lastUpload.map { "Synced \($0.formatted(date: .omitted, time: .shortened))" },
-                            hint: companion.message) {
-                Task { await companion.sync() }
-            }
         case .settings:
-            return HubEntry(id: item.id, icon: "gearshape.fill", fill: SR.inkSecondary, title: "Settings", status: nil,
+            return HubEntry(id: item.id, icon: "gearshape.fill", title: "Settings", status: nil,
                             identifier: "open-settings", hint: "Notifications, connections, Apple Health and this iPhone") { router.openSettings() }
         }
     }
@@ -296,7 +344,9 @@ struct MoreScreen: View {
 struct HubEntry: Identifiable {
     let id: String
     let icon: String
-    let fill: Color
+    /// Its colour and picture: `HubArt`'s, by id.
+    var hue: SR.Hue { HubArt.hue(id) }
+    var motif: GamesTileMotif { HubArt.motif(id) }
     let title: String
     let status: String?
     var count = 0
@@ -307,94 +357,11 @@ struct HubEntry: Identifiable {
     let open: () -> Void
 }
 
-/// A door: a square of glass washed with its own colour, the mark large at
-/// the top, a count on it when something waits, then the name, one live line
-/// and what it is for. Every one the same size.
-struct HubTile: View {
+/// A door and its place in the grid.
+private struct HubCell: Identifiable {
+    let place: HubPlacement
     let entry: HubEntry
-    /// Square, two across. Off at the accessibility text sizes, where the
-    /// door is as tall as its words.
-    var square = true
-    let action: () -> Void
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    private static let corner: CGFloat = 26
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
-        Button {
-            SRHaptic.tap()
-            action()
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top) {
-                    Image(systemName: entry.icon)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 46, height: 46)
-                        .background(
-                            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                .fill(LinearGradient(colors: [entry.fill.opacity(0.75), entry.fill],
-                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                        )
-                        .shadow(color: entry.fill.opacity(0.35), radius: 8, y: 4)
-                        .accessibilityHidden(true)
-                    Spacer(minLength: 4)
-                    if entry.count > 0 {
-                        Text("\(entry.count)")
-                            .font(SR.Text.label(12))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 7)
-                            .frame(minWidth: 22, minHeight: 22)
-                            .background(Capsule().fill(SR.error))
-                            .accessibilityHidden(true)
-                    }
-                }
-                Spacer(minLength: 4)
-                Text(entry.title)
-                    .font(SR.Text.display(18))
-                    .foregroundStyle(SR.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                // Always a line, so every name sits at the same height.
-                Text(entry.status ?? " ")
-                    .font(SR.Text.title(13))
-                    .foregroundStyle(entry.status == nil ? .clear : SR.accentDeep)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                // What it is for, while the type leaves room for it in a
-                // square; VoiceOver hears it as the hint either way.
-                if !square || typeSize < .xLarge {
-                    Text(entry.hint)
-                        .font(SR.Text.secondary(12))
-                        .foregroundStyle(SR.inkMuted)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
-                        .accessibilityHidden(true)
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background {
-                ZStack {
-                    Color.clear.srGlass(.paper, in: shape)
-                    // The door's colour, softly, from the corner its mark is in.
-                    RadialGradient(colors: [entry.fill.opacity(0.22), .clear], center: .topLeading, startRadius: 0, endRadius: 190)
-                        .clipShape(shape)
-                }
-            }
-            .overlay(shape.strokeBorder(.white.opacity(0.45), lineWidth: 1))
-            .shadow(color: SR.ink.opacity(0.06), radius: 12, y: 5)
-            .contentShape(shape)
-            .aspectRatio(square ? 1 : nil, contentMode: .fit)
-        }
-        .buttonStyle(SRPressStyle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel([entry.title, entry.status].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityHint(entry.hint)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(entry.identifier ?? "more-\(entry.id)")
-    }
+    var id: String { place.id }
 }
 
 /// Navigation value for the hub, pushed onto whichever tab it is opened on

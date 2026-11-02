@@ -200,7 +200,17 @@ private final class RouteGathering: @unchecked Sendable {
             $0.workoutHistoryStart = date
             $0.anchors.removeValue(forKey: "workout")
         }
+        workoutBackfillPending = true
         startObservers()
+    }
+
+    /// A re-send of older workouts has pages still to read. Cleared when a
+    /// workout pass reaches the end of what Apple Health holds; kept across
+    /// launches, so the job carries on where it stopped.
+    static let backfillPendingKey = "health.workoutBackfill.pending"
+    var workoutBackfillPending: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.backfillPendingKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.backfillPendingKey) }
     }
 
     // MARK: - The passes
@@ -298,6 +308,8 @@ private final class RouteGathering: @unchecked Sendable {
             if kind == "workout", !records.isEmpty || !gone.isEmpty { onUpdate?() }
             more = found.count + deleted.count >= limit
         }
+        // Read to the end, not stopped by the deadline: the re-send has every page.
+        if kind == "workout", !more { workoutBackfillPending = false }
     }
 
     private func changes(type: HKSampleType, kind: String, anchor: HKQueryAnchor?, limit: Int) async throws -> ([HKSample], [HKDeletedObject], HKQueryAnchor?) {

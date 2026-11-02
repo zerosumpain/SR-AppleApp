@@ -95,19 +95,35 @@ enum ChatUpload {
 /// A photo you just sent is put here under its server id, so the bubble draws it
 /// at once instead of downloading back what it uploaded a second ago. Anything
 /// else is fetched once and kept for the session.
+///
+/// Decoded at the bubble's size (200 points), not the photo's: a 12-megapixel
+/// original decoded whole is 48 MB for a 600-pixel square. The cache is bounded
+/// by those decoded bytes.
 @MainActor
 final class AttachmentImages {
     static let shared = AttachmentImages()
-    private let cache = NSCache<NSString, UIImage>()
+    /// The bubble's side, in points (`AttachmentImage`).
+    static let bubble: CGFloat = 200
+    private let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 32 * 1024 * 1024
+        cache.countLimit = 120
+        return cache
+    }()
 
-    func put(_ image: UIImage, for id: String) { cache.setObject(image, forKey: id as NSString) }
+    func put(_ image: UIImage, for id: String) {
+        cache.setObject(image, forKey: id as NSString, cost: SRDownsample.cost(image))
+    }
 
     func image(for id: String) -> UIImage? { cache.object(forKey: id as NSString) }
 
-    func load(_ id: String) async -> UIImage? {
+    func load(_ id: String, scale: CGFloat) async -> UIImage? {
         if let hit = image(for: id) { return hit }
-        guard let data = try? await SiteClient.shared.bytes("api/native/chat/attachments/\(id)"),
-              let image = UIImage(data: data) else { return nil }
+        guard let data = try? await SiteClient.shared.bytes("api/native/chat/attachments/\(id)") else { return nil }
+        let pixels = SRImageLogic.pixels(points: Double(Self.bubble), scale: Double(scale))
+        guard let image = await Task.detached(priority: .userInitiated, operation: {
+            SRDownsample.image(data: data, maxPixels: pixels)
+        }).value else { return nil }
         put(image, for: id)
         return image
     }
@@ -116,6 +132,7 @@ final class AttachmentImages {
 /// A photo in a sent turn.
 struct AttachmentImage: View {
     let attachment: ChatAttachment
+    @Environment(\.displayScale) private var scale
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -138,11 +155,11 @@ struct AttachmentImage: View {
                     }
             }
         }
-        .frame(width: 200, height: 200)
+        .frame(width: AttachmentImages.bubble, height: AttachmentImages.bubble)
         .clipShape(RoundedRectangle(cornerRadius: SR.Glass.innerRadius, style: .continuous))
         .accessibilityLabel(attachment.filename ?? "Photo")
         .task(id: attachment.id) {
-            image = await AttachmentImages.shared.load(attachment.id)
+            image = await AttachmentImages.shared.load(attachment.id, scale: scale)
             failed = image == nil
         }
     }

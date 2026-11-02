@@ -92,6 +92,15 @@ enum DriveSync {
     /// Sync's own files in the queue at once: enough to keep the line busy,
     /// few enough that the phone never stages gigabytes it cannot send yet.
     static let window = 8
+    /// The window while the app is not on screen: iOS wakes it only now and
+    /// then (a batch finishing, a refresh), so each wake leaves the system's
+    /// session a longer line to send on by itself.
+    static let backgroundWindow = 24
+    /// How long one background wake may spend getting photos ready. iOS
+    /// gives about 30 seconds; the rest is the margin to hand over in.
+    static let wakeBudget: TimeInterval = 20
+    /// The soonest a background refresh is asked for again.
+    static let refreshEvery: TimeInterval = 20 * 60
     /// One "which of these do you have?" question.
     static let haveBatch = 8
     /// The size Drive re-hashes at request time: a bigger film not yet
@@ -107,8 +116,13 @@ enum DriveSync {
     }
 
     /// Room for more: the window less what is already going.
-    static func room(_ jobs: [DriveUploadJob]) -> Int {
+    static func room(_ jobs: [DriveUploadJob], window: Int = DriveSync.window) -> Int {
         max(0, window - inFlight(jobs).count)
+    }
+
+    /// The window for where the app is: on screen, or not.
+    static func windowSize(onScreen: Bool) -> Int {
+        onScreen ? window : backgroundWindow
     }
 
     /// Every library photo the queue holds and has not given up on — going,

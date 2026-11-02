@@ -78,16 +78,22 @@ struct GameRoomScreen: View {
                  .solitaire?, .merge2048?, .minesweeper?, .snake?:
                 PhysicsGameScreen(kind: GameKind(rawValue: game) ?? .lander)
             case nil:
-                SREmpty(
-                    title: "\(GameNames.title(game)) needs a newer app",
-                    icon: "arrow.down.app",
-                    message: "This version of the app does not know that game yet.",
-                    actionLabel: "Done",
-                    action: { dismiss() }
-                )
-                .frame(maxHeight: .infinity)
-                .srPaper()
-                .toolbar(.hidden, for: .tabBar)
+                // A game this build has no screen for. From an sr. tv party
+                // (snap-happy, biscuit-tower…) the party's own page plays it.
+                if let code = TVPartyRooms.code(for: ref.id) {
+                    TVPartyWebScreen(ref: TVPartyWebRef(code: code, title: GameNames.title(game)))
+                } else {
+                    SREmpty(
+                        title: "\(GameNames.title(game)) needs a newer app",
+                        icon: "arrow.down.app",
+                        message: "This version of the app does not know that game yet. If it\u{2019}s on the TV, scan the TV\u{2019}s code to play it on its web page.",
+                        actionLabel: "Done",
+                        action: { dismiss() }
+                    )
+                    .frame(maxHeight: .infinity)
+                    .srPaper()
+                    .toolbar(.hidden, for: .tabBar)
+                }
             }
         } else {
             GameRoomOpening(misses: misses, done: { dismiss() })

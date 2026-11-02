@@ -590,6 +590,8 @@ struct AppleHealthScreen: View {
     /// Workout history: the date older workouts are re-sent from.
     @State private var resendFrom = Calendar.current.date(from: DateComponents(year: 2021, month: 1, day: 1)) ?? .distantPast
     @State private var confirmResend = false
+    @AppStorage(Companion.backfillInBackgroundKey) private var backfillInBackground = true
+    @ObservedObject private var keepAwake = KeepAwake.shared
 
     /// Owner only: the re-send feeds the owner's own /health, and on any other
     /// phone it would only fill a server with workouts nobody reads.
@@ -672,6 +674,23 @@ struct AppleHealthScreen: View {
                     } message: {
                         Text("Each workout goes again with its route, heart rate and splits. Workouts already on the website are updated, not duplicated. Years of workouts take a while: it carries on in the background and resumes where it stopped.")
                     }
+
+                    Toggle(isOn: $backfillInBackground) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Keep going with SR shut")
+                                .font(SR.Text.body(16))
+                                .foregroundStyle(SR.ink)
+                            Text(companion.backfilling
+                                 ? (keepAwake.holding ? "Re-sending now · screen kept on while charging" : "Re-sending now")
+                                 : "More slowly, when iPhone allows: most often overnight on charge")
+                                .font(SR.Text.secondary())
+                                .foregroundStyle(SR.inkMuted)
+                        }
+                    }
+                    .tint(SR.accent)
+                    .onChange(of: backfillInBackground) { _, _ in companion.scheduleBackfill() }
+                    .srGlassRow()
+                    .frame(minHeight: SR.tapTarget)
                 } header: {
                     SRSectionLabel(text: "Workout history")
                 } footer: {

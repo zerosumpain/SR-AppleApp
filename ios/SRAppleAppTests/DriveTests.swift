@@ -210,6 +210,12 @@ final class DriveLogicTests: XCTestCase {
         XCTAssertFalse(DriveLogic.filePath("a/b?c").contains("a/b"))
     }
 
+    func testPreviewPathsAskForASizeAndVersionOfOneFile() {
+        XCTAssertEqual(DriveLogic.previewPath("abc-1", .thumb), "api/native/drive/files/abc-1/preview?size=thumb")
+        XCTAssertEqual(DriveLogic.previewPath("abc-1", .view, version: "12-2026"), "api/native/drive/files/abc-1/preview?size=view&v=12-2026")
+        XCTAssertTrue(DriveLogic.previewPath("a/b?c", .thumb).hasPrefix("api/native/drive/files/a%2Fb%3Fc/preview?"))
+    }
+
     func testAFileRefIsItsSpaceAndId() {
         let known = file("f1", "a.pdf")
         XCTAssertEqual(DriveFileRef(space: .mine, id: "f1", known: known, action: .analyse), DriveFileRef(space: .mine, id: "f1"))

@@ -281,49 +281,22 @@ enum DriveCache {
 
     static func forget(_ file: DriveFile) {
         try? FileManager.default.removeItem(at: folder(for: file))
+        DriveImageLoader.forget(id: file.id)
     }
 
-    /// Everything — on sign-out, so the next person on this phone finds nothing.
+    /// The site's preview JPEGs for tiles and the viewer (`DriveImageLoader`):
+    /// beside the downloads, so sign-out's `clear` takes them too. Never the
+    /// originals — a tile is drawn from a ~30 KB preview, not a 15 MB photo.
+    static var previewsFolder: URL {
+        root.appendingPathComponent(".previews", isDirectory: true)
+    }
+
+    /// Everything — on sign-out, so the next person on this phone finds
+    /// nothing, on disk or decoded in memory.
     static func clear() {
         try? FileManager.default.removeItem(at: root)
-    }
-}
-
-/// Small thumbnails for the photos in a listing, fetched once each per session.
-@MainActor
-final class DriveThumbnails: ObservableObject {
-    static let shared = DriveThumbnails()
-    private let cache = NSCache<NSString, UIImage>()
-    private var inFlight: Set<String> = []
-    @Published private(set) var revision = 0
-
-    func image(for file: DriveFile) -> UIImage? {
-        cache.object(forKey: "\(file.id)-\(file.updatedAt)" as NSString)
-    }
-
-    func load(_ file: DriveFile) async {
-        let key = "\(file.id)-\(file.updatedAt)"
-        guard DriveLogic.isImage(file), cache.object(forKey: key as NSString) == nil,
-              !inFlight.contains(key), file.sizeBytes <= 15 * 1024 * 1024 else { return }
-        inFlight.insert(key)
-        defer { inFlight.remove(key) }
-        let data: Data
-        if let local = DriveCache.url(for: file), let saved = try? Data(contentsOf: local) {
-            data = saved
-        } else if let fetched = try? await SiteClient.shared.bytes(DriveLogic.filePath(file.id)) {
-            data = fetched
-            _ = try? DriveCache.store(fetched, for: file)
-        } else {
-            return
-        }
-        guard let thumb = await Self.thumbnail(data) else { return }
-        cache.setObject(thumb, forKey: key as NSString)
-        revision += 1
-    }
-
-    nonisolated private static func thumbnail(_ data: Data) async -> UIImage? {
-        guard let image = UIImage(data: data) else { return nil }
-        return await image.byPreparingThumbnail(ofSize: CGSize(width: 120, height: 120))
+        SRImageMemory.drive.removeAll()
+        SRImageMemory.driveViews.removeAll()
     }
 }
 

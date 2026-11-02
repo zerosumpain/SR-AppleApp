@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 /// The top of Drive has a My files | Shared switch; a folder is pushed as its
 /// own screen, so Back goes up a level. + adds photos and videos (sent in the
 /// background, originals and all), a photo taken now, files from the Files
-/// app, a new folder, or moves photos off the phone. Tapping a file opens it
-/// in Quick Look; pressing and holding one offers Share, Save to Files, Save
+/// app, a new folder, or moves photos off the phone. Tapping a photo opens it
+/// full screen from the site's preview (`DrivePhotoViewer`), anything else in
+/// Quick Look; pressing and holding one offers Share, Save to Files, Save
 /// to Photos, Rename, Move, Info and Delete — and, for the owner in his own
 /// files, jkai's Analyse, Extract entities and Ask. Delete is offered only
 /// where the site said this person may: everything in My files, and in
@@ -21,7 +22,6 @@ struct DriveScreen: View {
     let ref: DriveRef
     @StateObject private var model: DriveFolderModel
     @ObservedObject private var access = AccessStore.shared
-    @ObservedObject private var thumbs = DriveThumbnails.shared
     @ObservedObject private var uploads = DriveUploadQueue.shared
     @EnvironmentObject private var router: Router
     @AppStorage("drive.sort") private var sortRaw = DriveSort.name.rawValue
@@ -50,6 +50,11 @@ struct DriveScreen: View {
     @State private var exporting = false
     @State private var confirmFiles: [DriveFile] = []
     @State private var confirmFolder: DriveFolder?
+    @State private var searchingPhotos = false
+    /// The photo open full screen (`DrivePhotoViewer`).
+    @State private var viewing: DriveFile?
+    /// The grid's row width, measured by its rows, for how many tiles fit.
+    @State private var gridWidth: CGFloat = 0
 
     init(ref: DriveRef) {
         self.ref = ref
@@ -63,6 +68,8 @@ struct DriveScreen: View {
     private var canWrite: Bool { access.viewingAs == nil }
     /// jkai on files: the owner, as himself, in his own files.
     private var jkai: Bool { access.current.owner && access.viewingAs == nil && model.ref.space == .mine }
+    /// Photo search: the owner's photo library, so the owner as himself only.
+    private var photoSearch: Bool { access.current.owner && access.viewingAs == nil }
     private var sort: DriveSort { DriveSort(rawValue: sortRaw) ?? .name }
     private var selecting: Bool { editMode.isEditing }
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -115,6 +122,8 @@ struct DriveScreen: View {
             DriveMoveSheet(folder: model, keepOriginals: keepOriginals)
         }
         .sheet(isPresented: $syncingPhotos) { DriveSyncSheet() }
+        .navigationDestination(isPresented: $searchingPhotos) { DrivePhotoSearchScreen() }
+        .modifier(DriveViewerCover(viewing: $viewing, original: { await model.localCopy(of: $0) }, quickLook: quickLook))
         .fileMover(isPresented: $exporting, file: exportFile) { result in
             if case .failure(let error) = result { model.message = error.localizedDescription }
             exportFile = nil
@@ -201,13 +210,7 @@ struct DriveScreen: View {
             let files = DriveLogic.sorted(listing.files, by: sort)
             Section {
                 if grid && !selecting {
-                    DriveGrid(files: files, thumbs: thumbs, opening: model.opening) { file in
-                        open(file)
-                    } menu: { file in
-                        fileMenu(file)
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    gridRows(files)
                 } else {
                     ForEach(files) { file in fileRow(file) }
                 }
@@ -218,6 +221,26 @@ struct DriveScreen: View {
             }
         } else if isTop {
             Section { EmptyView() } footer: { usageFooter(listing.usage) }
+        }
+    }
+
+    /// The grid as List rows of tiles, not one row holding every tile: a row
+    /// is made (and its tiles' pictures asked for) only as it scrolls into
+    /// view, and its loads are cancelled when it scrolls away.
+    @ViewBuilder
+    private func gridRows(_ files: [DriveFile]) -> some View {
+        let columns = DriveGridLayout.columns(width: Double(gridWidth))
+        let side = CGFloat(DriveGridLayout.tileSide(width: Double(gridWidth), columns: columns))
+        ForEach(DriveGridLayout.rows(count: files.count, columns: columns), id: \.lowerBound) { range in
+            DriveGridRow(files: Array(files[range]), columns: columns, side: side, opening: model.opening,
+                         width: $gridWidth) { file in
+                open(file)
+            } menu: { file in
+                fileMenu(file)
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+            .listRowSeparator(.hidden)
         }
     }
 
@@ -342,13 +365,12 @@ struct DriveScreen: View {
         Button {
             open(file)
         } label: {
-            DriveFileRow(file: file, thumbnail: thumbs.image(for: file), opening: model.opening == file.id, showPath: showPath)
+            DriveFileRow(file: file, opening: model.opening == file.id, showPath: showPath)
         }
         .buttonStyle(.plain)
         .srGlassRow()
         .tag(file.id)
         .accessibilityIdentifier("drive-file-\(file.name)")
-        .task(id: file.id) { await thumbs.load(file) }
         .draggable(DriveLink(space: model.ref.space, folder: DriveLogic.parent(file.path), fileId: file.id).url)
         .swipeActions(edge: .trailing) {
             if canWrite && file.canDelete {
@@ -414,6 +436,11 @@ struct DriveScreen: View {
                 }
                 .accessibilityIdentifier("drive-select-done")
             } else {
+                if photoSearch {
+                    Button { searchingPhotos = true } label: { Image(systemName: "sparkle.magnifyingglass") }
+                        .accessibilityLabel("Search photos")
+                        .accessibilityIdentifier("drive-photo-search-open")
+                }
                 viewMenu
                 if canWrite { addMenu }
             }
@@ -517,9 +544,19 @@ struct DriveScreen: View {
 
     // MARK: - Doing
 
+    /// A photo the site can render opens in the viewer, from its preview; anything else in Quick Look.
     private func open(_ file: DriveFile) {
         guard !selecting else { return }
         SRHaptic.tap()
+        if DrivePreviewLogic.canPreview(mime: file.mimeType, name: file.name) {
+            viewing = file
+        } else {
+            quickLook(file)
+        }
+    }
+
+    /// The original, fetched once per version, in Quick Look.
+    private func quickLook(_ file: DriveFile) {
         Task { if let url = await model.localCopy(of: file) { preview = url } }
     }
 
@@ -614,13 +651,12 @@ struct DriveActivitySheet: UIViewControllerRepresentable {
 /// and one line of size, date and — in the shared folder — who added it.
 struct DriveFileRow: View {
     let file: DriveFile
-    let thumbnail: UIImage?
     let opening: Bool
     var showPath = false
 
     var body: some View {
         HStack(spacing: 10) {
-            DriveFileMark(file: file, thumbnail: thumbnail)
+            DriveFileMark(file: file, points: 32)
                 .frame(width: 32, height: 32)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .accessibilityHidden(true)
@@ -642,62 +678,120 @@ struct DriveFileRow: View {
     }
 }
 
-/// A photo's thumbnail, or the mark of the file's type.
+/// A photo's thumbnail (loaded by itself, at `points`), or the mark of the file's type.
 struct DriveFileMark: View {
     let file: DriveFile
-    let thumbnail: UIImage?
+    var points: CGFloat = 32
 
     var body: some View {
-        if let thumbnail {
-            Image(uiImage: thumbnail).resizable().scaledToFill()
+        if DrivePreviewLogic.canPreview(mime: file.mimeType, name: file.name) {
+            DriveThumb(file: file, points: points) { mark }
         } else {
-            Image(systemName: DriveLogic.icon(mime: file.mimeType, name: file.name))
-                .foregroundStyle(SR.accentInk)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(SR.accentInk.opacity(0.1))
+            mark
         }
+    }
+
+    private var mark: some View {
+        Image(systemName: DriveLogic.icon(mime: file.mimeType, name: file.name))
+            .foregroundStyle(SR.accentInk)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(SR.accentInk.opacity(0.1))
+    }
+}
+
+/// One row of the grid: up to `columns` tiles, a short last row padded so
+/// its tiles keep their size and place. Every row reports the width it was
+/// given, which is how the screen knows how many tiles fit (rows live in
+/// List cells, so a preference would not reach it).
+struct DriveGridRow<MenuItems: View>: View {
+    let files: [DriveFile]
+    let columns: Int
+    let side: CGFloat
+    let opening: String?
+    @Binding var width: CGFloat
+    let open: (DriveFile) -> Void
+    @ViewBuilder let menu: (DriveFile) -> MenuItems
+
+    var body: some View {
+        HStack(alignment: .top, spacing: CGFloat(DriveGridLayout.spacing)) {
+            ForEach(files) { file in
+                DriveGridTile(file: file, side: side, opening: opening == file.id, open: open, menu: menu)
+            }
+            ForEach(files.count..<max(files.count, columns), id: \.self) { _ in
+                Color.clear.frame(width: side, height: 1)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { report(geometry.size.width) }
+                    .onChange(of: geometry.size.width) { _, next in report(next) }
+            }
+        }
+    }
+
+    private func report(_ next: CGFloat) {
+        if abs(next - width) > 0.5 { width = next }
     }
 }
 
 /// Files as tiles: photos large enough to tell apart, the name beneath.
-struct DriveGrid<MenuItems: View>: View {
-    let files: [DriveFile]
-    @ObservedObject var thumbs: DriveThumbnails
-    let opening: String?
+struct DriveGridTile<MenuItems: View>: View {
+    let file: DriveFile
+    let side: CGFloat
+    let opening: Bool
     let open: (DriveFile) -> Void
     @ViewBuilder let menu: (DriveFile) -> MenuItems
 
-    private let columns = [GridItem(.adaptive(minimum: 96, maximum: 140), spacing: 8)]
-
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 10) {
-            ForEach(files) { file in
-                Button {
-                    open(file)
-                } label: {
-                    VStack(spacing: 4) {
-                        DriveFileMark(file: file, thumbnail: thumbs.image(for: file))
-                            .aspectRatio(1, contentMode: .fill)
-                            .frame(minWidth: 0, maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay {
-                                if opening == file.id { ProgressView().tint(SR.accent) }
-                            }
-                        Text(file.name)
-                            .font(SR.Text.secondary(12))
-                            .foregroundStyle(SR.ink)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+        Button {
+            open(file)
+        } label: {
+            VStack(spacing: 4) {
+                DriveFileMark(file: file, points: side)
+                    .frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        if opening { ProgressView().tint(SR.accent) }
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(file.name)
-                .task(id: file.id) { await thumbs.load(file) }
-                .contextMenu { menu(file) }
+                Text(file.name)
+                    .font(SR.Text.secondary(12))
+                    .foregroundStyle(SR.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
+            .frame(width: side)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .accessibilityLabel(file.name)
+        .contextMenu { menu(file) }
+    }
+}
+
+/// The photo viewer, full screen. A file the site has no preview of (an
+/// older site) goes to Quick Look once the cover has gone, so the two never
+/// fight over the screen.
+private struct DriveViewerCover: ViewModifier {
+    @Binding var viewing: DriveFile?
+    let original: (DriveFile) async -> URL?
+    let quickLook: (DriveFile) -> Void
+    @State private var instead: DriveFile?
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(item: $viewing, onDismiss: {
+                if let file = instead {
+                    instead = nil
+                    quickLook(file)
+                }
+            }) { file in
+                DrivePhotoViewer(file: file, original: { await original(file) }, unavailable: {
+                    instead = file
+                    viewing = nil
+                })
+            }
     }
 }
 

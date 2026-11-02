@@ -328,13 +328,12 @@ struct FamilyBacklogPickSheet: View {
             .aspectRatio(16 / 9, contentMode: .fit)
             .background(shape.fill(SR.ink.opacity(0.06)))
         if let raw = item.thumbnailUrl, let url = URL(string: raw) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().aspectRatio(16 / 9, contentMode: .fill)
-                        .frame(maxWidth: .infinity).clipShape(shape)
-                } else {
-                    glyph
-                }
+            // Full width: ~400 points on the longest edge at most.
+            SRRemoteImage(url: url, points: 400) { image in
+                image.resizable().aspectRatio(16 / 9, contentMode: .fill)
+                    .frame(maxWidth: .infinity).clipShape(shape)
+            } placeholder: {
+                glyph
             }
             .accessibilityHidden(true)
         } else {
@@ -406,12 +405,11 @@ struct FamilyBacklogRow: View {
         // A TikTok picture is a signed link that expires within days; the
         // glyph is what stands in when it has.
         if let raw = item.thumbnailUrl, let url = URL(string: raw) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill().frame(width: 64, height: 64).clipShape(tile)
-                } else {
-                    glyph
-                }
+            // A square: its long edge is the picture's long edge filled to 64.
+            SRRemoteImage(url: url, points: 64 * 16 / 9) { image in
+                image.resizable().scaledToFill().frame(width: 64, height: 64).clipShape(tile)
+            } placeholder: {
+                glyph
             }
             .accessibilityHidden(true)
         } else {
