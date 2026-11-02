@@ -101,6 +101,10 @@ import Combine
         BGTaskScheduler.shared.register(forTaskWithIdentifier: DrivePhotoSync.taskIdentifier, using: nil) { task in
             Task { @MainActor in DrivePhotoSync.shared.runInBackground(task) }
         }
+        // And its short refresh now and then, to catch photos taken since.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: DrivePhotoSync.refreshIdentifier, using: nil) { task in
+            Task { @MainActor in DrivePhotoSync.shared.runRefresh(task) }
+        }
         DrivePhotoSync.shared.start()
 
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.strangeramblings.com.appleapp.refresh", using: nil) { [weak self] task in

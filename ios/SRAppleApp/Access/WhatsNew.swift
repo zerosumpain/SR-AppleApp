@@ -36,7 +36,7 @@ enum WhatsNew {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(id: "2026-11-02-photo-sync", when: "November 2026", title: "Your photos, kept in Drive", items: [
             WhatsNewItem(icon: "arrow.triangle.2.circlepath", title: "Photo sync",
-                         detail: "Turn on Photo Sync from + in Drive and your photos and videos go to My files by themselves, in the background. New ones follow after you take them. Anything Drive already has is never sent twice."),
+                         detail: "Turn on Photo Sync from + in Drive and your photos and videos go to My files by themselves. It carries on with SR shut, more slowly: a batch at a time, and faster on charge overnight. New ones follow after you take them. Anything Drive already has is never sent twice."),
             WhatsNewItem(icon: "checkmark.icloud", title: "See what's in Drive",
                          detail: "Photo Sync shows how many of this phone's photos are in Drive, how many are on their way and how many are still to go. You can see the ones not there yet."),
             WhatsNewItem(icon: "trash", title: "Free up space when you like",

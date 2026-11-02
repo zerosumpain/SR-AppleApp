@@ -41,6 +41,12 @@ final class DriveUploadQueue: ObservableObject {
     /// Handed over by `AppDelegate` when the system woke the app for this
     /// session; called once every event is in.
     var backgroundCompletion: (() -> Void)?
+    /// Run before that call, when set (photo sync handing over its next
+    /// files): the app is awake now and may not be again for a while.
+    /// Bounded by `handOverLimit` so iOS's own allowance is never overrun.
+    var beforeFinishing: (() async -> Void)?
+    private var handingOver = false
+    static let handOverLimit: TimeInterval = 24
 
     private let delegate = DriveUploadDelegate()
     private var started = false
@@ -511,8 +517,33 @@ final class DriveUploadQueue: ObservableObject {
             return
         }
         eventsDone = false
-        backgroundCompletion?()
-        backgroundCompletion = nil
+        guard let done = backgroundCompletion else { return }
+        guard let before = beforeFinishing else {
+            backgroundCompletion = nil
+            done()
+            return
+        }
+        guard !handingOver else { return }
+        handingOver = true
+        // Whichever comes first: the hand-over, or the limit.
+        var called = false
+        let finish = { @MainActor in
+            guard !called else { return }
+            called = true
+            let queue = DriveUploadQueue.shared
+            queue.handingOver = false
+            let completion = queue.backgroundCompletion
+            queue.backgroundCompletion = nil
+            completion?()
+        }
+        Task { @MainActor in
+            await before()
+            finish()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(Self.handOverLimit * 1_000_000_000))
+            finish()
+        }
     }
 
     // MARK: - "Move from phone" and photo sync

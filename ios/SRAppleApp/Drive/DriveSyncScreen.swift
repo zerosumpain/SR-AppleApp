@@ -20,7 +20,7 @@ struct DriveSyncSheet: View {
                     }
                     .accessibilityIdentifier("drive-sync-toggle")
                 } footer: {
-                    Text("New photos and videos go to My files › Incoming photos and Incoming movies by themselves, in the background. Anything Drive already has is never sent twice. Nothing is removed from this phone unless you ask.")
+                    Text("New photos and videos go to My files › Incoming photos and Incoming movies by themselves. With SR shut it carries on more slowly, when iPhone allows: a batch at a time, and faster on charge overnight. Anything Drive already has is never sent twice. Nothing is removed from this phone unless you ask.")
                 }
 
                 if !DrivePhotoSync.canRead(sync.access) {

@@ -16,10 +16,14 @@ import UIKit
 /// files › Incoming photos or Incoming movies (the site decides).
 ///
 /// When it runs: on opening the app, when the library changes while it is
-/// open, as each upload finishes, and in a background processing window the
-/// system grants (most often overnight, on charge). iOS lets no app watch the
-/// library while shut, so a photo taken with the app closed goes at the next
-/// of those. Nothing is ever removed from the phone here: that stays "Remove
+/// open, and as each upload finishes. With the app shut it carries on more
+/// slowly, on the wakes iOS allows: leaving the app fills a longer line
+/// (`DriveSync.backgroundWindow`); each time the system's session finishes
+/// a batch it wakes the app, which tops the line up before going back to
+/// sleep (`DriveUploadQueue.beforeFinishing`); a background refresh now and
+/// then catches photos taken since; and a longer processing window (most
+/// often overnight, on charge) sends the rest. iOS lets no app watch the
+/// library while shut, so a new photo goes at the next of those. Nothing is ever removed from the phone here: that stays "Remove
 /// from phone", which the system confirms.
 @MainActor
 final class DrivePhotoSync: NSObject, ObservableObject {
@@ -54,6 +58,10 @@ final class DrivePhotoSync: NSObject, ObservableObject {
     private var observing = false
     private var expensive = false
     private var constrained = false
+    /// The network monitor has answered once: a background wake does not
+    /// start on mobile data before it knows it is not on it.
+    private var pathKnown = false
+    private var backgroundTime = UIBackgroundTaskIdentifier.invalid
     private var lastRetry = Date.distantPast
     /// Put off for this run of the app: an export that failed (iCloud out of
     /// reach), or a big film Drive has not fingerprinted yet.
@@ -82,9 +90,10 @@ final class DrivePhotoSync: NSObject, ObservableObject {
             let constrained = update.isConstrained
             Task { @MainActor in
                 let sync = DrivePhotoSync.shared
-                let changed = sync.expensive != expensive || sync.constrained != constrained
+                let changed = !sync.pathKnown || sync.expensive != expensive || sync.constrained != constrained
                 sync.expensive = expensive
                 sync.constrained = constrained
+                sync.pathKnown = true
                 if changed { sync.kick() }
             }
         }
@@ -99,9 +108,16 @@ final class DrivePhotoSync: NSObject, ObservableObject {
         NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
             .sink { _ in Task { @MainActor in DrivePhotoSync.shared.kick() } }
             .store(in: &bag)
+        // Leaving the app: fill the longer line while iOS still allows a
+        // few seconds, so the system's session has plenty to send meanwhile.
         NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
-            .sink { _ in Task { @MainActor in DrivePhotoSync.shared.scheduleBackground() } }
+            .sink { _ in Task { @MainActor in await DrivePhotoSync.shared.leaving() } }
             .store(in: &bag)
+        // Each batch the system's session finishes while the app is shut
+        // wakes it: the next files are handed over before it sleeps again.
+        DriveUploadQueue.shared.beforeFinishing = {
+            await DrivePhotoSync.shared.topUp(for: DriveSync.wakeBudget)
+        }
         NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
             .receive(on: RunLoop.main)
             .sink { _ in Task { @MainActor in DrivePhotoSync.shared.kick() } }
@@ -159,6 +175,11 @@ final class DrivePhotoSync: NSObject, ObservableObject {
         )
         guard settings.on, Self.canRead(access) else { return }
         noteRefusals()
+        // A background wake: give the network monitor a moment to say whether this is Wi-Fi.
+        if !pathKnown {
+            for _ in 0..<8 where !pathKnown { try? await Task.sleep(nanoseconds: 250_000_000) }
+            pause = currentPause()
+        }
         var library = fetchLibrary()
         refresh(library)
         guard pause == .none else { return }
@@ -166,12 +187,14 @@ final class DrivePhotoSync: NSObject, ObservableObject {
 
         while true {
             if let deadline, Date() >= deadline { break }
+            if Task.isCancelled { break }
             let queue = DriveUploadQueue.shared
             let known = queue.ledger.assetIds.union(DriveSync.queued(queue.jobs)).union(skipped.keys)
+            let window = DriveSync.windowSize(onScreen: UIApplication.shared.applicationState == .active)
             let ids = DriveSync.next(library: library.ids, known: known, later: later,
-                                     limit: min(DriveSync.room(queue.jobs), DriveSync.haveBatch))
+                                     limit: min(DriveSync.room(queue.jobs, window: window), DriveSync.haveBatch))
             guard !ids.isEmpty else { break }
-            let asked = await send(ids, from: library)
+            let asked = await send(ids, from: library, deadline: deadline)
             refresh(library)
             // Drive could not be asked (no signal, an older site): try again later, not photo by photo.
             guard asked else { break }
@@ -181,7 +204,10 @@ final class DrivePhotoSync: NSObject, ObservableObject {
         }
         lastChecked = Date()
         refresh(library)
-        if counts.notYet > 0 || counts.sending > 0 { scheduleBackground() }
+        if counts.notYet > 0 || counts.sending > 0 {
+            scheduleBackground()
+            scheduleRefresh()
+        }
     }
 
     private func currentPause() -> DriveSyncPause {
@@ -196,7 +222,7 @@ final class DrivePhotoSync: NSObject, ObservableObject {
     /// Export, hash, ask Drive, then queue only what it lacks. False when
     /// Drive could not be asked, so the pass stops instead of exporting the
     /// whole library one unanswered batch at a time.
-    private func send(_ ids: [String], from library: Library) async -> Bool {
+    private func send(_ ids: [String], from library: Library, deadline: Date? = nil) async -> Bool {
         struct Ready {
             let asset: PHAsset
             let url: URL
@@ -205,6 +231,9 @@ final class DrivePhotoSync: NSObject, ObservableObject {
         }
         var ready: [Ready] = []
         for (i, id) in ids.enumerated() {
+            // Out of time on a background wake: what is ready goes; the rest waits for the next.
+            if let deadline, Date() >= deadline { break }
+            if Task.isCancelled { break }
             guard let asset = library.assets[id] else { continue }
             working = "Getting \(i + 1) of \(ids.count) ready…"
             guard let url = await DriveMoveFromPhone.export(asset) else {
@@ -377,14 +406,85 @@ final class DrivePhotoSync: NSObject, ObservableObject {
 
     // MARK: - Background
 
-    /// Ask for a processing window while there is anything to send.
+    static let refreshIdentifier = "com.strangeramblings.com.appleapp.drive-sync-refresh"
+
+    /// Ask for a processing window while there is anything to send. Asked
+    /// once: asking again on every pass would keep pushing it later.
     func scheduleBackground() {
         guard settings.on else { return }
-        let request = BGProcessingTaskRequest(identifier: Self.taskIdentifier)
-        request.requiresNetworkConnectivity = true
-        request.requiresExternalPower = false
-        request.earliestBeginDate = Date().addingTimeInterval(15 * 60)
-        try? BGTaskScheduler.shared.submit(request)
+        Self.submitOnce(Self.taskIdentifier) {
+            let request = BGProcessingTaskRequest(identifier: Self.taskIdentifier)
+            request.requiresNetworkConnectivity = true
+            request.requiresExternalPower = false
+            request.earliestBeginDate = Date().addingTimeInterval(15 * 60)
+            return request
+        }
+    }
+
+    /// A short refresh now and then (about 30 seconds, when iOS chooses):
+    /// enough to notice photos taken since and hand a few more over.
+    func scheduleRefresh() {
+        guard settings.on else { return }
+        Self.submitOnce(Self.refreshIdentifier) {
+            let request = BGAppRefreshTaskRequest(identifier: Self.refreshIdentifier)
+            request.earliestBeginDate = Date().addingTimeInterval(DriveSync.refreshEvery)
+            return request
+        }
+    }
+
+    nonisolated private static func submitOnce(_ identifier: String, _ make: @escaping () -> BGTaskRequest) {
+        BGTaskScheduler.shared.getPendingTaskRequests { pending in
+            guard !pending.contains(where: { $0.identifier == identifier }) else { return }
+            try? BGTaskScheduler.shared.submit(make())
+        }
+    }
+
+    /// The app has just gone off screen: fill the longer line in the few
+    /// seconds iOS allows, and ask for the wakes that carry on from there.
+    func leaving() async {
+        guard settings.on else { return }
+        scheduleBackground()
+        scheduleRefresh()
+        await topUp(for: DriveSync.wakeBudget)
+    }
+
+    /// One background wake's worth: wait out a pass already going, then
+    /// hand over what fits in `seconds`. Holds a little background time so
+    /// iOS does not suspend the app halfway through a photo.
+    func topUp(for seconds: TimeInterval) async {
+        guard settings.on else { return }
+        let until = Date().addingTimeInterval(seconds)
+        holdBackgroundTime()
+        defer { releaseBackgroundTime() }
+        while running, Date() < until { try? await Task.sleep(nanoseconds: 250_000_000) }
+        guard Date() < until else { return }
+        await pass(deadline: until)
+    }
+
+    private func holdBackgroundTime() {
+        guard backgroundTime == .invalid else { return }
+        backgroundTime = UIApplication.shared.beginBackgroundTask(withName: "sr.drive-sync") {
+            // Called on the main thread; it must end the task before it returns.
+            MainActor.assumeIsolated { DrivePhotoSync.shared.releaseBackgroundTime() }
+        }
+    }
+
+    private func releaseBackgroundTime() {
+        guard backgroundTime != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTime)
+        backgroundTime = .invalid
+    }
+
+    /// The refresh iOS granted: about 30 seconds to top the line up.
+    func runRefresh(_ task: BGTask) {
+        scheduleRefresh()
+        let work = Task { @MainActor in
+            await topUp(for: DriveSync.wakeBudget)
+            task.setTaskCompleted(success: true)
+        }
+        task.expirationHandler = {
+            work.cancel()
+        }
     }
 
     /// The window the system granted: keep the line fed until it ends. The
