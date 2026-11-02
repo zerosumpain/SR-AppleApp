@@ -101,6 +101,13 @@ import Combine
         BGTaskScheduler.shared.register(forTaskWithIdentifier: DrivePhotoSync.taskIdentifier, using: nil) { task in
             Task { @MainActor in DrivePhotoSync.shared.runInBackground(task) }
         }
+        // Re-sending older workouts: the window to carry on in with the app shut.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Companion.backfillTaskIdentifier, using: nil) { [weak self] task in
+            Task { @MainActor in
+                guard let companion = self?.companion else { task.setTaskCompleted(success: false); return }
+                companion.runBackfill(task)
+            }
+        }
         // And its short refresh now and then, to catch photos taken since.
         BGTaskScheduler.shared.register(forTaskWithIdentifier: DrivePhotoSync.refreshIdentifier, using: nil) { task in
             Task { @MainActor in DrivePhotoSync.shared.runRefresh(task) }
@@ -572,6 +579,8 @@ import Combine
                             // or stopped as the app was killed — goes up.
                             await CaptureStore.shared.drain()
                             if companion.paired { await companion.sync() }
+                            // A re-send of older workouts left part-way carries on.
+                            await companion.continueBackfill()
                         }
                         .onChange(of: scenePhase) { _, phase in
                             if phase == .active {
@@ -579,7 +588,7 @@ import Combine
                                 // stretch is bracketed by two real samples rather
                                 // than guessed at.
                                 battery.sample()
-                                if companion.paired { Task { await companion.sync() } }
+                                if companion.paired { Task { await companion.sync(); await companion.continueBackfill() } }
                                 Task { await SiteClient.shared.retryPendingRevocations(); await PushRegistration.shared.sync() }
                                 Task { await RecordingQueue.shared.flush() }
                                 Task { await CaptureStore.shared.drain() }
@@ -587,6 +596,8 @@ import Combine
                             if phase == .background {
                                 battery.sample()
                                 companion.scheduleRefresh()
+                                // Older workouts still to re-send: a window to carry on in.
+                                companion.scheduleBackfill()
                                 // Drive uploads left waiting: a window to send them.
                                 DriveUploadQueue.shared.scheduleBackgroundResume()
                                 // A deferred outbox removal (an accepted batch,

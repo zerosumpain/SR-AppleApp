@@ -173,7 +173,10 @@ final class DrivePhotoSync: NSObject, ObservableObject {
             wifiOnly: settings.wifiOnly, expensive: expensive, constrained: constrained,
             lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled
         )
-        guard settings.on, Self.canRead(access) else { return }
+        guard settings.on, Self.canRead(access) else {
+            KeepAwake.shared.set("photo-sync", false)
+            return
+        }
         noteRefusals()
         // A background wake: give the network monitor a moment to say whether this is Wi-Fi.
         if !pathKnown {
@@ -343,6 +346,8 @@ final class DrivePhotoSync: NSObject, ObservableObject {
         let inDrive = queue.ledger.assetIds
         let sending = DriveSync.queued(queue.jobs)
         counts = DriveSync.counts(library: library.ids, inDrive: inDrive, sending: sending, skipped: Set(skipped.keys))
+        // On charge with the screen on, the screen stays on while there is work left.
+        KeepAwake.shared.set("photo-sync", settings.on && pause == .none && (counts.notYet > 0 || counts.sending > 0))
         waiting = DriveSync.next(library: library.ids, known: inDrive.union(sending).union(skipped.keys), later: [], limit: 60)
     }
 
