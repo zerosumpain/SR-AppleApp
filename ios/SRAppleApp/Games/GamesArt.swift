@@ -24,9 +24,20 @@ struct GameArtBadge: View {
     var side: CGFloat = 44
 
     var body: some View {
-        let hue = GamesArt.hue(game)
+        TileArtBadge(symbol: GamesArt.icon(game), hue: GamesArt.hue(game), side: side)
+    }
+}
+
+/// A mark on a rounded square of its hue, with a sheen: a game's badge, and
+/// the logo on a More door.
+struct TileArtBadge: View {
+    let symbol: String
+    let hue: SR.Hue
+    var side: CGFloat = 44
+
+    var body: some View {
         let shape = RoundedRectangle(cornerRadius: side * 0.3, style: .continuous)
-        Image(systemName: GamesArt.icon(game))
+        Image(systemName: symbol)
             .font(.system(size: side * 0.42, weight: .bold))
             .foregroundStyle(hue.onFill)
             .frame(width: side, height: side)
@@ -52,13 +63,28 @@ struct GamesTileBackdrop: View {
     var symbolSide: CGFloat = 84
 
     var body: some View {
+        TileArtBackdrop(motif: GamesTileMotif.of(game), hue: hue, symbol: GamesArt.icon(game), symbolSide: symbolSide)
+    }
+}
+
+/// The same picture for anything, not only a game: a hue's gradient, a sheen
+/// top-left, a motif, and a symbol large, faint and tilted at the trailing
+/// edge. The Games page's tiles and the More page's doors are both painted on
+/// it, so the two pages read as one family.
+struct TileArtBackdrop: View {
+    let motif: GamesTileMotif
+    let hue: SR.Hue
+    let symbol: String
+    var symbolSide: CGFloat = 84
+
+    var body: some View {
         ZStack(alignment: .trailing) {
             hue.gradient
             // A sheen top-left: the gradient alone reads as flat paint.
             RadialGradient(colors: [Color.white.opacity(0.28), Color.clear],
                            center: .topLeading, startRadius: 0, endRadius: 220)
-            GamesTileMotifView(motif: GamesTileMotif.of(game), tint: hue.onFill)
-            Image(systemName: GamesArt.icon(game))
+            GamesTileMotifView(motif: motif, tint: hue.onFill)
+            Image(systemName: symbol)
                 .font(.system(size: symbolSide, weight: .bold))
                 .foregroundStyle(hue.onFill.opacity(0.17))
                 .rotationEffect(.degrees(-12))
@@ -103,6 +129,13 @@ struct GamesTileMotifView: View {
         case .map: contours(context, w: w, h: h, unit: unit, tint: tint)
         case .scribble: scribble(context, w: w, h: h, unit: unit, tint: tint)
         case .dots: dots(context, w: w, h: h, unit: unit, tint: tint)
+        case .lines: lines(context, w: w, h: h, unit: unit, tint: tint)
+        case .waveform: waveform(context, w: w, h: h, unit: unit, tint: tint)
+        case .sliders: sliders(context, w: w, h: h, unit: unit, tint: tint)
+        case .checks: checks(context, w: w, h: h, unit: unit, tint: tint)
+        case .hexes: hexes(context, w: w, h: h, unit: unit, tint: tint)
+        case .nodes: nodes(context, w: w, h: h, unit: unit, tint: tint)
+        case .arc: arc(context, w: w, h: h, unit: unit, tint: tint)
         }
     }
 
@@ -355,6 +388,147 @@ struct GamesTileMotifView: View {
             let rect = CGRect(x: w * spot.0 - r, y: h * spot.1 - r, width: r * 2, height: r * 2)
             c.fill(Path(ellipseIn: rect), with: .color(tint.opacity(spot.3)))
         }
+    }
+
+    // MARK: The More page's motifs
+
+    private static func lines(_ c: GraphicsContext, w: CGFloat, h: CGFloat, unit: CGFloat, tint: Color) {
+        // A headline, then the column under it: short and long lines, as type falls.
+        let x0 = w * 0.5
+        let span = w * 0.44
+        let bar = unit * 0.07
+        let head = CGRect(x: x0, y: h * 0.18, width: span, height: bar * 1.6)
+        c.fill(Path(roundedRect: head, cornerRadius: bar * 0.8), with: .color(tint.opacity(0.3)))
+        let widths: [CGFloat] = [0.92, 0.7, 0.85, 0.55, 0.78]
+        for (index, width) in widths.enumerated() {
+            let y = head.maxY + bar * 1.2 + CGFloat(index) * bar * 1.9
+            guard y + bar < h * 0.96 else { break }
+            let rect = CGRect(x: x0, y: y, width: span * width, height: bar)
+            c.fill(Path(roundedRect: rect, cornerRadius: bar / 2), with: .color(tint.opacity(index == 0 ? 0.22 : 0.14)))
+        }
+    }
+
+    private static func waveform(_ c: GraphicsContext, w: CGFloat, h: CGFloat, unit: CGFloat, tint: Color) {
+        // A recording's bars, loudest in the middle, across the trailing half.
+        let heights: [CGFloat] = [0.18, 0.4, 0.66, 0.9, 0.56, 0.98, 0.72, 0.44, 0.62, 0.3, 0.16]
+        let x0 = w * 0.42
+        let step = (w * 0.56) / CGFloat(heights.count)
+        let reach = min(unit * 0.62, h * 0.8)
+        var bars = Path()
+        for (index, height) in heights.enumerated() {
+            let x = x0 + step * (CGFloat(index) + 0.5)
+            let half = reach * height / 2
+            bars.move(to: CGPoint(x: x, y: h * 0.5 - half))
+            bars.addLine(to: CGPoint(x: x, y: h * 0.5 + half))
+        }
+        c.stroke(bars, with: .color(tint.opacity(0.28)), style: StrokeStyle(lineWidth: step * 0.5, lineCap: .round))
+    }
+
+    private static func sliders(_ c: GraphicsContext, w: CGFloat, h: CGFloat, unit: CGFloat, tint: Color) {
+        // Three sliders, each knob somewhere else on its track.
+        let x0 = w * 0.5
+        let x1 = w * 0.94
+        let knobs: [CGFloat] = [0.3, 0.78, 0.52]
+        let knob = unit * 0.065
+        for (index, at) in knobs.enumerated() {
+            let y = h * (0.28 + 0.22 * CGFloat(index))
+            var track = Path()
+            track.move(to: CGPoint(x: x0, y: y))
+            track.addLine(to: CGPoint(x: x1, y: y))
+            c.stroke(track, with: .color(tint.opacity(0.18)), style: StrokeStyle(lineWidth: unit * 0.03, lineCap: .round))
+            var lit = Path()
+            let kx = x0 + (x1 - x0) * at
+            lit.move(to: CGPoint(x: x0, y: y))
+            lit.addLine(to: CGPoint(x: kx, y: y))
+            c.stroke(lit, with: .color(tint.opacity(0.32)), style: StrokeStyle(lineWidth: unit * 0.03, lineCap: .round))
+            c.fill(Path(ellipseIn: CGRect(x: kx - knob, y: y - knob, width: knob * 2, height: knob * 2)),
+                   with: .color(tint.opacity(0.42)))
+        }
+    }
+
+    private static func checks(_ c: GraphicsContext, w: CGFloat, h: CGFloat, unit: CGFloat, tint: Color) {
+        // A list: two jobs ticked, one still to do.
+        let box = unit * 0.14
+        let x0 = w * 0.52
+        for row in 0..<3 {
+            let y = h * 0.2 + CGFloat(row) * box * 1.7
+            guard y + box < h * 0.98 else { break }
+            let rect = CGRect(x: x0, y: y, width: box, height: box)
+            let shape = Path(roundedRect: rect, cornerRadius: box * 0.28)
+            c.stroke(shape, with: .color(tint.opacity(0.34)), lineWidth: unit * 0.018)
+            if row < 2 {
+                c.fill(shape, with: .color(tint.opacity(0.14)))
+                var tick = Path()
+                tick.move(to: CGPoint(x: rect.minX + box * 0.22, y: rect.midY))
+                tick.addLine(to: CGPoint(x: rect.minX + box * 0.44, y: rect.maxY - box * 0.24))
+                tick.addLine(to: CGPoint(x: rect.maxX - box * 0.2, y: rect.minY + box * 0.24))
+                c.stroke(tick, with: .color(tint.opacity(0.46)),
+                         style: StrokeStyle(lineWidth: unit * 0.022, lineCap: .round, lineJoin: .round))
+            }
+            let line = CGRect(x: rect.maxX + box * 0.4, y: rect.midY - box * 0.16, width: w * 0.94 - rect.maxX - box * 0.4,
+                              height: box * 0.32)
+            c.fill(Path(roundedRect: line, cornerRadius: box * 0.16), with: .color(tint.opacity(0.16)))
+        }
+    }
+
+    private static func hexes(_ c: GraphicsContext, w: CGFloat, h: CGFloat, unit: CGFloat, tint: Color) {
+        // A patch of claimed ground: hexagons, some taken more strongly.
+        let r = unit * 0.1
+        let dx = r * sqrt(3)
+        let dy = r * 1.5
+        let x0 = w * 0.56
+        let y0 = h * 0.24
+        let strengths: [Double] = [0.12, 0.3, 0.16, 0.22, 0.12, 0.34, 0.14, 0.2, 0.26]
+        for index in 0..<9 {
+            let row = index / 3
+            let col = index % 3
+            let centre = CGPoint(x: x0 + CGFloat(col) * dx + (row % 2 == 1 ? dx / 2 : 0), y: y0 + CGFloat(row) * dy)
+            var hex = Path()
+            for corner in 0..<6 {
+                let angle = Double(corner) * Double.pi / 3 - Double.pi / 2
+                let point = CGPoint(x: centre.x + r * 0.92 * CGFloat(cos(angle)), y: centre.y + r * 0.92 * CGFloat(sin(angle)))
+                if corner == 0 { hex.move(to: point) } else { hex.addLine(to: point) }
+            }
+            hex.closeSubpath()
+            c.fill(hex, with: .color(tint.opacity(strengths[index])))
+        }
+    }
+
+    private static func nodes(_ c: GraphicsContext, w: CGFloat, h: CGFloat, unit: CGFloat, tint: Color) {
+        // A small workflow: steps joined one to the next, one branching.
+        let points: [CGPoint] = [
+            CGPoint(x: w * 0.56, y: h * 0.26), CGPoint(x: w * 0.82, y: h * 0.2), CGPoint(x: w * 0.7, y: h * 0.52),
+            CGPoint(x: w * 0.93, y: h * 0.64), CGPoint(x: w * 0.6, y: h * 0.8),
+        ]
+        let edges = [(0, 1), (0, 2), (1, 2), (2, 3), (2, 4)]
+        var links = Path()
+        for edge in edges {
+            links.move(to: points[edge.0])
+            links.addLine(to: points[edge.1])
+        }
+        c.stroke(links, with: .color(tint.opacity(0.24)), style: StrokeStyle(lineWidth: unit * 0.022, lineCap: .round))
+        for (index, point) in points.enumerated() {
+            let r = unit * (index == 2 ? 0.075 : 0.05)
+            c.fill(Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)),
+                   with: .color(tint.opacity(index == 2 ? 0.4 : 0.3)))
+        }
+    }
+
+    private static func arc(_ c: GraphicsContext, w: CGFloat, h: CGFloat, unit: CGFloat, tint: Color) {
+        // A flight's dashed arc from here to there, a ring at each end.
+        let from = CGPoint(x: w * 0.48, y: h * 0.82)
+        let to = CGPoint(x: w * 0.92, y: h * 0.3)
+        var path = Path()
+        path.move(to: from)
+        path.addQuadCurve(to: to, control: CGPoint(x: w * 0.56, y: h * 0.12))
+        c.stroke(path, with: .color(tint.opacity(0.36)),
+                 style: StrokeStyle(lineWidth: unit * 0.022, lineCap: .round, dash: [unit * 0.05, unit * 0.045]))
+        for (point, r) in [(from, unit * 0.045), (to, unit * 0.07)] {
+            c.stroke(Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)),
+                     with: .color(tint.opacity(0.4)), lineWidth: unit * 0.022)
+        }
+        let dot = unit * 0.03
+        c.fill(Path(ellipseIn: CGRect(x: to.x - dot, y: to.y - dot, width: dot * 2, height: dot * 2)), with: .color(tint.opacity(0.46)))
     }
 }
 

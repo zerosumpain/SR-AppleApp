@@ -10,7 +10,8 @@ import Foundation
 
 /// The picture drawn behind a game's tile, the hero card and the lobby's
 /// header: one per game, so a shelf of eleven tiles in the same colour still
-/// reads as eleven games before a name is read.
+/// reads as eleven games before a name is read. The More page's doors wear
+/// them too (`TileArtBackdrop`), with a few motifs of their own below.
 enum GamesTileMotif: String, CaseIterable {
     /// A board of letter squares: Wordle, Boggle, Sequence Memory.
     case grid
@@ -42,6 +43,24 @@ enum GamesTileMotif: String, CaseIterable {
     case scribble
     /// Scattered dots: anything else.
     case dots
+
+    // The More page's doors are drawn the same way (`HubArt`), and these are
+    // theirs: a picture for what the door opens rather than for a game.
+
+    /// A column of headline bars: News.
+    case lines
+    /// A recording's bars, tall in the middle: Captures.
+    case waveform
+    /// Sliders on their tracks, and a dial: Settings.
+    case sliders
+    /// Ticked boxes in a list: Tasks.
+    case checks
+    /// A patch of hexagons: Landgrab.
+    case hexes
+    /// Dots joined into a graph: Flows.
+    case nodes
+    /// A dashed flight arc between two points: the Travel kit.
+    case arc
 
     /// The motif for a game id. An id this file has never heard of gets dots.
     static func of(_ game: String) -> GamesTileMotif {
