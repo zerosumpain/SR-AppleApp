@@ -40,10 +40,11 @@ final class HomeNavigationTests: XCTestCase {
         XCTAssertTrue(app.openHub(), "More did not open the More apps page")
         XCTAssertTrue(app.tray.exists, "no tray on More")
         XCTAssertTrue(app.trayButton("More").isSelected, "More is not lit on More")
-        // Every door the same size, and square.
-        let first = app.descendants(matching: .any)["more-travel"].firstMatch
-        XCTAssertTrue(first.waitForExistence(timeout: 10))
-        XCTAssertEqual(first.frame.width, first.frame.height, accuracy: 2, "a More door is not square")
+        // Settings is one of the big four: a 2x2 square.
+        let settings = app.descendants(matching: .any)["open-settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        XCTAssertEqual(settings.frame.width, settings.frame.height, accuracy: 2, "Settings is not square on More")
+        XCTAssertFalse(app.descendants(matching: .any)["more-travel"].exists, "the Travel kit is still on More")
     }
 
     /// The bat phone is a tile of its own on a family phone's Home, and no

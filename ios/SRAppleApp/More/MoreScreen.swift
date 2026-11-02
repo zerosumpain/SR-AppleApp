@@ -215,7 +215,7 @@ struct MoreScreen: View {
 
     /// What sits in More, as doors.
     enum Item: Hashable {
-        case trips, news, drive, daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, travel, offline, settings
+        case trips, news, drive, daydream, wildmind, captures, steps, tasks, backlog, messages, landgrab, offline, settings
         case place(Router.Tab)
 
         /// The door's identifier (`more-<id>`, which the UI tests find it
@@ -253,8 +253,10 @@ struct MoreScreen: View {
         // section on Steps, when the site says no or has nothing.
         if access.familyBoards && landgrab.visible { all.append(.landgrab) }
         all += places.filter { $0 != .news }.map(Item.place)
-        // The Travel kit and Play nearby are everyone's: they run on the phone.
-        all += [.travel, .offline]
+        // Play nearby is everyone's: it runs on the phone. (The Travel kit is
+        // withdrawn for now, John 2026-11-02, to come back reworked: its
+        // screens stay in Travel/, with no door to them.)
+        all.append(.offline)
         // Sync now is the button at the top right, not a door.
         all.append(.settings)
         return all
@@ -317,9 +319,6 @@ struct MoreScreen: View {
             let card = MorePlaceCard(place: place, games: games)
             return HubEntry(id: item.id, icon: card.icon, title: card.title, status: card.status,
                             count: place == .games ? games.invites.count : 0, hint: card.blurb) { router.pushFromHub(place) }
-        case .travel:
-            return HubEntry(id: item.id, icon: "airplane", title: "Travel kit", status: nil,
-                            hint: "Live translation, signs, phrases, money and the way back") { router.pushFromHub(TravelKitRef()) }
         case .offline:
             return HubEntry(id: item.id, icon: "dot.radiowaves.left.and.right", title: "Play nearby",
                             status: offline.inRoom ? "In a room" : nil,

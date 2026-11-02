@@ -282,19 +282,8 @@ enum WhatsNew {
                          detail: "A card you rate stays where it is until you leave the screen.",
                          ownerOnly: true),
         ]),
-        WhatsNewRelease(id: "2026-10-25-travel", when: "October 2026", title: "Ready for Rome", items: [
-            WhatsNewItem(icon: "airplane", title: "Travel kit",
-                         detail: "In More. Five tools for abroad that work on the phone, with roaming off."),
-            WhatsNewItem(icon: "captions.bubble", title: "Live translate",
-                         detail: "Talk with someone in Italian, Spanish, French, German or Portuguese, or caption what is being said. Open it once on Wi-Fi to download the language."),
-            WhatsNewItem(icon: "text.viewfinder", title: "Read a sign",
-                         detail: "Photograph a menu, a sign or a ticket and read it in English."),
-            WhatsNewItem(icon: "book", title: "Phrasebook",
-                         detail: "Italian for food, allergies, shops and getting help, said out loud for you."),
-            WhatsNewItem(icon: "eurosign.circle", title: "Money",
-                         detail: "Pounds and euros both ways, splitting a bill, and what to tip."),
-            WhatsNewItem(icon: "location.north.line", title: "Way back",
-                         detail: "Pin the hotel, then follow the arrow home or show a taxi driver where to go."),
+        // The Travel kit's notes went with it (withdrawn 2026-11-02, to come back reworked).
+        WhatsNewRelease(id: "2026-10-25-travel", when: "October 2026", title: "What's new, and chess", items: [
             WhatsNewItem(icon: "checkerboard.rectangle", title: "Chess fits its box",
                          detail: "The whole board shows now, not just one corner."),
             WhatsNewItem(icon: "sparkles", title: "This screen",

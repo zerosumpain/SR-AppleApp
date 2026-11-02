@@ -50,12 +50,12 @@ final class HomeTests: XCTestCase {
 
     func testNoSiteCredentialMeansNoBoards() {
         let tiles = HomeTileKind.available(access: AppAccess(family: true), sitePaired: false)
-        XCTAssertEqual(tiles, [.briefing, .family, .health, .travel])
+        XCTAssertEqual(tiles, [.briefing, .family, .health])
     }
 
     func testEveryoneHasHealth() {
-        XCTAssertEqual(HomeTileKind.available(access: .nothing, sitePaired: false), [.briefing, .health, .travel],
-                       "Health is at least this phone's own, and the Travel kit runs on the phone")
+        XCTAssertEqual(HomeTileKind.available(access: .nothing, sitePaired: false), [.briefing, .health],
+                       "Health is at least this phone's own")
     }
 
     // MARK: - The reader's layout

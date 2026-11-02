@@ -205,8 +205,9 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
             // The diary is the owner's calendar, read through the family's
             // travel desk: null on anyone else's phone.
             case .diary: return boards && access.owner
-            // Runs on the phone: everyone's, as it is in More.
-            case .travel: return true
+            // Withdrawn for now (John 2026-11-02), to come back reworked: kept
+            // as a kind so stored layouts still decode, never offered.
+            case .travel: return false
             case .captures: return ownerSite
             }
         }

@@ -31,7 +31,6 @@ enum HubArt {
         case "chat": return .chat
         case "health": return .health
         case "family": return .family
-        case "travel": return .move
         case "offline": return .health
         case "settings": return settings
         default: return .flows
@@ -63,7 +62,6 @@ enum HubArt {
         case "chat": return .bubbles
         case "health": return .rings
         case "family": return .map
-        case "travel": return .arc
         // Play nearby: phones finding each other, in rings.
         case "offline": return .rings
         case "settings": return .sliders

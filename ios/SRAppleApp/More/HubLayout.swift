@@ -30,8 +30,8 @@ enum HubTileSize: String, Equatable, CaseIterable {
     /// 1x1.
     case small
     /// 4x1, the whole width: only for a set too small to tile any other way
-    /// (a single small door), which the app never has — Travel kit and Play
-    /// nearby are everyone's.
+    /// (a single small door: Play nearby beside an even number of big ones,
+    /// on a phone that sees little else).
     case banner
 
     var columns: Int {
