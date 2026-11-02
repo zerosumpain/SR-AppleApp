@@ -11,8 +11,19 @@ final class TripPhotos: ObservableObject {
 
     /// Bumped when a photo lands, so a view waiting on one redraws.
     @Published private(set) var landed = 0
-    private var memory: [String: UIImage] = [:]
+    /// Decoded photos, bounded by their decoded bytes: a long trip names
+    /// dozens of places, and a dictionary kept every one for the session.
+    private let memory: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 32 * 1024 * 1024
+        cache.countLimit = 80
+        return cache
+    }()
     private var fetching: Set<String> = []
+    /// The longest edge a place's photo is decoded at: a full-width card at
+    /// 220 points is ~1,200 pixels on a 3x phone, and the rows' squares use
+    /// the same picture.
+    nonisolated static let maxPixels = 1200
 
     private let folder: URL = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -36,37 +47,58 @@ final class TripPhotos: ObservableObject {
         return folder.appendingPathComponent(String(digest.prefix(40)) + ".img")
     }
 
-    /// The photo, if it is on the phone.
+    /// The photo, if it is decoded already. Memory only: this is asked from
+    /// `body`, where reading and decoding a file would stall the frame —
+    /// `load` brings one in from disk or the web.
     func image(_ photo: PlaceImage) -> UIImage? {
         guard let url = Self.allowed(photo.url) else { return nil }
-        if let hit = memory[url.absoluteString] { return hit }
-        guard let data = try? Data(contentsOf: file(url)), let image = UIImage(data: data) else { return nil }
-        memory[url.absoluteString] = image
-        return image
+        return memory.object(forKey: url.absoluteString as NSString)
     }
 
-    /// Fetch one now (a card on screen asking), unless it is here already.
+    /// Bring one in (a card on screen asking): from disk if it is on the
+    /// phone, from the web if not — read, downsampled and decoded off the
+    /// main thread either way.
     func load(_ photo: PlaceImage) {
         guard let url = Self.allowed(photo.url), image(photo) == nil, !fetching.contains(url.absoluteString) else { return }
         fetching.insert(url.absoluteString)
+        let saved = file(url)
         Task {
             defer { fetching.remove(url.absoluteString) }
+            let fromDisk = await Task.detached(priority: .userInitiated) {
+                SRDownsample.image(url: saved, maxPixels: Self.maxPixels)
+            }.value
+            if let fromDisk {
+                keep(fromDisk, for: url)
+                return
+            }
             var request = URLRequest(url: url, timeoutInterval: 20)
             request.setValue("StrangeRamblingsApp/1.0 (+https://strangeramblings.com)", forHTTPHeaderField: "User-Agent")
             guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  (response as? HTTPURLResponse)?.statusCode == 200,
-                  data.count < 4_000_000, let image = UIImage(data: data) else { return }
-            try? data.write(to: file(url), options: .atomic)
-            memory[url.absoluteString] = image
-            landed += 1
+                  (response as? HTTPURLResponse)?.statusCode == 200, data.count < 4_000_000 else { return }
+            let decoded = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                guard let image = SRDownsample.image(data: data, maxPixels: Self.maxPixels) else { return nil }
+                try? data.write(to: saved, options: .atomic)
+                return image
+            }.value
+            if let decoded { keep(decoded, for: url) }
         }
+    }
+
+    private func keep(_ image: UIImage, for url: URL) {
+        memory.setObject(image, forKey: url.absoluteString as NSString, cost: SRDownsample.cost(image))
+        landed += 1
     }
 
     /// Every photo a bundle names, so the trip's pictures go offline with it —
     /// on Wi-Fi, as the map packs are; on mobile data a card fetches its own.
     func prefetch(_ bundle: TripBundle) {
         guard !SRDemo.isOn, TripNetwork.shared.online, TripNetwork.shared.unmetered else { return }
-        for photo in (bundle.images ?? [:]).values { load(photo) }
+        // Only what is not on the phone yet: one already saved is decoded
+        // when a card asks, not now.
+        for photo in (bundle.images ?? [:]).values {
+            guard let url = Self.allowed(photo.url), !FileManager.default.fileExists(atPath: file(url).path) else { continue }
+            load(photo)
+        }
     }
 }
 

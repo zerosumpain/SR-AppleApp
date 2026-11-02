@@ -726,12 +726,11 @@ struct HomeBacklogTile: View {
                 .font(.title2.weight(.semibold))
         }
         if let raw = item.thumbnailUrl, let url = URL(string: raw) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    mark
-                }
+            // Drawn 112 × 84, filled: a 16:9 picture's long edge is ~150 points.
+            SRRemoteImage(url: url, points: 150) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                mark
             }
         } else {
             mark
