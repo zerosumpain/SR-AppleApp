@@ -46,7 +46,7 @@ enum OfflineBoggleRules: OfflineGameRules {
 
     static let info = OfflineGameInfo(
         id: "boggle",
-        title: "Boggle",
+        title: "Kelloggle",
         blurb: "Sixteen letter dice, two minutes. Trace words through touching letters.",
         category: .skill,
         minPlayers: 1,

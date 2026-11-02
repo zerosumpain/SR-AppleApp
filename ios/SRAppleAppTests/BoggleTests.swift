@@ -264,7 +264,7 @@ final class BoggleTests: XCTestCase {
 
     func testBoggleIsAGameThisAppKnows() {
         XCTAssertEqual(GameKind(rawValue: "boggle"), .boggle)
-        XCTAssertEqual(GameNames.title("boggle"), "Boggle")
+        XCTAssertEqual(GameNames.title("boggle"), "Kelloggle")
         XCTAssertEqual(GameDifficulty.hard.line(for: .boggle), "The dice as they fall. 4 letters or more.")
     }
 }

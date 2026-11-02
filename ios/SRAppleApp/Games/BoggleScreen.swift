@@ -26,7 +26,7 @@ struct BoggleScreen: View {
 
     var body: some View {
         content
-            .navigationTitle("Boggle")
+            .navigationTitle(GameKind.boggle.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
             .toolbar(immersive ? .hidden : .visible, for: .navigationBar)
@@ -299,7 +299,7 @@ struct BogglePlaying: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("BOGGLE · \(BoggleSettings.sizeLabel(room.size)) · \(GameDifficulty.label(for: room.difficulty).uppercased())")
+                Text("KELLOGGLE · \(BoggleSettings.sizeLabel(room.size)) · \(GameDifficulty.label(for: room.difficulty).uppercased())")
                     .font(SR.Text.label())
                     .tracking(SR.kickerTracking)
                     .foregroundStyle(SR.accent)
@@ -702,7 +702,7 @@ struct BoggleFinished: View {
         ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: SR.sectionGap) {
-                    SRPageHeader(kicker: "Boggle · \(BoggleSettings.about(room)) · final",
+                    SRPageHeader(kicker: "\(GameKind.boggle.title) · \(BoggleSettings.about(room)) · final",
                                  title: GameResults.title(room, solo: "You scored \(room.me?.score ?? 0)", none: "Nobody scored"),
                                  strap: GameResults.strap(room))
 

@@ -36,7 +36,7 @@ final class GameLeaderboardTests: XCTestCase {
         XCTAssertEqual(board.games.map(\.id), ["boggle", "liars-dice"])
         let boggle = try XCTUnwrap(board.games.first)
         XCTAssertTrue(boggle.scored)
-        XCTAssertEqual(boggle.title, "Boggle")
+        XCTAssertEqual(boggle.title, "Kelloggle", "the app's own name wins over the site's")
         XCTAssertEqual(boggle.rows.map(\.best), [31, 30])
         XCTAssertEqual(boggle.rows.first?.bestLabel, "6×6 · 3 minutes · hard")
         XCTAssertNil(boggle.rows.last?.bestLabel)

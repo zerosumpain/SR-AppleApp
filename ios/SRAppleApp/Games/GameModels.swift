@@ -69,7 +69,9 @@ enum GameKind: String, CaseIterable, Identifiable {
         case .anagramBlitz: return "Anagram Blitz"
         case .mathsSprint: return "Quick Maths Sprint"
         case .sequenceMemory: return "Sequence Memory"
-        case .boggle: return "Boggle"
+        // The family's own name for it (2026-11-02). The raw value stays `boggle`:
+        // rooms, scores and the site all key on it.
+        case .boggle: return "Kelloggle"
         case .categories: return "Categories"
         case .liarsDice: return "Liar's Dice"
         case .drawGuess: return "Draw & Guess"
@@ -1171,8 +1173,15 @@ enum ActionCard: Encodable, Equatable, ExpressibleByStringLiteral, ExpressibleBy
 }
 
 enum GameNames {
+    /// The app's name for a game; for one this build does not know, the
+    /// site's (learned from a TV party's list), else the id capitalised —
+    /// "snap-happy" is "Snap Happy".
     static func title(_ game: String) -> String {
-        GameKind(rawValue: game)?.title ?? game.replacingOccurrences(of: "-", with: " ").capitalized
+        GameKind(rawValue: game)?.title ?? TVPartyTitles.title(game) ?? capitalised(game)
+    }
+
+    static func capitalised(_ game: String) -> String {
+        game.replacingOccurrences(of: "-", with: " ").capitalized
     }
 
     /// "Sam", "Sam and Robin", "John, Sam and Robin".
