@@ -50,6 +50,7 @@ struct DriveScreen: View {
     @State private var exporting = false
     @State private var confirmFiles: [DriveFile] = []
     @State private var confirmFolder: DriveFolder?
+    @State private var searchingPhotos = false
 
     init(ref: DriveRef) {
         self.ref = ref
@@ -63,6 +64,8 @@ struct DriveScreen: View {
     private var canWrite: Bool { access.viewingAs == nil }
     /// jkai on files: the owner, as himself, in his own files.
     private var jkai: Bool { access.current.owner && access.viewingAs == nil && model.ref.space == .mine }
+    /// Photo search: the owner's photo library, so the owner as himself only.
+    private var photoSearch: Bool { access.current.owner && access.viewingAs == nil }
     private var sort: DriveSort { DriveSort(rawValue: sortRaw) ?? .name }
     private var selecting: Bool { editMode.isEditing }
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -115,6 +118,7 @@ struct DriveScreen: View {
             DriveMoveSheet(folder: model, keepOriginals: keepOriginals)
         }
         .sheet(isPresented: $syncingPhotos) { DriveSyncSheet() }
+        .navigationDestination(isPresented: $searchingPhotos) { DrivePhotoSearchScreen() }
         .fileMover(isPresented: $exporting, file: exportFile) { result in
             if case .failure(let error) = result { model.message = error.localizedDescription }
             exportFile = nil
@@ -414,6 +418,11 @@ struct DriveScreen: View {
                 }
                 .accessibilityIdentifier("drive-select-done")
             } else {
+                if photoSearch {
+                    Button { searchingPhotos = true } label: { Image(systemName: "sparkle.magnifyingglass") }
+                        .accessibilityLabel("Search photos")
+                        .accessibilityIdentifier("drive-photo-search-open")
+                }
                 viewMenu
                 if canWrite { addMenu }
             }
