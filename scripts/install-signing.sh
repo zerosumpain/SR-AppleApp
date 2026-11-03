@@ -2,7 +2,12 @@
 set -euo pipefail
 umask 077
 printf '%s' "$DISTRIBUTION_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-printf '%s' "$PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+if [ -n "${PROVISION_PROFILE_PATH:-}" ] && [ -f "$PROVISION_PROFILE_PATH" ]; then
+  # The app's profile Apple made for this run, with Associated Domains (asc-app-links.py).
+  cp "$PROVISION_PROFILE_PATH" "$RUNNER_TEMP/profile.mobileprovision"
+else
+  printf '%s' "$PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+fi
 printf '%s' "$ASC_PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey.p8"
 SIGNING_PASSWORD=$(openssl rand -hex 32)
 echo "::add-mask::$SIGNING_PASSWORD"

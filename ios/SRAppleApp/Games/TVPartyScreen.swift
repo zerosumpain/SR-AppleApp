@@ -138,6 +138,8 @@ struct TVPartyScreen: View {
                     .accessibilityIdentifier("tv-party-notice")
                 }
 
+                if store.isHost { hosting(party) }
+
                 status(party)
 
                 members(party)
@@ -151,7 +153,37 @@ struct TVPartyScreen: View {
         .srAnimation(.snappy, value: party.members.map(\.id))
     }
 
+    /// The host runs the evening from the party's page: pick the game and its
+    /// options, Start, Play again, Back to the lobby — the TV's controls.
+    private func hosting(_ party: TVPartyView) -> some View {
+        SRCard(accented: true) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("You\u{2019}re the host")
+                    .font(SR.Text.title())
+                    .foregroundStyle(SR.ink)
+                Text("You joined first, so you choose the game and start it \u{2014} from here or with the TV\u{2019}s remote.")
+                    .font(SR.Text.secondary())
+                    .foregroundStyle(SR.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    SRHaptic.tap()
+                    if let room = party.roomId { store.opened = room }
+                    router.push(webRef(party), on: .games)
+                } label: {
+                    SRButtonLabel(title: "Open the host controls", icon: "slider.horizontal.3", fill: true)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .srButton(.prominent)
+                .controlSize(.large)
+                .accessibilityIdentifier("tv-party-host")
+            }
+        }
+    }
+
     private func strap(_ party: TVPartyView) -> String {
+        if store.isHost, party.roomId == nil {
+            return "You\u{2019}re in, and you\u{2019}re the host."
+        }
         if party.roomId == nil {
             return "You\u{2019}re in. Waiting for the TV to start\u{2026}"
         }
@@ -164,7 +196,7 @@ struct TVPartyScreen: View {
             // Back from a game still running: one tap back into it.
             Button {
                 SRHaptic.tap()
-                if TVPartyStep.playsNatively(party.game ?? "") {
+                if TVPartyStep.playsNatively(party.game ?? ""), !store.isHost {
                     router.push(GameRoomRef(id: room, game: party.game), on: .games)
                 } else {
                     router.push(webRef(party), on: .games)
@@ -218,7 +250,11 @@ struct TVPartyScreen: View {
                                 .font(SR.Text.bodyMedium(16))
                                 .foregroundStyle(SR.ink)
                             Spacer(minLength: 8)
-                            if member.kind == "guest" {
+                            if member.id == party.hostId {
+                                Text("Host")
+                                    .font(SR.Text.mono())
+                                    .foregroundStyle(SR.accent)
+                            } else if member.kind == "guest" {
                                 Text("Guest")
                                     .font(SR.Text.mono())
                                     .foregroundStyle(SR.inkMuted)

@@ -13,8 +13,11 @@ import Foundation
 // build has no screen for (`snap-happy`, `biscuit-tower`, `iron-roads`…), the
 // party's own web page in a web view (`TVPartyWebScreen`).
 
-/// `sr://games/join/<CODE>`. CODE is four consonants from the TV's alphabet,
-/// which has no vowels so a code never spells a word. PURE.
+/// `sr://games/join/<CODE>`, or the QR's own `https://strangeramblings.com/games/join/<CODE>`
+/// arriving as a universal link (the site's apple-app-site-association claims
+/// that path, so with the app installed the camera opens it here, not Safari).
+/// CODE is four consonants from the TV's alphabet, which has no vowels so a
+/// code never spells a word. PURE.
 enum TVPartyLink: Equatable {
     case join(code: String)
 
@@ -32,18 +35,34 @@ enum TVPartyLink: Equatable {
     /// Nil for anything that is not a party join. Matched BEFORE `GlanceLink`,
     /// which would otherwise read `join` as a room id.
     static func from(url: URL) -> TVPartyLink? {
-        guard url.scheme?.lowercased() == "sr", url.host?.lowercased() == "games" else { return nil }
-        let parts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
-        guard parts.count == 2, parts[0].lowercased() == "join", let code = code(parts[1]) else { return nil }
+        guard let parts = joinParts(url), parts.count == 2, let code = code(parts[1]) else { return nil }
         return .join(code: code)
+    }
+
+    /// The site's own hosts, whose `/games/join/…` is the party's page.
+    static let siteHosts: Set<String> = ["strangeramblings.com", "www.strangeramblings.com"]
+
+    /// The path after `sr://games` or `https://strangeramblings.com/games`, when it starts with `join`.
+    private static func joinParts(_ url: URL) -> [String]? {
+        let scheme = url.scheme?.lowercased()
+        let host = url.host?.lowercased() ?? ""
+        var parts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
+        if scheme == "sr", host == "games" {
+            // sr://games/join/<CODE>
+        } else if scheme == "https", siteHosts.contains(host), parts.first?.lowercased() == "games" {
+            parts.removeFirst()
+        } else {
+            return nil
+        }
+        guard parts.first?.lowercased() == "join" else { return nil }
+        return parts
     }
 
     /// Whether `url` is `sr://games/join/…` at all, valid code or not — so a
     /// mistyped code is answered with a sentence rather than opening a room
     /// called "join".
     static func isJoinShaped(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() == "sr", url.host?.lowercased() == "games" else { return false }
-        return url.pathComponents.filter { $0 != "/" && !$0.isEmpty }.first?.lowercased() == "join"
+        joinParts(url) != nil
     }
 
     /// The party's page on the site, for a game the app cannot play itself.
@@ -104,13 +123,16 @@ struct TVPartyView: Decodable, Equatable {
     let locked: Bool
     let game: String?
     let members: [TVPartyMember]
+    /// Whoever joined first and is still in: the site gives their phone the
+    /// TV's controls, on the party's page.
+    let hostId: String?
     let roomId: String?
     let notice: String?
     let games: [TVPartyGame]
     let serverNow: Double
 
     private enum CodingKeys: String, CodingKey {
-        case id, code, tvName, phase, locked, game, members, roomId, notice, games, serverNow
+        case id, code, tvName, phase, locked, game, members, hostId, roomId, notice, games, serverNow
     }
 
     init(from decoder: Decoder) throws {
@@ -122,6 +144,7 @@ struct TVPartyView: Decodable, Equatable {
         locked = (try? c.decodeIfPresent(Bool.self, forKey: .locked)) ?? false
         game = ((try? c.decodeIfPresent(String.self, forKey: .game)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
         members = (try? c.decodeIfPresent([TVPartyMember].self, forKey: .members)) ?? []
+        hostId = ((try? c.decodeIfPresent(String.self, forKey: .hostId)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
         roomId = ((try? c.decodeIfPresent(String.self, forKey: .roomId)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
         let line = ((try? c.decodeIfPresent(String.self, forKey: .notice)) ?? nil)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -172,10 +195,12 @@ enum TVPartyStep: Equatable {
 
     /// `opened`: the room last opened from this screen, so coming back from a
     /// game still running does not throw the person straight back into it.
-    static func next(_ party: TVPartyView, opened: String?) -> TVPartyStep {
+    /// `host`: this member hosts, and plays on the party's page, where the
+    /// host's controls (Play again, Back to the lobby) sit under the game.
+    static func next(_ party: TVPartyView, opened: String?, host: Bool = false) -> TVPartyStep {
         guard let room = party.roomId, room != opened else { return .wait }
         let game = party.game ?? ""
-        return TVPartyStep.playsNatively(game) ? .openRoom(id: room, game: game) : .openWeb(game: game)
+        return TVPartyStep.playsNatively(game) && !host ? .openRoom(id: room, game: game) : .openWeb(game: game)
     }
 
     /// A room game with a screen in this build. The phone's own offline games
@@ -245,6 +270,8 @@ final class TVPartyStore: ObservableObject {
     /// The party page's seat for this member, when the site sent one.
     private(set) var seat: String?
     private(set) var partyId: String?
+    /// This member's id at the party, to know whether they host.
+    private(set) var meId: String?
 
     /// Every three seconds while the waiting screen is up.
     static let pollInterval: TimeInterval = 3
@@ -254,6 +281,12 @@ final class TVPartyStore: ObservableObject {
     var party: TVPartyView? {
         if case .waiting(let party) = state { return party }
         return nil
+    }
+
+    /// This member hosts the party (joined first, still in).
+    var isHost: Bool {
+        guard let party, let meId else { return false }
+        return party.hostId == meId
     }
 
     /// One join, which is also the read: the current party, or the server's sentence.
@@ -267,6 +300,7 @@ final class TVPartyStore: ObservableObject {
                 "api/native/games/party/\(code)/join", method: "POST", body: Data("{}".utf8))
             if let seat = answer.seat, !seat.isEmpty { self.seat = seat }
             partyId = answer.party.id
+            meId = answer.me.id
             TVPartyTitles.learn(answer.party.games)
             if let room = answer.party.roomId { TVPartyRooms.remember(room: room, code: code) }
             state = .waiting(answer.party)
@@ -297,7 +331,7 @@ final class TVPartyStore: ObservableObject {
         while !Task.isCancelled {
             await refresh()
             if case .failed = state { return }
-            if let party { step(TVPartyStep.next(party, opened: opened)) }
+            if let party { step(TVPartyStep.next(party, opened: opened, host: isHost)) }
             try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
         }
     }
