@@ -46,7 +46,8 @@ ENTITLEMENTS_FILE = "SRAppleApp/SRAppleApp+Links.entitlements"
 
 
 def ensure_associated_domains(client, bundle_ref: str) -> None:
-    caps = client.call("GET", f"/bundleIds/{bundle_ref}/bundleIdCapabilities", query={"limit": "200"})
+    # No `limit`: this relationship refuses it (400 PARAMETER_ERROR.ILLEGAL, 2026-11-03); an App ID has few capabilities.
+    caps = client.call("GET", f"/bundleIds/{bundle_ref}/bundleIdCapabilities")
     if any(c["attributes"].get("capabilityType") == "ASSOCIATED_DOMAINS" for c in caps.get("data", [])):
         return
     client.call("POST", "/bundleIdCapabilities", body={
