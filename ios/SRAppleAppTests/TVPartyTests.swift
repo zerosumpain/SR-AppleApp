@@ -13,6 +13,14 @@ final class TVPartyTests: XCTestCase {
         XCTAssertEqual(TVPartyLink.from(url: URL(string: "SR://Games/Join/HJKL")!), .join(code: "HJKL"))
     }
 
+    func testTheQRsOwnLinkIsAJoin() {
+        // A universal link: the camera hands the app the QR's https address itself.
+        XCTAssertEqual(TVPartyLink.from(url: URL(string: "https://strangeramblings.com/games/join/BCDF")!), .join(code: "BCDF"))
+        XCTAssertEqual(TVPartyLink.from(url: URL(string: "https://www.strangeramblings.com/games/join/hjkl")!), .join(code: "HJKL"))
+        XCTAssertTrue(TVPartyLink.isJoinShaped(URL(string: "https://strangeramblings.com/games/join/ABCD")!), "a bad code still gets a sentence")
+        XCTAssertFalse(TVPartyLink.isJoinShaped(URL(string: "https://strangeramblings.com/games/azul")!))
+    }
+
     func testABadCodeIsNotAJoin() {
         for raw in ["sr://games/join/ABCD",   // a vowel
                     "sr://games/join/BCD",    // too short
@@ -21,7 +29,9 @@ final class TVPartyTests: XCTestCase {
                     "sr://games/join/BCYF",   // Y is not in the alphabet
                     "sr://games/join",
                     "sr://games/join/BCDF/extra",
-                    "https://strangeramblings.com/games/join/BCDF",
+                    "https://example.com/games/join/BCDF",
+                    "https://strangeramblings.com/join/BCDF",
+                    "http://strangeramblings.com/games/join/BCDF",
                     "sr://family/join/BCDF"] {
             XCTAssertNil(TVPartyLink.from(url: URL(string: raw)!), raw)
         }
@@ -55,6 +65,7 @@ final class TVPartyTests: XCTestCase {
                    "locked": false, "game": \(gameJSON), "options": {"difficulty": "medium"},
                    "members": [{"id": "p_aaaaaaaaaaaa", "name": "Sam", "kind": "family", "online": true},
                                {"id": "v_bbbbbbbbbbbb", "name": "Nan", "kind": "guest", "online": false}],
+                   "hostId": "p_aaaaaaaaaaaa",
                    "roomId": \(roomJSON), "notice": \(noticeJSON),
                    "games": [{"id": "snap-happy", "title": "Snap Happy", "min": 2, "max": 8},
                              {"id": "boggle", "title": "Kelloggle", "min": 1, "max": 8},
@@ -119,6 +130,14 @@ final class TVPartyTests: XCTestCase {
             XCTAssertEqual(TVPartyStep.next(try answer(game: game, roomId: "g_1").party, opened: nil),
                            .openWeb(game: game), game)
         }
+    }
+
+    func testTheHostPlaysOnThePartysPage() throws {
+        // The host's controls sit under the game on the page, so even a game the app plays opens there.
+        let party = try answer(game: "boggle", roomId: "g_1").party
+        XCTAssertEqual(party.hostId, "p_aaaaaaaaaaaa")
+        XCTAssertEqual(TVPartyStep.next(party, opened: nil, host: true), .openWeb(game: "boggle"))
+        XCTAssertEqual(TVPartyStep.next(party, opened: nil, host: false), .openRoom(id: "g_1", game: "boggle"))
     }
 
     func testBackFromARunningGameDoesNotReopenIt() throws {
