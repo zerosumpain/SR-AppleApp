@@ -106,6 +106,19 @@ jobs:
         run: python3 scripts/asc-app-links.py
       - name: Install signing material
         run: bash scripts/install-signing.sh
+      # Two binary packages (MapLibre, NemoTextProcessing) download from
+      # GitHub release assets, which 504 from the runners for minutes at a
+      # time (2026-11-09: three archives lost in a row). Resolve them first,
+      # with retries; the archive below reuses what this fetched.
+      - name: Resolve packages (with retries)
+        run: |
+          xcodegen generate --spec ios/project.yml
+          for attempt in 1 2 3 4 5 6; do
+            if xcodebuild -resolvePackageDependencies -project ios/SRAppleApp.xcodeproj -scheme SRAppleApp; then exit 0; fi
+            echo "::warning::package resolution failed (attempt $attempt); retrying in $((attempt * 30)) s"
+            sleep $((attempt * 30))
+          done
+          exit 1
       - name: Archive and upload
         run: |
           set -o pipefail
