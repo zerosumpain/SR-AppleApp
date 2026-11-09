@@ -91,7 +91,33 @@ struct LiveTrack: Equatable {
         let ordered = byTime.values.sorted { $0.t < $1.t }
         guard let last = ordered.last else { samples = []; return }
         let fresh = ordered.filter { $0.t >= last.t - Self.keep }
-        samples = Self.withoutJumps(fresh)
+        samples = Self.thinned(Self.withoutJumps(fresh))
+    }
+
+    /// Fixes closer together than this are GPS jitter, not progress: a phone
+    /// at 1 Hz on foot moves ~1.4 m a second and wanders 5–10 m.
+    static let minSpacing: Double = 6
+    /// …unless this long has passed, which is a reading worth keeping anyway.
+    static let spacingWindow: Double = 10
+
+    /// One fix per `minSpacing` metres (or per `spacingWindow` seconds), the
+    /// newest always kept — so the pin follows the route without zig-zagging
+    /// between jittery 1 Hz fixes, and the same fix sent twice (the pin's own
+    /// position beside the overlay's copy of it) is one fix.
+    static func thinned(_ points: [LiveSample]) -> [LiveSample] {
+        guard points.count > 2 else {
+            if points.count == 2, LiveGeo.metres(points[0], points[1]) < 1, points[1].t - points[0].t < 2 { return [points[1]] }
+            return points
+        }
+        var kept: [LiveSample] = [points[0]]
+        for p in points.dropFirst().dropLast() {
+            let k = kept[kept.count - 1]
+            if LiveGeo.metres(k, p) >= minSpacing || p.t - k.t >= spacingWindow { kept.append(p) }
+        }
+        let newest = points[points.count - 1]
+        if let k = kept.last, kept.count > 1, LiveGeo.metres(k, newest) < 1, newest.t - k.t < 2 { kept.removeLast() }
+        kept.append(newest)
+        return kept
     }
 
     /// Drop a fix that is too far from the last good one to have been
@@ -128,7 +154,7 @@ struct LiveTrack: Equatable {
             let dt = last.t - prev.t
             let leg = LiveGeo.metres(prev, last)
             guard dt > 0, dt <= 30, leg / dt >= Self.minCarrySpeed else {
-                return (last.lat, last.lon, leg > 2 ? LiveGeo.bearing(prev, last) : nil)
+                return (last.lat, last.lon, leg > Self.minSpacing ? LiveGeo.bearing(prev, last) : nil)
             }
             let heading = LiveGeo.bearing(prev, last)
             let ahead = min(t - last.t, Self.extrapolate)
@@ -145,7 +171,7 @@ struct LiveTrack: Equatable {
         }
         let a = samples[lo], b = samples[hi]
         let f = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1
-        let heading: Double? = LiveGeo.metres(a, b) > 2 ? LiveGeo.bearing(a, b) : nil
+        let heading: Double? = LiveGeo.metres(a, b) > Self.minSpacing ? LiveGeo.bearing(a, b) : nil
         return (a.lat + (b.lat - a.lat) * f, a.lon + (b.lon - a.lon) * f, heading)
     }
 
@@ -161,12 +187,14 @@ struct LiveTrack: Equatable {
         return b.t > a.t ? LiveGeo.metres(a, b) / (b.t - a.t) : nil
     }
 
-    /// Whether this track has moved lately: a fix in the last `window`
-    /// seconds and more than `metres` covered across them.
-    func isMoving(now: Double, window: Double = 120, metres: Double = 25) -> Bool {
+    /// Whether this track has moved lately: fixes in the last `window`
+    /// seconds whose furthest is more than `metres` from where the window
+    /// began. Net displacement, never the summed legs: a phone lying still on
+    /// 1 Hz close tracking wanders tens of metres leg by leg and goes nowhere.
+    func isMoving(now: Double, window: Double = 120, metres: Double = 40) -> Bool {
         let recent = samples.filter { $0.t >= now - window }
-        guard let a = recent.first, let b = recent.last, recent.count >= 2 else { return false }
-        return LiveGeo.metres(a, b) >= metres || recent.indices.dropFirst().reduce(0) { $0 + LiveGeo.metres(recent[$1 - 1], recent[$1]) } >= metres
+        guard let a = recent.first, recent.count >= 2 else { return false }
+        return recent.contains { LiveGeo.metres(a, $0) >= metres }
     }
 }
 
@@ -181,35 +209,51 @@ struct LivePlayhead: Equatable {
     /// The wall clock at the last advance.
     var wall: Double
 
-    /// Behind real time: the phone's 5 s upload plus the viewer's 5 s read,
-    /// less a little, so the pin is nearly always between two real fixes.
-    static let lag: Double = 8
+    /// Behind real time: the phone's 5 s upload plus the viewer's 5 s read
+    /// and a little more, so the pin is nearly always between two real fixes.
+    static let lag: Double = 12
     /// Further behind than this is a backlog: fast-forward.
     static let behind: Double = 10
     /// How long a fast-forward takes, whatever the gap.
     static let catchUp: Double = 2.5
 
-    /// Starts at the newest fix (no replay of history on opening the map),
-    /// or where real time minus the lag is, whichever is earlier.
-    static func start(now: Double, newest: Double) -> LivePlayhead {
-        LivePlayhead(at: min(newest, now - lag), wall: now)
+    /// Fast-forwarding a backlog right now.
+    private(set) var catchingUp = false
+
+    init(at: Double, wall: Double) {
+        self.at = at
+        self.wall = wall
     }
 
-    mutating func advance(now: Double) {
-        let target = now - Self.lag
+    /// Where a playhead starts: where the map last drew this person if that
+    /// is recent (so a route that arrived late is replayed from there), else
+    /// the lag behind real time — never after the newest fix.
+    static func start(now: Double, newest: Double, resumeFrom: Double? = nil) -> LivePlayhead {
+        let fresh = now - lag
+        let from = resumeFrom.flatMap { $0 >= fresh - LiveTrack.keep ? $0 : nil } ?? fresh
+        return LivePlayhead(at: min(from, fresh, newest), wall: now)
+    }
+
+    /// Move on to wall-clock `now`. The playhead never runs further than
+    /// `extrapolate` past the newest fix — during a dead patch it waits there,
+    /// so when the queued route lands it is behind it and replays it. Far
+    /// behind (a backlog), it fast-forwards over about `catchUp` seconds;
+    /// a little behind, it drifts back to the lag rather than staying late.
+    mutating func advance(now: Double, newest: Double) {
+        let target = min(now - Self.lag, newest + LiveTrack.extrapolate)
         let dt = max(0, min(now - wall, 1))
         wall = now
         let gap = target - at
-        if gap > Self.behind {
+        catchingUp = gap > Self.behind
+        if catchingUp {
             at += max(dt, dt * gap / Self.catchUp)
+        } else if gap > 1 {
+            at += dt * (1 + gap / Self.catchUp)
         } else {
             at += dt
         }
         at = min(at, target)
     }
-
-    /// Fast-forwarding a backlog right now.
-    var catchingUp: Bool { wall - Self.lag - at > Self.behind }
 }
 
 /// Eases the drawn point towards the computed one, so a correction slides
@@ -224,10 +268,12 @@ struct LiveSmoother: Equatable {
 
     mutating func step(toward target: (lat: Double, lon: Double), dt: Double) {
         let here = LiveSample(t: 0, lat: lat, lon: lon), there = LiveSample(t: 0, lat: target.lat, lon: target.lon)
-        if LiveGeo.metres(here, there) > Self.snap || dt <= 0 {
+        if LiveGeo.metres(here, there) > Self.snap {
             lat = target.lat; lon = target.lon
             return
         }
+        // No time has passed: another map drew this frame already.
+        guard dt > 0 else { return }
         let k = 1 - exp(-dt / Self.timeConstant)
         lat += (target.lat - lat) * k
         lon += (target.lon - lon) * k
@@ -255,8 +301,9 @@ struct FamilyLiveState: Equatable {
         var track = LiveTrack()
         var playhead: LivePlayhead?
         var shown: LiveSmoother?
-        /// When this person last had a live point at all, wall clock.
-        var heardAt: Double = 0
+        /// The track time last drawn, kept while they are not live, so a
+        /// route that arrives after a dead patch is replayed from there.
+        var lastDrawn: Double?
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -271,7 +318,6 @@ struct FamilyLiveState: Equatable {
         guard !samples.isEmpty else { return }
         var entry = entries[subject] ?? Entry()
         entry.track.merge(samples, now: now)
-        entry.heardAt = now
         entries[subject] = entry
     }
 
@@ -305,14 +351,16 @@ struct FamilyLiveState: Equatable {
                 entries[subject] = e
                 continue
             }
-            var head = e.playhead ?? LivePlayhead.start(now: now, newest: newest.t)
+            var head = e.playhead ?? LivePlayhead.start(now: now, newest: newest.t, resumeFrom: e.lastDrawn)
             let dt = e.playhead.map { max(0, now - $0.wall) } ?? 0
-            head.advance(now: now)
+            head.advance(now: now, newest: newest.t)
             guard let p = e.track.position(at: head.at) else { continue }
             var shown = e.shown ?? LiveSmoother(lat: p.lat, lon: p.lon)
-            shown.step(toward: (p.lat, p.lon), dt: head.catchingUp ? 0 : dt)
+            // Fast-forwarding, the drawn point keeps up with the route.
+            shown.step(toward: (p.lat, p.lon), dt: head.catchingUp && dt > 0 ? 1 : dt)
             e.playhead = head
             e.shown = shown
+            e.lastDrawn = head.at
             entries[subject] = e
             let tail = e.track.path(from: head.at - Self.tailSeconds, to: head.at)
                 + [LiveSample(t: head.at, lat: shown.lat, lon: shown.lon)]

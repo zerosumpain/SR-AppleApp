@@ -80,7 +80,7 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
         var speedMps: Double? = nil
         var accuracyM: Double? = nil
         /// `[lat, lon, epoch seconds]`, oldest first.
-        var points: [[Double]] = []
+        var points: [[Double]]? = nil
     }
 
     /// How somebody is moving, from their last ten minutes of fixes on the

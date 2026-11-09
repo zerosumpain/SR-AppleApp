@@ -52,8 +52,8 @@ final class FamilyWalkingTests: XCTestCase {
     func testWalkedTripsComeFirstAndSayTimeBestDistanceAndPace() throws {
         let movement = try JSONDecoder().decode(FamilyMovement.self, from: Data(json.utf8))
         let (walked, other) = WalkingWords.ordered(movement.stats.commonTrips)
-        XCTAssertEqual(walked.map(\.id), ["Home→School"])
-        XCTAssertEqual(other.map(\.id), ["Home→Pool"])
+        XCTAssertEqual(walked.map(\.id), ["Home→School·foot"])
+        XCTAssertEqual(other.map(\.id), ["Home→Pool·car"])
         XCTAssertEqual(WalkingWords.tripLine(walked[0]), "Usually 17 min · best 14 min · 1.3 km · 13:05 /km")
         XCTAssertEqual(WalkingWords.tripWhen(walked[0]), "9 times · leaves about 08:24")
         XCTAssertEqual(WalkingWords.tripLine(other[0]), "Usually 12 min")

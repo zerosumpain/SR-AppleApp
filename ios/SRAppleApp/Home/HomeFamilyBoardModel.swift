@@ -136,7 +136,7 @@ enum FamilyBoard {
         let now = input.now
         let sharing = p.status != "off"
         let stale = sharing && (p.lastSeen.map { now - $0 >= staleSeconds } ?? false)
-        let low = p.battery.map { $0 <= 20 } ?? false
+        let low = sharing && (p.battery.map { $0 <= 20 } ?? false)
         let headline = headlineFor(p)
         var since: String?
         if !sharing {

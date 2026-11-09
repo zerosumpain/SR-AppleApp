@@ -78,7 +78,7 @@ struct FamilyMovement: Decodable, Equatable {
         var medianPaceSecPerKm: Double? = nil
         var lastAt: String? = nil
 
-        var id: String { "\(fromLabel)→\(toLabel)" }
+        var id: String { "\(fromLabel)→\(toLabel)·\(mode)" }
     }
 
     struct RoundTrips: Decodable, Equatable {

@@ -20,6 +20,7 @@ struct FamilyMapCanvas: View {
     var focus: [CLLocationCoordinate2D]? = nil
     @Binding var camera: MapCameraPosition
     @AppStorage(FamilyMapLook.key) private var look: FamilyMapLook = .satellite
+    @ObservedObject private var tracks = FamilyLiveTracks.shared
 
     var body: some View {
         // While somebody is moving, the map is redrawn ten times a second and
@@ -27,7 +28,7 @@ struct FamilyMapCanvas: View {
         // (`FamilyLiveTracks`, `FamilyLiveMotion`): gliding along the road they
         // took, a few seconds behind real time. Otherwise the clock is paused
         // and the map draws the pins where the view put them, as before.
-        let live = interactive && FamilyLiveTracks.shared.animating(now: Date().timeIntervalSince1970)
+        let live = interactive && tracks.animating
         TimelineView(.animation(minimumInterval: 0.1, paused: !live)) { context in
             map(frames: live ? FamilyLiveTracks.shared.frame(now: context.date.timeIntervalSince1970) : [:])
         }

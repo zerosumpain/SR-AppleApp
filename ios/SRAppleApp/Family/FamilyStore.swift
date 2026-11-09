@@ -206,17 +206,25 @@ enum FamilyViewCache {
 }
 
 /// Everyone's live tracks for the family map: fed by every read of the view,
-/// drawn by `FamilyMapCanvas` a frame at a time. Not published — the map asks
-/// for a frame on its own clock (`TimelineView`), so a read that adds a point
-/// redraws nothing by itself. See `FamilyLiveMotion`.
+/// drawn by `FamilyMapCanvas` a frame at a time. The tracks themselves are not
+/// published — the map asks for a frame on its own clock (`TimelineView`) —
+/// only `animating`, and only when it flips, so the 10 fps clock starts when
+/// somebody sets off and stops when the last of them is still, whichever map
+/// is showing. Each read re-decides it (the tab polls every 5–15 s). See
+/// `FamilyLiveMotion`.
 @MainActor
-final class FamilyLiveTracks {
+final class FamilyLiveTracks: ObservableObject {
     static let shared = FamilyLiveTracks()
     private(set) var state = FamilyLiveState()
+    @Published private(set) var animating = false
 
     /// Fold a view in: each person's overlay path and their pin's own fix.
     func ingest(_ view: HouseholdView?, now: Date = Date()) {
-        guard let view else { state = FamilyLiveState(); return }
+        guard let view else {
+            state = FamilyLiveState()
+            if animating { animating = false }
+            return
+        }
         let t = now.timeIntervalSince1970
         for person in view.people where person.sharing {
             var samples = (person.live?.points ?? []).compactMap { p -> LiveSample? in
@@ -228,9 +236,10 @@ final class FamilyLiveTracks {
             state.ingest(subject: person.subject, samples: samples, now: t)
         }
         state.keep(only: Set(view.people.filter(\.sharing).map(\.subject)))
+        let next = state.animating(now: t)
+        if animating != next { animating = next }
     }
 
     func isLive(_ subject: String, now: Double) -> Bool { state.isLive(subject, now: now) }
-    func animating(now: Double) -> Bool { state.animating(now: now) }
     func frame(now: Double) -> [String: LiveFrame] { state.frame(now: now) }
 }

@@ -13,7 +13,7 @@ struct HomeFamilyBoard: View {
     @ObservedObject private var photos = FamilyPhotos.shared
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// Rows that fit the large tile: five at ordinary text sizes, four from
+    /// Rows that fit the large tile: five at ordinary text sizes, three from
     /// the accessibility sizes up; past that, "+N more".
     private var capacity: Int { typeSize.isAccessibilitySize ? 3 : 5 }
 

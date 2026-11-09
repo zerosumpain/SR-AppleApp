@@ -66,24 +66,50 @@ final class FamilyLiveMotionTests: XCTestCase {
         XCTAssertEqual(track.samples.count, 1, "older than the kept window behind the newest")
     }
 
-    func testThePlayheadRunsBehindRealTimeAndFastForwardsABacklog() {
+    func testThePlayheadRunsBehindRealTimeAndWaitsAtTheEndOfTheData() {
         var head = LivePlayhead.start(now: 100, newest: 95)
         XCTAssertEqual(head.at, 100 - LivePlayhead.lag)
-        head.advance(now: 101)
+        head.advance(now: 101, newest: 100)
         XCTAssertEqual(head.at, 101 - LivePlayhead.lag, accuracy: 1e-9)
 
-        // A backlog: the playhead is three minutes behind.
-        var behind = LivePlayhead(at: 0, wall: 180)
-        XCTAssertTrue(behind.catchingUp)
-        var wall = 180.0
+        // A dead patch: no fix after t = 100. The playhead goes no further
+        // than the dead reckoning past it, however long the silence.
+        var wall = 101.0
+        while wall < 300 { wall += 0.5; head.advance(now: wall, newest: 100) }
+        XCTAssertEqual(head.at, 100 + LiveTrack.extrapolate, accuracy: 1e-9)
+        XCTAssertFalse(head.catchingUp)
+
+        // The queued route lands: the playhead is far behind it and replays
+        // it quickly, then settles back to the lag.
+        head.advance(now: wall + 0.1, newest: wall - 1)
+        XCTAssertTrue(head.catchingUp)
         var frames = 0
-        while behind.catchingUp && frames < 200 {
+        while head.catchingUp && frames < 400 {
             wall += 0.1
-            behind.advance(now: wall)
+            head.advance(now: wall, newest: wall - 1)
             frames += 1
         }
-        XCTAssertLessThan(Double(frames) * 0.1, LivePlayhead.catchUp * 3, "caught up in a few seconds")
-        XCTAssertLessThanOrEqual(behind.at, wall - LivePlayhead.lag)
+        XCTAssertLessThan(Double(frames) * 0.1, 8, "the backlog replays in seconds, not minutes")
+        for _ in 0..<200 { wall += 0.1; head.advance(now: wall, newest: wall - 1) }
+        XCTAssertEqual(head.at, wall - LivePlayhead.lag, accuracy: 1, "back to the lag, not stuck late")
+    }
+
+    func testAPlayheadResumesWhereTheMapLastDrewOnlyIfThatIsRecent() {
+        XCTAssertEqual(LivePlayhead.start(now: 1_000, newest: 999, resumeFrom: 900).at, 900, "replays the late route")
+        XCTAssertEqual(LivePlayhead.start(now: 1_000, newest: 999, resumeFrom: 10).at, 1_000 - LivePlayhead.lag, "too old to replay")
+    }
+
+    func testThinningDropsJitterAndTheDuplicatePinButKeepsTheNewest() {
+        let still = (0..<30).map { i in LiveSample(t: Double(i), lat: 54.5 + Double(i % 3) * 2 / LiveGeo.metresPerDegree, lon: -1.55) }
+        let thinned = LiveTrack.thinned(still)
+        XCTAssertLessThan(thinned.count, 6, "2 m of jitter at 1 Hz is a few fixes, not thirty")
+        XCTAssertEqual(thinned.last, still.last)
+        let pin = LiveSample(t: 100.4, lat: 54.5, lon: -1.55)
+        XCTAssertEqual(LiveTrack.thinned([LiveSample(t: 100, lat: 54.5, lon: -1.55), pin]), [pin])
+
+        var track = LiveTrack()
+        track.merge(still, now: 40)
+        XCTAssertFalse(track.isMoving(now: 31), "jitter in one spot is not moving")
     }
 
     func testTheSmootherEasesASmallCorrectionAndSnapsABigOne() {
@@ -92,6 +118,9 @@ final class FamilyLiveMotionTests: XCTestCase {
         s.step(toward: near, dt: 0.1)
         XCTAssertGreaterThan(s.lat, 54)
         XCTAssertLessThan(s.lat, near.lat)
+        let before = s.lat
+        s.step(toward: near, dt: 0)
+        XCTAssertEqual(s.lat, before, "no time passed: another map drew this frame")
         s.step(toward: (55, -1), dt: 0.1)
         XCTAssertEqual(s.lat, 55)
     }

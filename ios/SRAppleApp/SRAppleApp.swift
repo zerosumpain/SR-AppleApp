@@ -542,7 +542,8 @@ import Combine
         }
         if let familyPerson {
             router.show(.family)
-            if router.tab == .family { router.push(FamilyPersonRoute(subject: familyPerson), on: .family) }
+            // Family on the tab bar or in the hub: `push` finds its stack.
+            if AccessStore.shared.allows(.family) { router.push(FamilyPersonRoute(subject: familyPerson), on: .family) }
             self.familyPerson = nil
             tab = nil
         }

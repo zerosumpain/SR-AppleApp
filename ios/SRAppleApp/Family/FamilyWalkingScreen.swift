@@ -93,7 +93,10 @@ final class FamilyWalkingHealth: ObservableObject {
         guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return nil }
         return await withCheckedContinuation { done in
             let newest = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
-            let query = HKSampleQuery(sampleType: type, predicate: nil, limit: 1, sortDescriptors: [newest]) { _, samples, _ in
+            // Steadiness is measured every week or so; one older than four
+            // months is not how they walk now.
+            let recent = HKQuery.predicateForSamples(withStart: Date().addingTimeInterval(-120 * 86_400), end: nil)
+            let query = HKSampleQuery(sampleType: type, predicate: recent, limit: 1, sortDescriptors: [newest]) { _, samples, _ in
                 done.resume(returning: (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: unit))
             }
             store.execute(query)
