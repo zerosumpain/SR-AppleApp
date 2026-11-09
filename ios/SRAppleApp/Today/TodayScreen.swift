@@ -588,7 +588,10 @@ struct TodayScreen: View {
                              report: report)
         case .family:
             HomeTileButton(kind: kind, id: "today-family", action: { router.show(.family) }, hide: hide, customise: arrange, keepsChildren: true) {
-                HomeFamilyTile(store: family, watch: family.view?.watch, live: onScreen && scenePhase == .active)
+                HomeFamilyTile(store: family) { subject in
+                    router.show(.family)
+                    router.push(FamilyPersonRoute(subject: subject), on: .family)
+                }
             }
         case .health:
             // The owner's figures are each a button into their own chart, so

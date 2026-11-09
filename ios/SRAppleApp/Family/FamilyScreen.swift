@@ -38,9 +38,12 @@ struct FamilyScreen: View {
     @State private var camera: MapCameraPosition = .automatic
     /// Today's lines on the map. Off on arrival, not remembered.
     @State private var showTracks = false
-    /// The top of the page: the Orbit (how far, which way) or the map
-    /// (exactly where). Remembered: it is a way of looking, not a visit.
-    @AppStorage("family-top") private var top: FamilyTop = .orbit
+    /// The top of the page: the map (exactly where, and moving live) or the
+    /// Orbit (how far, which way). Remembered: it is a way of looking, not a
+    /// visit. The map first since the review of 2026-11-09 — it is where
+    /// somebody on the move is seen moving — under a new key, so a phone
+    /// left on the Orbit opens on the map once.
+    @AppStorage("family-top-2") private var top: FamilyTop = .map
     /// The place chosen on the strip, by its id; nil is everyone. A visit,
     /// not remembered: the tab opens on the family.
     @State private var focusPlace: String?
@@ -123,8 +126,8 @@ struct FamilyScreen: View {
                 }
             }
             Picker("View", selection: $top) {
-                Text("Orbit").tag(FamilyTop.orbit)
                 Text("Map").tag(FamilyTop.map)
+                Text("Orbit").tag(FamilyTop.orbit)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, SR.gutter)

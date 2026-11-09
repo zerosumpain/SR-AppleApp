@@ -988,11 +988,34 @@ test('the view lays a source\'s newest point over the pin SR-Main drew, and only
   const live = (await request('household/view')).body.view.people;
   assert.deepEqual(live[0].position, { lat: 51.2, lon: -1.2, at: live[0].lastSeenAt });
   assert.equal(live[0].batteryPct, 41);
+  assert.equal(live[0].live.points.length, 1);
+  assert.deepEqual(live[0].live.points[0].slice(0, 2), [51.2, -1.2]);
   assert.deepEqual(live[1], pushed.people[1], 'not a source: left as pushed');
 
   // A point no newer than the pushed pin changes nothing.
   await postViews(request, [{ email: 'alex@example.test', view: { ...pushed, people: [person('sam', ago(0))] }, sources: [{ subject: 'sam', email: 'sam@example.test' }] }]);
   assert.equal((await request('household/view')).body.view.people[0].position.lat, 51);
+});
+
+test('a live pin carries the path of its last three minutes, oldest first, precise points only', async t => {
+  const { request } = await fixture(t, { householdToken: HOUSEHOLD_TOKEN });
+  await request('sharing', { user: 'sam', method: 'PUT', body: { enabled: true } });
+  const ago = m => new Date(Date.now() - m * 60_000).toISOString();
+  const pushed = { generatedAt: ago(1), people: [{ subject: 'sam', batteryPct: 50, lastSeenAt: ago(10), position: { lat: 51, lon: -1, at: ago(10) } }] };
+  // A queued route arriving in one upload after no signal: four fixes, one too vague, one too old.
+  await request('sync', { user: 'sam', method: 'POST', body: batch([], [
+    householdFix('old', ago(5), { lat: 51.0 }),
+    householdFix('p1', ago(2), { lat: 51.1 }),
+    { ...householdFix('fuzzy', ago(1.5), { lat: 59 }), accuracy: 400 },
+    householdFix('p2', ago(1), { lat: 51.2 }),
+    { ...householdFix('p3', ago(0.5), { lat: 51.3 }), speed: 1.4 },
+  ]) });
+  await postViews(request, [{ email: 'alex@example.test', view: pushed, sources: [{ subject: 'sam', email: 'sam@example.test' }] }]);
+  const [sam] = (await request('household/view')).body.view.people;
+  assert.equal(sam.position.lat, 51.3);
+  assert.deepEqual(sam.live.points.map(p => p[0]), [51.1, 51.2, 51.3]);
+  assert.ok(sam.live.points.every((p, i, all) => i === 0 || p[2] >= all[i - 1][2]), 'oldest first');
+  assert.equal(sam.live.speedMps, 1.4);
 });
 
 test('a stale or imprecise point, or one from a person who stopped sharing, is not laid over the view', async t => {

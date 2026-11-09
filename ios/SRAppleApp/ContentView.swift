@@ -971,6 +971,8 @@ struct ContentView: View {
             .navigationDestination(for: FamilyPage.self) { familyPage($0) }
             // One person's moves looked back over, from a name under Next moves.
             .navigationDestination(for: FamilyMoveHistoryRef.self) { FamilyMoveHistoryScreen(ref: $0).id($0.subject) }
+            // A person's walking — pace, the journeys they repeat — from their page.
+            .navigationDestination(for: FamilyWalkingRef.self) { FamilyWalkingScreen(ref: $0).id($0.subject) }
             // One msg family thread, from the list or a tapped message.
             .navigationDestination(for: FamilyThreadRef.self) { FamilyThreadScreen(ref: $0).id($0.id) }
             // Landgrab's map: from its own card in the hub and from Steps.

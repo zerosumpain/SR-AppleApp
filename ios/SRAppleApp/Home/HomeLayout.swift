@@ -93,7 +93,7 @@ enum HomeTileKind: String, CaseIterable, Identifiable, Codable {
     /// What the tile shows, for Settings → Home.
     var blurb: String {
         switch self {
-        case .family: return "Everyone around home: how far, which way, who is moving"
+        case .family: return "Where everyone is, since when, and who is on the way"
         case .health: return "Readiness, your figures against your week, and today's rings"
         case .steps: return "The family step race, everyone's count"
         case .tasks: return "What is left on the task list"

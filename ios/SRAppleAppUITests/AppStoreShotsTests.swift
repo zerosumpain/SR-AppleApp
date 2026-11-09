@@ -44,7 +44,6 @@ final class AppStoreShotsTests: XCTestCase {
         noBanners(app)
         // Map tiles and pins draw after the page does.
         shoot(app, "Store 02 — Family map", extra: 3)
-        app.selectFamilyTop("Orbit")
     }
 
     @MainActor func testStore03Steps() {

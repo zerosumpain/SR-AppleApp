@@ -51,7 +51,7 @@ final class ReviewDemoUITests: XCTestCase {
 
         // Family: the map and made-up people.
         XCTAssertTrue(app.openTab("Family"))
-        XCTAssertTrue(byId(app, "family-orbit").waitForExistence(timeout: 15), "no family Orbit in the demo")
+        XCTAssertTrue(byId(app, "family-map").waitForExistence(timeout: 15), "no family map in the demo")
         XCTAssertTrue(badge(app).exists, "the Demo strip left on Family")
         attach(app, "Review demo — Family")
 

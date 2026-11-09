@@ -27,6 +27,12 @@ const TRACK_LIMIT = 20000;
 // says; one less precise than this would make the pin jump about indoors.
 const LIVE_POINT_MAX_AGE_MS = 15 * 60_000;
 const LIVE_POINT_MAX_ACCURACY_M = 100;
+// The recent path behind a live pin: every fix of the last few minutes, so a
+// phone that queued its route through a dead patch is replayed along that
+// route on the viewer's map rather than jumping straight across it. Bounded:
+// a 1 Hz phone sends 180 in the window.
+const LIVE_PATH_WINDOW_MS = 3 * 60_000;
+const LIVE_PATH_MAX_POINTS = 200;
 /**
  * Runs of consecutive bike-marked fixes in [first, last], as
  * `[firstEpoch, lastEpoch]`. A lone marked fix is a span of one instant.
@@ -185,6 +191,12 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
   // THIS viewer (it decides who may be seen; a held or switched-off person
   // is never one), only a point newer than the pushed one, recent, and
   // precise enough to move a pin for.
+  //
+  // With it, `live`: the speed and accuracy of that newest point and the path
+  // of the last three minutes, `[lat, lon, epochSeconds]` oldest first — what
+  // the phone needs to move the pin smoothly between reads (review
+  // 2026-11-09). Additive: an older app ignores the field.
+  const newestPoints = db.prepare('SELECT l.recorded, l.payload FROM locations l JOIN users u ON u.id=l.user_id WHERE u.email=? AND u.family=? AND u.sharing=1 AND l.recorded>=? ORDER BY l.recorded DESC LIMIT ?');
   const newestPoint = db.prepare('SELECT l.recorded, l.payload FROM locations l JOIN users u ON u.id=l.user_id WHERE u.email=? AND u.family=? AND u.sharing=1 ORDER BY l.recorded DESC LIMIT 1');
   function livePositions(view, sources, family, now = Date.now()) {
     if (!Array.isArray(view?.people) || !sources.length) return view;
@@ -199,11 +211,17 @@ export function createApp(db, { origin = 'http://127.0.0.1:5295', demo = false, 
       const p = JSON.parse(row.payload);
       if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude) || !(p.accuracy >= 0 && p.accuracy <= LIVE_POINT_MAX_ACCURACY_M)) return person;
       const recorded = new Date(at).toISOString();
+      const points = newestPoints.all(email, family, new Date(at - LIVE_PATH_WINDOW_MS).toISOString(), LIVE_PATH_MAX_POINTS)
+        .map(r => ({ at: Date.parse(r.recorded), p: JSON.parse(r.payload) }))
+        .filter(({ at: t, p: q }) => t <= at && Number.isFinite(q.latitude) && Number.isFinite(q.longitude) && q.accuracy >= 0 && q.accuracy <= LIVE_POINT_MAX_ACCURACY_M)
+        .reverse()
+        .map(({ at: t, p: q }) => [round(q.latitude, 6), round(q.longitude, 6), Math.round(t / 1000)]);
       return {
         ...person,
         position: { lat: round(p.latitude, 6), lon: round(p.longitude, 6), at: recorded },
         lastSeenAt: recorded,
         batteryPct: Number.isInteger(p.battery) ? p.battery : person.batteryPct,
+        live: { speedMps: Number.isFinite(p.speed) ? round(p.speed, 2) : null, accuracyM: round(p.accuracy, 1), points },
       };
     });
     return { ...view, people };

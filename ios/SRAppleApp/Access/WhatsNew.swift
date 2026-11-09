@@ -34,6 +34,16 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-09-family-tracking", when: "November 2026", title: "Family, live", items: [
+            WhatsNewItem(icon: "list.bullet.rectangle", title: "A new family block on Home",
+                         detail: "One line each: where everyone is and since when, a strip showing their day so far, and for anyone on the move, where they're heading and when they'll get there. Tap someone to see them on the map."),
+            WhatsNewItem(icon: "location.north.line", title: "Watch them move",
+                         detail: "When someone's out and about, their dot glides along the road they're taking, a few seconds behind, with a short trail and an arrow showing which way they're going. If their signal drops, the route they took fills in when it comes back."),
+            WhatsNewItem(icon: "bell.badge", title: "Alerts that arrive on time",
+                         detail: "\"Arrived at school\" now comes straight away, not when your phone next wakes up. Leaving and arriving are both noticed within about half a minute. If someone's battery drops to 15%, the family is told once. Tap an alert to see that person."),
+            WhatsNewItem(icon: "figure.walk.motion", title: "Your walking",
+                         detail: "From your own page on Family: your usual walking pace and whether it's getting quicker, the journeys you make most with how long each takes and how fast you walk it, and how you walk from Apple Health."),
+        ]),
         WhatsNewRelease(id: "2026-11-02-sr-tv", when: "November 2026", title: "Games on the TV", items: [
             WhatsNewItem(icon: "tv", title: "Join the TV",
                          detail: "Scan the QR code on sr. tv with your camera and you're in as yourself, with no name to type. The app waits for the TV to start, then opens the game."),

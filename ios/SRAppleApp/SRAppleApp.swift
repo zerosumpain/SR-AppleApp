@@ -425,8 +425,15 @@ import Combine
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
+        // Arrived, left, heading home, low battery, stopped: the person it is
+        // about, on Family (the site names them since 2026-11-09). One that
+        // names nobody — an older push, or a private preview — opens Family.
         if category == "household" {
-            Self.pending.tab = .today
+            if let subject = HouseholdAlerts.subject(userInfo: content.userInfo) {
+                Self.pending.familyPerson = subject
+            } else {
+                Self.pending.tab = .family
+            }
             NotificationCenter.default.post(name: PendingEntry.changed, object: nil)
             return
         }
@@ -497,6 +504,8 @@ import Combine
     var familyPage: FamilyPage?
     /// The msg family thread that notification was about.
     var familyThread: String?
+    /// The person a household alert was about, to open on Family.
+    var familyPerson: String?
     /// A trip day, from a tapped trip alert.
     var trip: TripLink?
     /// A capture, from a tapped "Capture ready".
@@ -529,6 +538,12 @@ import Combine
             router.openFamilyPage(familyPage, thread: familyThread)
             self.familyPage = nil
             familyThread = nil
+            tab = nil
+        }
+        if let familyPerson {
+            router.show(.family)
+            if router.tab == .family { router.push(FamilyPersonRoute(subject: familyPerson), on: .family) }
+            self.familyPerson = nil
             tab = nil
         }
         if let trip {

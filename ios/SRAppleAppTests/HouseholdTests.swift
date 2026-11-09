@@ -131,6 +131,15 @@ final class HouseholdTests: XCTestCase {
         XCTAssertLessThanOrEqual(HouseholdAlerts.requestTimeout, 6)
     }
 
+    /// A household push opens the person it is about: by `subject`, or by the
+    /// `person=` of its url when a private preview stripped the rest.
+    func testAPushNamesThePersonItIsAbout() {
+        XCTAssertEqual(HouseholdAlerts.subject(userInfo: ["subject": "rory", "url": "/home/people?person=jemima"]), "rory")
+        XCTAssertEqual(HouseholdAlerts.subject(userInfo: ["url": "/home/people?person=jemima"]), "jemima")
+        XCTAssertNil(HouseholdAlerts.subject(userInfo: ["url": "/home/people"]))
+        XCTAssertNil(HouseholdAlerts.subject(userInfo: ["id": "e1", "category": "household"]))
+    }
+
     func testTheQueueDecodes() throws {
         let body = #"{"alerts":[{"id":"e1","title":"Someone arrived","body":"Arrived 17:52","at":"2026-09-26T16:52:00Z"},{"id":"e2","title":"Someone left","body":"Left 18:10"}]}"#
         let queue = try JSONDecoder().decode(HouseholdAlertsResponse.self, from: Data(body.utf8))

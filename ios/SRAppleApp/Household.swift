@@ -48,6 +48,15 @@ enum HouseholdAlerts {
         return UNNotificationRequest(identifier: alert.id, content: content, trigger: nil)
     }
 
+    /// Whom a household push is about: its `subject`, or the `person=` of its
+    /// `url` (`/home/people?person=rory`) — the url is all a phone hiding
+    /// notification details still has. Nil for an older push naming nobody.
+    static func subject(userInfo: [AnyHashable: Any]) -> String? {
+        if let subject = userInfo["subject"] as? String, !subject.isEmpty { return subject }
+        guard let raw = userInfo["url"] as? String, let parts = URLComponents(string: raw) else { return nil }
+        return parts.queryItems?.first { $0.name == "person" }?.value.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     /// Posts each alert through `add` and returns the ids that were accepted,
     /// in order. One failure is skipped, never fatal: it stays unacknowledged
     /// on the server and the next drain tries it again.

@@ -31,9 +31,15 @@ final class FamilyStore: ObservableObject {
     /// phone's newest point over the view (live positions), and a moving
     /// phone uploads every 5 s, so this is what makes the pin travel.
     static let liveInterval: Duration = .seconds(5)
-    /// The next wait: quicker while anyone but the viewer is moving.
+    /// The next wait: quicker while anyone but the viewer is moving — by the
+    /// site's word (`moving`, a minute or two behind) or by the companion
+    /// server's own newest fixes, which say so as soon as a phone sets off.
     var nextRefresh: Duration {
-        view?.people.contains { !$0.isSelf && $0.moving != nil } == true ? Self.liveInterval : Self.refreshInterval
+        let now = Date().timeIntervalSince1970
+        let live = view?.people.contains { person in
+            !person.isSelf && (person.moving != nil || FamilyLiveTracks.shared.isLive(person.subject, now: now))
+        } == true
+        return live ? Self.liveInterval : Self.refreshInterval
     }
 
     private let companion: Companion
@@ -64,6 +70,7 @@ final class FamilyStore: ObservableObject {
             let demo = SRDemoFixtures.householdView(now: Date())
             view = demo.view
             updated = demo.updated
+            FamilyLiveTracks.shared.ingest(view)
             loaded = true
             return
         }
@@ -87,6 +94,7 @@ final class FamilyStore: ObservableObject {
             let changed = real != response.view || updated != response.updated
             real = response.view
             applyViewingAs()
+            FamilyLiveTracks.shared.ingest(view)
             if updated != response.updated { updated = response.updated }
             if changed {
                 FamilyNowWidgetBridge.save(response.view)
@@ -195,4 +203,34 @@ enum FamilyViewCache {
     static func clear(at file: URL = url) {
         try? FileManager.default.removeItem(at: file)
     }
+}
+
+/// Everyone's live tracks for the family map: fed by every read of the view,
+/// drawn by `FamilyMapCanvas` a frame at a time. Not published — the map asks
+/// for a frame on its own clock (`TimelineView`), so a read that adds a point
+/// redraws nothing by itself. See `FamilyLiveMotion`.
+@MainActor
+final class FamilyLiveTracks {
+    static let shared = FamilyLiveTracks()
+    private(set) var state = FamilyLiveState()
+
+    /// Fold a view in: each person's overlay path and their pin's own fix.
+    func ingest(_ view: HouseholdView?, now: Date = Date()) {
+        guard let view else { state = FamilyLiveState(); return }
+        let t = now.timeIntervalSince1970
+        for person in view.people where person.sharing {
+            var samples = (person.live?.points ?? []).compactMap { p -> LiveSample? in
+                p.count >= 3 ? LiveSample(t: p[2], lat: p[0], lon: p[1]) : nil
+            }
+            if let position = person.position, let at = FamilyPerson.isoDate(position.at) {
+                samples.append(LiveSample(t: at.timeIntervalSince1970, lat: position.lat, lon: position.lon))
+            }
+            state.ingest(subject: person.subject, samples: samples, now: t)
+        }
+        state.keep(only: Set(view.people.filter(\.sharing).map(\.subject)))
+    }
+
+    func isLive(_ subject: String, now: Double) -> Bool { state.isLive(subject, now: now) }
+    func animating(now: Double) -> Bool { state.animating(now: now) }
+    func frame(now: Double) -> [String: LiveFrame] { state.frame(now: now) }
 }

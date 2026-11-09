@@ -63,8 +63,12 @@ enum Outing {
     static let maxDuration: TimeInterval = 4 * 3600
     static let lowBattery: Double = 0.15
     /// Points are held and sent together this often — one upload and one write
-    /// of the state file per half-minute rather than one a second.
-    static let commitEvery: TimeInterval = 30
+    /// of the state file per five seconds rather than one a second. Was 30 s,
+    /// which made the family's live pin move in half-minute hops during the
+    /// very window close tracking exists for (review 2026-11-09); 5 s matches
+    /// `Companion.liveUploadEvery`, and the vehicle path already writes the
+    /// queue that often.
+    static let commitEvery: TimeInterval = 5
     /// A fix looser than this at 1 Hz is noise drawn as a line.
     static let accuracyCeiling: Double = 50
 

@@ -63,12 +63,24 @@ struct FamilyPerson: Codable, Equatable, Identifiable {
     /// The days before today, newest first — only where `today` is shown.
     /// Absent from a site older than it.
     var days: [Day]? = nil
+    /// Laid over by the companion server with the person's newest fix: the
+    /// path of the last three minutes, for the map to play back smoothly
+    /// (`FamilyLiveMotion`). Absent from a server older than it, and for
+    /// anybody whose pin is the site's own.
+    var live: Live? = nil
 
     var id: String { subject }
 
     enum CodingKeys: String, CodingKey {
-        case subject, name, status, line, batteryPct, lastSeenAt, position, moving, today, days
+        case subject, name, status, line, batteryPct, lastSeenAt, position, moving, today, days, live
         case isSelf = "self"
+    }
+
+    struct Live: Codable, Equatable {
+        var speedMps: Double? = nil
+        var accuracyM: Double? = nil
+        /// `[lat, lon, epoch seconds]`, oldest first.
+        var points: [[Double]] = []
     }
 
     /// How somebody is moving, from their last ten minutes of fixes on the

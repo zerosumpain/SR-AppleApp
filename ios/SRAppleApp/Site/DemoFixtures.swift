@@ -340,6 +340,10 @@ enum SRDemoFixtures {
         if method == "GET", joined == "api/native/family/forecast/history" {
             return familyMoveHistory(subject: query["subject"] ?? "alex", days: Int(query["days"] ?? "") ?? 90, clock: clock)
         }
+        // One person's walking figures — `Family/FamilyWalkingDemoFixtures.swift`.
+        if method == "GET", joined == "api/native/family/movement" {
+            return familyMovement(subject: query["subject"] ?? "alex", days: Int(query["days"] ?? "") ?? 30, clock: clock)
+        }
         // msg family — `Family/FamilyMessagesDemoFixtures.swift`.
         if joined == "api/native/family/messages" || joined.hasPrefix("api/native/family/messages/") {
             return familyMessagesRoute(method: method, parts: parts, body: body, clock: clock)

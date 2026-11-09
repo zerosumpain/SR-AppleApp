@@ -23,7 +23,7 @@ final class ShowcaseTests: XCTestCase {
         // Mid-morning, whenever CI runs: the family out, the trip running.
         let app = launch(["-SRDemoClock", "10:40"])
         soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
-        settle(app, on: byId(app, "family-orbit"), seconds: 2.5)
+        settle(app, on: byId(app, "family-board"), seconds: 2.5)
         attach(app, "Showcase — Home")
 
         // Home is long: every tile, a screen at a time.
@@ -107,7 +107,7 @@ final class ShowcaseTests: XCTestCase {
     @MainActor func testShowcaseTodayLight() {
         let app = launch(["-SRDemoClock", "10:40", "-sr.appearance", "light"])
         soft(app.tray.waitForExistence(timeout: 20), "no Home tab")
-        settle(app, on: byId(app, "family-orbit"), seconds: 2.5)
+        settle(app, on: byId(app, "family-board"), seconds: 2.5)
         attach(app, "Showcase — Home, light")
         for index in 1...2 {
             app.swipeUp()
@@ -351,10 +351,12 @@ final class ShowcaseTests: XCTestCase {
         soft(byId(app, "family-place-home").exists, "nobody grouped at Home")
         soft(byId(app, "family-watch").exists, "no 'what looks off' card")
         soft(byId(app, "family-upcoming").exists, "no 'Coming up' card on the owner's Family tab")
+        attach(app, "Showcase — Family, map")
+        soft(app.selectFamilyTop("Orbit"), "no Orbit switch on Family")
+        settle(app, on: byId(app, "family-orbit"), seconds: 2)
         attach(app, "Showcase — Family, Orbit")
         soft(app.selectFamilyTop("Map"), "no Map switch on Family")
         settle(app, on: byId(app, "family-map"), seconds: 3)
-        attach(app, "Showcase — Family, map")
         let expand = byId(app, "family-map-expand")
         if expand.exists {
             expand.tap()
@@ -364,7 +366,6 @@ final class ShowcaseTests: XCTestCase {
         } else {
             soft(false, "no expand button on the map")
         }
-        app.selectFamilyTop("Orbit")
 
         // A pile opens its people below at a tap — for three seconds — and
         // then Sam's card is a link. No settling in between: it folds.

@@ -22,25 +22,14 @@ struct FamilyMapCanvas: View {
     @AppStorage(FamilyMapLook.key) private var look: FamilyMapLook = .satellite
 
     var body: some View {
-        Map(position: $camera, interactionModes: interactive ? MapInteractionModes.all : []) {
-            if showTrails {
-                ForEach(people) { person in
-                    if let today = person.today {
-                        ForEach(Array(today.segments().enumerated()), id: \.offset) { _, segment in
-                            MapPolyline(coordinates: segment)
-                                .stroke(FamilyPin.tone(for: person).opacity(selected == nil || selected == person.subject ? 0.85 : 0.25), lineWidth: 3)
-                        }
-                    }
-                }
-            }
-            ForEach(people.filter { $0.position != nil }) { person in
-                if let position = person.position {
-                    Annotation(person.name, coordinate: position.coordinate, anchor: .center) {
-                        FamilyPin(person: person, emphasised: selected == person.subject)
-                    }
-                    .annotationTitles(.hidden)
-                }
-            }
+        // While somebody is moving, the map is redrawn ten times a second and
+        // each live person is drawn where their playback has got to
+        // (`FamilyLiveTracks`, `FamilyLiveMotion`): gliding along the road they
+        // took, a few seconds behind real time. Otherwise the clock is paused
+        // and the map draws the pins where the view put them, as before.
+        let live = interactive && FamilyLiveTracks.shared.animating(now: Date().timeIntervalSince1970)
+        TimelineView(.animation(minimumInterval: 0.1, paused: !live)) { context in
+            map(frames: live ? FamilyLiveTracks.shared.frame(now: context.date.timeIntervalSince1970) : [:])
         }
         .mapStyle(look.style)
         // Framed on the people, never the trails, and never closer than
@@ -53,6 +42,38 @@ struct FamilyMapCanvas: View {
         // A place chosen (or "Everyone" again) is a request to look there now,
         // whoever last moved the map.
         .onChange(of: focusKey) { _, _ in frame(force: true) }
+    }
+
+    private func map(frames: [String: LiveFrame]) -> some View {
+        Map(position: $camera, interactionModes: interactive ? MapInteractionModes.all : []) {
+            if showTrails {
+                ForEach(people) { person in
+                    if let today = person.today {
+                        ForEach(Array(today.segments().enumerated()), id: \.offset) { _, segment in
+                            MapPolyline(coordinates: segment)
+                                .stroke(FamilyPin.tone(for: person).opacity(selected == nil || selected == person.subject ? 0.85 : 0.25), lineWidth: 3)
+                        }
+                    }
+                }
+            }
+            // The last minute behind each live pin: where they have just been.
+            ForEach(people.filter { frames[$0.subject] != nil }) { person in
+                if let tail = frames[person.subject]?.tail, tail.count > 1 {
+                    MapPolyline(coordinates: tail.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) })
+                        .stroke(FamilyPin.tone(for: person).opacity(0.55), lineWidth: 5)
+                }
+            }
+            ForEach(people.filter { $0.position != nil }) { person in
+                if let position = person.position {
+                    let live = frames[person.subject]
+                    let at = live.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) } ?? position.coordinate
+                    Annotation(person.name, coordinate: at, anchor: .center) {
+                        FamilyPin(person: person, emphasised: selected == person.subject, heading: live?.heading)
+                    }
+                    .annotationTitles(.hidden)
+                }
+            }
+        }
     }
 
     private var focusKey: String {
@@ -156,6 +177,9 @@ struct FamilyMapLookButton: View {
 struct FamilyPin: View {
     let person: FamilyPerson
     var emphasised: Bool = false
+    /// Which way they are heading, degrees from north, while drawn live: a
+    /// small arrow on the pin's edge.
+    var heading: Double? = nil
     @ObservedObject private var photos = FamilyPhotos.shared
 
     static func tone(for person: FamilyPerson) -> Color {
@@ -181,6 +205,18 @@ struct FamilyPin: View {
             }
         }
             .overlay(Circle().stroke(SR.paper, lineWidth: 2.5))
+            .overlay {
+                if let heading {
+                    Image(systemName: "location.north.fill")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(Self.tone(for: person))
+                        .padding(2)
+                        .background(Circle().fill(SR.paper))
+                        .offset(y: -(size / 2 + 6))
+                        .rotationEffect(.degrees(heading))
+                        .accessibilityHidden(true)
+                }
+            }
             .shadow(color: SR.ink.opacity(0.25), radius: 3, y: 1)
             .accessibilityLabel("\(person.name), \(person.line)")
     }

@@ -15,6 +15,8 @@ struct FamilyPersonScreen: View {
     @ObservedObject private var forecast = FamilyForecastStore.shared
     @AppStorage(FamilyTracks.key) private var showTracks = true
     @State private var camera: MapCameraPosition = .automatic
+    @EnvironmentObject private var router: Router
+    @ObservedObject private var access = AccessStore.shared
 
     private var person: FamilyPerson? { store.view?.people.first { $0.subject == subject } }
 
@@ -60,6 +62,19 @@ struct FamilyPersonScreen: View {
                     header(person)
                     if let f = forecast.forecast {
                         FamilyPersonForecast(forecast: f, subject: person.subject)
+                    }
+                    // Walking figures: your own, or a ward's (their day is
+                    // shown to you, so their figures are yours to see too).
+                    if access.familyBoards, person.isSelf || person.today != nil {
+                        Button {
+                            SRHaptic.tap()
+                            router.push(FamilyWalkingRef(subject: person.subject, isSelf: person.isSelf), on: router.tab)
+                        } label: {
+                            Label(person.isSelf ? "Your walking and journeys" : "Their walking and journeys", systemImage: "figure.walk.motion")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .srButton(.regular)
+                        .accessibilityIdentifier("family-person-walking")
                     }
                     if let today = person.today {
                         day(today)

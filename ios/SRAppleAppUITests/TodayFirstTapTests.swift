@@ -106,18 +106,19 @@ final class TodayFirstTapTests: XCTestCase {
         XCTAssertFalse(sun.label.contains("Readiness"), "the member's sun reads the owner's readiness: \(sun.label)")
     }
 
-    /// The family tile: the Orbit, and only where everyone is.
+    /// The family tile: the board — one row per person, where and since when.
     @MainActor func testTheFamilyCardSaysOnlyWhere() {
         let app = launch()
         let card = app.descendants(matching: .any)["today-family"].firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 15), "no family tile on Home")
-        XCTAssertTrue(app.descendants(matching: .any)["family-orbit"].firstMatch.waitForExistence(timeout: 10),
-                      "the family tile has no Orbit")
+        XCTAssertTrue(app.descendants(matching: .any)["family-board"].firstMatch.waitForExistence(timeout: 10),
+                      "the family tile has no board")
+        XCTAssertFalse(app.descendants(matching: .any)["family-orbit"].firstMatch.exists, "the Orbit is back on Home")
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "km/h")).firstMatch.exists,
                        "the family card still says how fast")
         XCTAssertFalse(app.descendants(matching: .any)["today-overnight"].firstMatch.exists, "the Overnight tile is back")
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "Home — family Orbit"
+        shot.name = "Home — family board"
         shot.lifetime = .keepAlways
         add(shot)
     }

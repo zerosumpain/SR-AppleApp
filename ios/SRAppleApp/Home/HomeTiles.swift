@@ -11,20 +11,18 @@ import SwiftUI
 
 // MARK: - Family
 
+/// Who is where, since when, and who is on the way — one row per person
+/// (`HomeFamilyBoard`). Was the Orbit, a polar "how far, which way" chart;
+/// John asked for a block that informs instead (review 2026-11-09).
 struct HomeFamilyTile: View {
     @ObservedObject var store: FamilyStore
-    let watch: [WatchedPlace]?
-    let live: Bool
+    @ObservedObject private var forecast = FamilyForecastStore.shared
     var openPerson: ((String) -> Void)? = nil
 
     var body: some View {
         HomeTileFrame(kind: .family, look: .glass, badge: badge) {
-            if let view = store.view, let model = FamilyOrbitModel.make(view: view, watch: watch) {
-                let colours = SR.PersonHue.assign(view.people.map(\.subject))
-                VStack(alignment: .leading, spacing: 6) {
-                    FamilyOrbitView(model: model, colours: colours, live: live, openPerson: openPerson)
-                    FamilyOrbitLegend(view: view, model: model, colours: colours)
-                }
+            if let view = store.view, !view.people.isEmpty {
+                HomeFamilyBoard(view: view, forecast: forecast.forecast, openPerson: openPerson)
             } else {
                 VStack(spacing: 10) {
                     Image(systemName: "house.and.flag.fill")
@@ -44,51 +42,6 @@ struct HomeFamilyTile: View {
         guard let view = store.view else { return nil }
         let moving = view.moving.count
         return moving > 0 ? "\(moving) MOVING" : nil
-    }
-}
-
-/// Who is where, in words, under the Orbit: one chip per person in their
-/// colour. The picture says how far; this says where.
-struct FamilyOrbitLegend: View {
-    let view: HouseholdView
-    let model: FamilyOrbitModel
-    let colours: [String: Color]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(model.people) { person in
-                    HStack(spacing: 5) {
-                        Circle().fill(colours[person.subject] ?? SR.accent).frame(width: 8, height: 8)
-                        Text(person.isSelf ? "You" : person.name.split(separator: " ").first.map(String.init) ?? person.name)
-                            .font(SR.Text.label(12))
-                            .foregroundStyle(SR.ink)
-                        Text(where_(person))
-                            .font(SR.Text.mono(12))
-                            .foregroundStyle(SR.inkMuted)
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill((colours[person.subject] ?? SR.accent).opacity(0.12)))
-                }
-                if !model.missing.isEmpty {
-                    Text("\(model.missing.count) not sharing")
-                        .font(SR.Text.mono(12))
-                        .foregroundStyle(SR.inkMuted)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Capsule().strokeBorder(SR.line, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-                }
-            }
-        }
-        .scrollClipDisabled()
-        .accessibilityHidden(true)
-    }
-
-    private func where_(_ person: FamilyOrbitModel.Person) -> String {
-        if person.atHome { return "home" }
-        if let place = person.place, place.count <= 16 { return place }
-        return FamilyOrbitMath.formatKm(person.km)
     }
 }
 
