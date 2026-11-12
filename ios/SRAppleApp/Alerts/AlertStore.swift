@@ -292,7 +292,14 @@ final class AlertStore: ObservableObject {
 
         var delivered: [String] = []
         let centre = UNUserNotificationCenter.current()
+        let level = NotifyLevel.current
         for alert in pending {
+            // Not heard at this level: collected, so it is not offered again,
+            // and left in the inbox where it already is.
+            guard level.hears(NotifyLevel.tier(for: alert)) else {
+                delivered.append(alert.id)
+                continue
+            }
             let content = UNMutableNotificationContent()
             content.title = alert.title
             content.body = alert.body

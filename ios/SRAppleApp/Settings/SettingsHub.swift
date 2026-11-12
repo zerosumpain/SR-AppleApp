@@ -34,6 +34,7 @@ struct SettingsScreen: View {
     @EnvironmentObject private var router: Router
     @State private var path = NavigationPath()
     @AppStorage(SRAppearance.key) private var appearance: SRAppearance = .system
+    @AppStorage(NotifyLevel.key) private var notifyLevel: NotifyLevel = .minimal
 
     enum Route: Hashable { case notifications, connections, health, location, hold, bike, captures, log, about, viewAs, deleteAccount }
 
@@ -47,6 +48,13 @@ struct SettingsScreen: View {
                     if access.current.owner {
                         link(.notifications, "Notifications", "Where each kind of alert goes", "bell.badge")
                     }
+                    NavigationLink {
+                        NotifyLevelScreen()
+                    } label: {
+                        SRRow(title: "How much to notify", subtitle: notifyLevel.title, icon: "bell")
+                    }
+                    .srGlassRow()
+                    .accessibilityIdentifier("settings-notify-level")
                     link(.connections, "Connections", connectionsSubtitle, "qrcode")
                     // Which build the family's phones are offered, chosen here
                     // rather than on the site's /admin/access/app.
@@ -270,6 +278,54 @@ struct SettingsScreen: View {
         }
         .srGlassRow()
         .accessibilityIdentifier("settings-\(route)")
+    }
+}
+
+/// Minimal, Normal or Verbose. The choice is the person's: the site applies it
+/// to every phone they hold, and this phone to what it raises itself.
+struct NotifyLevelScreen: View {
+    @AppStorage(NotifyLevel.key) private var level: NotifyLevel = .minimal
+    @State private var message: String?
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(NotifyLevel.allCases) { option in
+                    Button {
+                        guard option != level else { return }
+                        Task { await choose(option) }
+                    } label: {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(option.title).foregroundStyle(.primary)
+                                Text(option.summary).font(SR.Text.secondary()).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if option == level {
+                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("notify-level-\(option.rawValue)")
+                    .accessibilityAddTraits(option == level ? .isSelected : [])
+                }
+            } footer: {
+                Text("Every phone starts on Minimal. Whatever is not sent as a notification is still in the app.")
+            }
+            if let message {
+                Section { Text(message).font(SR.Text.secondary()) }
+            }
+        }
+        .navigationTitle("How much to notify")
+        .task { await NotifyLevel.sync() }
+    }
+
+    private func choose(_ option: NotifyLevel) async {
+        if let failed = await NotifyLevel.choose(option) {
+            message = "Saved on this iPhone. The website will be told when it can be reached. (\(failed))"
+        } else {
+            message = nil
+        }
     }
 }
 

@@ -206,6 +206,7 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// A re-time said where it will be seen later, without a sound: it needs
     /// nothing from anyone. One at a time — the newest replaces the last.
     private func notifyQuietly(_ line: String, tripId: String, date: String) {
+        guard NotifyLevel.current.hears(.verbose) else { return }
         let content = UNMutableNotificationContent()
         content.title = "Keeping to the plan"
         content.body = line
@@ -412,6 +413,8 @@ final class TripOffPlan: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     private func notify(_ prompt: Prompt) {
+        // A booking about to be missed is heard on every level.
+        guard NotifyLevel.current.hears(prompt.slotAtRisk ? .minimal : .normal) else { return }
         let content = UNMutableNotificationContent()
         content.title = prompt.slotAtRisk ? "A booking is at risk" : "Off the plan?"
         content.body = prompt.headline + ". Open the day for ways to carry on."

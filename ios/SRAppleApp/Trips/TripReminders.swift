@@ -20,7 +20,7 @@ enum TripReminders {
         guard !SRDemo.isOn else { return }
         let centre = UNUserNotificationCenter.current()
         let pending = await centre.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(TripReminderPlan.prefix) }
-        guard enabled else {
+        guard enabled, NotifyLevel.current.hears(.normal) else {
             centre.removePendingNotificationRequests(withIdentifiers: pending)
             return
         }

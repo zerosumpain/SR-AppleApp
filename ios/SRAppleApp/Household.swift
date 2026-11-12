@@ -60,9 +60,18 @@ enum HouseholdAlerts {
     /// Posts each alert through `add` and returns the ids that were accepted,
     /// in order. One failure is skipped, never fatal: it stays unacknowledged
     /// on the server and the next drain tries it again.
-    @MainActor static func post(_ alerts: [HouseholdAlert], add: (UNNotificationRequest) async throws -> Void) async -> [String] {
+    ///
+    /// An alert this phone's level does not hear is finished with all the
+    /// same: acknowledged, so it leaves the queue, and not raised.
+    @MainActor static func post(
+        _ alerts: [HouseholdAlert], level: NotifyLevel = .current, add: (UNNotificationRequest) async throws -> Void
+    ) async -> [String] {
         var delivered: [String] = []
         for alert in alerts {
+            guard level.hears(NotifyLevel.tier(forHousehold: alert.id)) else {
+                delivered.append(alert.id)
+                continue
+            }
             do {
                 try await add(request(for: alert))
                 delivered.append(alert.id)

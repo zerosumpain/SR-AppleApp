@@ -68,7 +68,7 @@ enum LeaveByReminders {
     static func sync(_ upcoming: FamilyForecast.Upcoming?, names: [String: String], now: Date = Date()) async {
         let centre = UNUserNotificationCenter.current()
         let pending = await centre.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(prefix) }
-        guard enabled else {
+        guard enabled, NotifyLevel.current.hears(.normal) else {
             centre.removePendingNotificationRequests(withIdentifiers: pending)
             return
         }

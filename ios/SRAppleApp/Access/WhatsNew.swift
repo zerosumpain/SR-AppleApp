@@ -34,6 +34,12 @@ struct WhatsNewItem: Identifiable, Equatable {
 enum WhatsNew {
     /// Newest first.
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(id: "2026-11-12-notify-levels", when: "November 2026", title: "Fewer notifications", items: [
+            WhatsNewItem(icon: "bell", title: "You choose how much you hear",
+                         detail: "Settings, How much to notify: Minimal, Normal or Verbose. Everyone starts on Minimal, which is only what needs you: messages, the alarm, tasks given to you, game invites. Turn it up for arrivals and departures, and up again for everything."),
+            WhatsNewItem(icon: "car", title: "One notification for one journey",
+                         detail: "A journey was sometimes announced twice, and people in the same car were told about each other. Each arrival is now said once, and not to whoever was on the trip."),
+        ]),
         WhatsNewRelease(id: "2026-11-09-family-tracking", when: "November 2026", title: "Family, live", items: [
             WhatsNewItem(icon: "list.bullet.rectangle", title: "A new family block on Home",
                          detail: "One line each: where everyone is and since when, a strip showing their day so far, and for anyone on the move, where they're heading and when they'll get there. Tap someone to see them on the map."),

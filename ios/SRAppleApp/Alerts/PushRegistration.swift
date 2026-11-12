@@ -64,6 +64,7 @@ final class PushRegistration {
         // The Live Activity start token rides the same credential; it keeps
         // its own "already sent" mark.
         await JourneyLive.shared.sync()
+        await NotifyLevel.sync()
         guard !Self.isDemo, let token, let credential = SiteClient.shared.token else { return }
         guard sentFor != credential else { return }
         do {

@@ -159,7 +159,7 @@ final class HouseholdTests: XCTestCase {
 
     @MainActor func testOnlyWhatIOSAcceptedIsAcknowledged() async {
         var tried: [String] = []
-        let delivered = await HouseholdAlerts.post([alert("a"), alert("b"), alert("c")]) { request in
+        let delivered = await HouseholdAlerts.post([alert("a"), alert("b"), alert("c")], level: .normal) { request in
             tried.append(request.identifier)
             if request.identifier == "b" { throw Refused() }
         }
@@ -167,8 +167,22 @@ final class HouseholdTests: XCTestCase {
         XCTAssertEqual(delivered, ["a", "c"], "the refused one stays queued on the server")
     }
 
+    @MainActor func testAnAlertTheLevelDoesNotHearIsAcknowledgedAndNotRaised() async {
+        var tried: [String] = []
+        let queue = [alert("crossing"), alert("eta-1")]
+        let onMinimal = await HouseholdAlerts.post(queue, level: .minimal) { tried.append($0.identifier) }
+        XCTAssertEqual(onMinimal, ["crossing", "eta-1"], "finished with: it must leave the queue")
+        XCTAssertTrue(tried.isEmpty)
+        let onNormal = await HouseholdAlerts.post(queue, level: .normal) { tried.append($0.identifier) }
+        XCTAssertEqual(onNormal, ["crossing", "eta-1"])
+        XCTAssertEqual(tried, ["crossing"], "an arrival estimate needs Verbose")
+        tried = []
+        _ = await HouseholdAlerts.post(queue, level: .verbose) { tried.append($0.identifier) }
+        XCTAssertEqual(tried, ["crossing", "eta-1"])
+    }
+
     @MainActor func testNothingPostedMeansNothingAcknowledged() async {
-        let delivered = await HouseholdAlerts.post([alert("a")]) { _ in throw Refused() }
+        let delivered = await HouseholdAlerts.post([alert("a")], level: .normal) { _ in throw Refused() }
         XCTAssertTrue(delivered.isEmpty)
     }
 
